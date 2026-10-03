@@ -52,7 +52,7 @@ public enum SourceReviewArchive {
         var ancestor = root
         while true {
             guard !FileManager.default.fileExists(atPath: ancestor.appendingPathComponent(".voicerelay-fixture").path) else {
-                throw RelayError.setup("Source-review export cannot be placed inside a tone or speech fixture workspace.")
+                throw RelayError.setup("Source-review export cannot be placed inside a processing workspace.")
             }
             if ancestor.path == "/" { break }
             ancestor.deleteLastPathComponent()

@@ -1,5 +1,5 @@
 #!/usr/bin/env swift
-// Test driver only. The CLI performs the pipeline in fresh, owned workspaces.
+// Operator-run actual-speech driver. Requires the installed local runtime.
 import Foundation
 import CryptoKit
 import CSQLite
@@ -64,14 +64,14 @@ func run(_ cli: URL, arguments: [String], in root: URL) throws -> RunResult {
     child.standardOutput = handle
     child.standardError = handle
     try child.run()
-    let deadline = ProcessInfo.processInfo.systemUptime + 60
+    let deadline = ProcessInfo.processInfo.systemUptime + 600
     while child.isRunning && ProcessInfo.processInfo.systemUptime < deadline {
         Thread.sleep(forTimeInterval: 0.02)
     }
     if child.isRunning {
         kill(child.processIdentifier, SIGKILL)
         child.waitUntilExit()
-        throw CheckFailure("Fixture child exceeded the 60-second deadline")
+        throw CheckFailure("Speech fixture child exceeded the 600-second deadline")
     }
     child.waitUntilExit()
     try handle.synchronize()
@@ -80,8 +80,8 @@ func run(_ cli: URL, arguments: [String], in root: URL) throws -> RunResult {
 }
 
 func main() throws {
-    try require(CommandLine.arguments.count == 2,
-                "Usage: swift -I Sources/CSQLite scripts/check-process-recovery.swift <voicerelay-cli>")
+    try require(CommandLine.arguments.count == 3,
+                "Usage: swift -I Sources/CSQLite scripts/check-process-recovery.swift <voicerelay-cli> <VoiceRelay-project-root>")
     let cli = URL(fileURLWithPath: CommandLine.arguments[1]).standardizedFileURL
     try require(FileManager.default.isExecutableFile(atPath: cli.path), "CLI is not executable")
     for boundary in ["chunk-committed", "encoded", "audio-placed", "episode-committed", "feed-replaced"] {
@@ -91,7 +91,7 @@ func main() throws {
                                                attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: root) }
         let directory = root.appendingPathComponent("fixture", isDirectory: true)
-        let command = ["fixture", "--directory", directory.path]
+        let command = ["speech-fixture", "--project-root", CommandLine.arguments[2], "--directory", directory.path]
         let killed = try run(cli, arguments: command + ["--terminate-after", boundary], in: root)
         try require(killed.reason == .uncaughtSignal && killed.status == SIGKILL,
                     "Expected SIGKILL at \(boundary)")

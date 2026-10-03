@@ -17,17 +17,15 @@ struct VoiceRelayCLI {
             }
             if command == "help" || command == "--help" {
                 print("""
-                VoiceRelay native prototype — explicit isolated tone or speech checks.
+                VoiceRelay native prototype — explicit local speech checks.
                 voicerelay doctor [--config /absolute/config.toml]
-                voicerelay fixture --directory /dedicated/fixture [--config /absolute/config.toml]
-                    [--interrupt-after chunk-committed|encoded|audio-placed|episode-committed|feed-replaced]
-                    [--terminate-after boundary] (fixture-only SIGKILL recovery check)
                 voicerelay speech-fixture --directory /dedicated/speech-fixture --project-root /VoiceRelay
-                    [--voice af_heart] [--speed 1.0] [--interrupt-after boundary]
+                    [--voice af_heart] [--speed 1.0] [--config /absolute/config.toml]
+                    [--interrupt-after boundary | --terminate-after boundary]
                 voicerelay reading-list --plist /absolute/Bookmarks.plist
                 voicerelay review-url --url https://example/article --directory /private/source-review
                     [--config /absolute/config.toml]
-                doctor defaults to ./config.toml; fixture uses it if present.
+                doctor defaults to ./config.toml; other commands import only explicit --config.
                 reading-list reads only the explicitly selected plist and prints counts.
                 review-url fetches one selected URL and exports a private review; it produces no audio.
                 No command adopts Python state, uploads, or enables automation.
@@ -35,7 +33,7 @@ struct VoiceRelayCLI {
             }
             let config = try option("--config")
             let configURL = URL(fileURLWithPath: config ?? "config.toml").standardizedFileURL
-            let profile: PrototypeProfile? = (config != nil || FileManager.default.fileExists(atPath: configURL.path) || command == "doctor")
+            let profile: PrototypeProfile? = (config != nil || command == "doctor")
                 ? try PrototypeProfile.load(configURL) : nil
             switch command {
             case "reading-list":
@@ -59,7 +57,7 @@ struct VoiceRelayCLI {
                     print("\(diagnostic.ready ? "READY" : "GATE") \(diagnostic.id): \(diagnostic.message)")
                 }
                 for message in profile.compatibilityNotices { print("NOTE \(message)") }
-            case "fixture", "speech-fixture":
+            case "speech-fixture":
                 guard let directory = try option("--directory") else { throw RelayError.setup("fixture requires --directory for explicit isolation.") }
                 let projectRoot = try option("--project-root")
                 let voice = try option("--voice")
@@ -71,30 +69,24 @@ struct VoiceRelayCLI {
                 let terminationBoundary = terminate.flatMap(FixtureBoundary.init(rawValue:))
                 guard args.isEmpty, stop == nil || boundary != nil, terminate == nil || terminationBoundary != nil,
                       stop == nil || terminate == nil, speedString == nil || speed != nil else { throw RelayError.setup("Invalid fixture options or recovery boundary.") }
-                let result: FixtureResult
-                if command == "speech-fixture" {
-                    guard let projectRoot, terminate == nil else { throw RelayError.setup("speech-fixture requires --project-root; use --interrupt-after for recovery checks.") }
-                    let selectedVoice = voice ?? profile?.voice ?? "af_heart"
-                    let configuredSpeed: Double
-                    if let speed { configuredSpeed = speed }
-                    else if let setting = profile?.backendSettings["speed"] {
-                        guard let value = setting.numericValue else { throw RelayError.setup("Speech speed must be a number.") }
-                        configuredSpeed = value
-                    }
-                    else { configuredSpeed = 1 }
-                    let backend = try KokoroMLXBackend(configuration: KokoroConfiguration(projectRoot: URL(fileURLWithPath: projectRoot),
-                        voice: selectedVoice, speed: configuredSpeed))
-                    result = try await FixtureCoordinator().runSpeech(root: URL(fileURLWithPath: directory), imported: profile,
-                        backend: backend, voice: selectedVoice, speed: configuredSpeed, interruptAfter: boundary)
-                } else {
-                    guard projectRoot == nil, voice == nil, speedString == nil else { throw RelayError.setup("Tone fixture does not accept speech options.") }
-                    result = try await FixtureCoordinator().run(root: URL(fileURLWithPath: directory), imported: profile,
-                        interruptAfter: boundary, onBoundary: { point in
-                            if point == terminationBoundary { kill(getpid(), SIGKILL) }
-                        })
+                guard let projectRoot else { throw RelayError.setup("speech-fixture requires --project-root.") }
+                let selectedVoice = voice ?? profile?.voice ?? "af_heart"
+                let configuredSpeed: Double
+                if let speed { configuredSpeed = speed }
+                else if let setting = profile?.backendSettings["speed"] {
+                    guard let value = setting.numericValue else { throw RelayError.setup("Speech speed must be a number.") }
+                    configuredSpeed = value
                 }
+                else { configuredSpeed = 1 }
+                let backend = try KokoroMLXBackend(configuration: KokoroConfiguration(projectRoot: URL(fileURLWithPath: projectRoot),
+                    voice: selectedVoice, speed: configuredSpeed))
+                let result = try await FixtureCoordinator().runSpeech(root: URL(fileURLWithPath: directory), imported: profile,
+                    backend: backend, voice: selectedVoice, speed: configuredSpeed, interruptAfter: boundary,
+                    onBoundary: { point in
+                        if point == terminationBoundary { kill(getpid(), SIGKILL) }
+                    })
                 print("PUBLISHED fixture \(result.episode.id); \(result.narration.chunks.count) chunks; \(result.synthesizedChunks) synthesized this run")
-                print("M4A: \(result.audioURL.path)\nRSS: \(result.feedURL.path)\nRemote delivery disabled. Audio: \(command == "speech-fixture" ? "Kokoro speech" : "mock tones").")
+                print("M4A: \(result.audioURL.path)\nRSS: \(result.feedURL.path)\nRemote delivery disabled. Audio: Kokoro speech.")
             default: throw RelayError.setup("Unknown command. Run voicerelay --help.")
             }
         } catch {

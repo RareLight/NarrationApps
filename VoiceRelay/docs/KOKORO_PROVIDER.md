@@ -2,7 +2,7 @@
 
 October 2, 2026. This adds an explicitly selected speech fixture to the shared
 Swift pipeline. It does not ingest Safari, publish remotely, or enroll a worker.
-The app still defaults to deterministic mock tones. The Python helper is an
+The app now uses Kokoro exclusively; synthetic audio is confined to tests. The Python helper is an
 engine adapter; extraction, narration, state, encoding, RSS, and orchestration
 remain Swift services. The historical Python application and benchmark are not
 runtime dependencies.
@@ -11,7 +11,10 @@ October 3 status: the operator reports setup now succeeds. The agent's offline
 `runtime_setup.py check` returned `ready: true` for the pinned project-local
 snapshot, validating installed package versions/assets/provenance. This supersedes
 earlier missing-runtime/setup-failure states below. It does not establish Metal
-inference or listening acceptance; use the Xcode speech checks in this guide.
+inference or listening acceptance by itself. The operator subsequently reports the
+speech fixture worked as expected; detailed real-article listening and recovery
+remain separate gates. API Validation was already unchecked, so its scheme change
+is not established as the reason for recovery.
 
 ## Selection evidence
 
@@ -221,39 +224,31 @@ markers, so they cannot be mixed. The synthetic test backends are not speech evi
 
 ## First user-run speech check in Xcode
 
-1. Complete the Terminal setup and `check` commands above. If they fail, save the
-   command and complete error output before proceeding.
-2. Open `VoiceRelay.xcodeproj`. Choose **VoiceRelay → My Mac**, then **Product →
-   Build** (⌘B). Quit any previous VoiceRelay copy; choose **Product → Run** (⌘R).
-3. Click the waveform in the macOS menu bar, then **Settings…**. Under **Isolated
-   demonstration → Fixture audio**, click **Kokoro speech** in the visible
-   segmented control. **Mock tones** produces ascending tones; it does not test
-   speech. The app starts in mock mode again after relaunch, so make this selection
-   for each new run. Use **Select runtime project…** to
-   select `/path/to/VoiceRelay`.
-4. Choose **Choose fixture folder…** and create/select a new empty folder, for
-   example `VoiceRelay/var/speech-gui-1`. Do not select the project itself or a
-   previous tone fixture. An imported configuration remains read-only; its audio
-   and narration settings carry through, while all output paths/delivery URLs are
-   isolated. Legacy non-Kokoro voice IDs may require a separate speech profile.
-5. Return to the waveform panel. Confirm it reads **Saved fixture · Kokoro speech**,
-   then click **Run / Resume Fixture** explicitly. Expect
-   local speech M4A and local RSS completion, with remote feed disabled and worker
-   not enrolled. Click **Inspect** and review the ordered blocks and narration.
-6. In Finder, open the chosen fixture's `media` folder. Play the single opaque
-   `.m4a`. Listen for missing/repeated words, headings/lists/quotes, chunk joins,
-   pronunciation, and clipping. A successful build or feed status does not replace
-   listening acceptance.
-7. Run again. Expect unchanged episode identity and media, with no new synthesis.
-   In a second empty speech folder, press **Pause** during processing, then **Run /
-   Resume Fixture**. Check retained progress, successful recovery, and normal
-   **Quit**. If this short fixture finishes too quickly, record Pause as untested.
-8. Relaunch: mock mode is the safe default. Choose speech mode and the same speech
-   folder explicitly to resume; app startup performs no inference or downloads.
+1. Complete explicit runtime setup/check once. No reinstall or download is needed
+   merely to build the speech-only app changes.
+2. Open `VoiceRelay.xcodeproj`, choose **VoiceRelay → My Mac**, build (⌘B), quit
+   any previous copy and run (⌘R). Startup performs no inference.
+3. Open **Settings… → Speech**. Heart at 1.0× is the default; voice/speed changes
+   save automatically. No mode picker or TOML file is required. Under **Prototype
+   development → Runtime and sample diagnostics**, verify the runtime project
+   points to `/path/to/VoiceRelay` if selection is needed.
+4. Click **Generate sample speech**. The app uses its separate managed speech
+   fixture directory automatically. The development folder chooser can select
+   an existing speech fixture; historical tone workspaces are preserved/refused.
+5. In the waveform panel, expect **Speech saved locally**, validated M4A and
+   isolated local RSS. Click **Inspect → Play speech** and listen to the ordered
+   narration, pronunciation, omissions, chunk joins and clipping.
+6. Use **Run / Resume Speech** for a repeat. Expect no newly synthesized chunks
+   and unchanged episode identity/media. Test Pause/resume if processing lasts
+   long enough; record it as untested if the sample finishes first.
+7. For real articles, follow [reviewed-article speech checks](SOURCE_REVIEW.md#reviewed-article-speech-and-managed-storage).
+   The saved article library resumes without refetching; sample speech and reviewed
+   articles have separate storage ownership.
 
-For the first CLI speech check, use the **speech-fixture** command and a fresh
-folder. The **fixture** command always produces mock tones. This reads the saved
-built-in article fixture; reviewed network articles are not yet wired to speech.
+The CLI **speech-fixture** command runs actual Kokoro on the bundled saved article.
+The previous tone **fixture** command has been removed. Real-article speech is
+available through the reviewed-source app action; the diagnostic CLI review command
+still exports only source/semantic/narration material.
 
 ```sh
 cd /path/to/VoiceRelay
@@ -288,8 +283,8 @@ native_bin="$(swift build --show-bin-path)"
 The first invocation deliberately stops after one committed chunk; the next should
 reuse it, and the final published repeat should report zero new synthesis. Optional
 `--config /absolute/config.toml` imports read-only settings. Explicit CLI voice/speed
-override imported values for a new attempt. `--terminate-after` remains a tone-only
-crash diagnostic; speech uses `--interrupt-after` here. No command contacts the
+override imported values for a new attempt. `--terminate-after` is now an operator-run speech crash diagnostic;
+`--interrupt-after` exercises exception recovery without killing the CLI. No command contacts the
 illustrative feed/enclosure URLs.
 
 Record build, GUI/Canvas, setup, CLI speech/recovery, listening, and memory/agent
@@ -336,11 +331,11 @@ Operator retry:
    Under **Metal**, confirm **API Validation** is unchecked (or **Disabled** if
    this Xcode beta presents a menu). Leave other diagnostics as configured. Close
    the scheme editor. This matters even when **Debug executable** is unchecked.
-4. Build (⌘B), then run (⌘R). In the waveform panel, open **Settings…** and select
-   **Kokoro speech** again; relaunch defaults to mock tones. Confirm the runtime
-   project is `/path/to/VoiceRelay`.
+4. Build (⌘B), then run (⌘R). In the waveform panel, open **Settings…**. Kokoro is the only
+   audio provider; saved voice/speed preferences persist. Under development diagnostics,
+   confirm the runtime project is `/path/to/VoiceRelay`.
 5. Select the same failed **speech** fixture folder, then click **Run / Resume
-   Fixture**. No reinstall or model download is needed for this change. Retained
+   Speech**. No reinstall or model download is needed for this change. Retained
    checkpoints are validated normally; do not use a tone fixture folder.
 6. If it publishes, play the M4A from that folder's `media` directory. Report
    speech completion and listening separately, including any missing words or

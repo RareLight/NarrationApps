@@ -48,6 +48,34 @@ private struct SettingKey: CodingKey {
     init?(intValue: Int) { return nil }
 }
 
+public enum SpeechVoice: String, Codable, CaseIterable, Identifiable, Sendable {
+    case heart = "af_heart", bella = "af_bella", emma = "bf_emma"
+    public var id: String { rawValue }
+    public var label: String {
+        switch self { case .heart: "Heart · American English"; case .bella: "Bella · American English"; case .emma: "Emma · British English" }
+    }
+}
+
+/// User-facing choices; technical pipeline defaults remain internal.
+public struct SpeechPreferences: Codable, Sendable, Equatable {
+    public var voice: SpeechVoice
+    public var speed: Double
+    public init(voice: SpeechVoice = .heart, speed: Double = 1) { self.voice = voice; self.speed = speed }
+    public func validate() throws {
+        guard speed.isFinite, (0.75...1.5).contains(speed) else {
+            throw RelayError.setup("Choose a speech speed between 0.75 and 1.5.")
+        }
+    }
+}
+
+public enum AppStorage {
+    public static var root: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/VoiceRelayPrototype", isDirectory: true)
+    }
+    public static var articleLibrary: URL { root.appendingPathComponent("Articles", isDirectory: true) }
+    public static var speechFixture: URL { root.appendingPathComponent("SpeechFixture", isDirectory: true) }
+}
+
 public struct PrototypeProfile: Codable, Sendable, Equatable {
     public var configurationURL: URL?
     public var safariPlist: URL
@@ -57,10 +85,10 @@ public struct PrototypeProfile: Codable, Sendable, Equatable {
     public var feed: URL
     public var audioBaseURL: URL
     public var feedURL: URL
-    public var channelTitle = "VoiceRelay Fixture — Mock Tones"
+    public var channelTitle = "VoiceRelay Speech Fixture"
     public var channelDescription = "Isolated pipeline demonstration"
     public var language = "en"
-    public var backendSelector = "mock"
+    public var backendSelector = "speech-fixture"
     public var voice: String?
     public var backendSettings: [String: SettingValue] = [:]
     public var chunkMaxCharacters = 1800
@@ -118,7 +146,7 @@ public struct PrototypeProfile: Codable, Sendable, Equatable {
         p.channelTitle = try string("channel_title", "Private Reading List")
         p.channelDescription = try string("channel_description", "Personal narrated articles")
         p.language = try string("language", "en")
-        p.backendSelector = try string("default_tts_backend", "mock")
+        p.backendSelector = try string("default_tts_backend", "kokoro-mlx-audio")
         p.voice = try string("voice", ""); if p.voice == "" { p.voice = nil }
         if let setting = values["tts_config"] {
             guard case .object(let v) = setting else { throw RelayError.setup("tts_config must be a TOML table.") }
@@ -143,8 +171,8 @@ public struct PrototypeProfile: Codable, Sendable, Equatable {
         if !Set(values.keys).subtracting(used).isEmpty {
             p.compatibilityNotices.append("Additional legacy settings remain in the source file; native scheduling and backend deadlines are deferred.")
         }
-        if p.backendSelector != "mock" {
-            p.compatibilityNotices.append("Configured backend is preserved. Tone fixtures explicitly use mock tones; Kokoro speech is selected separately after project-local setup.")
+        if p.backendSelector != "kokoro-mlx-audio" {
+            p.compatibilityNotices.append("Legacy backend selection is preserved for import diagnostics. Native speech uses the configured project-local Kokoro runtime.")
         }
         if ProcessInfo.processInfo.environment.keys.contains(where: { $0.hasPrefix("TTS_PODCAST_") }) {
             p.compatibilityNotices.append("Python environment overrides are not applied to native profiles. Secret references are preserved; delivery is disabled.")
@@ -204,9 +232,9 @@ public struct PrototypeProfile: Codable, Sendable, Equatable {
         p.feed = root.appendingPathComponent("private/feed.xml")
         p.audioBaseURL = URL(string: "https://fixture.invalid/podcast/")!
         p.feedURL = URL(string: "https://fixture.invalid/feed.xml")!
-        p.channelTitle = "VoiceRelay Fixture — Mock Tones"
+        p.channelTitle = "VoiceRelay Speech Fixture"
         p.channelDescription = "Isolated pipeline demonstration"
-        p.backendSelector = "mock"; p.voice = nil; p.backendSettings = [:]
+        p.backendSelector = "speech-fixture"; p.voice = nil; p.backendSettings = [:]
         p.webdavURL = nil; p.webdavUsername = nil
         p.compatibilityNotices = []
         return p
@@ -236,7 +264,7 @@ public enum Diagnostics {
             SetupDiagnostic(id: "storage", ready: fm.fileExists(atPath: p.audio.path), message: fm.fileExists(atPath: p.audio.path) ? "Configured media destination exists; write and mount acceptance remain outstanding." : "Media storage is unavailable. Mount the configured volume; native setup does not create it."),
             SetupDiagnostic(id: "tools", ready: ToolRunner.locate(p.ffmpeg) != nil && ToolRunner.locate(p.ffprobe) != nil, message: "ffmpeg and ffprobe must be available to the app's process."),
             SetupDiagnostic(id: "safari", ready: false, message: "Safari access from the future agent is unverified. Full Disk Access may be required."),
-            SetupDiagnostic(id: "backend", ready: false, message: "Mock tones remain the default. Kokoro speech requires explicit project-local setup and listening acceptance."),
+            SetupDiagnostic(id: "backend", ready: false, message: "Native speech uses the project-local Kokoro runtime. Installation, listening and final-agent acceptance are separate checks."),
             SetupDiagnostic(id: "delivery", ready: false, message: "Remote delivery and background processing are disabled in Slices 1–2.")
         ]
     }

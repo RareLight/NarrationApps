@@ -1,9 +1,54 @@
 # Manual source review — Slice 3 development
 
-October 3, 2026. **Articles…** opens a source-review window alongside the existing
-tone/Kokoro fixture controls. This is the first part of Slice 3: discovery, a
-selected fetch, semantic/narration preview and explicit private export. It does
-not yet turn a fetched article into an episode or persist a processing queue.
+October 3, 2026. **Articles…** contains **Review articles** and **Saved speech**.
+The continuation adds explicit reviewed-article Kokoro speech and an automatically
+managed, persistent native episode library. It retains manual discovery/fetch,
+semantic/narration review and optional private export. The app has no tone mode.
+Reading List inventory/exclusions and a bulk processing queue remain deferred.
+
+## Reviewed-article speech and managed storage
+
+Settings exposes saved voice/speed preferences, with Heart at 1.0× by default;
+audio/chunk/fetch settings use internal defaults. Users do not need a configuration
+file or output folder. Development runtime selection is separate until packaging.
+After inspecting a readable review, **Generate speech** runs the existing shared
+SQLite/checkpoint → supervised provider → validated M4A → local RSS pipeline.
+Login/consent/blocked/failed reviews cannot start speech. Generation does not fetch
+again, enqueue the Safari backlog, enroll an agent, or upload a feed.
+
+The managed library lives under the app's Application Support directory. It has
+a distinct ownership marker; source/cleaned/semantic/narration files are private,
+and media uses opaque UUID filenames. Episode identity is keyed by a hash of the
+original URL, and settings are captured once. Changed unfinished source invalidates
+the affected semantic/audio checkpoints. A different source snapshot for an
+already-published URL is refused; existing source/media/feed are preserved.
+Explicit published-revision replacement is future work.
+
+**Saved speech** reads native SQLite without creating storage, then lists saved
+episode state. **Resume** validates saved snapshot hashes and uses the reviewed
+semantic snapshot and response bytes without a network request. It retains the
+captured voice/speed and compatible completed chunks. **Inspect** loads a published
+review and **Play** opens the audio. Published artifacts remain immutable. An
+interruption before the extraction checkpoint is committed requires reviewing
+the source again; a durable fetching/queue stage is still pending. Tampered or
+escaped sources are refused. Old tone workspaces are preserved and rejected.
+
+New manual acceptance steps:
+
+1. Build/run in Xcode, open **Settings…**, change voice/speed and relaunch; confirm
+   the choices persist and no config-file picker or tone mode appears.
+2. Open **Articles… → Review articles**, review one short HTTPS article, inspect
+   its narration, then click **Generate speech**. No folder choice is required.
+3. Open **Saved speech**, refresh, then **Play** and **Inspect**. Compare narration
+   with the source and listen for omissions, footnote cues and chunk joins.
+4. Repeat for a second article; confirm both remain in the list and play normally.
+   The local RSS is still isolated; it is not a live podcast delivery result.
+5. Pause a longer article after some progress, quit/relaunch, then use **Saved
+   speech → Resume**. Confirm captured settings/progress survive and no refetch
+   occurs. Change new-article preferences and verify resumed content retains its
+   saved settings. Test repeat of a completed item for unchanged media/identity.
+6. A login/consent/error review should keep **Generate speech** disabled. Check
+   Settings and Saved speech Canvas previews separately from builds.
 
 ## Behavior and boundaries
 
@@ -75,7 +120,7 @@ No GUI or protected Safari validation has been performed by the agent.
 2. **Product → Run** (⌘R). Click the waveform in the macOS menu bar, then
    **Articles…**. Expect an ordinary review window. Opening it should not refresh
    Safari, fetch an article, start speech, or alter a feed.
-3. Click **Choose plist…** and select
+3. Click **Choose Reading List…** and select
    `/path/to/VoiceRelay/Fixtures/reading-list.synthetic.plist`.
    Click **Refresh Reading List**. Expect two synthetic entries, including
    “Café 日本語”, and zero skipped entries. Select an entry, click **Exclude**,
@@ -83,10 +128,10 @@ No GUI or protected Safari validation has been performed by the agent.
    The fixture's `.invalid` URLs are placeholders; use the URL field for the
    article-quality checks below.
 4. For actual Safari discovery, choose your `~/Library/Safari/Bookmarks.plist`
-   through **Choose plist…**, then refresh explicitly. This step reads protected
+   through **Choose Reading List…**, then refresh explicitly. This step reads protected
    data under the actual app identity. If access is denied, keep the error and
    report it; permission changes remain your decision. A previously chosen
-   synthetic file overrides the imported profile until another file is chosen.
+   synthetic file overrides the default Safari source until another file is chosen.
    Alternatively test with a saved plist copy you can already access. Verify
    expected entries against Safari and that Safari's state remains unchanged.
 5. Select one actual entry and click **Review selected**, or enter one public
@@ -109,7 +154,8 @@ No GUI or protected Safari validation has been performed by the agent.
 8. Refresh with an invalid/unreadable plist (a copy you control). Confirm that
    existing entries and exclusions remain visible with an error. Close/reopen
    Articles and verify the session inventory remains. Quit/relaunch and verify
-   that it resets; no durable source queue is implemented yet.
+   that the inventory resets while the chosen source and saved episodes remain;
+   no durable source queue is implemented yet.
 9. Open `Sources/VoiceRelayApp/SourceReviewView.swift`, enable **Editor → Canvas**,
    and check the named synthetic review, consent and retained-entry previews.
    They use inert file/network/export actions. Record Canvas rendering separately
@@ -119,7 +165,7 @@ No GUI or protected Safari validation has been performed by the agent.
 Return the build/test outcome and any failed step. For source quality, a short
 description of omitted/reordered content is enough; private source exports do
 not need to be shared. Test a conventional short, medium and long article before
-we extend the reviewed-source path into Kokoro speech processing.
+we enable durable queueing or scheduled processing.
 
 ## Optional CLI and focused checks
 

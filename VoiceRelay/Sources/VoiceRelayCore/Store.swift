@@ -9,7 +9,19 @@ final class NativeStore {
     static let applicationID = 0x56524c59
     static let schemaVersion = 1
 
-    init(url: URL) throws {
+    init(url: URL, readOnly: Bool = false) throws {
+        if readOnly {
+            guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+                release(); throw RelayError.storage("Cannot read the local article library.")
+            }
+            do {
+                guard try query("PRAGMA application_id").first?.first == String(Self.applicationID),
+                      try query("PRAGMA user_version").first?.first == String(Self.schemaVersion) else {
+                    throw RelayError.setup("This is not a supported native article library.")
+                }
+            } catch { release(); throw error }
+            return
+        }
         lockFD = Darwin.open(url.appendingPathExtension("writer.lock").path, O_CREAT | O_RDWR, 0o600)
         guard lockFD >= 0 else { throw RelayError.storage("Cannot open native writer lock.") }
         guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else {
@@ -102,9 +114,12 @@ final class NativeStore {
                                                                      String(decoding: try Files.json(checkpoint), as: UTF8.self)])
     }
     func published() throws -> [Episode] {
-        try query("SELECT record FROM episodes").map {
+        try episodes().filter { $0.stage == .published }
+    }
+    func episodes() throws -> [Episode] {
+        try query("SELECT record FROM episodes ORDER BY rowid DESC").map {
             try JSONDecoder().decode(Episode.self, from: Data($0[0].utf8))
-        }.filter { $0.stage == .published }
+        }
     }
     func markFeed(_ hash: String) throws { try execute("UPDATE feed_status SET pending=0,local_hash=? WHERE singleton=1", [hash]) }
 }

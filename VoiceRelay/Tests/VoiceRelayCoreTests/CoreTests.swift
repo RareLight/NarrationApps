@@ -47,7 +47,7 @@ private func config(at root: URL, suffix: String = "") throws -> URL {
     #expect(try Data(contentsOf: file) == before)
     #expect(!FileManager.default.fileExists(atPath: p.database.path))
     let fixture = p.isolated(at: root.appendingPathComponent("fixture"))
-    #expect(fixture.backendSelector == "mock" && fixture.webdavURL == nil)
+    #expect(fixture.backendSelector == "speech-fixture" && fixture.webdavURL == nil)
     #expect(fixture.feedURL.host == "fixture.invalid" && fixture.bitrate == p.bitrate)
     #expect(fixture.channelTitle != p.channelTitle)
 }
@@ -232,11 +232,11 @@ func interruptionResumesWithStableIdentityAndCheckpoints(_ boundary: FixtureBoun
 }
 
 private struct TwoArtifactBackend: TTSBackend {
-    let identity = BackendIdentity(id: "test-two-artifacts-v1", displayName: "Two mock tones", isMock: true)
+    let identity = BackendIdentity(id: "test-two-artifacts-v1", displayName: "Two synthetic test artifacts", isMock: false)
     func prepare() throws {}
     func cancel() {}
     func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
-        let one = try MockToneBackend().synthesize(request, directory: directory)
+        let one = try SyntheticAudioBackend().synthesize(request, directory: directory)
         return SynthesisResult(artifacts: one.artifacts + one.artifacts)
     }
 }
@@ -493,7 +493,7 @@ private struct SyntheticSpeechContractBackend: TTSBackend {
     func prepare() throws {}
     func cancel() {}
     func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
-        try MockToneBackend().synthesize(request, directory: directory)
+        try SyntheticAudioBackend().synthesize(request, directory: directory)
     }
 }
 
@@ -514,7 +514,7 @@ func speechFingerprintChangesInvalidateUnpublishedAudio(_ boundary: FixtureBound
     let third = try await FixtureCoordinator().runSpeech(root: folder, backend: SyntheticSpeechContractBackend("c"))
     #expect(third.synthesizedChunks == 0 && next.episode.guid == third.episode.guid)
     #expect(try Data(contentsOf: third.audioURL) == bytes)
-    #expect(throws: RelayError.self) { try FixtureWorkspace.prepare(root: folder, imported: nil) }
+    #expect(throws: RelayError.self) { try FixtureWorkspace.prepare(root: folder, imported: nil, articles: true) }
 }
 
 @Test func speechCompatibleCheckpointResumesAndLegacyEpisodeDecodes() async throws {
@@ -557,4 +557,181 @@ func speechFingerprintChangesInvalidateUnpublishedAudio(_ boundary: FixtureBound
     let repeatRun = try await FixtureCoordinator().runSpeech(root: folder, backend: SyntheticSpeechContractBackend("a"), voice: "bf_emma", speed: 1)
     #expect(repeatRun.episode.settings.voice == "af_heart" && repeatRun.episode.settings.backendSettings["speed"] == .number(1.25))
     #expect(repeatRun.synthesizedChunks == 0 && repeatRun.episode.id == first.episode.id)
+}
+
+// Test-only audio. No tone provider is shipped in the app or CLI.
+private struct SyntheticAudioBackend: TTSBackend {
+    let identity = BackendIdentity(id: "synthetic-test-pcm-v1", displayName: "Synthetic test audio", isMock: false)
+    init() {}
+    func prepare() throws { try Task.checkCancellation() }
+    func cancel() {}
+    func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
+        try Task.checkCancellation()
+        let rate = 24000; let count = rate / 4
+        var pcm = Data()
+        func u16(_ v: UInt16) { var v = v.littleEndian; withUnsafeBytes(of: &v) { pcm.append(contentsOf: $0) } }
+        func u32(_ v: UInt32) { var v = v.littleEndian; withUnsafeBytes(of: &v) { pcm.append(contentsOf: $0) } }
+        pcm.append(Data("RIFF".utf8)); u32(UInt32(36 + count * 2)); pcm.append(Data("WAVEfmt ".utf8))
+        u32(16); u16(1); u16(1); u32(UInt32(rate)); u32(UInt32(rate * 2)); u16(2); u16(16)
+        pcm.append(Data("data".utf8)); u32(UInt32(count * 2))
+        let frequency = 330.0 + Double(request.chunkIndex % 7) * 30
+        for sample in 0..<count {
+            let ramp = min(1.0, Double(min(sample, count - 1 - sample)) / 240.0)
+            let value = Int16(sin(Double(sample) * 2 * .pi * frequency / Double(rate)) * 3000 * ramp)
+            u16(UInt16(bitPattern: value))
+        }
+        let file = directory.appendingPathComponent("segment.wav")
+        try Files.write(pcm, to: file)
+        return SynthesisResult(artifacts: [LosslessArtifact(url: file, sampleRate: rate, channels: 1, format: "wav")])
+    }
+}
+
+private extension FixtureCoordinator {
+    func run(root: URL, imported: PrototypeProfile? = nil,
+             backend: any TTSBackend = SyntheticAudioBackend(), interruptAfter: FixtureBoundary? = nil,
+             onBoundary: @Sendable (FixtureBoundary) -> Void = { _ in },
+             onProgress: @Sendable (PipelineProgress) -> Void = { _ in }) throws -> FixtureResult {
+        try runSpeech(root: root, imported: imported, backend: backend, interruptAfter: interruptAfter,
+                      onBoundary: onBoundary, onProgress: onProgress)
+    }
+}
+
+@Test func speechPreferencesHaveSensibleDefaultsAndRoundTrip() throws {
+    let defaults = SpeechPreferences()
+    #expect(defaults.voice == .heart && defaults.speed == 1)
+    let changed = SpeechPreferences(voice: .emma, speed: 1.25)
+    try changed.validate()
+    let bytes = try Files.json(changed)
+    #expect(try JSONDecoder().decode(SpeechPreferences.self, from: bytes) == changed)
+    #expect(!String(decoding: bytes, as: UTF8.self).contains("path"))
+    for speed in [0.0, 0.5, 2.0, Double.infinity, Double.nan] {
+        #expect(throws: RelayError.self) { try SpeechPreferences(speed: speed).validate() }
+    }
+}
+
+@Test func speechWorkspaceRejectsHistoricalToneDataWithoutWriting() throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let marker = root.appendingPathComponent(".voicerelay-fixture")
+    let bytes = Data("VoiceRelay isolated fixture workspace v1\n".utf8)
+    try Files.write(bytes, to: marker)
+    #expect(throws: RelayError.self) { try FixtureWorkspace.prepare(root: root, imported: nil) }
+    #expect(try Data(contentsOf: marker) == bytes)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == [".voicerelay-fixture"])
+}
+
+@Test func libraryReadOnlyStoreRejectsForeignOrMissingDataWithoutCreatingLock() throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let foreign = root.appendingPathComponent("foreign.sqlite3")
+    var db: OpaquePointer?
+    #expect(sqlite3_open(foreign.path, &db) == SQLITE_OK)
+    #expect(sqlite3_exec(db, "PRAGMA application_id=1; CREATE TABLE historical(value TEXT)", nil, nil, nil) == SQLITE_OK)
+    sqlite3_close(db)
+    let before = try Files.hash(foreign)
+    #expect(throws: RelayError.self) { try NativeStore(url: foreign, readOnly: true) }
+    #expect(try Files.hash(foreign) == before)
+    #expect(!FileManager.default.fileExists(atPath: foreign.appendingPathExtension("writer.lock").path))
+    let missing = root.appendingPathComponent("missing.sqlite3")
+    #expect(throws: RelayError.self) { try NativeStore(url: missing, readOnly: true) }
+    #expect(!FileManager.default.fileExists(atPath: missing.path))
+}
+
+@Test func reviewedLibraryRejectsEscapedMediaBeforePresentingSavedFiles() async throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let outside = try temporary(); defer { try? FileManager.default.removeItem(at: outside) }
+    let folder = root.appendingPathComponent("library")
+    let profile = try FixtureWorkspace.prepare(root: folder, imported: nil, articles: true)
+    do { _ = try NativeStore(url: profile.database) }
+    #expect(try await FixtureCoordinator().library(root: folder).isEmpty)
+    try FileManager.default.removeItem(at: profile.audio)
+    try FileManager.default.createSymbolicLink(at: profile.audio, withDestinationURL: outside)
+    do { _ = try await FixtureCoordinator().library(root: folder); Issue.record("Escaped library media accepted") }
+    catch { #expect(error is RelayError) }
+    #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
+}
+
+private func reviewedArticle(_ path: String = "one", changed: Bool = false) throws -> ReviewedSource {
+    let url = URL(string: "https://articles.example/\(path)")!
+    var html = String(decoding: try FixtureResource.html(), as: UTF8.self)
+    if changed { html = html.replacingOccurrences(of: "</article>", with: "<p>A changed source revision must not replace published audio.</p></article>") }
+    let page = FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
+                           contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
+    return try ReviewedSource.prepare(page, chunkLimit: 1800)
+}
+
+@Test func reviewedSpeechPublishesMultipleArticlesAndResumesOffline() async throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let folder = root.appendingPathComponent("articles")
+    let review = try reviewedArticle()
+    let first = try await FixtureCoordinator().runReviewed(root: folder, review: review,
+        backend: SyntheticSpeechContractBackend("review-v1"), voice: "af_heart", speed: 1.25)
+    #expect(first.article == review.document?.article)
+    let raw = first.episode.settings.work.appendingPathComponent(first.episode.id).appendingPathComponent("source.html")
+    #expect(try Data(contentsOf: raw) == review.page.bytes)
+    let second = try await FixtureCoordinator().runReviewed(root: folder, review: reviewedArticle("two"),
+        backend: SyntheticSpeechContractBackend("review-v1"))
+    #expect(first.episode.id != second.episode.id)
+    #expect(try String(contentsOf: second.feedURL, encoding: .utf8).components(separatedBy: "<item>").count == 3)
+    let library = try await FixtureCoordinator().library(root: folder)
+    #expect(library.count == 2 && library.allSatisfy { $0.stage == .published })
+    let hashes = try [first.audioURL, second.audioURL, second.feedURL].map(Files.hash)
+    let resumed = try await FixtureCoordinator().resumeReviewed(root: folder, articleID: first.episode.id,
+        backend: SyntheticSpeechContractBackend("review-v2"))
+    #expect(resumed.episode.id == first.episode.id && resumed.synthesizedChunks == 0)
+    #expect(resumed.episode.settings.backendSettings["speed"]?.numericValue == 1.25)
+    #expect(try [first.audioURL, second.audioURL, second.feedURL].map(Files.hash) == hashes)
+    let feed = try String(contentsOf: resumed.feedURL, encoding: .utf8)
+    #expect(!feed.contains("articles.example") && !feed.contains("first paragraph"))
+}
+
+@Test func reviewedSpeechKeepsCapturedOptionsAndCompletedChunkAfterInterruption() async throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let folder = root.appendingPathComponent("articles")
+    let review = try reviewedArticle()
+    do {
+        _ = try await FixtureCoordinator().runReviewed(root: folder, review: review,
+            backend: SyntheticSpeechContractBackend("review-v1"), voice: "af_heart", speed: 1.25,
+            interruptAfter: .chunkCommitted)
+        Issue.record("Expected interruption")
+    } catch { #expect(error as? RelayError == .interrupted) }
+    let saved = try #require(await FixtureCoordinator().library(root: folder).first)
+    let resumed = try await FixtureCoordinator().resumeReviewed(root: folder, articleID: saved.id,
+        backend: SyntheticSpeechContractBackend("review-v1"))
+    #expect(resumed.episode.id == saved.id && resumed.synthesizedChunks == resumed.narration.chunks.count - 1)
+    #expect(resumed.episode.settings.voice == "af_heart" && resumed.episode.settings.backendSettings["speed"]?.numericValue == 1.25)
+}
+
+@Test func reviewedSpeechRefusesBlockedSourcesBeforeCreatingStorage() async throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let review = try reviewedArticle()
+    for issue in [SourceReviewIssue.login, .consent, .accessBlocked, .extraction] {
+        let blocked = ReviewedSource(page: review.page, document: review.document, narration: review.narration, issue: issue)
+        let folder = root.appendingPathComponent(issue.rawValue)
+        do {
+            _ = try await FixtureCoordinator().runReviewed(root: folder, review: blocked, backend: SyntheticSpeechContractBackend("test"))
+            Issue.record("Unreviewable source accepted")
+        } catch { #expect(error is RelayError) }
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+    }
+    let missing = root.appendingPathComponent("missing")
+    #expect(try await FixtureCoordinator().library(root: missing).isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: missing.path))
+}
+
+@Test func reviewedSpeechPreservesPublishedRevisionAndRejectsTamperedResume() async throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let folder = root.appendingPathComponent("articles")
+    let original = try await FixtureCoordinator().runReviewed(root: folder, review: reviewedArticle(), backend: SyntheticSpeechContractBackend("test"))
+    let before = try [original.audioURL, original.feedURL].map(Files.hash)
+    do {
+        _ = try await FixtureCoordinator().runReviewed(root: folder, review: reviewedArticle(changed: true), backend: SyntheticSpeechContractBackend("test"))
+        Issue.record("Published revision replaced")
+    } catch { #expect(error is RelayError) }
+    #expect(try [original.audioURL, original.feedURL].map(Files.hash) == before)
+    let raw = original.episode.settings.work.appendingPathComponent(original.episode.id).appendingPathComponent("source.html")
+    try Files.write(Data("tampered source".utf8), to: raw)
+    do {
+        _ = try await FixtureCoordinator().resumeReviewed(root: folder, articleID: original.episode.id, backend: SyntheticSpeechContractBackend("test"))
+        Issue.record("Tampered review resumed")
+    } catch { #expect(error is RelayError) }
+    #expect(try [original.audioURL, original.feedURL].map(Files.hash) == before)
 }

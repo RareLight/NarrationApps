@@ -18,11 +18,18 @@ final class SourceReviewModel {
     @ObservationIgnored private var task: Task<Void, Never>?
     var selectedEntry: ReadingListEntry? { catalog.entries.first { $0.id == selection } }
 
+    init(preview: Bool = false) {
+        self.preview = preview
+        if !preview, let path = UserDefaults.standard.string(forKey: "readingListSource") { plist = URL(fileURLWithPath: path) }
+    }
+
     func selectPlist() {
         guard !preview, !busy else { return }
         let panel = NSOpenPanel(); panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
         panel.title = "Choose a Reading List property-list file (read-only)"
-        if panel.runModal() == .OK { plist = panel.url }
+        if panel.runModal() == .OK, let url = panel.url {
+            plist = url; UserDefaults.standard.set(url.path, forKey: "readingListSource")
+        }
     }
     func refresh(profile: PrototypeProfile?) {
         guard !preview, !busy else { return }
@@ -79,7 +86,7 @@ final class SourceReviewModel {
             defer { busy = false; task = nil }
             do {
                 let export = Task.detached { try SourceReviewArchive.save(review, root: root, imported: profile,
-                    excluding: [fixtureRoot].compactMap { $0 }) }
+                    excluding: [fixtureRoot, AppStorage.articleLibrary].compactMap { $0 }) }
                 savedFolder = try await withTaskCancellationHandler { try await export.value } onCancel: { export.cancel() }
                 status = "Private snapshot saved."
             } catch is CancellationError { status = "Export cancelled; folders without response.json are incomplete." }
@@ -98,16 +105,18 @@ struct SourceReviewView: View {
     @Bindable var model: SourceReviewModel
     var profile: PrototypeProfile?
     var fixtureRoot: URL?
+    var speechRunning = false
+    var generate: ((ReviewedSource) -> Void)?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Articles").font(.title)
             Text("Read-only Reading List · Review one article at a time").foregroundStyle(.secondary)
             HStack {
                 Button("Refresh Reading List") { model.refresh(profile: profile) }.disabled(model.busy)
-                Button("Choose plist…") { model.selectPlist() }.disabled(model.busy)
+                Button("Choose Reading List…") { model.selectPlist() }.disabled(model.busy)
                 if model.busy { ProgressView().controlSize(.small); Button("Cancel") { model.cancel() } }
             }
-            if let plist = model.plist { Text(plist.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+            if model.plist != nil { Text("Reading List source selected").font(.caption).foregroundStyle(.secondary) }
             HStack {
                 TextField("HTTP or HTTPS article URL", text: $model.address)
                     .onSubmit { model.fetchAddress(profile: profile) }
@@ -156,6 +165,11 @@ struct SourceReviewView: View {
                                 ForEach(narration.chunks, id: \.index) { chunk in Text(chunk.text).textSelection(.enabled) }
                                 ForEach(narration.notices, id: \.self) { Text($0).foregroundStyle(.orange) }
                             }
+                            Button("Generate speech") { generate?(review) }
+                                .disabled(model.busy || speechRunning || model.preview || review.issue != nil
+                                          || review.narration?.chunks.isEmpty != false || generate == nil)
+                            Text("Review the narration before generating. Audio and private snapshots are stored automatically.")
+                                .font(.caption).foregroundStyle(.secondary)
                             Button("Save private snapshot…") { model.save(profile: profile, fixtureRoot: fixtureRoot) }.disabled(model.busy)
                             if let folder = model.savedFolder { Text(folder.path).font(.caption).textSelection(.enabled) }
                         } else { Text("Select an entry or enter a URL, then review its extraction before speech.").foregroundStyle(.secondary) }
@@ -169,7 +183,7 @@ struct SourceReviewView: View {
 
 #if DEBUG
 @MainActor private func sourcePreview(issue: SourceReviewIssue? = nil) -> SourceReviewModel {
-    let model = SourceReviewModel(); model.preview = true
+    let model = SourceReviewModel(preview: true)
     let url = URL(string: "https://articles.example/synthetic")!
     let entry = ReadingListEntry(id: "synthetic", safariID: "synthetic", url: url, title: "Reading carefully — Café 日本語", addedAt: nil)
     model.catalog.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0)); model.selection = entry.id

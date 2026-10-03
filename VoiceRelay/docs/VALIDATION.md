@@ -5,6 +5,60 @@ Build/test evidence from before relocation is retained below as historical evide
 it does not establish a successful build of the new Xcode project. No deferred
 production functionality is certified.
 
+## October 3 speech-only app and reviewed-article continuation
+
+Created the requested local, SSH-signed checkpoint commit **`dc5fa24`** before
+removing tone mode. VoiceRelay previously had no Git repository. The reviewed
+74-file native checkpoint excludes customized `config.toml`, private/generated
+`var/`, `.runtime/`, `models/`, build products and Xcode user state. No remote was
+added or pushed; historical/reference directories remain untouched.
+
+A separate continuation commit was attempted with the existing SSH signing
+configuration, but the signing agent returned `communication with agent failed`
+and Git did not create that commit. The validated continuation remains staged;
+signing was not disabled. After unlocking/reconnecting the signing agent, the
+operator can finish it with:
+
+```sh
+cd /path/to/VoiceRelay
+git commit -m "Add speech-only article library and in-app preferences"
+```
+
+The app/CLI tone provider, default tone coordinator entry point, GUI mode picker
+and CLI `fixture` command are removed. Deterministic synthetic audio now exists
+only in test source. The legacy `BackendIdentity.isMock` checkpoint field remains
+for serialization compatibility/refusal of classified non-speech providers; it
+does not expose a product mode. Existing tone workspaces are preserved/refused.
+CLI imports configuration only with explicit `--config`, except diagnostic doctor.
+
+The app now exposes saved Heart/Bella/Emma and 0.75–1.5× speed preferences, with
+Heart/1.0× defaults and fixed internal audio/fetch settings. Normal app use has no
+TOML picker or output-folder requirement. The pinned runtime chooser and sample
+speech folder are development diagnostics until runtime packaging is implemented.
+The selected Reading List location is remembered; no durable inventory/exclusions
+or permission persistence is claimed.
+
+Slice 3 adds explicit speech from a readable reviewed article and an application-
+managed private native SQLite episode library. It uses the existing supervised
+TTS, checkpoint, encoder and local RSS services. Response bytes and reviewed
+semantic content are saved under opaque IDs; source/work/state stay outside media.
+Saved speech lists episode state with read-only SQLite, plays/inspects completed
+items, and resumes saved reviewed content offline using captured options. Blocked
+reviews, escaped/tampered snapshots and changed published revisions are refused.
+An interruption before the extraction checkpoint is committed requires reviewing
+again; durable fetching/queue policy remains open. No feed upload or service enrollment.
+
+| Check | Result and scope |
+| --- | --- |
+| Focused native regression / Debug compilation | Filter `configuration\|Fixture\|fixture\|interruption\|damaged\|pendingFeed\|cancellationStops\|symlink\|speech\|reviewed\|sourceReviewArchive\|multipleArtifact`, with project-local Swift/module caches and `--disable-sandbox --skip-update`: **24 Swift Testing tests passed, no skips**. Debug shared core/app/CLI/tests compiled. Includes preferences defaults/JSON round trip, historical tone refusal without writes, reviewed semantic/raw-byte provenance, two-article RSS, offline published resume with unchanged media/feed, partial-chunk recovery/captured options, blocked-source refusal before storage creation, published revision preservation and tampered snapshot refusal, plus existing helper/recovery/audio checks. All audio synthesis was test-only synthetic WAV output; real ffmpeg/ffprobe encoding/validation ran. |
+| Final incremental build / read-only storage | After adding inert ready/paused library previews and read-only storage/path safety checks, filter `libraryReadOnlyStore\|reviewedLibrary`: **2 tests passed, no skips**; final Debug core/app/CLI/test sources compiled. Foreign SQLite bytes remain unchanged; read-only checks create neither a writer lock nor a missing database. Library reads reject escaped/symlinked media before presenting saved files, and saved storage URLs must be local. No Swift source diagnostics; existing deprecated-option/user-cache warnings remain. |
+| Static / CLI / recovery driver | Project/app plist pass `plutil -lint`; shared scheme XML parses; dependency locks remain aligned/unchanged; `git diff --check` passes. Built CLI help lists only speech-fixture, doctor, reading-list and review-url. Invoking the retired `fixture` command returns exit 1 with no output/storage creation. No product tone implementation or GUI mode property remains. The updated actual-speech SIGKILL recovery driver compiles with `swiftc` into temporary output; it was not executed. New settings/library previews are source-local and inert. Xcode GUI/Canvas rendering is not established by these checks. Logs are ignored under `var/validation/2026-10-03-speech-only/`. |
+| Preservation | Model/runtime pins and assets, historical Python/config/state/feed/audio and prior project fixtures/snapshots were not changed. Download directories remain ignored. New source/tests/docs only; no live migration, network fetch, MLX execution, enrollment or remote publication was performed by the agent. |
+| Operator acceptance / next work | Prior saved-fixture Kokoro success is operator evidence, not acceptance of this new GUI or real-article path. Verify settings/source-selection persistence, new tabs/Canvas, real-article completion/listening and pause/quit/relaunch recovery. Then implement durable Reading List inventory/exclusion/queue policy and Slice 4 agent/XPC ownership. Packaging/long-input/final-context/delivery gates remain open. Full native suite, Release and Xcode GUI build were not rerun. |
+
+See [manual reviewed-article checks](SOURCE_REVIEW.md#reviewed-article-speech-and-managed-storage)
+and the [current app workflow](../README.md#xcode-and-app-use).
+
 ## October 3 operator-confirmed Kokoro fixture
 
 After rebuilding/retrying, the operator reports that Kokoro worked as expected.
