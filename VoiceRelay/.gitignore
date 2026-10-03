@@ -1,0 +1,19 @@
+.build/
+.swiftpm/
+dist/
+var/
+.DS_Store
+DerivedData/
+Diagnostics/**/DerivedData/
+*.xcuserstate
+xcuserdata/
+config.toml
+*.xcresult
+
+# Application-owned downloaded models, Python runtimes, and all setup caches.
+/models/
+/.runtime/
+/.cache/
+/.venv/
+__pycache__/
+*.py[cod]

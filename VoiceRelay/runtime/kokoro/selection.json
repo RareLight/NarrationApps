@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "provider": "kokoro-mlx-audio",
+  "model": "mlx-community/Kokoro-82M-bf16",
+  "revision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+  "python": "3.12.15",
+  "packages": {
+    "mlx-audio": "0.5.7",
+    "mlx": "0.32.3",
+    "misaki": "0.9.4",
+    "spacy": "3.8.16",
+    "en-core-web-sm": "3.8.0",
+    "espeakng-loader": "0.2.4",
+    "numpy": "2.5.3",
+    "soundfile": "0.14.0",
+    "huggingface-hub": "1.33.0"
+  },
+  "reproduction_voice": "af_heart",
+  "reproduction_language": "en-US",
+  "reproduction_speed": 1.0,
+  "raw_audio": {"sample_rate": 24000, "channels": 1, "format": "float32-wav"},
+  "stored_tensor_count": 548,
+  "stored_tensor_dtype": "F32",
+  "sha256": {
+    "config.json": "5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f",
+    "kokoro-v1_0.safetensors": "4e9ecdf03b8b6cf906070390237feda473dc13327cb8d56a43deaa374c02acd8",
+    "voices/af_heart.safetensors": "2c1c733b0e6576c810e268d3e440c21dea4e0f0131a3ba4cfc98d7fe6136d094"
+  }
+}
