@@ -1,0 +1,4 @@
+#include "Shared.xcconfig"
+// Xcode does not normally scan Helpers. Its built-in Swift library tool must
+// include the worker so back-deployment libraries are bundled and signed.
+OTHER_SWIFT_STDLIB_TOOL_FLAGS = $(inherited) --scan-executable "$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/LibroSpeechWorker"

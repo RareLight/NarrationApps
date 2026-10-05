@@ -231,3 +231,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Native macOS build products and local Xcode state (retain Package.resolved)
+macos/.build/
+macos/**/.build/
+macos/**/.swiftpm/
+**/xcuserdata/
+*.xcuserstate
