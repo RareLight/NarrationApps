@@ -1,6 +1,6 @@
-# Libro for macOS — native M1 spike
+# Libro for macOS — native development
 
-The checked-in project targets **Xcode 27.0, Apple Silicon, macOS 15+ and Swift 6**. The window currently verifies the embedded native worker; the document queue/workflow is M2–M4 work. The Python CLI is independent.
+The checked-in project targets **Xcode 27.0, Apple Silicon, macOS 15+ and Swift 6**. The window imports mixed documents/folders, previews extracted text, remembers chosen workspace/output folders, plans editable WAV destinations and verifies the embedded worker. Batch generation/scheduling and notifications are still M3–M4 work. The Python CLI is independent.
 
 ## Build and open
 
@@ -27,7 +27,17 @@ If `xcrun metal --version` says the Metal Toolchain is missing, use Apple's `xco
 bash macos/scripts/check.sh
 ```
 
-These cover defaults, native asset containment/missing/partial assets, incremental PCM16 order and clipping, and preservation/cleanup after cancellation or invalid samples. They do not run MLX or establish speech/GUI acceptance. Xcode's test action may require a macOS privacy prompt for its test runner to access a checkout on Desktop/Documents. SwiftPM's fixtures can run independently; do not alter OS permissions silently.
+These cover defaults/assets, atomic PCM16 transactions, recursive intake/deduplication, extraction, Unicode chunk coverage, output conflicts/aliases and bookmark restoration/recovery. They do not run MLX or establish speech/GUI acceptance. Xcode's test action may require a macOS privacy prompt for its test runner to access a checkout on Desktop/Documents. SwiftPM's fixtures can run independently; do not alter OS permissions silently.
+
+The shared importer ignores unsupported types, skips recursive symlinks/aliases/packages, includes ordinary hidden documents and excludes the selected output subtree. Selected supported files that fail extraction have visible errors. Foundation Markdown projection keeps block boundaries, reads code/link labels/image descriptions as text, and fetches no remote resources. PDF narration follows PDFKit's extracted page order; columns/headers and scanned content need operator review.
+
+Create disposable operator fixtures with native document APIs (the destination must be empty):
+
+```bash
+swift macos/scripts/prepare-intake-fixtures.swift "$PWD/macos/.build/acceptance/intake"
+```
+
+See `../docs/native-gui-m2-acceptance.md` for the prepared GUI test, including folder recovery and planning conflicts. The generation control and its replacement confirmation will be connected after scheduling is implemented. Do not interpret a text preview or plan as published speech.
 
 ## Opt-in real speech
 
