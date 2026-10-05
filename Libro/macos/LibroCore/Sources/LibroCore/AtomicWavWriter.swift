@@ -25,6 +25,7 @@ public final class AtomicWavWriter {
     private var sampleRate: Int?
     private var audioFile: AVAudioFile?
     private var published = false
+    private var aborted = false
     private let previousMode: mode_t?
 
     public init(destination: URL) throws {
@@ -46,7 +47,7 @@ public final class AtomicWavWriter {
               sampleRate <= 192_000, samples.count <= Int(UInt32.max) else { throw AudioOutputError.invalidPCM }
         guard (frames + UInt64(samples.count)) * 2 <= UInt64(UInt32.max) - 36 else { throw AudioOutputError.riffLimit }
         if let expected = self.sampleRate, expected != sampleRate { throw AudioOutputError.inconsistentFormat }
-        guard !published else { throw AudioOutputError.storage }
+        guard !published, !aborted else { throw AudioOutputError.storage }
         do {
             if audioFile == nil {
                 let settings: [String: Any] = [
@@ -72,7 +73,7 @@ public final class AtomicWavWriter {
 
     /// The caller revalidates destinations and cancellation at this boundary.
     public func publish(beforePublication: () throws -> Void = {}) throws {
-        guard frames > 0, !published else { throw AudioOutputError.empty }
+        guard frames > 0, !published, !aborted else { throw AudioOutputError.empty }
         audioFile = nil // Close AVAudioFile and finalize its header before fsync.
         do {
             let handle = try FileHandle(forWritingTo: temporary)
@@ -88,7 +89,9 @@ public final class AtomicWavWriter {
     }
 
     public func abort() {
+        guard !published, !aborted else { return }
+        aborted = true
         audioFile = nil
-        if !published { try? FileManager.default.removeItem(at: temporary) }
+        try? FileManager.default.removeItem(at: temporary)
     }
 }

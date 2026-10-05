@@ -13,6 +13,15 @@ public enum SpeechModel: String, Codable, CaseIterable, Sendable {
     public var primaryRelativePath: String {
         "models/\(rawValue)/\(repository.replacingOccurrences(of: "/", with: "__"))"
     }
+
+    public var capabilities: SpeechCapabilities {
+        SpeechCapabilities(sampleRate: self == .kokoro ? 24_000 : 32_000, supportsParallel: true)
+    }
+}
+
+public struct SpeechCapabilities: Sendable {
+    public let sampleRate: Int
+    public let supportsParallel: Bool
 }
 
 public struct SpeechSettings: Codable, Equatable, Sendable {

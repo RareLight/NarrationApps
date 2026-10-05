@@ -1,5 +1,6 @@
 import XCTest
 import AVFoundation
+import Darwin
 @testable import LibroCore
 
 final class AtomicWavWriterTests: XCTestCase {
@@ -39,6 +40,26 @@ final class AtomicWavWriterTests: XCTestCase {
             writer.abort()
             XCTAssertEqual(try Data(contentsOf: destination), original)
             XCTAssertFalse(FileManager.default.fileExists(atPath: writer.temporary.path))
+        }
+    }
+
+    func testPermissionPreservationAndIdempotentAbort() throws {
+        try fixture { destination in
+            try Data("previous complete audio".utf8).write(to: destination)
+            XCTAssertEqual(chmod(destination.path, 0o640), 0)
+            let writer = try AtomicWavWriter(destination: destination)
+            try writer.append(samples: [0.25], sampleRate: 24_000)
+            try writer.publish()
+            var info = stat()
+            XCTAssertEqual(stat(destination.path, &info), 0)
+            XCTAssertEqual(info.st_mode & 0o7777, 0o640)
+            let aborted = try AtomicWavWriter(destination: destination)
+            aborted.abort(); aborted.abort()
+            XCTAssertFalse(FileManager.default.fileExists(atPath: aborted.temporary.path))
+            XCTAssertThrowsError(try aborted.append(samples: [0.5], sampleRate: 24_000))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: aborted.temporary.path))
+            let complete = try AVAudioFile(forReading: destination)
+            XCTAssertEqual(complete.length, 1)
         }
     }
 }

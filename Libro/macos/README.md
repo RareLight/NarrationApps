@@ -1,6 +1,6 @@
 # Libro for macOS — native development
 
-The checked-in project targets **Xcode 27.0, Apple Silicon, macOS 15+ and Swift 6**. The window imports mixed documents/folders, previews extracted text, remembers chosen workspace/output folders, plans editable WAV destinations and verifies the embedded worker. Batch generation/scheduling and notifications are still M3–M4 work. The Python CLI is independent.
+The checked-in project targets **Xcode 27.0, Apple Silicon, macOS 15+ and Swift 6**. The window imports mixed documents/folders, previews extracted text, remembers chosen workspace/output folders, plans editable WAV destinations and verifies the embedded worker. The shared production scheduler uses isolated persistent native workers; connecting Generate and notifications to the window remains M4 work. The Python CLI is independent.
 
 ## Build and open
 
@@ -27,7 +27,7 @@ If `xcrun metal --version` says the Metal Toolchain is missing, use Apple's `xco
 bash macos/scripts/check.sh
 ```
 
-These cover defaults/assets, atomic PCM16 transactions, recursive intake/deduplication, extraction, Unicode chunk coverage, output conflicts/aliases and bookmark restoration/recovery. They do not run MLX or establish speech/GUI acceptance. Xcode's test action may require a macOS privacy prompt for its test runner to access a checkout on Desktop/Documents. SwiftPM's fixtures can run independently; do not alter OS permissions silently.
+These cover defaults/assets, atomic PCM16 transactions, recursive intake/deduplication, extraction, Unicode chunk coverage, output conflicts/aliases, bookmark restoration/recovery and real process orchestration using a model-free Swift helper. The process fixtures exercise ordering/backpressure, retries, malformed control/audio, crashes, bounded shutdown and cancellation. They do not run MLX or establish speech/GUI acceptance. Xcode's test action may require a macOS privacy prompt for its test runner to access a checkout on Desktop/Documents. SwiftPM's fixtures can run independently; do not alter OS permissions silently. The fixture helper is a development product and is not embedded in the app.
 
 The shared importer ignores unsupported types, skips recursive symlinks/aliases/packages, includes ordinary hidden documents and excludes the selected output subtree. Selected supported files that fail extraction have visible errors. Foundation Markdown projection keeps block boundaries, reads code/link labels/image descriptions as text, and fetches no remote resources. PDF narration follows PDFKit's extracted page order; columns/headers and scanned content need operator review.
 
@@ -52,7 +52,9 @@ swift build --package-path macos/LibroCore --scratch-path macos/.build/CoreTests
 macos/.build/CoreTests/debug/LibroNativeCheck "$WORKER" "$PWD" "$PWD/macos/.build/acceptance/offline" serial --offline
 ```
 
-The offline harness uses `sandbox-exec` to block networking and native/CLI/global HF cache access in each fresh worker. Both explicit primary and prepared G2P directories must be complete. Workers spool bounded float32 audio under `models/.native/staging/`; the harness validates it and uses the shared atomic PCM16 WAV writer. This is an opt-in development check, not the finished scheduler/IPC protocol. It publishes one short sample per model and retains metadata/diagnostics for listening. Soprano is stochastic, so frame counts/audio bytes can differ between runs.
+The offline harness uses `sandbox-exec` to block networking and native/CLI/global HF cache access in each fresh worker. Both explicit primary and prepared G2P directories must be complete. Workers spool bounded float32 audio under `models/.native/staging/`; the harness validates it and uses the shared atomic PCM16 WAV writer. `serial` retains the M1 short one-shot sample check and metadata/diagnostics for listening. Soprano is stochastic, so frame counts/audio bytes can differ between runs.
+
+For the production coordinator/IPC path, replace `serial` with `batch`. This prepares a longer public Markdown sample and verifies automatic two-worker, ordered multi-chunk generation for both engines. The protocol loads a model once per worker for the current document, bounds dispatch to twelve chunks, retries eligible parallel failures once serially, revalidates destinations before atomic publication and reaps helpers before cleaning attempt staging. See `../docs/native-gui-m3-acceptance.md` for the distinct fixture/build/real-speech evidence.
 
 For relocation testing, copy the built app, the native harness, K/S primary directories and prepared native auxiliary directory to another workspace. Omit `.venv` and all HF caches. `LIBRO_CHECK_DENY_ROOT=/absolute/original/checkout` additionally denies source-checkout reads inside offline workers. This diagnostic does not grant sandboxed-app bookmark access; Finder/privacy/bookmark GUI acceptance remains open.
 
