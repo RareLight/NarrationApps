@@ -55,18 +55,18 @@ public struct NativeWorkspace: Sendable {
         url.pathComponents.contains { ($0 as NSString).pathExtension.lowercased() == "app" }
     }
 
+    /// Writes must stay in the actual private namespace; an internal symlink
+    /// must not redirect metadata/staging into a read-only Python snapshot.
+    public func managed(_ url: URL) throws -> URL {
+        let resolvedRoot = try contained(nativeRoot)
+        let resolved = try contained(url)
+        guard resolvedRoot.path == nativeRoot.path, resolved.path == url.standardizedFileURL.path,
+              resolved.path.hasPrefix(nativeRoot.path + "/") else { throw NativeAssetError.outsideWorkspace }
+        return resolved
+    }
+
     public func primaryDirectory(for model: SpeechModel, voice: String = "af_aoede") throws -> URL {
-        let directory = try contained(root.appendingPathComponent(model.primaryRelativePath))
-        let required = model == .kokoro
-            ? ["config.json", "kokoro-v1_0.safetensors", "voices/\(voice).safetensors"]
-            : ["config.json", "model.safetensors", "tokenizer.json", "tokenizer_config.json"]
-        guard voice.range(of: #"^[ab][fm]_[a-z]+$"#, options: .regularExpression) != nil else {
-            throw NativeAssetError.invalid("English voice name")
-        }
-        for file in required { try validateFile(directory.appendingPathComponent(file), json: file.hasSuffix(".json")) }
-        let config = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("config.json"))) as? [String: Any]
-        guard config?["model_type"] as? String == model.rawValue else { throw NativeAssetError.invalid("model_type") }
-        return directory
+        try NativePrimaryStore.directory(for: model, workspace: self, voice: voice)
     }
 
     public func validateFile(_ url: URL, json: Bool = false) throws {
@@ -135,14 +135,17 @@ public enum NativeG2P {
         let inventory = AssetInventory(version: 1, repository: repository, revision: revision, sha256: hashes)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(inventory).write(to: directory.appendingPathComponent(".libro-native.json"), options: [.atomic])
+        try encoder.encode(inventory).write(to: workspace.managed(directory.appendingPathComponent(".libro-native.json")), options: [.atomic])
     }
 
     public static func sha256(_ url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hash = SHA256()
-        while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty { hash.update(data: data) }
+        while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
+            try Task.checkCancellation()
+            hash.update(data: data)
+        }
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }

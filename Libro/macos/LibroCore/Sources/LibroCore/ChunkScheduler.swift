@@ -45,10 +45,10 @@ public struct ChunkScheduler: Sendable {
                          beforePublication: @Sendable () throws -> Void,
                          progress: @Sendable (SpeechProgress) -> Void) async throws {
         try Task.checkCancellation()
-        let parent = try workspace.contained(workspace.nativeRoot.appendingPathComponent("staging"))
+        let parent = try workspace.managed(workspace.nativeRoot.appendingPathComponent("staging"))
         do { try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true) }
         catch { throw SpeechFailure(.storage) }
-        let spool = try workspace.contained(parent.appendingPathComponent("attempt-\(identity.attempt.uuidString)"))
+        let spool = try workspace.managed(parent.appendingPathComponent("attempt-\(identity.attempt.uuidString)"))
         guard mkdir(spool.path, 0o700) == 0 else { throw SpeechFailure(.storage) }
         // This UUID directory is exclusively created by this attempt. Helpers
         // are reaped before cleanup; no shared models/cache/staging is removed.

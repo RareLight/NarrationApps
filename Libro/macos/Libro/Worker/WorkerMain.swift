@@ -25,7 +25,7 @@ struct LibroSpeechWorker {
                 response = ["metal": "ready", "worker": "LibroSpeechWorker"]
             } else if arguments.count == 2, arguments[0] == "--prepare-g2p" {
                 let workspace = try NativeWorkspace(root: URL(fileURLWithPath: arguments[1], isDirectory: true))
-                configureCache(workspace)
+                try configureCache(workspace)
                 try await prepareG2P(workspace)
                 response = ["prepared": NativeG2P.repository, "revision": NativeG2P.revision]
             } else if arguments.count == 2, arguments[0] == "--speak" {
@@ -61,7 +61,7 @@ struct LibroSpeechWorker {
                         throw SpeechFailure(.invalidInput)
                     }
                     let workspace = try NativeWorkspace(root: root)
-                    configureCache(workspace)
+                    try configureCache(workspace)
                     let staging = try workspace.contained(spool)
                     guard staging.path.hasPrefix(workspace.nativeRoot.path + "/staging/attempt-"),
                           staging == spool, (try staging.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true,
@@ -126,7 +126,8 @@ struct LibroSpeechWorker {
         }
     }
 
-    private static func configureCache(_ workspace: NativeWorkspace) {
+    private static func configureCache(_ workspace: NativeWorkspace) throws {
+        _ = try workspace.managed(workspace.hubCache)
         for name in ["HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE"] {
             setenv(name, workspace.hubCache.path, 1)
         }
@@ -136,9 +137,9 @@ struct LibroSpeechWorker {
     }
 
     private static func prepareG2P(_ workspace: NativeWorkspace) async throws {
-        let target = try workspace.contained(workspace.g2pDirectory)
-        let staging = try workspace.contained(workspace.nativeRoot.appendingPathComponent("staging/g2p-\(NativeG2P.revision)"))
-        let lockURL = try workspace.contained(workspace.nativeRoot.appendingPathComponent("locks/g2p.lock"))
+        let target = try workspace.managed(workspace.g2pDirectory)
+        let staging = try workspace.managed(workspace.nativeRoot.appendingPathComponent("staging/g2p-\(NativeG2P.revision)"))
+        let lockURL = try workspace.managed(workspace.nativeRoot.appendingPathComponent("locks/g2p.lock"))
         try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let lock = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
         guard lock >= 0 else { throw WorkerError.storage }
@@ -167,7 +168,7 @@ struct LibroSpeechWorker {
     private static func synthesize(_ request: SpikeRequest) async throws -> [String: Any] {
         try validate(text: request.text, settings: request.settings)
         let workspace = try NativeWorkspace(root: request.workspace)
-        configureCache(workspace)
+        try configureCache(workspace)
         let staging = try workspace.contained(request.spoolDirectory)
         guard staging.path.hasPrefix(workspace.nativeRoot.path + "/staging/") else { throw WorkerError.invalidRequest }
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)

@@ -37,7 +37,7 @@ struct NativeCheck {
         let workspace = try NativeWorkspace(root: URL(fileURLWithPath: arguments[1], isDirectory: true))
         let output = URL(fileURLWithPath: arguments[2], isDirectory: true).standardizedFileURL
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let stage = try workspace.contained(workspace.nativeRoot.appendingPathComponent("staging/check-\(UUID().uuidString)"))
+        let stage = try workspace.managed(workspace.nativeRoot.appendingPathComponent("staging/check-\(UUID().uuidString)"))
         try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: stage) }
         // Public acceptance text exercises sentence/number/abbreviation packing
@@ -113,7 +113,7 @@ struct NativeCheck {
         let workspace = try NativeWorkspace(root: URL(fileURLWithPath: arguments[1], isDirectory: true))
         let output = URL(fileURLWithPath: arguments[2], isDirectory: true).standardizedFileURL
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let stage = try workspace.contained(workspace.nativeRoot.appendingPathComponent("staging/check-\(UUID().uuidString)"))
+        let stage = try workspace.managed(workspace.nativeRoot.appendingPathComponent("staging/check-\(UUID().uuidString)"))
         try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: stage) }
         let text = "Dr. Smith paid $12.50 for three books. NASA will read them at 3 p.m. Hello, Anna! Libro makes local narration."
