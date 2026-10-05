@@ -45,7 +45,10 @@ public final class AtomicWavWriter {
     public func append(samples: [Float], sampleRate: Int) throws {
         guard !samples.isEmpty, samples.allSatisfy(\.isFinite), sampleRate > 0,
               sampleRate <= 192_000, samples.count <= Int(UInt32.max) else { throw AudioOutputError.invalidPCM }
-        guard (frames + UInt64(samples.count)) * 2 <= UInt64(UInt32.max) - 36 else { throw AudioOutputError.riffLimit }
+        // AVFoundation includes padding (4 KiB on the acceptance machine),
+        // unlike the CLI's minimal header. Reserve room and verify the actual
+        // closed-file size at publication rather than assuming a 44-byte WAV.
+        guard (frames + UInt64(samples.count)) * 2 <= UInt64(UInt32.max) - 65_536 else { throw AudioOutputError.riffLimit }
         if let expected = self.sampleRate, expected != sampleRate { throw AudioOutputError.inconsistentFormat }
         guard !published, !aborted else { throw AudioOutputError.storage }
         do {
@@ -81,6 +84,9 @@ public final class AtomicWavWriter {
             if let mode = previousMode, fchmod(handle.fileDescriptor, mode) != 0 { throw AudioOutputError.storage }
             try handle.synchronize()
             try beforePublication()
+            var info = stat()
+            guard fstat(handle.fileDescriptor, &info) == 0 else { throw AudioOutputError.storage }
+            guard info.st_size >= 44, UInt64(info.st_size) - 8 <= UInt64(UInt32.max) else { throw AudioOutputError.riffLimit }
             guard rename(temporary.path, destination.path) == 0 else { throw AudioOutputError.storage }
             published = true
         } catch let error as AudioOutputError { throw error }

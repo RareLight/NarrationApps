@@ -3,6 +3,9 @@ import AppKit
 import UniformTypeIdentifiers
 import LibroCore
 import Darwin
+import AVFoundation
+import OSLog
+@preconcurrency import UserNotifications
 
 @main
 struct LibroApp: App {
@@ -12,7 +15,7 @@ struct LibroApp: App {
     var body: some Scene {
         Window("Libro", id: "main") {
             IntakeView(model: model)
-                .frame(minWidth: 780, minHeight: 500)
+                .frame(minWidth: 780, minHeight: 580)
                 .background(WindowAutosave())
                 .onOpenURL { model.add([$0]) }
         }
@@ -22,35 +25,84 @@ struct LibroApp: App {
                 Button("Add Files and Folders…") { model.openInputs() }.keyboardShortcut("o")
                 Button("Add Folder…") { model.openInputs(foldersOnly: true) }
                 Divider()
-                Button("Remove Selected") { model.removeSelected() }.disabled(model.selection.isEmpty || model.busy)
-                Button("Clear Queue") { model.clear() }.disabled(model.documents.isEmpty || model.busy)
+                Button("Remove Selected") { model.removeSelected() }.disabled(model.selection.isEmpty || model.busy || model.isGenerating)
+                Button("Clear Finished") { model.clearFinished() }.disabled(!model.hasFinished || model.busy || model.isGenerating)
+                Button("Clear Queue") { model.clear() }.disabled(model.documents.isEmpty || model.busy || model.isGenerating)
+                Divider()
+                Button("Preview Selected Document") { model.previewSelected() }.keyboardShortcut("y")
+                    .disabled(model.selectedDocument == nil || model.busy)
+                Button("Play or Stop Selected Audio") { model.playSelected() }.disabled(!model.hasSelectedAudio)
+                Button("Reveal Selected Audio") { model.revealSelected() }.disabled(!model.hasSelectedAudio)
+                Button("Queue Selected Unfinished Document") { model.retrySelected() }.disabled(!model.hasSelectedFailure)
+                Divider()
+                Button("Generate Audio") { model.generate() }.keyboardShortcut("g", modifiers: [.command, .shift]).disabled(!model.canGenerate)
+                Button("Cancel Processing") { model.cancel() }.keyboardShortcut(".").disabled(!model.cancellable)
             }
         }
     }
 }
 
 @MainActor
-private final class LibroDelegate: NSObject, NSApplicationDelegate {
+private final class LibroDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = self
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func application(_ application: NSApplication, open urls: [URL]) {
         IntakeModel.shared.add(urls)
         showWindow()
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showWindow(); return true
+        // Preserve a visible chooser/preview's key-window focus. Recreate the
+        // main window only when every window has been closed.
+        if !flag { showWindow() }
+        return true
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let model = IntakeModel.shared
+        if model.isGenerating {
+            let alert = NSAlert()
+            alert.messageText = "Libro is processing audio."
+            alert.informativeText = "Keep processing, or cancel this batch and quit. Complete audio already saved will be preserved."
+            alert.addButton(withTitle: "Keep Processing")
+            alert.addButton(withTitle: "Cancel Processing and Quit")
+            if alert.runModal() == .alertFirstButtonReturn { return .terminateCancel }
+        }
         model.cancel()
-        guard model.hasOwnedProbe else { return .terminateNow }
+        model.stopPlayback()
+        guard model.hasOwnedProbe || model.isGenerating else { return .terminateNow }
         Task {
+            await model.stopGeneration()
             await model.stopProbe()
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
     }
     private func showWindow() {
+        if !NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeMain }) {
+            IntakeModel.shared.reopenWindow?()
+        }
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+        let visibleKey = NSApp.keyWindow.flatMap { $0.isVisible ? $0 : nil }
+        (visibleKey ?? NSApp.windows.first(where: { $0.canBecomeMain }))?.makeKeyAndOrderFront(nil)
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list])
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void) {
+        let saved = response.notification.request.content.userInfo["saved"] as? Int
+        let failed = response.notification.request.content.userInfo["failed"] as? Int
+        Task { @MainActor in
+            if let saved, let failed, saved >= 0, failed >= 0 {
+                IntakeModel.shared.notificationSummary = "Libro processing complete: \(saved) saved; \(failed) failed."
+            }
+            self.showWindow()
+        }
+        completionHandler()
     }
 }
 
@@ -69,7 +121,38 @@ private final class IntakeModel {
     var planned: [PlannedDocument] = []
     var scanCount = 0
     var busy = false
-    var cancellable: Bool { scanner != nil || reader != nil || hasOwnedProbe }
+    var settings = SpeechSettings()
+    var serial = false
+    var readiness = "Checking prepared model assets…"
+    var assetsReady = false
+    var checkingAssets = false
+    var voices = ["af_aoede"]
+    var activeBatch: BatchRequest?
+    var speechProgress: SpeechProgress?
+    var generationStatus = ""
+    var batchSummary: BatchSummary?
+    var notificationSummary: String?
+    var notificationStatus: String?
+    var outcomes: [UUID: DocumentOutcome] = [:]
+    var retryQueued = Set<UUID>()
+    var playingDocument: UUID?
+    var reopenWindow: (() -> Void)?
+    var isGenerating: Bool { activeBatch != nil }
+    var activeIDs: Set<UUID> { Set(activeBatch?.documents.map(\.id) ?? []) }
+    var candidates: [InputDocument] { documents.filter { !activeIDs.contains($0.id) && (outcomes[$0.id] == nil || retryQueued.contains($0.id)) } }
+    var displayedDocuments: [InputDocument] {
+        (activeBatch?.documents.map(\.input) ?? []) + documents.filter { !activeIDs.contains($0.id) }
+    }
+    var hasFinished: Bool { !outcomes.isEmpty }
+    var selectedDocument: InputDocument? { selection.count == 1 ? displayedDocuments.first { selection.contains($0.id) } : nil }
+    var hasSelectedAudio: Bool { selectedDocument.map { outcomes[$0.id]?.state == .published } ?? false }
+    var hasSelectedFailure: Bool { selectedDocument.map { outcomes[$0.id]?.state == .failed || outcomes[$0.id]?.state == .cancelled } ?? false }
+    var canGenerate: Bool {
+        !isGenerating && !busy && !planning && assetsReady && output?.url != nil && workspace?.url != nil &&
+        planningError == nil && !candidates.isEmpty && planned.count == candidates.count
+    }
+    var cancellable: Bool { scanner != nil || reader != nil || hasOwnedProbe || isGenerating }
+    var inputCancelLabel: String { scanner != nil ? "Cancel Scan" : (reader != nil ? "Cancel Read" : "Cancel Probe") }
     var hasOwnedProbe: Bool { probeProcess != nil }
     var activityStatus: String { scanner != nil ? "Scanning inputs… \(scanCount) entries checked." : status }
     var planning: Bool { planner != nil }
@@ -86,10 +169,28 @@ private final class IntakeModel {
     private var operation = UUID()
     private var probeProcess: Process?
     private var probeCancelled = false
+    private let coordinator: QueueCoordinator
+    private var generationTask: Task<Void, Never>?
+    private var progressTask: Task<Void, Never>?
+    private var readinessTask: Task<(String, [String]), Error>?
+    private var readinessOperation = UUID()
+    private var batchScopes: [DirectoryAccess] = []
+    private var outputScopes: [UUID: DirectoryAccess] = [:]
+    private var savedNames: [UUID: String] = [:]
+    private var readinessScopes: [DirectoryAccess] = []
+    private var activity: NSObjectProtocol?
+    private var completionLedger = CompletionNoticeLedger()
+    private var notificationAuthorizationTask: Task<Void, Never>?
+    private var player: AVAudioPlayer?
+    private var playbackTask: Task<Void, Never>?
+    private static let logger = Logger(subsystem: "org.librotts.Libro", category: "Batch")
 
     private init() {
+        coordinator = QueueCoordinator(configuration: WorkerConfiguration(executable:
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker")))
         output = preferences.load(.output)
         workspace = preferences.load(.workspace)
+        refreshReadiness()
     }
 
     func openInputs(foldersOnly: Bool = false) {
@@ -118,6 +219,7 @@ private final class IntakeModel {
                 let selected = try self.preferences.select(url, role: role)
                 if role == .output { self.output = selected } else { self.workspace = selected }
                 self.replan()
+                if role == .workspace { self.refreshReadiness() }
             } catch { self.status = error.localizedDescription }
         }
     }
@@ -138,7 +240,9 @@ private final class IntakeModel {
         busy = true; scanCount = 0; status = "Scanning inputs…"
         let recipient = self
         let task = Task.detached(priority: .userInitiated) {
-            try InputCollector.collect(selection, excludingOutput: excluded) { count in
+            let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Discovering Libro documents")
+            defer { ProcessInfo.processInfo.endActivity(activity) }
+            return try InputCollector.collect(selection, excludingOutput: excluded) { count in
                 Task { @MainActor in
                     guard recipient.operation == token else { return }
                     recipient.scanCount = count
@@ -151,10 +255,13 @@ private final class IntakeModel {
                 let result = try await task.value
                 guard operation == token else { return }
                 let existing = Dictionary(uniqueKeysWithValues: documents.map { ($0.source.path, $0.id) })
-                documents = result.documents.filter { !removed.contains($0.source.path) }.map {
+                let discovered = result.documents.filter { !removed.contains($0.source.path) }.map {
                     InputDocument(source: $0.source, kind: $0.kind, relativePath: $0.relativePath,
                                   id: existing[$0.source.path] ?? $0.id)
                 }
+                let discoveredPaths = Set(discovered.map { $0.source.path })
+                let retainedActive = activeBatch?.documents.map(\.input).filter { !discoveredPaths.contains($0.source.path) } ?? []
+                documents = discovered + retainedActive
                 issues = result.issues
                 let excluded = result.excludedOutput ? " Selected output subtree excluded." : ""
                 status = "\(documents.count) documents; \(result.ignoredCount) unsupported or linked items ignored; \(result.issues.count) input errors.\(excluded)"
@@ -170,8 +277,9 @@ private final class IntakeModel {
         planner?.cancel()
         let token = UUID(); planOperation = token
         planned = []
+        planner = nil
         guard let url = output?.url else { planningError = output?.error ?? "Choose an output folder to preview destinations."; return }
-        let inputs = documents
+        let inputs = candidates
         let overrides = names
         planningError = nil
         let task = Task.detached(priority: .userInitiated) {
@@ -192,21 +300,33 @@ private final class IntakeModel {
     }
 
     func removeSelected() {
-        guard !busy else { return }
+        guard !busy, !isGenerating else { return }
         for document in documents where selection.contains(document.id) { removed.insert(document.source.path) }
         documents.removeAll { selection.contains($0.id) }
         names = names.filter { !selection.contains($0.key) }
         states = states.filter { !selection.contains($0.key) }
+        outcomes = outcomes.filter { !selection.contains($0.key) }
+        if let playingDocument, selection.contains(playingDocument) { stopPlayback() }
+        outputScopes = outputScopes.filter { !selection.contains($0.key) }
+        savedNames = savedNames.filter { !selection.contains($0.key) }
+        retryQueued.subtract(selection)
         selection.removeAll(); replan()
     }
 
     func clear() {
-        guard !busy else { return }
+        guard !busy, !isGenerating else { return }
         documents = []; roots = []; scopes = [:]; removed = []; names = [:]; states = [:]
+        outcomes = [:]; retryQueued = []; batchSummary = nil; notificationSummary = nil
+        stopPlayback(); outputScopes = [:]; savedNames = [:]
         issues = []; selection = []; status = "Add documents or drop files and folders here."; replan()
     }
 
     func cancel() {
+        cancelIntake()
+        if isGenerating { generationStatus = "Cancelling… waiting for native workers to stop."; generationTask?.cancel() }
+    }
+
+    func cancelIntake() {
         scanner?.cancel(); reader?.cancel()
         if let process = probeProcess, process.isRunning { probeCancelled = true; process.terminate() }
     }
@@ -230,7 +350,11 @@ private final class IntakeModel {
         let token = UUID(); operation = token; busy = true
         status = "Reading document text…"
         states[document.id] = "Reading…"
-        let task = Task.detached(priority: .userInitiated) { try DocumentReader.read(document) }
+        let task = Task.detached(priority: .userInitiated) {
+            let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Reading a Libro document")
+            defer { ProcessInfo.processInfo.endActivity(activity) }
+            return try DocumentReader.read(document)
+        }
         reader = task
         Task {
             do {
@@ -238,17 +362,18 @@ private final class IntakeModel {
                 guard operation == token else { return }
                 preview = Preview(id: document.id, title: document.source.lastPathComponent, text: text)
                 states[document.id] = "Text ready"
+                status = "Text preview ready."
             } catch is CancellationError {
-                if operation == token { states[document.id] = "Reading cancelled" }
+                if operation == token { states[document.id] = "Reading cancelled"; status = "Reading cancelled." }
             } catch {
-                if operation == token { states[document.id] = error.localizedDescription }
+                if operation == token { states[document.id] = error.localizedDescription; status = "Document text could not be read." }
             }
             if operation == token { busy = false; reader = nil }
         }
     }
 
     func probe() {
-        guard !busy, probeProcess == nil else { return }
+        guard !busy, !isGenerating, probeProcess == nil else { return }
         let token = UUID(); operation = token
         busy = true; probeCancelled = false; status = "Checking embedded Metal runtime…"
         do {
@@ -264,6 +389,275 @@ private final class IntakeModel {
             status = "Unable to launch the embedded worker: \(error.localizedDescription)"; busy = false
         }
     }
+
+    func refreshReadiness() {
+        readinessTask?.cancel(); readinessTask = nil
+        let token = UUID(); readinessOperation = token
+        assetsReady = false; checkingAssets = false; readinessScopes = []
+        guard let root = workspace?.url else {
+            readiness = workspace?.error ?? "Choose the Libro workspace containing models."
+            return
+        }
+        readinessScopes = [DirectoryAccess(root)]
+        let selected = settings
+        checkingAssets = true; readiness = "Checking \(selected.model.rawValue.capitalized) assets…"
+        let task = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            let store = try NativeWorkspace(root: root)
+            let primary = try store.primaryDirectory(for: selected.model, voice: selected.voice)
+            var voices = [selected.voice]
+            if selected.model == .kokoro {
+                try NativeG2P.validate(directory: store.g2pDirectory, workspace: store)
+                voices = try FileManager.default.contentsOfDirectory(at: primary.appendingPathComponent("voices"), includingPropertiesForKeys: nil)
+                    .filter { $0.pathExtension == "safetensors" }
+                    .map { $0.deletingPathExtension().lastPathComponent }
+                    .filter { $0.range(of: #"^[ab][fm]_[a-z]+$"#, options: .regularExpression) != nil }.sorted()
+            }
+            try Task.checkCancellation()
+            return ("\(selected.model.rawValue.capitalized) ready for local generation.", voices)
+        }
+        readinessTask = task
+        Task {
+            do {
+                let (message, available) = try await task.value
+                guard readinessOperation == token else { return }
+                readiness = message; assetsReady = true
+                if selected.model == .kokoro { voices = available }
+            } catch is CancellationError {}
+            catch { if readinessOperation == token { readiness = error.localizedDescription + " Choose a prepared Libro workspace." } }
+            if readinessOperation == token { checkingAssets = false; readinessTask = nil; readinessScopes = [] }
+        }
+    }
+
+    func generate() {
+        guard canGenerate, let destination = output?.url, let root = workspace?.url else { return }
+        let plans = planned
+        let replacements = plans.filter(\.replacesExisting)
+        var approved = false
+        if !replacements.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "Replace \(replacements.count) existing WAV outputs?"
+            alert.informativeText = "These destinations already contain audio. Libro will replace them only after complete recordings are ready. Failed or cancelled documents preserve their previous outputs."
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Replace and Generate")
+            guard alert.runModal() == .alertSecondButtonReturn else { return }
+            approved = true
+        }
+        let request = BatchRequest(documents: plans, outputDirectory: destination, workspace: root,
+                                   settings: settings, serial: serial, replaceExisting: approved)
+        activeBatch = request; speechProgress = nil; batchSummary = nil; notificationSummary = nil
+        retryQueued.subtract(request.documents.map(\.id))
+        for document in request.documents { outcomes[document.id] = nil; states[document.id] = "Waiting" }
+        let outputScope = DirectoryAccess(destination)
+        batchScopes = Array(scopes.values) + [outputScope, DirectoryAccess(root)]
+        activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,
+            reason: "Generating user-requested Libro audio")
+        generationStatus = "Preparing batch. Closing the window keeps processing; quitting offers cancellation."
+        Self.logger.info("Starting batch \(request.id.uuidString, privacy: .public), documents \(request.documents.count)")
+        let updates = LatestSpeechProgress()
+        progressTask = Task {
+            while !Task.isCancelled {
+                if let value = updates.take() { receive(.speech(value)) }
+                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            }
+        }
+        requestNotificationAuthorization()
+        generationTask = Task {
+            do {
+                let summary = try await coordinator.run(request) { [weak self] event in
+                    if case .speech(let value) = event, value.phase == .chunkWritten { updates.store(value) }
+                    else { Task { @MainActor in self?.receive(event) } }
+                }
+                for outcome in summary.documents {
+                    outcomes[outcome.id] = outcome
+                    if outcome.state == .published {
+                        outputScopes[outcome.id] = outputScope
+                        savedNames[outcome.id] = request.documents.first { $0.id == outcome.id }?.relativeOutput
+                    }
+                }
+                batchSummary = summary
+                generationStatus = summary.cancelled ? "Batch cancelled: \(summary.successfulCount) saved; \(summary.failedCount) failed." :
+                    "Batch complete: \(summary.successfulCount) saved; \(summary.failedCount) failed."
+                announce(generationStatus)
+                Self.logger.info("Settled batch \(summary.id.uuidString, privacy: .public), saved \(summary.successfulCount), failed \(summary.failedCount), cancelled \(summary.cancelled)")
+                Task { await notify(summary) }
+            } catch is CancellationError {
+                generationStatus = "Batch cancelled before generation."
+                for document in request.documents {
+                    outcomes[document.id] = DocumentOutcome(id: document.id, state: .cancelled, destination: document.destination)
+                }
+            } catch {
+                generationStatus = error.localizedDescription
+                for document in request.documents {
+                    outcomes[document.id] = DocumentOutcome(id: document.id, state: .failed,
+                        destination: document.destination, message: "Batch could not start: " + error.localizedDescription)
+                }
+                Self.logger.error("Batch preflight failed \(request.id.uuidString, privacy: .public)")
+            }
+            progressTask?.cancel(); progressTask = nil
+            activeBatch = nil; speechProgress = nil; batchScopes = []
+            if let activity { ProcessInfo.processInfo.endActivity(activity); self.activity = nil }
+            generationTask = nil; status = generationStatus
+            replan()
+        }
+        replan()
+    }
+
+    private func receive(_ event: BatchEvent) {
+        guard let batch = activeBatch else { return }
+        switch event {
+        case .preparing(let id, let job) where id == batch.id:
+            states[job] = "Preparing text…"
+            speechProgress = nil
+            generationStatus = "Preparing \(batch.documents.first { $0.id == job }?.input.source.lastPathComponent ?? "document")…"
+        case .speech(let value) where value.identity.batch == batch.id:
+            guard outcomes[value.identity.job] == nil else { return }
+            if let current = speechProgress, current.identity.job == value.identity.job {
+                guard value.attemptNumber >= current.attemptNumber else { return }
+                if value.attemptNumber == current.attemptNumber, value.completedChunks < current.completedChunks { return }
+            }
+            speechProgress = value
+            let name = batch.documents.first { $0.id == value.identity.job }?.input.source.lastPathComponent ?? "document"
+            if value.phase == .publishing {
+                states[value.identity.job] = "Saving…"; generationStatus = "Saving \(name)…"
+            } else {
+                let attempt = value.attemptNumber == 2 ? "Serial retry" : (value.workerCount == 2 ? "Automatic" : "Serial")
+                states[value.identity.job] = "\(attempt): \(value.completedChunks)/\(value.totalChunks) chunks"
+                generationStatus = "\(name) — \(attempt), \(value.completedChunks) of \(value.totalChunks) chunks."
+                if value.phase == .attemptStarted, value.attemptNumber == 2 { announce("Retrying the current document serially.") }
+            }
+        case .document(let id, let outcome) where id == batch.id:
+            outcomes[outcome.id] = outcome
+            if outcome.state == .published { savedNames[outcome.id] = batch.documents.first { $0.id == outcome.id }?.relativeOutput }
+            if outcome.state == .failed { announce("A document failed. See its queue row for details.") }
+        default: break // Completion notifications come only after run() returns.
+        }
+    }
+
+    func stopGeneration() async {
+        generationTask?.cancel()
+        await coordinator.cancelAndWait()
+        await generationTask?.value
+    }
+
+    func rowStatus(_ document: InputDocument) -> String {
+        if retryQueued.contains(document.id) { return isGenerating ? "Queued for next batch" : "Queued for retry" }
+        if let outcome = outcomes[document.id] {
+            switch outcome.state {
+            case .published: return "Saved"
+            case .failed: return outcome.message ?? "Failed"
+            case .cancelled: return "Cancelled"
+            }
+        }
+        return states[document.id] ?? (isGenerating ? "Queued for next batch" : "Queued")
+    }
+
+    func outputName(_ document: InputDocument) -> String {
+        if outcomes[document.id]?.state == .published, !retryQueued.contains(document.id), let name = savedNames[document.id] { return name }
+        return activeBatch?.documents.first { $0.id == document.id }?.relativeOutput ?? names[document.id] ?? BatchPlanner.defaultOutput(document)
+    }
+
+    func outputDestinationHint(_ document: InputDocument) -> String {
+        if let outcome = outcomes[document.id], outcome.state == .published, !retryQueued.contains(document.id) { return outcome.destination.path }
+        if let plan = activeBatch?.documents.first(where: { $0.id == document.id }) ?? planned.first(where: { $0.id == document.id }) { return plan.destination.path }
+        return output?.url?.appendingPathComponent(outputName(document)).path ?? "Choose an output folder"
+    }
+
+    func retry(_ document: InputDocument) {
+        retryQueued.insert(document.id); states[document.id] = "Queued for retry"; replan()
+    }
+
+    func previewSelected() { if let document = selectedDocument { showPreview(document) } }
+    func playSelected() { if let document = selectedDocument { play(document) } }
+    func revealSelected() {
+        if let document = selectedDocument, let outcome = outcomes[document.id], outcome.state == .published {
+            NSWorkspace.shared.activateFileViewerSelecting([outcome.destination])
+        }
+    }
+    func retrySelected() { if let document = selectedDocument, hasSelectedFailure { retry(document) } }
+
+    func clearFinished() {
+        guard !busy, !isGenerating else { return }
+        selection = Set(outcomes.keys).subtracting(retryQueued)
+        removeSelected()
+    }
+
+    func retryUnfinished() {
+        for document in documents where outcomes[document.id]?.state == .failed || outcomes[document.id]?.state == .cancelled {
+            retryQueued.insert(document.id)
+        }
+        replan()
+    }
+
+    func play(_ document: InputDocument) {
+        guard let outcome = outcomes[document.id], outcome.state == .published else { return }
+        if playingDocument == document.id { stopPlayback(); return }
+        stopPlayback()
+        do {
+            let audio = try AVAudioPlayer(contentsOf: outcome.destination)
+            guard audio.play() else { throw AudioOutputError.storage }
+            player = audio; playingDocument = document.id
+            playbackTask = Task {
+                while audio.isPlaying {
+                    do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                }
+                if player === audio { player = nil; playingDocument = nil; playbackTask = nil }
+            }
+        } catch { status = "Could not play the saved output: " + error.localizedDescription }
+    }
+
+    func stopPlayback() { playbackTask?.cancel(); playbackTask = nil; player?.stop(); player = nil; playingDocument = nil }
+
+    private func requestNotificationAuthorization() {
+        guard notificationAuthorizationTask == nil else { return }
+        notificationAuthorizationTask = Task {
+            let center = UNUserNotificationCenter.current()
+            if await center.notificationSettings().authorizationStatus == .notDetermined {
+                do { _ = try await center.requestAuthorization(options: [.alert]) }
+                catch {
+                    notificationStatus = "Completion alerts are unavailable. Batch results remain in this window."
+                    Self.logger.error("Completion alert authorization unavailable")
+                }
+            }
+            let authorization = await center.notificationSettings().authorizationStatus
+            if authorization == .denied {
+                notificationStatus = "Completion alerts are disabled in macOS. Batch results remain in this window."
+            } else if authorization == .authorized || authorization == .provisional {
+                notificationStatus = nil
+            }
+            notificationAuthorizationTask = nil
+        }
+    }
+
+    private func notify(_ summary: BatchSummary) async {
+        if summary.cancelled { _ = completionLedger.finish(summary, authorized: false); return }
+        // Authorization may still be open after a short batch. Waiting here
+        // never holds the coordinator, active UI state, or generation activity.
+        await notificationAuthorizationTask?.value
+        let center = UNUserNotificationCenter.current()
+        let authorization = await center.notificationSettings().authorizationStatus
+        guard let notice = completionLedger.finish(summary, authorized: authorization == .authorized || authorization == .provisional) else { return }
+        let content = UNMutableNotificationContent()
+        content.title = notice.title; content.body = notice.body
+        content.userInfo = ["saved": notice.successfulCount, "failed": notice.failedCount]
+        do { try await center.add(UNNotificationRequest(identifier: notice.batchID.uuidString, content: content, trigger: nil)) }
+        catch {
+            notificationStatus = "Completion alerts are unavailable. Batch results remain in this window."
+            Self.logger.error("Completion notification unavailable for batch \(notice.batchID.uuidString, privacy: .public)")
+        }
+    }
+
+    private func announce(_ message: String) {
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+            userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+    }
+}
+
+private final class LatestSpeechProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: SpeechProgress?
+    func store(_ value: SpeechProgress) { lock.withLock { self.value = value } }
+    func take() -> SpeechProgress? { lock.withLock { let result = value; value = nil; return result } }
 }
 
 private struct Preview: Identifiable { let id: UUID; let title: String; let text: String }
@@ -271,16 +665,49 @@ private struct Preview: Identifiable { let id: UUID; let title: String; let text
 private struct IntakeView: View {
     @Bindable var model: IntakeModel
     @State private var dropTarget = false
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if model.isGenerating { Text("Next batch settings").font(.caption).foregroundStyle(.secondary) }
+            HStack {
+                Picker("Model", selection: $model.settings.model) {
+                    Text("Kokoro").tag(SpeechModel.kokoro)
+                    Text("Soprano").tag(SpeechModel.soprano)
+                }.frame(maxWidth: 180)
+                if model.settings.model == .kokoro {
+                    Picker("Voice", selection: $model.settings.voice) {
+                        ForEach(model.voices, id: \.self) { voice in Text(voice).tag(voice) }
+                    }.frame(maxWidth: 220)
+                    Stepper(value: $model.settings.speed, in: 0.5...2, step: 0.1) {
+                        Text("Speed \(model.settings.speed, format: .number.precision(.fractionLength(1)))×")
+                    }.fixedSize()
+                }
+                Spacer(minLength: 8)
+                Picker("Generation", selection: $model.serial) {
+                    Text("Automatic").tag(false)
+                    Text("Serial").tag(true)
+                }.frame(maxWidth: 180)
+            }
             directoryRow("Libro workspace:", selection: model.workspace, role: .workspace)
-            directoryRow("Save audio to:", selection: model.output, role: .output)
-            if model.documents.isEmpty {
+            directoryRow(model.isGenerating ? "Next batch saves to:" : "Save audio to:", selection: model.output, role: .output)
+            if let batch = model.activeBatch {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Current batch saves to: \(batch.outputDirectory.path)").textSelection(.enabled)
+                    Text("\(batch.settings.model.rawValue.capitalized) · \(batch.serial ? "Serial" : "Automatic") · \(batch.documents.count) documents. Closing this window keeps processing.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            HStack {
+                if model.checkingAssets { ProgressView().controlSize(.small) }
+                Label(model.readiness, systemImage: model.assetsReady ? "checkmark.circle" : "exclamationmark.triangle")
+                    .foregroundStyle(model.assetsReady ? Color.primary : Color.secondary).font(.callout)
+            }
+            if model.displayedDocuments.isEmpty {
                 ContentUnavailableView("Add documents", systemImage: "doc.badge.plus", description: Text("Drop TXT, Markdown, RTF, PDF files, or folders. Subfolders are included."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Table(model.documents, selection: $model.selection) {
+                Table(model.displayedDocuments, selection: $model.selection) {
                     TableColumn("Document") { document in
                         VStack(alignment: .leading) {
                             Text(document.source.lastPathComponent)
@@ -289,13 +716,32 @@ private struct IntakeView: View {
                     }
                     TableColumn("Type") { Text($0.kind.rawValue.uppercased()) }.width(70)
                     TableColumn("Output name") { document in
-                        TextField("Relative WAV name", text: Binding(get: { model.names[document.id] ?? BatchPlanner.defaultOutput(document) }, set: { model.names[document.id] = $0; model.replan() }))
+                        TextField("Relative WAV name", text: Binding(get: { model.outputName(document) }, set: { model.names[document.id] = $0; model.replan() }))
                             .accessibilityLabel("Output name for \(document.source.lastPathComponent)")
+                            .disabled(model.activeIDs.contains(document.id) || (model.outcomes[document.id]?.state == .published && !model.retryQueued.contains(document.id)))
+                            .help(model.outputDestinationHint(document))
                     }
-                    TableColumn("Status") { Text(model.states[$0.id] ?? "Queued") }
+                    TableColumn("Status") { document in Text(model.rowStatus(document)).lineLimit(3).help(model.rowStatus(document)) }
+                        .width(min: 110, ideal: 160, max: 220)
                     TableColumn("Preview") { document in
                         Button("Read Text") { model.showPreview(document) }.disabled(model.busy)
                             .accessibilityLabel("Preview text of \(document.source.lastPathComponent)")
+                    }.width(90)
+                    TableColumn("Audio") { document in
+                        if let outcome = model.outcomes[document.id] {
+                            if outcome.state == .published {
+                                HStack {
+                                    Button(model.playingDocument == document.id ? "Stop" : "Play", systemImage: model.playingDocument == document.id ? "stop.fill" : "play.fill") { model.play(document) }
+                                        .labelStyle(.iconOnly).help("Play or stop saved audio")
+                                        .accessibilityLabel("\(model.playingDocument == document.id ? "Stop" : "Play") audio for \(document.source.lastPathComponent)")
+                                    Button("Reveal", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting([outcome.destination]) }
+                                        .labelStyle(.iconOnly).help(outcome.destination.path).accessibilityLabel("Reveal audio for \(document.source.lastPathComponent)")
+                                }.accessibilityElement(children: .contain)
+                            } else {
+                                Button("Retry") { model.retry(document) }.disabled(model.retryQueued.contains(document.id))
+                                    .help("Queue this document for the next batch")
+                            }
+                        }
                     }.width(90)
                 }
             }
@@ -312,12 +758,34 @@ private struct IntakeView: View {
                 }
             }
             HStack {
-                if model.busy { ProgressView().controlSize(.small).accessibilityLabel(model.activityStatus); Button("Cancel") { model.cancel() }.disabled(!model.cancellable) }
+                if model.busy { ProgressView().controlSize(.small).accessibilityLabel(model.activityStatus); Button(model.inputCancelLabel) { model.cancelIntake() } }
                 Text(model.activityStatus).font(.callout).textSelection(.enabled)
                 Spacer()
-                Button("Verify Embedded Worker") { model.probe() }.disabled(model.busy || model.hasOwnedProbe)
+                Button("Verify Embedded Worker") { model.probe() }.disabled(model.busy || model.hasOwnedProbe || model.isGenerating)
             }
-            Text("Review inputs and output names. Speech generation is unavailable in this build.").font(.caption).foregroundStyle(.secondary)
+            if model.isGenerating {
+                Text(model.generationStatus).textSelection(.enabled)
+                if let progress = model.speechProgress {
+                    ProgressView(value: Double(progress.completedChunks), total: Double(progress.totalChunks))
+                        .accessibilityLabel("Current document chunks").accessibilityValue("\(progress.completedChunks) of \(progress.totalChunks)")
+                } else { ProgressView("Preparing current document…").controlSize(.small) }
+            }
+            if let summary = model.batchSummary {
+                Label("\(summary.cancelled ? "Cancelled" : "Complete"): \(summary.successfulCount) saved; \(summary.failedCount) failed.",
+                      systemImage: summary.cancelled ? "stop.circle" : (summary.failedCount > 0 ? "exclamationmark.circle" : "checkmark.circle"))
+            }
+            if let summary = model.notificationSummary { Text(summary).font(.callout) }
+            if let notificationStatus = model.notificationStatus { Text(notificationStatus).font(.caption).foregroundStyle(.secondary) }
+            HStack {
+                Text(model.isGenerating ? "\(model.candidates.count) documents waiting for the next batch." : "\(model.candidates.count) documents queued for generation.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if model.outcomes.values.contains(where: { $0.state != .published }) {
+                    Button("Queue Unfinished") { model.retryUnfinished() }.help("Queue failed or cancelled documents for the next batch")
+                }
+                if model.isGenerating { Button("Cancel Processing") { model.cancel() } }
+                Button("Generate Audio") { model.generate() }.buttonStyle(.borderedProminent).disabled(!model.canGenerate)
+            }
         }
         .padding()
         .overlay { if dropTarget { RoundedRectangle(cornerRadius: 8).stroke(.tint, lineWidth: 3).padding(4).allowsHitTesting(false) } }
@@ -325,9 +793,11 @@ private struct IntakeView: View {
         .toolbar {
             Button("Add Files…", systemImage: "doc.badge.plus") { model.openInputs() }
             Button("Add Folder…", systemImage: "folder.badge.plus") { model.openInputs(foldersOnly: true) }
-            Button("Remove Selected", systemImage: "minus") { model.removeSelected() }.disabled(model.selection.isEmpty || model.busy)
-            Button("Clear Queue") { model.clear() }.disabled(model.documents.isEmpty || model.busy)
+            Button("Remove Selected", systemImage: "minus") { model.removeSelected() }.disabled(model.selection.isEmpty || model.busy || model.isGenerating)
+            Button("Clear Finished") { model.clearFinished() }.disabled(!model.hasFinished || model.busy || model.isGenerating)
         }
+        .onAppear { model.reopenWindow = { openWindow(id: "main") }; model.replan() }
+        .onChange(of: model.settings) { model.refreshReadiness() }
         .sheet(item: $model.preview) { preview in
             VStack(alignment: .leading, spacing: 12) {
                 Text(preview.title).font(.headline)
@@ -341,7 +811,7 @@ private struct IntakeView: View {
 
     private func directoryRow(_ label: String, selection: DirectorySelection?, role: DirectoryRole) -> some View {
         HStack(alignment: .top) {
-            Text(label).frame(width: 125, alignment: .leading)
+            Text(label).frame(width: 150, alignment: .leading)
             VStack(alignment: .leading) {
                 Text(selection?.displayPath ?? "Choose a folder…").textSelection(.enabled)
                     .lineLimit(2).help(selection?.displayPath ?? label)
@@ -364,6 +834,9 @@ private struct WindowAutosave: NSViewRepresentable {
             if let window, !restored {
                 restored = true
                 window.setFrameUsingName("Libro.main")
+                if let screen = window.screen ?? NSScreen.main {
+                    window.setFrame(window.constrainFrameRect(window.frame, to: screen), display: false)
+                }
                 window.setFrameAutosaveName("Libro.main")
             }
         }

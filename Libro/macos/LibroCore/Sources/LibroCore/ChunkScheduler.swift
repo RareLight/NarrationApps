@@ -131,6 +131,7 @@ public struct ChunkScheduler: Sendable {
                     try Task.checkCancellation()
                 }
             } catch is CancellationError { throw CancellationError() }
+            catch AudioOutputError.riffLimit { throw SpeechFailure(.invalidInput) }
             catch { throw SpeechFailure(.storage) }
         } catch {
             await stop(workers)

@@ -60,9 +60,9 @@ private struct ProcessFixture {
         try Data(text.utf8).write(to: url)
         return .init(source: url, kind: .text, relativePath: name)
     }
-    func request(_ inputs: [InputDocument], serial: Bool = false) throws -> BatchRequest {
+    func request(_ inputs: [InputDocument], serial: Bool = false, replaceExisting: Bool = false) throws -> BatchRequest {
         .init(documents: try BatchPlanner.plan(inputs, output: output), outputDirectory: output,
-              workspace: root, settings: .init(), serial: serial)
+              workspace: root, settings: .init(), serial: serial, replaceExisting: replaceExisting)
     }
     func samples(_ destination: URL? = nil) throws -> [Int16] {
         let file = try AVAudioFile(forReading: destination ?? self.destination, commonFormat: .pcmFormatInt16, interleaved: true)
@@ -302,9 +302,10 @@ final class SchedulingTests: XCTestCase {
 
     func testCoordinatorBudgetAndCancelWhilePreparingPreserveEarlierOutputs() async throws {
         let fixture = try ProcessFixture(); defer { fixture.remove() }
-        let request = try fixture.request([fixture.input("one.txt"), fixture.input("two.txt")])
+        let inputs = [try fixture.input("one.txt"), try fixture.input("two.txt")]
         let original = Data("complete earlier output".utf8)
-        try original.write(to: request.documents[0].destination)
+        try original.write(to: fixture.output.appendingPathComponent("one.wav"))
+        let request = try fixture.request(inputs, replaceExisting: true)
         let coordinator = QueueCoordinator(configuration: fixture.configuration("prepareStall", timeout: .seconds(30)))
         let task = Task { try await coordinator.run(request) }
         try await waitForRecord(fixture, name: "initialize")
@@ -336,6 +337,33 @@ final class SchedulingTests: XCTestCase {
         try fixture.assertClean()
     }
 
+    func testReplacementRequiresExplicitApprovalAndOnlyCoversExistingPlans() async throws {
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let one = try fixture.input("one.txt")
+        let two = try fixture.input("two.txt")
+        let old = Data("previous complete audio".utf8)
+        try old.write(to: fixture.output.appendingPathComponent("one.wav"))
+        let coordinator = QueueCoordinator(configuration: fixture.configuration())
+        do { _ = try await coordinator.run(fixture.request([one, two])); XCTFail("Expected replacement approval") }
+        catch let error as PlanningError {
+            if case .replacementRequired = error {} else { XCTFail("Unexpected planning failure") }
+        }
+        XCTAssertEqual(try fixture.records().count, 0)
+        let request = try fixture.request([one, two], replaceExisting: true)
+        XCTAssertEqual(request.approvedReplacements, [one.id])
+        // A new output arriving after approval was never part of that approval.
+        try old.write(to: request.documents[1].destination)
+        do { _ = try await coordinator.run(request); XCTFail("Expected late output protection") }
+        catch is PlanningError {}
+        XCTAssertEqual(try Data(contentsOf: request.documents[0].destination), old)
+        XCTAssertEqual(try Data(contentsOf: request.documents[1].destination), old)
+        let confirmed = try fixture.request([one, two], replaceExisting: true)
+        let result = try await coordinator.run(confirmed)
+        XCTAssertEqual(result.successfulCount, 2)
+        XCTAssertNotEqual(try Data(contentsOf: confirmed.documents[0].destination), old)
+        try fixture.assertClean()
+    }
+
     func testCancellationInLaterDocumentKeepsAlreadyPublishedAudio() async throws {
         let fixture = try ProcessFixture(); defer { fixture.remove() }
         let request = try fixture.request([fixture.input("one.txt"), fixture.input("two.txt"), fixture.input("three.txt")], serial: true)
@@ -351,6 +379,28 @@ final class SchedulingTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: request.documents[0].destination), first)
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.documents[1].destination.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.documents[2].destination.path))
+        try fixture.assertClean()
+    }
+
+    func testOutputAppearingAtPublicationNeedsApprovalAndDoesNotRetry() async throws {
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let input = try fixture.input("late.txt", text: String(repeating: "This public fixture needs several complete chunks. ", count: 16))
+        let request = try fixture.request([input])
+        let destination = request.documents[0].destination
+        let previous = Data("complete audio arriving from another writer".utf8)
+        let log = ProgressLog()
+        let coordinator = QueueCoordinator(configuration: fixture.configuration())
+        let result = try await coordinator.run(request) { event in
+            if case .speech(let value) = event {
+                log.append(value)
+                if value.phase == .publishing { try? previous.write(to: destination) }
+            }
+        }
+        XCTAssertEqual(result.documents.map(\.state), [.failed])
+        XCTAssertEqual(result.successfulCount, 0)
+        XCTAssertEqual(try Data(contentsOf: destination), previous)
+        XCTAssertEqual(log.snapshot.filter { $0.phase == .attemptStarted }.count, 1)
+        XCTAssertEqual(log.snapshot.first { $0.phase == .attemptStarted }?.workerCount, 2)
         try fixture.assertClean()
     }
 

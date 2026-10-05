@@ -1,6 +1,6 @@
 # Libro for macOS — native development
 
-The checked-in project targets **Xcode 27.0, Apple Silicon, macOS 15+ and Swift 6**. The window imports mixed documents/folders, previews extracted text, remembers chosen workspace/output folders, plans editable WAV destinations and verifies the embedded worker. The shared production scheduler uses isolated persistent native workers; connecting Generate and notifications to the window remains M4 work. The Python CLI is independent.
+The checked-in project targets **Xcode 27.0, Apple Silicon, macOS 15+ and Swift 6**. The window imports mixed documents/folders, previews extracted text, remembers chosen workspace/output folders and generates WAVs through isolated native workers. It supports automatic/serial generation, cancellation, explicit replacement, playback/reveal and private batch completion alerts. The Python CLI is independent.
 
 ## Build and open
 
@@ -37,7 +37,7 @@ Create disposable operator fixtures with native document APIs (the destination m
 swift macos/scripts/prepare-intake-fixtures.swift "$PWD/macos/.build/acceptance/intake"
 ```
 
-See `../docs/native-gui-m2-acceptance.md` for the prepared GUI test, including folder recovery and planning conflicts. The generation control and its replacement confirmation will be connected after scheduling is implemented. Do not interpret a text preview or plan as published speech.
+See `../docs/native-gui-m2-acceptance.md` for folder recovery/planning checks and `../docs/native-gui-m4-acceptance.md` for GUI generation/lifecycle evidence and remaining operator acceptance. Choose a prepared workspace and output, resolve any name conflicts, then Generate Audio. Existing audio needs one batch replacement choice. Changes and additions during processing apply to the next batch; the current destination stays visible. Closing the window continues processing; quitting an active batch offers cancellation and waits for owned workers. Alerts respect macOS authorization; denied permission leaves results in the window.
 
 ## Opt-in real speech
 

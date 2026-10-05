@@ -62,4 +62,25 @@ final class AtomicWavWriterTests: XCTestCase {
             XCTAssertEqual(complete.length, 1)
         }
     }
+
+    func testActualRIFFSizeIsCheckedBeforePublication() throws {
+        try fixture { destination in
+            let previous = Data("prior complete output".utf8)
+            try previous.write(to: destination)
+            let writer = try AtomicWavWriter(destination: destination)
+            try writer.append(samples: [0.25], sampleRate: 24_000)
+            XCTAssertThrowsError(try writer.publish {
+                // A sparse temporary fixture exercises the real file-size
+                // boundary without allocating or synthesizing 4 GiB of audio.
+                let handle = try FileHandle(forWritingTo: writer.temporary)
+                defer { try? handle.close() }
+                try handle.truncate(atOffset: UInt64(UInt32.max) + 9)
+            }) { error in
+                guard case AudioOutputError.riffLimit = error else { return XCTFail("Expected RIFF limit") }
+            }
+            writer.abort()
+            XCTAssertEqual(try Data(contentsOf: destination), previous)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: writer.temporary.path))
+        }
+    }
 }

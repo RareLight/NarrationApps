@@ -67,7 +67,7 @@ struct NativeCheck {
             let settings = SpeechSettings(model: model)
             let plan = try BatchPlanner.plan([input], output: output, names: [input.id: "\(model.rawValue).wav"])
             let request = BatchRequest(documents: plan, outputDirectory: output, workspace: workspace.root,
-                                       settings: settings, serial: false)
+                                       settings: settings, serial: false, replaceExisting: true)
             let progress = CheckProgress()
             let started = ContinuousClock.now
             let summary = try await coordinator.run(request) { event in

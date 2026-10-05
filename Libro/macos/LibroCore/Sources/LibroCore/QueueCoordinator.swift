@@ -6,6 +6,9 @@ public struct DocumentOutcome: Sendable {
     public let state: State
     public let destination: URL
     public let message: String?
+    public init(id: UUID, state: State, destination: URL, message: String? = nil) {
+        self.id = id; self.state = state; self.destination = destination; self.message = message
+    }
 }
 
 public struct BatchSummary: Sendable {
@@ -71,11 +74,11 @@ public actor QueueCoordinator {
                 let chunks = try await withTaskCancellationHandler { try await preparation.value }
                     onCancel: { preparation.cancel() }
                 try Task.checkCancellation()
-                _ = try Self.revalidate(request, bindings: bindings)
+                _ = try Self.revalidate(request, bindings: bindings, publicationJob: document.id)
                 try await scheduler.render(chunks: chunks, batchID: request.id, jobID: document.id,
                                            workspace: request.workspace, settings: request.settings,
                                            serial: request.serial, destination: document.destination,
-                                           beforePublication: { _ = try Self.revalidate(request, bindings: bindings) },
+                                           beforePublication: { _ = try Self.revalidate(request, bindings: bindings, publicationJob: document.id) },
                                            progress: { events(.speech($0)) })
                 outcome = .init(id: document.id, state: .published, destination: document.destination, message: nil)
             } catch is CancellationError { break }
@@ -100,10 +103,16 @@ public actor QueueCoordinator {
         return summary
     }
 
-    private static func revalidate(_ request: BatchRequest, bindings: [UUID: URL]? = nil) throws -> [PlannedDocument] {
+    private static func revalidate(_ request: BatchRequest, bindings: [UUID: URL]? = nil,
+                                   publicationJob: UUID? = nil) throws -> [PlannedDocument] {
         let names = Dictionary(uniqueKeysWithValues: request.documents.map { ($0.id, $0.relativeOutput) })
         let plans = try BatchPlanner.plan(request.documents.map(\.input), output: request.outputDirectory, names: names)
         for (current, original) in zip(plans, request.documents) {
+            if publicationJob == nil || publicationJob == current.id {
+                guard !current.replacesExisting || request.approvedReplacements.contains(current.id) else {
+                    throw PlanningError.replacementRequired
+                }
+            }
             guard try OutputPaths.resolved(current.destination) == OutputPaths.resolved(original.destination) else {
                 throw PlanningError.invalidDestination
             }
