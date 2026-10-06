@@ -74,6 +74,93 @@ public enum AppStorage {
     }
     public static var articleLibrary: URL { root.appendingPathComponent("Articles", isDirectory: true) }
     public static var speechFixture: URL { root.appendingPathComponent("SpeechFixture", isDirectory: true) }
+    public static var managedLibrary: URL { root.appendingPathComponent("SpeechLibrary", isDirectory: true) }
+    public static var temporaryWork: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("VoiceRelayPrototype", isDirectory: true)
+    }
+}
+
+/// Persistent metadata is private; only finished audio goes in the chosen folder.
+public struct ManagedSpeechStorage: Sendable {
+    public let stateRoot: URL
+    public let temporaryRoot: URL
+    public let audioDirectory: URL
+    public init(audioDirectory: URL, stateRoot: URL = AppStorage.managedLibrary,
+                temporaryRoot: URL = AppStorage.temporaryWork) {
+        self.audioDirectory = audioDirectory.resolvingSymlinksInPath().standardizedFileURL
+        self.stateRoot = stateRoot.resolvingSymlinksInPath().standardizedFileURL
+        self.temporaryRoot = temporaryRoot.resolvingSymlinksInPath().standardizedFileURL
+    }
+    var profile: PrototypeProfile {
+        var p = PrototypeProfile.fixture(at: stateRoot)
+        p.work = temporaryRoot.appendingPathComponent(Files.hash(Data(stateRoot.path.utf8)), isDirectory: true)
+        p.audio = audioDirectory
+        return p
+    }
+    static let markerText = "VoiceRelay managed speech library v1\n"
+    var marker: URL { stateRoot.appendingPathComponent(".voicerelay-library") }
+    public func validate() throws {
+        guard [stateRoot, temporaryRoot, audioDirectory].allSatisfy(\.isFileURL),
+              audioDirectory.path != "/", !Files.samePath(audioDirectory, FileManager.default.homeDirectoryForCurrentUser),
+              !Files.contains(stateRoot, audioDirectory), !Files.contains(audioDirectory, stateRoot),
+              !Files.contains(temporaryRoot, audioDirectory), !Files.contains(audioDirectory, temporaryRoot),
+              !Files.contains(stateRoot, temporaryRoot), !Files.contains(temporaryRoot, stateRoot) else {
+            throw RelayError.setup("Choose an audio folder separate from private app data and temporary storage.")
+        }
+        try profile.validate()
+    }
+    func validateState() throws {
+        try validate()
+        try Self.validateLibrary(stateRoot: stateRoot)
+    }
+    static func validateLibrary(stateRoot: URL) throws {
+        let p = PrototypeProfile.fixture(at: stateRoot)
+        let marker = stateRoot.appendingPathComponent(".voicerelay-library")
+        guard (try? String(contentsOf: marker, encoding: .utf8)) == Self.markerText,
+              [marker, p.database, p.feed].allSatisfy({
+                  Files.contains(stateRoot, $0) && !Files.hasSymlink($0, below: stateRoot)
+              }) else { throw RelayError.setup("The private speech library is unavailable or invalid.") }
+    }
+    /// Metadata commands never need or create an audio destination or processing workspace.
+    static func prepareLibrary(stateRoot: URL) throws -> URL {
+        guard stateRoot.isFileURL, stateRoot.path != "/",
+              !Files.samePath(stateRoot, FileManager.default.homeDirectoryForCurrentUser) else {
+            throw RelayError.setup("The private speech library location is invalid.")
+        }
+        let fm = FileManager.default
+        if fm.fileExists(atPath: stateRoot.path), !(try fm.contentsOfDirectory(atPath: stateRoot.path)).isEmpty {
+            try validateLibrary(stateRoot: stateRoot)
+        } else {
+            try Files.directory(stateRoot)
+            try Files.write(Data(Self.markerText.utf8), to: stateRoot.appendingPathComponent(".voicerelay-library"))
+        }
+        let database = PrototypeProfile.fixture(at: stateRoot).database
+        try Files.directory(database.deletingLastPathComponent())
+        return database
+    }
+    func prepare() throws -> PrototypeProfile {
+        try validate()
+        let fm = FileManager.default
+        var directory: ObjCBool = false
+        guard fm.fileExists(atPath: audioDirectory.path, isDirectory: &directory), directory.boolValue,
+              fm.isWritableFile(atPath: audioDirectory.path) else {
+            throw RelayError.setup("The audio folder is unavailable or not writable. Reconnect its volume or choose a folder in Settings. It was not recreated.")
+        }
+        _ = try Self.prepareLibrary(stateRoot: stateRoot)
+        let p = profile
+        guard !Files.hasSymlink(p.work, below: temporaryRoot) else {
+            throw RelayError.setup("Temporary speech storage contains an unexpected link.")
+        }
+        try Files.directory(p.database.deletingLastPathComponent())
+        try Files.directory(p.work)
+        for path in [stateRoot, p.work, audioDirectory] {
+            let info = try fm.attributesOfFileSystem(forPath: path.path)
+            guard let free = info[.systemFreeSize] as? NSNumber, free.int64Value >= Int64(p.minimumFreeBytes) else {
+                throw RelayError.setup("Speech storage has insufficient available space.")
+            }
+        }
+        return p
+    }
 }
 
 public struct PrototypeProfile: Codable, Sendable, Equatable {

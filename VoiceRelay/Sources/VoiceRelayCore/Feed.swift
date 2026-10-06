@@ -23,11 +23,14 @@ enum RSS {
         for e in episodes.sorted(by: { ($0.publicationDate ?? .distantPast, $0.id) > ($1.publicationDate ?? .distantPast, $1.id) }) {
             guard e.stage == .published, let when = e.publicationDate, let info = e.info, let hash = e.audioHash,
                   UUID(uuidString: e.id) != nil else { throw RelayError.artifact("Feed requires committed episode metadata.") }
-            let path = settings.audio.appendingPathComponent(e.id + ".m4a")
-            guard try Files.hash(path) == hash, (try path.resourceValues(forKeys: [.fileSizeKey])).fileSize == Int(info.byteLength) else {
+            try e.settings.validate()
+            guard e.settings.audio.isFileURL else { throw RelayError.artifact("Saved audio storage must be local.") }
+            let path = e.settings.audio.appendingPathComponent(e.id + ".m4a")
+            guard !Files.hasSymlink(path, below: e.settings.audio) else { throw RelayError.artifact("Saved audio path contains an unexpected link.") }
+            guard try Files.hash(path, description: "saved audio referenced by the local feed") == hash, (try path.resourceValues(forKeys: [.fileSizeKey])).fileSize == Int(info.byteLength) else {
                 throw RelayError.artifact("Published media is missing or changed; previous feed is preserved.")
             }
-            let enclosure = settings.audioBaseURL.appendingPathComponent(e.id + ".m4a").absoluteString
+            let enclosure = e.settings.audioBaseURL.appendingPathComponent(e.id + ".m4a").absoluteString
             xml += "<item><title>\(escaped(e.title))</title><guid isPermaLink=\"false\">\(e.guid)</guid><pubDate>\(date.string(from: when))</pubDate><enclosure url=\"\(escaped(enclosure))\" length=\"\(info.byteLength)\" type=\"audio/mp4\"/><itunes:duration>\(Int(info.duration.rounded()))</itunes:duration></item>"
         }
         xml += "</channel></rss>\n"

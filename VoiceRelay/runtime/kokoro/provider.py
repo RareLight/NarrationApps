@@ -133,7 +133,11 @@ def serve():
             code = str(error) if isinstance(error, ValueError) and str(error) in {
                 "invalid_request", "invalid_voice", "not_prepared", "missing_assets", "invalid_audio", "empty_audio"
             } else ("setup_failed" if model is None else "synthesis_failed")
-            reply(request_id, kind="error", code=code)
+            detail = type(error).__name__
+            if detail in {"MemoryError", "OSError", "RuntimeError", "TimeoutError", "OverflowError", "EOFError"}:
+                reply(request_id, kind="error", code=code, detail=detail)
+            else:
+                reply(request_id, kind="error", code=code)
 
 
 if __name__ == "__main__":

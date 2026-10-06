@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        B1000000000000000000000F /* WindowPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000014; };
 		B10000000000000000000001 /* VoiceRelayApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* VoiceRelayApp.swift */; };
 		B10000000000000000000002 /* VoiceRelayCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* VoiceRelayCLI.swift */; };
 		B10000000000000000000003 /* CoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000003 /* CoreTests.swift */; };
@@ -16,9 +17,22 @@
 		B10000000000000000000007 /* VoiceRelayCore in Frameworks */ = {isa = PBXBuildFile; productRef = D10000000000000000000003 /* VoiceRelayCore */; };
 		B10000000000000000000008 /* SourceReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000010 /* SourceReviewView.swift */; };
 		B10000000000000000000009 /* SourceReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000011 /* SourceReviewTests.swift */; };
+		B1000000000000000000000A /* VoiceRelayAgent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000012 /* VoiceRelayAgent.swift */; };
+		B1000000000000000000000B /* VoiceRelayCore in Frameworks */ = {isa = PBXBuildFile; productRef = D10000000000000000000004 /* VoiceRelayCore */; };
+		B1000000000000000000000C /* VoiceRelayAgent in Embed Agent */ = {isa = PBXBuildFile; fileRef = F20000000000000000000004 /* VoiceRelayAgent */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		B1000000000000000000000D /* Agent plist in Embed LaunchAgent */ = {isa = PBXBuildFile; fileRef = F10000000000000000000013 /* Agent plist */; };
+		B1000000000000000000000E /* AgentDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000015 /* AgentDiagnosticsView.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A20000000000000000000001 = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000001; proxyType = 1; remoteGlobalIDString = C10000000000000000000004; remoteInfo = VoiceRelayAgent; };
+/* End PBXContainerItemProxy section */
+/* Begin PBXCopyFilesBuildPhase section */
+		E40000000000000000000001 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 6; files = (B1000000000000000000000C, ); name = "Embed Agent"; runOnlyForDeploymentPostprocessing = 0; };
+		E40000000000000000000002 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = "Contents/Library/LaunchAgents"; dstSubfolderSpec = 1; files = (B1000000000000000000000D, ); name = "Embed LaunchAgent"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
 /* Begin PBXFileReference section */
+        F10000000000000000000014 /* WindowPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WindowPresence.swift; path = Sources/VoiceRelayApp/WindowPresence.swift; sourceTree = "<group>"; };
 		900000000000000000000001 /* Audio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Audio.swift; sourceTree = "<group>"; };
 		900000000000000000000002 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
 		900000000000000000000003 /* Extraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extraction.swift; sourceTree = "<group>"; };
@@ -54,6 +68,14 @@
 		90000000000000000000000D /* ReadingList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingList.swift; sourceTree = "<group>"; };
 		90000000000000000000000E /* PageFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageFetcher.swift; sourceTree = "<group>"; };
 		90000000000000000000000F /* SourceReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceReview.swift; sourceTree = "<group>"; };
+		900000000000000000000010 /* SpeechQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechQueue.swift; sourceTree = "<group>"; };
+		F10000000000000000000012 /* VoiceRelayAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceRelayAgent.swift; path = Sources/VoiceRelayAgent/VoiceRelayAgent.swift; sourceTree = "<group>"; };
+		F10000000000000000000013 /* Agent plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = org.voicerelay.prototype.agent.plist; path = Packaging/org.voicerelay.prototype.agent.plist; sourceTree = "<group>"; };
+		F20000000000000000000004 /* VoiceRelayAgent */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = VoiceRelayAgent; sourceTree = BUILT_PRODUCTS_DIR; };
+		900000000000000000000011 /* AgentContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentContract.swift; sourceTree = "<group>"; };
+        900000000000000000000012 /* AudioRetention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRetention.swift; sourceTree = "<group>"; };
+        900000000000000000000013 /* AgentClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentClient.swift; sourceTree = "<group>"; };
+        F10000000000000000000015 /* AgentDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AgentDiagnosticsView.swift; path = Sources/VoiceRelayApp/AgentDiagnosticsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -75,6 +97,7 @@
 				B10000000000000000000007 /* VoiceRelayCore in Frameworks */,
 			);
 		};
+		E10000000000000000000004 = {isa = PBXFrameworksBuildPhase; files = (B1000000000000000000000B, ); };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -103,7 +126,11 @@
 			children = (
 				F10000000000000000000001 /* VoiceRelayApp.swift */,
 				F10000000000000000000010 /* SourceReviewView.swift */,
+                F10000000000000000000014 /* WindowPresence.swift */,
+                F10000000000000000000015 /* AgentDiagnosticsView.swift */,
 				F10000000000000000000002 /* VoiceRelayCLI.swift */,
+				F10000000000000000000012 /* VoiceRelayAgent.swift */,
+				F10000000000000000000013 /* Agent plist */,
 				A10000000000000000000004 /* VoiceRelayCore */,
 				F1000000000000000000000C /* CSQLite */,
 				F1000000000000000000000B /* Resources */,
@@ -117,6 +144,7 @@
 				F20000000000000000000001 /* VoiceRelay.app */,
 				F20000000000000000000002 /* voicerelay */,
 				F20000000000000000000003 /* VoiceRelayCoreTests.xctest */,
+				F20000000000000000000004 /* VoiceRelayAgent */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -138,6 +166,10 @@
 				90000000000000000000000D /* ReadingList.swift */,
 				90000000000000000000000E /* PageFetcher.swift */,
 				90000000000000000000000F /* SourceReview.swift */,
+				900000000000000000000010 /* SpeechQueue.swift */,
+				900000000000000000000011 /* AgentContract.swift */,
+                900000000000000000000012 /* AudioRetention.swift */,
+                900000000000000000000013 /* AgentClient.swift */,
 				90000000000000000000000A /* Tools.swift */,
 			);
 			name = VoiceRelayCore;
@@ -154,9 +186,12 @@
 				E20000000000000000000001 /* Sources */,
 				E10000000000000000000001 /* Frameworks */,
 				E30000000000000000000001 /* Resources */,
+				E40000000000000000000001 /* Embed Agent */,
+				E40000000000000000000002 /* Embed LaunchAgent */,
 			);
 			buildRules = (
 			);
+			dependencies = (A30000000000000000000001, );
 			name = VoiceRelay;
 			packageProductDependencies = (
 				D10000000000000000000001 /* VoiceRelayCore */,
@@ -199,6 +234,17 @@
 			productReference = F20000000000000000000003 /* VoiceRelayCoreTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		C10000000000000000000004 /* VoiceRelayAgent */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C20000000000000000000005;
+			buildPhases = (E20000000000000000000004, E10000000000000000000004, );
+			buildRules = ();
+			name = VoiceRelayAgent;
+			packageProductDependencies = (D10000000000000000000004, );
+			productName = VoiceRelayAgent;
+			productReference = F20000000000000000000004;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -227,6 +273,7 @@
 				C10000000000000000000001 /* VoiceRelay */,
 				C10000000000000000000002 /* VoiceRelayCLI */,
 				C10000000000000000000003 /* VoiceRelayCoreTests */,
+				C10000000000000000000004 /* VoiceRelayAgent */,
 			);
 		};
 /* End PBXProject section */
@@ -246,6 +293,8 @@
 			files = (
 				B10000000000000000000001 /* VoiceRelayApp.swift in Sources */,
 				B10000000000000000000008 /* SourceReviewView.swift in Sources */,
+                B1000000000000000000000F /* WindowPresence.swift in Sources */,
+                B1000000000000000000000E /* AgentDiagnosticsView.swift in Sources */,
 			);
 		};
 		E20000000000000000000002 /* Sources */ = {
@@ -261,8 +310,12 @@
 				B10000000000000000000009 /* SourceReviewTests.swift in Sources */,
 			);
 		};
+		E20000000000000000000004 = {isa = PBXSourcesBuildPhase; files = (B1000000000000000000000A, ); };
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		A30000000000000000000001 = {isa = PBXTargetDependency; target = C10000000000000000000004; targetProxy = A20000000000000000000001; };
+/* End PBXTargetDependency section */
 /* Begin XCBuildConfiguration section */
 		C30000000000000000000001 /* Debug configuration for PBXNativeTarget "VoiceRelay" */ = {
 			isa = XCBuildConfiguration;
@@ -395,6 +448,16 @@
 			};
 			name = Release;
 		};
+		C30000000000000000000009 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; ENABLE_APP_SANDBOX = NO; MACOSX_DEPLOYMENT_TARGET = 27.0; PRODUCT_BUNDLE_IDENTIFIER = org.voicerelay.prototype.agent; PRODUCT_NAME = VoiceRelayAgent; };
+			name = Debug;
+		};
+		C3000000000000000000000A = {
+			isa = XCBuildConfiguration;
+			buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; ENABLE_APP_SANDBOX = NO; MACOSX_DEPLOYMENT_TARGET = 27.0; PRODUCT_BUNDLE_IDENTIFIER = org.voicerelay.prototype.agent; PRODUCT_NAME = VoiceRelayAgent; };
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -430,6 +493,7 @@
 			);
 			defaultConfigurationName = Release;
 		};
+		C20000000000000000000005 = {isa = XCConfigurationList; buildConfigurations = (C30000000000000000000009, C3000000000000000000000A, ); defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -455,6 +519,7 @@
 			package = D00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = VoiceRelayCore;
 		};
+		D10000000000000000000004 = {isa = XCSwiftPackageProductDependency; package = D00000000000000000000001; productName = VoiceRelayCore; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A00000000000000000000001 /* Project object */;

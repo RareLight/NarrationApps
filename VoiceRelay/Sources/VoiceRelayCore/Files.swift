@@ -4,13 +4,15 @@ import Darwin
 
 enum Files {
     static func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
-    static func hash(_ url: URL) throws -> String {
-        guard let stream = InputStream(url: url) else { throw RelayError.artifact("Cannot read artifact.") }
+    static func hash(_ url: URL) throws -> String { try hash(url, description: "artifact") }
+    static func hash(_ url: URL, description: String) throws -> String {
+        let failure = RelayError.artifact("Cannot read \(description). Check that its storage is available and readable; saved progress is retained.")
+        guard let stream = InputStream(url: url) else { throw failure }
         stream.open(); defer { stream.close() }
         var hash = SHA256(); var buffer = [UInt8](repeating: 0, count: 65_536)
         while true {
             let n = stream.read(&buffer, maxLength: buffer.count)
-            if n < 0 { throw RelayError.artifact("Cannot read artifact.") }
+            if n < 0 { throw failure }
             if n == 0 { break }
             hash.update(data: Data(buffer.prefix(n)))
         }

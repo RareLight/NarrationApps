@@ -64,10 +64,20 @@ VoiceRelay/
   .runtime/kokoro/.venv/                pinned inference environment and packaged G2P assets
   .runtime/kokoro/notices/              installed distribution license copies/inventory
   .runtime/cache/                      uv/pip/Hugging Face/XDG caches
-  .runtime/{tmp,config,data}/           owned temporary/config/data paths
+  .runtime/{config,data}/              owned config/data paths
   models/kokoro/<pinned-revision>/       model, config, voices, model card, provenance manifest
   models/huggingface/hub/               owned Hub cache
 ```
+
+Inference helper `TMPDIR` no longer points into `.runtime/tmp`. Each prepared
+helper session gets a new private `0700` directory under the app-owned macOS
+system temporary root (`FileManager` temporary directory, `VoiceRelayPrototype/
+SpeechHelper`), launched with `TMPDIR` set to that child and removed after the
+worker stops. The parent root persists; orphaned scratch is left to OS cleanup.
+Explicit setup/download scratch, interpreters, models, venvs and all caches stay
+project-local as above. Helper scratch outside the project does not remove the
+existing Documents access needed to read these runtime/model/cache sources;
+no TCC, signing or privacy-approval change was made.
 
 `/models/`, `/.runtime/`, `/.cache/`, and `/.venv/` are ignored by the project's
 `.gitignore`; source and pins remain reviewable. This directory currently has no
@@ -202,6 +212,7 @@ IDs, finite speed 0.25–4.0. Defaults are `af_heart`, US English, speed 1.0.
 Preparation and each synthesis have separate 180 s / 600 s deadlines. Pause/task
 cancellation and failure stop the owned helper group with TERM followed by KILL;
 a worker owner-watch thread also stops its group if the Swift parent disappears.
+Stopping a session also removes only that session's owned temporary directory.
 Each coordinator run prepares once and reuses the loaded model for all requests,
 then stops it. It is not a persistent agent or a cross-run warm model pool.
 Real Metal responsiveness, abrupt-parent-loss cleanup, and long-running memory
@@ -229,21 +240,21 @@ markers, so they cannot be mixed. The synthetic test backends are not speech evi
 2. Open `VoiceRelay.xcodeproj`, choose **VoiceRelay → My Mac**, build (⌘B), quit
    any previous copy and run (⌘R). Startup performs no inference.
 3. Open **Settings… → Speech**. Heart at 1.0× is the default; voice/speed changes
-   save automatically. No mode picker or TOML file is required. Under **Prototype
-   development → Runtime and sample diagnostics**, verify the runtime project
-   points to `/path/to/VoiceRelay` if selection is needed.
-4. Click **Generate sample speech**. The app uses its separate managed speech
-   fixture directory automatically. The development folder chooser can select
-   an existing speech fixture; historical tone workspaces are preserved/refused.
+   save automatically. In **Storage → Choose audio folder…**, select/create the
+   folder where finished M4A files should be saved. No config file or mode picker.
+   The development runtime continues to use the installed project-local runtime.
+4. Under **Prototype development → Runtime and sample diagnostics**, click
+   **Generate sample speech**. It uses the selected audio folder and internal
+   library, with processing files in macOS temporary storage.
 5. In the waveform panel, expect **Speech saved locally**, validated M4A and
    isolated local RSS. Click **Inspect → Play speech** and listen to the ordered
    narration, pronunciation, omissions, chunk joins and clipping.
 6. Use **Run / Resume Speech** for a repeat. Expect no newly synthesized chunks
    and unchanged episode identity/media. Test Pause/resume if processing lasts
    long enough; record it as untested if the sample finishes first.
-7. For real articles, follow [reviewed-article speech checks](SOURCE_REVIEW.md#reviewed-article-speech-and-managed-storage).
-   The saved article library resumes without refetching; sample speech and reviewed
-   articles have separate storage ownership.
+7. For real articles, follow [article speech checks](SOURCE_REVIEW.md#step-by-step-xcode-checks).
+   Sample speech and selected articles use the same internal library and chosen
+   audio destination. Old fixture workspaces remain developer/historical artifacts.
 
 The CLI **speech-fixture** command runs actual Kokoro on the bundled saved article.
 The previous tone **fixture** command has been removed. Real-article speech is
@@ -332,12 +343,12 @@ Operator retry:
    this Xcode beta presents a menu). Leave other diagnostics as configured. Close
    the scheme editor. This matters even when **Debug executable** is unchecked.
 4. Build (⌘B), then run (⌘R). In the waveform panel, open **Settings…**. Kokoro is the only
-   audio provider; saved voice/speed preferences persist. Under development diagnostics,
-   confirm the runtime project is `/path/to/VoiceRelay`.
-5. Select the same failed **speech** fixture folder, then click **Run / Resume
-   Speech**. No reinstall or model download is needed for this change. Retained
-   checkpoints are validated normally; do not use a tone fixture folder.
-6. If it publishes, play the M4A from that folder's `media` directory. Report
+   audio provider; saved voice/speed preferences persist. Choose an audio folder
+   under **Storage** if needed.
+5. Click **Generate sample speech** (or **Saved speech → Resume** for a current
+   saved episode). No reinstall or model download is needed for this change.
+   Historical fixture resumption remains available in the diagnostic CLI.
+6. If it publishes, play the M4A from the selected audio folder. Report
    speech completion and listening separately, including any missing words or
    audible chunk joins. Retry once to confirm an unchanged published episode.
 7. If it fails, copy the new complete error from the panel. In Finder, choose

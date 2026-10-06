@@ -7,7 +7,8 @@ let package = Package(
     products: [
         .library(name: "VoiceRelayCore", targets: ["VoiceRelayCore"]),
         .executable(name: "voicerelay", targets: ["VoiceRelayCLI"]),
-        .executable(name: "VoiceRelayApp", targets: ["VoiceRelayApp"])
+        .executable(name: "VoiceRelayApp", targets: ["VoiceRelayApp"]),
+        .executable(name: "VoiceRelayAgent", targets: ["VoiceRelayAgent"])
     ],
     dependencies: [
         .package(url: "https://github.com/wolfyy970/swift-readability.git", exact: "0.3.3"),
@@ -23,6 +24,8 @@ let package = Package(
         ], resources: [.copy("Resources/article.html")]),
         .executableTarget(name: "VoiceRelayCLI", dependencies: ["VoiceRelayCore"]),
         .executableTarget(name: "VoiceRelayApp", dependencies: ["VoiceRelayCore"]),
-        .testTarget(name: "VoiceRelayCoreTests", dependencies: ["VoiceRelayCore", "CSQLite"])
+        .executableTarget(name: "VoiceRelayAgent", dependencies: ["VoiceRelayCore"]),
+        .testTarget(name: "VoiceRelayCoreTests", dependencies: ["VoiceRelayCore", "CSQLite"]),
+        .testTarget(name: "VoiceRelayAppTests", dependencies: ["VoiceRelayApp", "VoiceRelayCore"])
     ]
 )

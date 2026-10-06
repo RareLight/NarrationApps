@@ -12,6 +12,7 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
     private let synthesisTimeout: TimeInterval
     private let voice: String
     private let speed: Double
+    private let temporaryRoot: URL?
     private let requestLock = NSLock()
     private let stateLock = NSLock()
     private var session: Session?
@@ -23,16 +24,21 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
         let process: Process
         let input: Pipe
         let output: Pipe
+        let temporaryDirectory: URL?
         var buffer = Data()
         var isolated = false
         var stopped = false
-        init(process: Process, input: Pipe, output: Pipe) { self.process = process; self.input = input; self.output = output }
+        init(process: Process, input: Pipe, output: Pipe, temporaryDirectory: URL? = nil) {
+            self.process = process; self.input = input; self.output = output; self.temporaryDirectory = temporaryDirectory
+        }
     }
 
     init(identity: BackendIdentity, executable: URL, arguments: [String], environment: [String: String],
-         voice: String, speed: Double, prepareTimeout: TimeInterval = 180, synthesisTimeout: TimeInterval = 600) {
+         voice: String, speed: Double, prepareTimeout: TimeInterval = 180, synthesisTimeout: TimeInterval = 600,
+         temporaryRoot: URL? = nil) {
         self.identity = identity; self.executable = executable; self.arguments = arguments; self.environment = environment
         self.voice = voice; self.speed = speed; self.prepareTimeout = prepareTimeout; self.synthesisTimeout = synthesisTimeout
+        self.temporaryRoot = temporaryRoot
     }
     deinit { cancel() }
 
@@ -43,13 +49,23 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             throw RelayError.setup("Project-local speech runtime is missing. Run explicit Kokoro setup first.")
         }
+        var environment = environment
+        var temporaryDirectory: URL?
+        if let temporaryRoot {
+            temporaryDirectory = try Self.allocateTemporaryDirectory(under: temporaryRoot)
+            environment["TMPDIR"] = temporaryDirectory?.path
+        }
         let p = Process(); let input = Pipe(); let output = Pipe()
         p.executableURL = executable; p.arguments = arguments; p.environment = environment
         p.standardInput = input; p.standardOutput = output; p.standardError = FileHandle.nullDevice
-        let owned = Session(process: p, input: input, output: output)
+        let owned = Session(process: p, input: input, output: output, temporaryDirectory: temporaryDirectory)
         stateLock.lock()
         do { try p.run(); session = owned; stateLock.unlock() }
-        catch { stateLock.unlock(); throw RelayError.setup("Speech helper could not start.") }
+        catch {
+            stateLock.unlock()
+            if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
+            throw RelayError.setup("Speech helper could not start.")
+        }
         try? input.fileHandleForReading.close(); try? output.fileHandleForWriting.close()
         let readFD = output.fileHandleForReading.fileDescriptor
         let writeFD = input.fileHandleForWriting.fileDescriptor
@@ -133,14 +149,27 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
         let value = try receive(owned, deadline: deadline, operation: operation)
         guard value["protocol"] as? Int == 1, value["id"] as? Int == id else { throw RelayError.artifact("Speech helper protocol response is incompatible.") }
         if value["kind"] as? String == "error" {
-            switch value["code"] as? String {
-            case "missing_assets", "setup_failed": throw RelayError.setup("Speech model/runtime/G2P assets are missing or incompatible. Run explicit project-local setup.")
-            case "invalid_voice": throw RelayError.setup("Speech voice is unsupported or unavailable locally.")
-            case "invalid_request": throw RelayError.setup("Speech language, speed, or request is unsupported.")
-            default: throw RelayError.artifact("Speech helper failed; completed chunks are retained.")
-            }
+            throw Self.helperFailure(code: value["code"] as? String, detail: value["detail"] as? String)
         }
         return value
+    }
+    static func helperFailure(code: String?, detail: String?) -> RelayError {
+        let safeDetail = detail.flatMap { token in
+            token.count <= 40 && token.range(of: "^[A-Za-z]+$", options: .regularExpression) != nil ? token : nil
+        }
+        switch code {
+        case "missing_assets", "setup_failed": return .setup("Speech model/runtime/G2P assets are missing or incompatible. Run explicit project-local setup.")
+        case "not_prepared": return .setup("Speech helper lost its prepared session; completed chunks are retained.")
+        case "invalid_voice": return .setup("Speech voice is unsupported or unavailable locally.")
+        case "invalid_request": return .setup("Speech language, speed, or request is unsupported.")
+        case "invalid_audio": return .artifact("The speech engine produced invalid audio; completed chunks are retained.")
+        case "empty_audio": return .artifact("The speech engine produced no audio for one chunk; completed chunks are retained.")
+        case "synthesis_failed":
+            var message = "Speech synthesis failed inside the local engine"
+            if let safeDetail { message += " (engine error: \(safeDetail))" }
+            return .artifact(message + "; completed chunks are retained.")
+        default: return .artifact("Speech helper failed; completed chunks are retained.")
+        }
     }
     private func receive(_ owned: Session, deadline: TimeInterval, operation: Operation) throws -> [String: Any] {
         var chunk = [UInt8](repeating: 0, count: 8192)
@@ -196,6 +225,33 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
         while owned.process.isRunning && ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval: 0.01) }
         if grouped { kill(-pid, SIGKILL) } else if owned.process.isRunning { kill(pid, SIGKILL) }
         owned.process.waitUntilExit()
+        if let temporaryDirectory = owned.temporaryDirectory {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
         // Pipes stay alive while an in-flight request unwinds; Session owns them.
+    }
+
+    private static func allocateTemporaryDirectory(under root: URL) throws -> URL {
+        let failure = RelayError.setup("System temporary storage is unavailable for the speech helper.")
+        let fm = FileManager.default
+        let canonicalTemp = fm.temporaryDirectory.resolvingSymlinksInPath().standardizedFileURL
+        guard root.isFileURL, root.path != "/",
+              !Files.samePath(root, fm.homeDirectoryForCurrentUser),
+              Files.contains(canonicalTemp, root), !Files.samePath(canonicalTemp, root),
+              !Files.hasSymlink(root, below: canonicalTemp) else { throw failure }
+        do { try Files.directory(root) } catch { throw failure }
+        var info = stat()
+        guard lstat(root.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR,
+              info.st_uid == geteuid(), (info.st_mode & 0o777) == 0o700 else { throw failure }
+        let child = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        guard mkdir(child.path, 0o700) == 0 else { throw failure }
+        var childInfo = stat()
+        guard Files.contains(root, child), !Files.hasSymlink(child, below: root),
+              lstat(child.path, &childInfo) == 0, (childInfo.st_mode & S_IFMT) == S_IFDIR,
+              childInfo.st_uid == geteuid(), (childInfo.st_mode & 0o777) == 0o700 else {
+            try? fm.removeItem(at: child)
+            throw failure
+        }
+        return child
     }
 }

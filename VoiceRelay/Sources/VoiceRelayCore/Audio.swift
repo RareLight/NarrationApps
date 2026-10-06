@@ -78,27 +78,29 @@ struct AudioProcessor {
         try? FileManager.default.removeItem(at: partial)
         return (complete, info)
     }
-    func publish(_ source: URL, destination: URL, expectedHash: String) throws {
+    func publish(_ source: URL, destination: URL, expectedHash: String, inMediaDirectory: Bool = false) throws {
         guard FileManager.default.fileExists(atPath: destination.deletingLastPathComponent().path) else {
-            throw RelayError.setup("Media storage is missing. Restore the fixture storage; it was not recreated.")
+            throw RelayError.setup("The audio folder is unavailable. Reconnect its volume before resuming; it was not recreated.")
         }
         if FileManager.default.fileExists(atPath: destination.path) {
-            guard try Files.hash(destination) == expectedHash else {
+            guard try Files.hash(destination, description: "saved audio") == expectedHash else {
                 throw RelayError.artifact("Conflicting media already exists; inspect it before repair.")
             }
             _ = try probe(destination, final: true); try decode(destination); return
         }
-        let staging = destination.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(".media-staging")
-        try Files.directory(staging)
+        let staging = inMediaDirectory ? destination.deletingLastPathComponent()
+            : destination.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(".media-staging")
+        if !inMediaDirectory { try Files.directory(staging) }
         var stagedStat = stat(); var outputStat = stat()
         guard stat(staging.path, &stagedStat) == 0,
               stat(destination.deletingLastPathComponent().path, &outputStat) == 0,
               stagedStat.st_dev == outputStat.st_dev else {
             throw RelayError.setup("Publication staging and media must be on the same filesystem.")
         }
-        let candidate = staging.appendingPathComponent(destination.lastPathComponent)
+        let candidate = staging.appendingPathComponent(inMediaDirectory ? ".\(UUID().uuidString).m4a.tmp" : destination.lastPathComponent)
+        defer { try? FileManager.default.removeItem(at: candidate) }
         try Files.write(try Data(contentsOf: source), to: candidate)
-        guard try Files.hash(candidate) == expectedHash else { throw RelayError.artifact("Staged media integrity check failed.") }
+        guard try Files.hash(candidate, description: "staged audio") == expectedHash else { throw RelayError.artifact("Staged media integrity check failed.") }
         _ = try probe(candidate, final: true); try decode(candidate)
         try Task.checkCancellation()
         guard rename(candidate.path, destination.path) == 0 else { throw RelayError.storage("Atomic media publication failed.") }

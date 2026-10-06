@@ -221,7 +221,12 @@ public enum ArticleExtractor {
 }
 
 public enum Narration {
-    public static let version = "conservative-2/footnotes-1/sentence-chunks-1"
+    public static let version = "conservative-2/footnotes-1/sentence-chunks-1/decorative-quotes-1"
+    private static func isDecorativeQuotation(_ text: String) -> Bool {
+        let marks = CharacterSet(charactersIn: "\"'\u{2018}\u{2019}\u{201C}\u{201D}\u{00AB}\u{00BB}\u{2039}\u{203A}\u{275D}\u{275E}")
+            .union(.whitespacesAndNewlines)
+        return !text.isEmpty && text.unicodeScalars.allSatisfy { marks.contains($0) }
+    }
     public static func prepare(_ article: SemanticArticle, limit: Int) throws -> NarrationPlan {
         guard limit > 0 else { throw RelayError.setup("Narration chunk limit must be positive.") }
         var chunks: [NarrationChunk] = []; var notices: [String] = []
@@ -271,7 +276,11 @@ public enum Narration {
             if block.kind == .unsupported {
                 notices.append("Block \(index): unsupported structure read as plain text; inspect before listening acceptance.")
             }
-            emit(text, indices: [index])
+            if isDecorativeQuotation(text) {
+                notices.append("Block \(index): decorative quotation retained in semantic artifact and omitted from narration.")
+            } else {
+                emit(text, indices: [index])
+            }
             for id in block.footnoteReferences ?? [] { footnote(id, referredBy: index) }
         }
         func footnote(_ id: String, referredBy index: Int?) {

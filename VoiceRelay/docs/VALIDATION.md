@@ -1,9 +1,447 @@
 # Validation evidence
 
-Updated October 3, 2026. The deliverable is now `/path/to/VoiceRelay`.
+Updated October 5, 2026. The deliverable is now `/path/to/VoiceRelay`.
 Build/test evidence from before relocation is retained below as historical evidence;
 it does not establish a successful build of the new Xcode project. No deferred
 production functionality is certified.
+
+## October 5 UI presentation: refresh removal, automatic source sync, notice dismissal, compact Settings
+
+The user asked to remove visible Refresh controls everywhere, synchronize the
+chosen Reading List source automatically (chosen-source-only, ~30 s while the
+app runs plus Articles-appearance and chooser triggers), stop Queue
+Generate/Reset from greying during row removals, dismiss errors via a
+hover-revealed ⓧ without touching stored state, compact the Settings pane
+selector to 232×54 with a native keyboard-focus cue instead of a persistent
+tinted box, floor all visible text at 12 pt with prose moved behind ⓘ header
+controls, and drop the Saved Audio Play button in favor of Show in Finder.
+
+| Area | Evidence and limits |
+| --- | --- |
+| Refresh removal | `WorkspaceView`'s shared Refresh toolbar item and the Troubleshooting "Refresh Reading List" button are removed; no hidden menu equivalent exists. Internal library mechanisms are untouched: `refreshLibrary()` on appearance/mutations, the 15-minute maintenance loop and the 3-second saved-audio poll. The former manual `SourceReviewModel.refresh(profile:)` API was replaced by `synchronizeOnce`/`requestSourceSync` (recorded here, not reintroduced). Core error strings that told users to "refresh Saved Audio" now say "reopen Saved Audio" (copy-only edits); the automatic recheck itself is unchanged. |
+| Automatic source sync | `SourceReviewModel` owns `autoSyncTask`/`immediateSyncTask`, cancelled and awaited in `stop()`. A nil source loads the private catalog only and never touches the default Safari location; the injected `stateRoot`/`snapshotReader` seams keep tests off UserDefaults and the real plist. `autoSyncWithoutChosenSourceNeverReadsPlist`, `chosenSourceSyncsAndRetainsAbsentInventory`, `failedSourceReadPreservesInventoryAndSuccessClearsError` and `stopCancelsAndAwaitsOwnedSourceRead` cover zero-read nil source, chosen-source reconcile with absent-entry retention, failure preserving inventory then success clearing the error, and stop awaiting the owned reader then refusing new reads. Background reads never set `busy` and reconcile writes only on real membership/entry changes. Rework: reads now run in an owned `sourceReadTask` awaited by `stop()` even for direct `synchronizeOnce` calls; `setSource(_:)` bumps a generation token, cancels the in-flight reader and queues an immediate recheck, and generation guards after the reader, after the catalog load and before every commit/UI assignment keep a superseded source from overwriting newer data. `requestSourceSync` now awaits an in-flight read instead of dropping the request, so overlapping requests coalesce into one extra pass rather than being lost for 30 s. `sourceSwitchDuringReadCommitsOnlyNewSource` and `requestDuringActiveReadCoalescesExtraPass` cover both. |
+| Stable queue controls | `canGenerateAudio`/`canResetQueue` no longer gate on `queueMutationBusy`; `runQueue` drains the FIFO mutation executor before the queue snapshot, and `resetQueue` enqueues behind pending work under `isQueueResetPending`. `queueControlsStayEnabledDuringRowMutation` (held writer, controls stay true while two rows remain), `generateAwaitsPendingRemovalAndSynthesizesOnlyRemaining` (recording backend proves only the surviving article synthesizes), `confirmedResetBehindPendingRemovalClearsAllRows` and `stopDuringMutationAwaitSynthesizesNothingButFinishesMetadata` cover the ordering. |
+| Notice dismissal | `NoticeDismissalState` keys suppression per `(context key, exact message)` — global, audio, source, enqueue, and queue-row `id:attempts:state` keys. `noticeDismissalIsKeyedStableAndPresentationOnly` verifies repeats stay hidden, a new attempt/message re-shows, reset restores, and the `SpeechQueueItem` is untouched; `previewErrorClearKeepsReviewContentAndStoreUntouched` covers the preview path. The hover/focus-revealed ⓧ is keyboard accessible; hover reveal itself is an operator GUI check. |
+| Compact Settings | Selector constants are 232×54 with 20 pt symbols and 12 pt labels; the glass selected tile is preserved and `focusEffectDisabled` + a rounded keyboard-only `.tint` focus cue (marked only while the current event is a keyDown; mouse activation clears it) replace any persistent focus box. `settingsPanesShareFixedGlassControlLayout` (updated constants) and `typographyAndSelectorConstantsMeetPresentationFloor` cover the values; the actual Tab/Space focus cue and mouse-clearing behavior need operator verification — source inspection cannot prove OS focus rendering. `AppTypography` floors app text at 12 pt; `subheadline`/`caption` usages in active UI were replaced and section footnote prose moved into `SectionHelpHeader` ⓘ popovers. |
+| Saved Audio | The Play button and `openAudio(_:)` are removed; rows keep Show in Finder. Docs direct listening to Finder + Quick Look. |
+| Tests | Focused raw run (`var/validation/2026-10-05-ui-presentation/focused-tests.log`, argv and exit code captured): **1 core + 27 app = 28 tests passed, 0 issues** — 11 new cases plus touched regressions (queue reset/generation availability, row-removal state, selection threshold, captured reset IDs, shutdown, preview, troubleshooting/settings construction). Rework raw run (`rework-tests.log`): **10 tests passed, 0 issues** — new `sourceSwitchDuringReadCommitsOnlyNewSource`, `requestDuringActiveReadCoalescesExtraPass` and `explicitOperationsResetDismissedNotices` plus the nil-source/success-failure/stop-owned and typography/settings/notice cases. No full suite, agent tests, GUI, network, model or live data ran. |
+| Build | One incremental `xcodebuild -project VoiceRelay.xcodeproj -scheme VoiceRelay -configuration Debug -disableAutomaticPackageResolution build` on existing DerivedData: **BUILD SUCCEEDED** (`xcodebuild-increment.log` pre-rework, `xcodebuild-rework.log` post-rework); warnings are the pre-existing signed-binary strip note and AppIntents metadata skip. `git diff --check` clean; zero net comment-line delta vs the pre-increment baseline. |
+| Operator gates | Hover-reveal visuals, glass/focus-cue rendering, 12 pt readability in context, automatic sync on a real chosen plist, and any Canvas preview remain manual checks; nothing here proves OS redraw, focus or hover behavior. |
+
+## October 5 SQLite concurrency, shared removal controls and Saved Audio deletion
+
+The user reported "Native SQLite write failed." when adding many articles and
+processing immediately, plus control flicker on queue row removal. An isolated
+diagnostic reproduced the mechanism: on Apple SQLite 3.54 under rollback
+journaling, a held same-process read-only transaction fails a native write with
+`SQLITE_IOERR` 10, extended `SQLITE_IOERR_LOCK` 3850 (errno EBADF) — not the
+hypothesized `SQLITE_BUSY` — recorded in `sqlite-green.log`/`red-diagnostic.log`
+under `var/validation/2026-10-05-library-controls/`. The live incident's extended
+code was never captured, so this is a reproduced mechanism, not proven live
+causality. The fix was authored separately and frozen: `busy_timeout` 2000 ms on
+read and write connections, `PRAGMA journal_mode=WAL` after native ID/version
+validation, `SQLITE_FCNTL_PERSIST_WAL=1`, with FULL synchronous, foreign keys
+and the writer flock unchanged. WAL plus persisted sidecars was verified by an
+independent 16-case probe; this increment does not change journaling, timeouts
+or ordering. Errors now report numeric SQLite extended/system codes with
+role-only messages — no SQL text, errstr, paths or content.
+
+| Area | Evidence and limits |
+| --- | --- |
+| Concurrency | `sqliteCommitWaitsForConcurrentReader` was red before WAL (commit failed in 0.06 s under a held shared read lock) and green after; `readOnlyNativeStoreReadsAfterLastWriterClosed`, `readOnlyNativeStoreRefusesWrites`, `nativeVersionTwoUpgradePreservesWAL` and `foreignOrNewerDatabaseIsRefusedWithoutWALSidecar` cover persisted-WAL reopen, read-only write refusal, v2→v3 upgrade and foreign/newer refusal without sidecars. `sqliteCommitProbeReportsBusyCode` keeps the DELETE-journal mechanism probe on an isolated database, recording the actual `rc=10 extended=3850`. |
+| Diagnostics | `sqliteFailure(operation:)` emits `Native SQLite <role> failed (SQLite <code>, system <errno>). Saved progress is retained.` and a busy/locked variant; `sqliteFailureReportsCodesWithoutContent` asserts numeric codes with no SQL or path leakage. |
+| Removal controls | Queue and Saved Audio share `SelectionManagementControl` (reset below two selections, Remove Selections at two or more, one stable button) and `RowRemovalButton`; `selectionManagementControlSwitchesToBulkAboveOneSelection` covers the threshold and both panes' construction. |
+| Flash fix | Queue mutations now run on a single model-owned FIFO executor with per-entry `mutatingQueueEntries` state and never touch `running`/`processingSpeech`/progress; `queueRowRemovalLeavesSpeechStateAndProgressUntouched` and `rapidQueueRemovalsBothComplete` cover state preservation and FIFO completion. Whether the visible flicker is gone needs operator GUI confirmation — tests prove state stability, not redraw. |
+| Queue preview | `articlePreviewURL(articleID:stateRoot:)` resolves the preview from the integrity-checked snapshot via a validated read-only store; `articlePreviewURLResolvesSavedSnapshot` (including a nil `sourceEntryID` item) and `articlePreviewURLRefusesMissingCorruptOrForeignState` cover success and refusal; `queuePreviewResolvesSavedSnapshotURL` covers the app seam. The resolver performs no fetch; the opened preview window fetches the page as it does for Articles rows. |
+| Saved Audio removal | `removeSavedAudio(ids:storage:)` validates the whole target group, commits `expired`+manual intent and pending feed atomically, writes the local feed before unlinking, rechecks hash/size/inode immediately before `removeItem`, then clears intent; `resumePendingAudioRemovals(storage:)` finishes durable intent after crashes/failures. Core tests cover single/bulk deletion, captured-ID reset, feed-failure durability with resolver retry, unlink-failure visibility and retry, confirmed-missing idempotency, unavailable/substituted refusal, competing-lease and foreign-library refusal, and `.never` not resurrecting flagged intent. App tests cover model deletion/pruning and the processing block. |
+| Rework pass | Review hardening, same increment: regeneration refuses while manual intent is pending (`resumeRefusesUntilPendingRemovalResolves`), the resolver refuses invalid flagged records before any mutation (`pendingRemovalResolverRefusesNonExpiredFlaggedRecord`), an empty removal request is a no-op that creates nothing (`removeSavedAudioEmptySelectionIsNoop`), the pre-unlink identity recheck now includes size/mtime/ctime and refused an in-place edit through the `beforeOwnedAudioUnlink` seam (`removeSavedAudioRefusesInPlaceEditBeforeUnlink`), binding failures report their result code before statement finalization (`sqliteErrorReportsBindingFailureCode`), Saved Audio reset captures displayed IDs separately from the dialog binding (`savedAudioResetCapturesDisplayedIDsNotLiveList`), the preview task guards ownership by request ID so a cancelled resolver cannot clear its successor, and reconcile/expire share the feed-write helper. Final refinements: `removeSavedAudio`/`resumePendingAudioRemovals` re-validate the library and re-derive targets/flags from a fresh read **under** the `PipelineLease` (`pendingRemovalResolverReReadsUnderLease` proves a probe-to-lease mutation is re-read and left untouched; `removeSavedAudioDerivesFromFreshLeasedSnapshot` proves removal uses the current record), and a cancelled stale preview resolver can no longer assign `model.error` for a newer request. Narrow rerun: **23 core + 5 app = 28 tests passed** (summarized in `rework-summary.log`); final raw narrow run of the touched cases: **9 tests, 0 issues** (`rework-final-tests.log`); incremental Xcode Debug **BUILD SUCCEEDED** (`xcodebuild-final.log`). The earlier 56-test focused gate result stands for the pre-rework state. |
+| Limits | Focused filters only; no full suite, GUI, network, model or live data ran. Deletion used disposable fixture files only. |
+
+## October 5 queue lifecycle: live drain, explicit Stop and decorative-quote narration
+
+The user directed a queue lifecycle rework: one transport slot (Generate Speech
+idle / Stop during owned speech), Ready checkmarks, Add to Queue working during
+speech, a drain that processes Ready plus pending and late-arriving work,
+per-article failure continuation, atomic multi-row removal, and an explicit Stop
+that abandons only the interrupted item's owned scratch and checkpoints and
+returns its row to Ready — while error/Quit retention stays distinct. Frozen
+evidence also showed a standalone decorative quotation mark (U+275D) producing
+zero upstream speech segments; narration now omits the strict quote-only set and
+the plan version was bumped (`decorative-quotes-1`) so older unfinished
+narration regenerates a compatible plan before continuing.
+
+| Area | Evidence and limits |
+| --- | --- |
+| Worker split and lease | `FixtureCoordinator.execute` is a nonisolated static using `PipelineStore` (short-lived stores per step, bounded writer-busy retry) plus `PipelineLease` (`flock` on `*.speech.lock`, owned-fd, `O_NOFOLLOW`, euid/regular-file checks). `enqueueCommitsWhileSpeechWorkerIsBlocked` proves an enqueue commits while the synthetic TTS gate is held; `pipelineLeaseBlocksCompetingWorkerAndReleasesDeterministically` and `queueDrainRefusesSecondDrainAndParallelWorkerLease` cover cross-coordinator and same-coordinator exclusion. |
+| Drain | `drainQueue` takes the earliest Ready row, waits out pending preparations (50 ms cancellable sleep, re-reads once after the count reaches zero) and continues after per-item failures. Covered by `queueDrainWaitsForPendingPreparationsAndProcessesLateCommits`, `queueDrainWithOnlyPendingWorkProcessesCommittedArticle`, `queueDrainContinuesAfterArticleFailureAndReportsFailedItems` and app-side `drainCommitsPendingAddsWhileSpeechIsBlocked`. Legacy `runQueuedBatch` keeps fixed-batch semantics for fixture/CLI callers. |
+| Stop vs cancel | `queueStopAbandonsInterruptedWorkAndRestoresReadyRow`: completed media/feed unchanged, current row returns `.queued` with owned work child gone and chunks cleared, snapshot/inventory/preferences/siblings preserved, rerun regenerates fresh work. `abandonedWorkPreservesPublishedMediaAndRejectsUnsafeRoots` covers published-media preservation and symlink refusal; `abandonInterruptedWorkPreservesStagedPublicationBoundary` separately covers `.audioPlaced`. `stopAbandonsActiveWorkRestoresReadyAndReturnsGenerate` covers the app-level transport. Quit/legacy cancel still retain paused checkpoints (existing tests unchanged). |
+| Completion order | `queueCancellationBeforeSuccessAcknowledgementRetainsItem` was updated for the settled semantics: a cancel arriving at `.published` (after the feed commit) still completes and dequeues — previously it retained the row paused. The `.encoding` arm keeps paused retention. |
+| Admission and removal | `repeatedAddsWhilePendingKeepEveryEntryInOrder`, `removingPendingAddBeforeCommitAndReaddingUsesFreshToken`, `queueBulkRemovalIsAtomicAndPreservesSourceAndMedia` and `selectionRemovalCoversReadyFailedAndPreparingRowsWithoutDialogs` cover tokenized admission, atomic membership removal and no-confirmation X/Remove semantics (pane resets confirm). |
+| Decorative quotes | `narrationOmitsStandaloneDecorativeQuotesWithoutDroppingContent` failed red (4 issues) on the old plan, then passed on the `decorative-quotes-1` implementation along with `narrationHasBoundsUnicodeAndLosslessLongTokenFallback` and `semanticBlocksKeepNestedOrderAndSpecialStructures` (`ornament-before.log`/`ornament-after.log` in `var/validation/2026-10-05-queue-drain/`). Frozen metadata only — no article body, UUIDs or source URLs in the record. |
+| Tests | New-behavior filters (`core-new-tests.log`: 9/9 core; `app-new-tests.log`: 5/5 app) pass. The combined focused gates did **not** pass as runs: `focused-gate-3.log` reports 102 tests with 6 core issues and `focused-gate-clean.log` 126 tests with 9 core issues; the app suite stayed green (30/30 in that run, 25/25 previously). The core issues were sub-5-second wall-clock deadline failures in `ownedTool…`, `speechHelperDeadline…`, `selectedFetchDeadline…` and agent-client tests, plus one speech-helper cancellation case that surfaced the wrong error type in the broad run. The same tests pass in isolation (`failures-rerun.log`) — the load-contention hypothesis is plausible but **not proven**; no bound was weakened. |
+| Build | One incremental `xcodebuild` Debug `VoiceRelay`, existing DerivedData/caches, automatic package resolution disabled (`xcodebuild-queue.log`): result recorded in that log. GUI rendering, real Kokoro inference, listening and live Reading List access remain operator gates. |
+| Limits | Focused-scope evidence, not a full suite; no real TTS model, network, live Safari data or GUI automation ran. Cleanup refusal and preserved-publication boundaries are synthetic-fixture evidence, not live library proof. |
+
+## October 5 queue lifecycle rework (review follow-up)
+
+A review pass on the queue increment required these corrections, verified by the
+narrow filters `rework-core-tests.log` (**25/25 pass**, including the previous 9
+queue tests plus legacy cancellation/publication, captured-settings and progress
+regressions) and `rework-app-tests.log` (**15/15 pass**). No broad gate or agent
+suite was rerun; the broad-gate failures above stand unchanged.
+
+| Area | Rework evidence |
+| --- | --- |
+| Stop cleanup ordering | `abandonInterruptedWork` now acquires `PipelineLease` before the metadata writer and holds it through filesystem+SQL cleanup. `abandonInterruptedWorkRefusesHeldWorkerLease` (cleanup refuses, work/checkpoints untouched) and `abandonInterruptedWorkRefusesLinkedWorkRoot` (a `p.work` symlink to a temporary-root sibling refuses and deletes nothing) cover the new refusals; the leaf-link test is unchanged. `abandonInterruptedWorkPreservesStagedPublicationBoundary` interrupts at `.audioPlaced` and confirms staged final bytes, encoded/publication metadata and retry work survive an abandon. |
+| Stop after real progress | `queueStopAfterFirstCheckpointDiscardsOnlyOwnedWork` commits a first-chunk checkpoint before explicit Stop (checkpoint count 1 → 0, row back to Ready, completed sibling article/feed/snapshot/unrelated files untouched). `queueFailureAfterFirstCheckpointRetainsRowAndContinues` keeps the checkpoint and failed row while a later Ready article still publishes. `queueStopWithArtifactErrorStillAbandonsAndRestoresReady` covers a backend that throws an artifact error while cancelling: cleanup runs and the drain rethrows `CancellationError`. |
+| QueueRunControl plumbing | `runQueued` accepts an optional `QueueRunControl` (default `nil` keeps legacy semantics); `AppModel.start(saved:)` and `runQueue()` own and pass controls. Stop controls everywhere gate on `canStopProcessing`. |
+| Reset while preparing | `canResetQueue` now covers pending-only queues. Reset clears admission tokens, cancels the enqueue task and awaits its unwind inside `queueMutationTask` before the native reset; `pendingOnlyResetCancelsFetchAndAllowsFreshAdd` confirms a late fetch cannot reappear and a fresh add commits. |
+| Ordering and selection | `.running` queue updates remove and re-insert the row at the front. Refresh prunes `queueSelection` to live IDs and commit transfers `.preparation` selection to `.episode`; `queueSelectionTransfersOnCommitAndPrunesOnRefresh` covers transfer, success clearing and stale-ID pruning. `BatchProgressView` takes an optional live pending override. |
+| Admission receipts | `QueueAdmissionControl` (cancel flag only) plus optional `SpeechQueueItem.admissionID`; `enqueue`/`enqueueReadingList` check cancellation before `BEGIN` and inside the transaction before `COMMIT`, rolling back with `CancellationError`. `cancelAdmission(id:stateRoot:)` deletes only membership carrying the matching receipt and refuses a `.running` row with an actionable message. `cancelledAdmissionRollsBackCommitAndLeavesNoRows`, `admissionReceiptRemovalIsExactAndRefusesRunningRow` and app-side `removingApprovedAdmissionRollsBackCommit` cover rollback, stale receipts, duplicate re-admission and the commit/remove race (internal `beforeEnqueueCommit` seam). |
+| Bootstrap and compatibility | `PipelineStore.init` reuses the bounded writer-busy retry; `pipelineStoreInitWaitsOutBriefWriterContention` holds the writer briefly and confirms the constructor succeeds. `QueueBatchProgress` decodes old progress records missing `pendingPreparations` as 0 (`queueBatchProgressDecodesMissingPendingPreparations`). |
+| Second-drain refusal | `queueDrainWaitingForPendingRefusesSecondDrain` rejects a second drain while the first is only waiting on pending preparations — no active TTS required. `queueDrainWithOnlyPendingWorkProcessesCommittedArticle` now starts from a genuinely empty native queue. |
+
+A final review pass (`rework-final-tests.log`, **8/8 pass** — rerun of the prior
+narrow set plus additions) refined three points: `abandonInterruptedWork` treats
+an `lstat` failure on the owned work directory as fatal unless it is `ENOENT`, so
+inaccessible scratch (for example a permissions failure) refuses with an
+actionable error before any database change instead of wiping checkpoints
+(`abandonInterruptedWorkRefusesInaccessibleWork`); the enqueue commit seam is an
+actor-isolated property set via an internal `setBeforeEnqueueCommit` method; and
+`removeQueueEntries` restores only selection IDs that are still live after a
+failed mutation while Articles blocks adds during queue mutations. Operator
+documentation now reflects that explicit Stop returns the row to Ready (no
+Retry) and never cancels pending preparations, that error/Quit retention still
+uses Retry, and that article inspection is an Articles double-click preview.
+`xcodebuild-final.log` records **BUILD SUCCEEDED** for the final incremental Debug build.
+
+## October 5 UI polish: progress lifecycle, icon navigation and compact Troubleshooting
+
+The user reported a completed 5/5 progress bar remaining visible in Articles,
+Queue and Saved Audio after processing went idle, and rejected the segmented
+Settings picker: the Apple Music–style reference shows an SF symbol above a
+label, selected icon and label on a neutral rounded-rectangle glass tile,
+unselected items gray. Troubleshooting should lose its redundant saved-article
+list and Preview/URL entry; glass belongs on controls, not content.
+
+| Area | Evidence and limits |
+| --- | --- |
+| Progress lifecycle | `AppModel.finishProcessing` now clears `progress` and `batchProgress` unconditionally on success, failure, cancellation and shutdown; results, saved episodes, status and errors are preserved. New `showsProcessingProgress` (`running || cancelling`) gates `processingFraction` and `ProcessingSummary` placement in `WorkspaceView` — `ProcessingSummary` guards itself too; `processingStatusLine` keeps its existing running guards so the status message is preserved, not hidden. No timer/sleep dismissal; durable results, feed, history and files untouched. Regression `successfulQueueRunClearsTransientProgressButPreservesSavedAudio` failed red on the old code (`batchProgress` stayed non-nil, `success-before.log`) and passes now; `processingSummaryOnlyAppearsDuringOwnedWork` covers idle, running and cancelling states (shutdown/stopping-flag paths are covered only by the unconditional clear, not by that test); the resume test asserts cleared progress after a successful saved-episode run. |
+| Settings icon navigation | The segmented picker is replaced by `SettingsPaneSelector`: two fixed 146×82 tiles (VStack, symbol above label, spacing 6) in an HStack of 8 inside `GlassEffectContainer`, total 300×82, centered under a fixed 28pt heading. The selected tile uses `.glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))` with `glassEffectID` for a shared transition; plain button style, accent vs secondary colors, `.isSelected` trait, per-pane help. Selection animates `.smooth(0.2)` unless `accessibilityReduceMotion`. Window stays 880×680. Constructability/constant coverage only — rendered glass, focus rings and click positions are unverified. |
+| Compact Troubleshooting | `SourceReviewView` is now a grouped-form Reading List diagnostic: source path or "Safari Reading List" (copyable, with full-path help), status, inline error, Refresh/Choose/Stop Loading and a strictly read-only caption. `SourceReviewModel.selection`, `address`, `selectedEntry` and the open-preview plumbing are deleted; Articles remains the only Article Preview entry point (double-click/context menu unchanged). Named preview is "Troubleshooting — source status". The inert-construction test compiles the view and seeds status/error state only — it does not assert which controls render; absence of the old list/URL/Preview UI is established by source review, not by the test. |
+| Saved Audio controls | Play/Show in Finder row buttons are wrapped in `GlassEffectContainer` with small `.glass` button style; visibility/availability rules, paths, help and polling unchanged. No glass on lists, text, forms or error cards. |
+| Tests | Focused filter (`polish-tests.log`, ignored `var/validation/2026-10-04-ui-polish/`): **13 app tests passed, 0 skips** — new success/visibility/settings/troubleshooting cases plus existing failure, cancellation, resume, queue-reset and workspace tests. Not a full suite; prior 70+15 and 9+4 runs stand as recorded. |
+| Build | `xcodebuild` Debug `VoiceRelay`, prior recipe/DerivedData (`xcodebuild.log` in the same directory): **BUILD SUCCEEDED**. Compile evidence only — no rendered layout, clicks or runtime behavior. Only pre-existing warnings: signed-agent strip skip and AppIntents metadata skip. |
+| Limits | GUI/Canvas rendering, actual glass appearance, keyboard navigation, listening, TCC prompts and Safari access remain operator gates. The screenshot-reported stale bar is addressed by code and state assertions, not visual proof. |
+
+## October 4 queue reliability, background add and Article Preview
+
+The user reported an idle gap between articles and requested: prepared
+speech-helper reuse across a batch, privacy-safe helper error mapping, removal
+of Reading List exclusions, background Add to Queue with pending rows,
+simplified toolbars/menus, a segmented Settings selector, and article preview in
+a dedicated window.
+
+| Area | Evidence and limits |
+| --- | --- |
+| Helper diagnostics | `runtime/kokoro/provider.py` adds `"detail": type(error).__name__` only for a fixed whitelist (MemoryError/OSError/RuntimeError/TimeoutError/OverflowError/EOFError); no messages, paths or content are emitted. `ExecutableSpeechBackend.exchange` maps `not_prepared`, `invalid_audio`, `empty_audio` and `synthesis_failed` to distinct role-specific messages; an engine-error detail is appended only for short alphabetic tokens (≤40 chars), and completed-chunks retention is always stated. |
+| Batch session reuse | `runQueuedBatch` keeps one active provider and reuses it while candidate `BackendIdentity.id` matches and its session is alive; differing candidates cancel/replace it, and the batch cancels the active provider exactly once on success, error or cancellation. `FixtureCoordinator.execute` no longer cancels the backend — ownership moved to the queue path — removing the per-article helper/model reload. |
+| Writer busy | `RelayError.writerBusy` distinguishes immediate `sqlite3_try_acquire` contention; `metadataWriter` retries briefly with bounded sleep. Covered by concurrent contending-writer tests. |
+| Exclusion removal | `ReadingListCatalog.reconcile` clears legacy `excludedIDs`; `SpeechQueue` no longer checks exclusion before enqueue/claim and its `setExcluded` gate is gone (old paused/done rows surface via `errors`/`checkpoints` instead). App UI drops the row badge/menu item; app-level `setExcluded`/`excludedIDs` is removed. Legacy excluded/paused entries are retryable per tests. |
+| Background add | `AppModel.addSelectedToQueue` returns immediately, clears the selection, stamps `pendingAdds` rows (*Preparing…*) and processes in displayed order on a tracked `Task`; per-entry failures collect as `enqueueIssues` and later entries still attempt. A new click supersedes the in-flight add. |
+| UI structure | Settings uses a segmented General/Troubleshooting `Picker`; the audio folder row shows the full middle-truncated path with `.help` carrying it. Generate/Stop moved from the shared workspace toolbar to the Queue toolbar (and stay in the status menu); Articles toolbar is Add to Queue + Refresh, Saved Audio toolbar is Refresh, Queue's actions menu is a single destructive `Reset Queue…` button plus the per-row Remove menu. Icon/ambiguous controls gained `.help` tooltips. RelayMenu rows are Articles/Queue/Saved Audio + Settings…, Generate Audio/Stop Generating with counts/status, About, Quit. |
+| Article preview | `WindowGroup("Article Preview", for: URL.self)` + `ArticlePreviewView`/`ArticlePreviewModel` fetch with `PageFetcher` default limits and `ReviewedSource.prepare`, cancel on disappear, and do nothing inert. Shared `ArticlePreviewContent` renders title/URLs/issue/blocks/chunks. Articles double-click and **Preview Article** open it via `openWindow(value:)`; Troubleshooting keeps entry/URL diagnostics with a **Preview** button. `WindowPresence` does not count MenuBarExtra windows. |
+| Tests | Focused run (repo-local caches): **31 core + 10 app tests passed** covering error-code mapping/detail privacy, same/differing-identity batch reuse prepare/cancel counts, writer contention/retry/no-mutation, legacy paused retry, background add pending rows and per-entry failure isolation, inert Settings/preview construction and queue reset. A subsequent full suite run had **one unrelated failure**: `agentClientTimesOutAndRejectsInvalidTimeoutsWithoutConnecting` exceeded its 5 s bound (~11.5 s) under parallel load and **passed standalone in 0.033 s** — AgentClient was unchanged; executor contention is plausible, not proven. Logs: ignored `var/validation/2026-10-04-queue-preview-ux/`. |
+| Build | `xcodebuild` Debug `VoiceRelay` scheme, `var/validation/2026-10-04-xcode-source-wiring/DerivedData`, `-disableAutomaticPackageResolution`: **BUILD SUCCEEDED** (`xcodebuild.log`). `git diff --check` exit 0. Pre-existing warnings only: multiple matching destinations, signed-agent strip skip, AppIntents metadata skip, and the historical always-true `is NSError` assertion in CoreTests. New app source files were added to `project.pbxproj`; the project-reference regression filter was included in the focused run. |
+| Limits | Compile/test evidence only — rendered layout, menu dismissal, preview-window chrome, double-click behavior, actual helper reuse timing, listening, Safari access and TCC prompts are unverified operator gates. No GUI automation or live Reading List contact was performed. |
+
+## October 4 storage reconciliation, helper scratch and Reset Queue
+
+The user confirmed: the Safari Reading List plist and its entries stay strictly
+read-only; Reset Queue is an explicit confirmed option removing only native
+queue membership; Saved Audio shows only existing, accessible finalized files;
+confirmed externally deleted media retires from listings and the local feed
+while text/identity persist for explicit regeneration; an unavailable volume,
+unreadable folder or linked path is never deletion; inference-helper scratch
+moves to app-owned system temporary storage while persistent runtime/model/cache
+assets and explicit installer scratch stay project-local. Settings is one fixed
+880×680 window with stationary capsule pane controls using SwiftUI
+glass/glassProminent styles (source/layout-constant coverage only — rendered
+glass appearance, resizing behavior and click positions are unverified).
+
+| Area | Evidence and limits |
+| --- | --- |
+| Helper scratch | `ExecutableSpeechBackend` allocates a private 0700 UUID child per session under an injected root that must be strictly inside canonical system temporary storage: `/`, home, outside-temp and linked roots are refused before any creation, the root must be an owned private directory, the child uses POSIX `mkdir` (EEXIST refused), and only the newly created child is removed on guard failure or when its worker stops. `KokoroMLXBackend` passes `AppStorage.temporaryWork/SpeechHelper` and no longer points `TMPDIR` at project `.runtime/tmp`; persistent runtime/model/cache and installer locations are unchanged. Documents read access for current runtime/model sources is unaffected — no TCC or signing change. |
+| Missing-media reconciliation | `audioAvailability` probes the captured folder (real directory, readable/searchable, unlinked, captured volume UUID or conservative legacy `/Volumes` mount guard) then the file; an `ENOENT` file is rechecked against the same `st_dev`/`st_ino` folder identity before it counts as deleted, so a mid-probe unmount/rename/replacement reports unavailable, not missing. `reconcileMissingAudio` retires confirmed-deleted published rows to EXPIRED under the native writer, marks `feed_status.pending`, and re-renders the local feed from remaining published records — durable pending repair survives a failed feed write. Unavailable rows keep metadata and reappear when storage returns; no folders are created on unavailable states. A specific reconciliation/feed-repair warning is preserved over the generic unavailable-audio notice. |
+| Volume identity | `Episode.audioVolumeID` is optional and decodes absent on old records; it is captured from the audio folder during managed setup and a mismatch refuses regeneration into a substituted volume. |
+| Reset Queue | Queue actions menu → **Reset Queue…** with explicit confirmation; `FixtureCoordinator.resetQueue` runs only `DELETE FROM speech_queue` after storage validation and writer checks, refuses missing/foreign/newer/competing storage, and preserves Reading List inventory, exclusions, the plist, snapshots, episodes, audio and preferences. The app refuses while running/cancelling/stopping or with an empty queue. |
+| Tests | Original increment combined filtered run (`storage-tests-final.log`, ignored `var/validation/2026-10-04-storage-reconciliation/`): **70 core + 15 app tests passed, 0 skips**. Review rework: `missingAudioFolderRaceNeverBecomesDeletion` first failed red returning `.missing` while its folder was renamed/replaced mid-probe (`race-before.log`); after the recheck fix the focused filter (missingAudio\*, speechHelper temp ownership/cleanup/unsafe-root rejection, resetQueue core + app, settings pane/layout, cleanup-warning preservation) passed **9 core + 4 app tests** (`rework-tests.log`). These are separate focused runs, not a full suite. |
+| Build | `xcodebuild` Debug `VoiceRelay` scheme, prior recipe/DerivedData: `xcodebuild.log` **BUILD SUCCEEDED** for the original increment; `xcodebuild-rework.log` **BUILD SUCCEEDED** for this rework. Compile evidence only — no rendered layout, clicks or runtime behavior. Only pre-existing warnings: signed-agent strip skip, AppIntents metadata skip, and the historical always-true `NSError` assertion. |
+| Live state | A one-time native queue/generated-history reset **was performed by the lead** after explicit user confirmation, app quit and prior backups. Frozen result (`var/validation/2026-10-04-ux-review/native-history-reset-result.json`, read as data only — not re-run or re-queried): speech_queue 1 → 0, episodes 18 → 0, snapshots 18 → 0, chunks 667 → 0; Reading List inventory byte-for-byte preserved; local feed 0 items; database/feed backups at `/path/to/home/Library/Application Support/VoiceRelayPrototype/Backups/audio-history-backup.sqlite3` and the same-basename `.feed.xml`; no media, Safari input, preference or runtime deletions. |
+| Limits | One earlier `<3s` helper-descendant assertion failed inside the broad concurrent run and passed standalone and in the final pass; executor contention is plausible, not proven, and the deadline/ownership safeguard is unchanged. The original real missing-audio report remains unconfirmed — the reproduced missing/unavailable classification above is a verified path, not the established cause. GUI/Canvas rendering, Settings resizing, listening, TCC prompts and Safari access remain operator gates. |
+
+## October 4 native menu/sidebar redesign and artifact diagnostics
+
+The user selected the **native status menu** and **native sidebar** direction and
+asked to remove the global Settings Cancel. They also reported the macOS
+Documents permission dialog names **VoiceRelay** and the failed article does not
+appear in **Saved Audio** — the failing artifact remains **unconfirmed**; the
+missing-feed-audio diagnostic improved below is a reproduced *possible* path, not
+the confirmed cause of that episode.
+
+| Area | Evidence and limits |
+| --- | --- |
+| Menu | `MenuBarExtra` with `.menuBarExtraStyle(.menu)`: concise status line (batch phase/article/percent while running), Open VoiceRelay…, Generate Audio (ready count), Stop Generating/Stopping…, Settings…, Quit VoiceRelay. Preview disables window/settings/quit actions. `MenuPanelWindow`/dismiss hacks removed; `WindowPresence` still manages Dock/activation policy for ordinary scene windows. |
+| Workspace | `Window("VoiceRelay")` (scene id `articles` kept) hosts `WorkspaceView`: `NavigationSplitView` + `.sidebar` List of Articles/Queue/Saved Audio, shared header with `ProcessingSummary`/`InlineNotice`, contextual Refresh + shared Generate/Stop in the toolbar, and a `CommandMenu("Audio")`. Availability comes from `canGenerateAudio`/`canStopProcessing`/`readyQueueCount`; presentation from `processingFraction`/`processingStatusLine` (floor-rounded, never 100% before validation; "Checking saved audio"/"Stopping…" states). |
+| Sections | Articles keeps selection/order/exclusion; Add to Queue is a toolbar action. Queue rows show symbol+text state, per-item `lastError`, contextual Retry and a More → Remove from Queue menu. Saved Audio rows offer Play/Show in Finder (published) or Resume (unfinished); the Inspect window and its scene are removed. Empty sections use `ContentUnavailableView`. |
+| Settings | Typed `TabView(selection:)` + `.tabViewStyle(.grouped)` — General (640×500: voice, speed, Reading List source, audio folder, retention) and Troubleshooting (880×640: existing source diagnostics, request-level **Stop Loading**), via an explicit selected-pane root frame rather than per-child minimums. No global Cancel; the earlier segmented header is replaced. `.windowResizability(.contentSize)` on the Settings scene. Whether this resolves the user's unclickable tab report is **not yet revalidated** — GUI acceptance is operator-owned. |
+| Retired code | `RelayPanel`/`PanelState`/`PanelContainer`/`panelState`, `InspectionView` + scene, `MenuPanelWindow`/`MenuPanelRegistration`, `runFixture`/`generate(_:)`/parameterless `resume()` and the `pendingReview`/`pendingEpisode`/`pendingEntryID`/`lastRunWasQueue` fields — no remaining call sites. Core/CLI fixtures, `VoiceRelayAgent`, and dormant diagnostics files/tests untouched. |
+| Diagnostics | `Files.hash` callsites now name artifact roles: feed-referenced "saved audio referenced by the local feed" (prior increment), "temporary article snapshot", "saved article source/text", "saved cleaned article", "saved narration", "prepared article text", "prepared narration", "cleaned article", "speech runtime sources or dependency pins". Messages disclose roles only — no URLs, paths, or content. Integrity checks unchanged. |
+| Tests | Narrow filter (repo-local caches, `--disable-sandbox --skip-update`): **12 app + 6 core tests passed, 0 skips** (`final-tests.log`) — includes 4 new app tests (workspace sections construct inertly, generate/stop availability matrix, queue-row/global error deduplication, captured-settings resume) and 2 new core tests (runtime-source and snapshot read failures name their role without private paths). `artifact-roles-before.log` shows both new core tests failing red on the generic label pre-change. A later presentation/compactness rework ran a focused 5-test app filter (`presentation-tests.log`) including the new `processingPresentationKeepsFinishingBelowCompleteAndReportsWaitingWork` presentation-seam test, which first failed red against the previous rounding/labels (`presentation-before.log`). These are two separate focused runs, not a full suite. Logs in ignored `var/validation/2026-10-04-ux-review/`. |
+| Build | `xcodebuild` Debug `VoiceRelay` scheme (prior recipe/DerivedData): `ux-review/xcodebuild.log` — **BUILD SUCCEEDED**; re-run after the presentation/toolbar rework as `xcodebuild-review.log`. Tests cover selection/availability/presentation seams only — not rendered clicks, menu dismissal, or actual Quit. |
+| Signing/permissions | Read-only command-line inspection of the built Debug bundle: `Signature=adhoc`, `TeamIdentifier=not set`, designated requirement is cdhash. Runtime sources plus helper cache/TMPDIR paths under Documents can trigger folder access; build changes may alter code identity. Whether TCC re-approval persists across rebuilds is **not certified**. No privacy reset or runtime relocation performed. |
+
+Design references visited: Apple HIG —
+[Designing for macOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos),
+[Layout](https://developer.apple.com/design/human-interface-guidelines/layout),
+[Materials](https://developer.apple.com/design/human-interface-guidelines/materials),
+[Color](https://developer.apple.com/design/human-interface-guidelines/color),
+[Typography](https://developer.apple.com/design/human-interface-guidelines/typography),
+[Modality](https://developer.apple.com/design/human-interface-guidelines/modality),
+[Design principles](https://developer.apple.com/design/human-interface-guidelines/design-principles),
+[Settings](https://developer.apple.com/design/human-interface-guidelines/settings),
+[The menu bar](https://developer.apple.com/design/human-interface-guidelines/the-menu-bar);
+[Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass);
+[Landmarks: refining the system-provided glass effect in toolbars](https://developer.apple.com/documentation/swiftui/landmarks-refining-the-system-provided-glass-effect-in-toolbars).
+Standard chrome supplies Liquid Glass; no custom backgrounds or `glassEffect`
+on content.
+
+Operator gates still open: menu/sidebar behavior and dismissal, Settings pane
+switching (incl. the user's unclickable-tabs report), real Quit paths, light/dark
+and reduced-transparency rendering, Canvas previews, app-context Safari access,
+real speech/listening, and the original unconfirmed missing-audio failure.
+
+## October 4 app-owned lifecycle and Settings navigation repair
+
+The user confirmed the product lifetime: processing and retention are owned by
+the running app — live while VoiceRelay runs, stopped when it does not.
+Persistent LaunchAgent/XPC ownership and SMAppService enrollment are superseded;
+the bundled agent prototype stays dormant reference code. The user also reported
+Settings' automatic tab labels rendered jammed together and unclickable
+(screenshot). The exact rendering mechanism was **not** established — no GUI
+reproduction was performed and this is not attributed to a framework defect.
+
+| Area | Evidence and limits |
+| --- | --- |
+| Lifecycle | `AppModel.shutdown()` sets `stopping` before its first await, invalidates progress callbacks, cancels processing/library/maintenance and source review, then awaits `sourceReview.stop()` — which sets its own `stopping` flag before its own first await — **before** awaiting the processing, library and maintenance task refs; idempotent on repeated calls. `VoiceRelayApplicationDelegate.applicationShouldTerminate` routes standard macOS Quit through it (`.terminateLater`, one shared task); `quit()` now calls `NSApplication.terminate`. All work-beginning entry points plus `SourceReviewModel`'s task-starters refuse new work once stopping begins. Closing windows does not stop work. |
+| Settings navigation | Implicit `TabView`/`.tabItem` + toolbar selector replaced by an explicit segmented **General/Troubleshooting** `Picker` bound to `SettingsSection`, with an independent Cancel control. The agent diagnostic is removed from active Settings (its file/tests remain dormant). RelayPanel's footer row now reads "Processing lifetime · While VoiceRelay is running". Whether the operator's unclickable tabs are resolved is **not yet revalidated** — GUI verification remains operator-owned. |
+| Tests | `swift test --filter 'appShutdown|settingsSections|completedArticle…|cancelClearsStaleProgress…|cancellingWaitsForOwnedWorker…|failedGeneration…|audioRetentionRefresh…|xcodeProject…'` with project-local caches: **8 app tests and 1 core test passed, no skips**, including new `appShutdownWaitsForOwnedWorkAndPreservesQueue`, `appShutdownRefusesNewWorkAndIsIdempotent` and `settingsSectionsAreDistinctAndInertViewsConstruct` (selection seam only — not rendered clickability). Final-filter log: ignored `var/validation/2026-10-04-app-lifetime/app-lifetime-tests-final.log` (earlier `app-lifetime-tests.log` retained as historical). |
+| Shutdown refusal evidence | `appShutdownWaitsForOwnedWorkAndPreservesQueue` uses a `holdCleanup` provider so the in-flight worker's cleanup is test-gated: while `AppModel.shutdown` was still awaiting it, `sourceReview.fetch` on an inert `file:` URL (rejected by `ArticleURL.validate` before any network or file I/O) incorrectly started (`busy → true`) when `sourceReview.stop()` ran **after** the task awaits — `shutdown-refusal-before.log` (exit 1). After moving `sourceReview.stop()` ahead of those awaits, the same call is refused (`busy` stays false) — `shutdown-refusal-after.log` (exit 0). These are worker-teardown code paths only; they do not exercise the AppKit delegate or real Quit, which remain operator-owned. |
+| Build / limits | `xcodebuild` Debug `VoiceRelay` scheme (prior recipe, repo-local caches): **BUILD SUCCEEDED**; the changed `VoiceRelayApp.swift`/`SourceReviewView.swift` compiled in-target. Log: `var/validation/2026-10-04-app-lifetime/xcodebuild.log`. Only warning: benign `appintentsmetadataprocessor` skip (no AppIntents dependency). The earlier MenuPanelWindow wiring repair below was user-reported successful; the tab-clicking defect is user-reported failed and not yet revalidated. Remaining operator gates: Settings selector clicks, both Quit paths, reopening idle, app-context Safari access, real speech/listening, Canvas. |
+
+
+
+## October 4 Xcode app source wiring repair
+
+A user Xcode build failed with `Cannot find MenuPanelWindow` at
+`VoiceRelayApp.swift:649`. Root cause: `project.pbxproj` defined object ID
+`B1000000000000000000000C` twice — the `WindowPresence.swift` app source
+buildfile and the `VoiceRelayAgent` embed buildfile — so the app Sources phase
+resolved to the agent executable reference and `WindowPresence.swift` was never
+compiled into the app target. The WindowPresence buildfile definition and its
+Sources-phase reference were renamed to `B1000000000000000000000F`; the agent
+embed/copy-phase entries are untouched. SwiftPM builds never observed the
+defect because they ignore `project.pbxproj`, and `plutil -lint` only checks
+plist syntax, not object-ID uniqueness.
+
+| Area | Evidence and limits |
+| --- | --- |
+| Regression test | New `xcodeProjectAppSourcesUseUniqueBuildFileReferences` (Swift Testing, source-level, no Xcode required) asserts unique pbxproj object-definition IDs and resolves every app-target Sources entry to a `sourcecode.swift` file reference whose path set equals `Sources/VoiceRelayApp/*.swift` on disk. It **failed before the fix** (101 definition IDs vs 100 unique; the Sources entry resolved to `VoiceRelayAgent` with `WindowPresence.swift` absent) and **passed after** (all object IDs unique and all four app sources resolve). Logs: ignored `var/validation/2026-10-04-xcode-source-wiring/xcode-source-regression-before.log`, `xcode-source-regression-after.log`. |
+| Command-line bundle build | `xcodebuild -project VoiceRelay.xcodeproj -scheme VoiceRelay -configuration Debug -destination 'platform=macOS' build` with repo-local DerivedData/module/package caches and `-disableAutomaticPackageResolution -onlyUsePackageVersionsFromResolvedFile`: **BUILD SUCCEEDED** — `WindowPresence.swift` compiled into target `VoiceRelay`, `VoiceRelay.app` produced (embedded `VoiceRelayAgent`, ad hoc "Sign to Run Locally"). Full log: ignored `var/validation/2026-10-04-xcode-source-wiring/xcodebuild.log`. Warnings concerned the signed embedded binary not being stripped and skipped AppIntents metadata. The earlier user-cache manifest diagnostic blocker did not recur with this repo-local-cache build command. |
+| Checks / limits | `plutil -lint` passes on the project and packaging plists; `git diff --check` clean. GUI, Canvas and runtime behavior remain operator-validated; the build is Debug ad hoc only — signed distribution signing unexercised. |
+
+## October 4 read-only agent snapshot client
+
+The GUI gains an explicit read-only agent snapshot check in
+Settings → Troubleshooting through `AgentClient`/`AgentTransport` and a private
+XPC transport. The transport preflights the app's own trusted signature before
+allocating a connection — ad hoc or unsigned builds refuse as
+`untrustedIdentity` — and installs the agent peer-signing requirement that XPC
+enforces during activation. Each check is a fresh connection with a bounded
+deadline; correlated agent failures are preserved, malformed/uncorrelated
+replies become a fixed invalid-response failure, and concurrent checks are
+rejected without disturbing the in-flight one. No settings transfer, ownership
+change, scheduling or enrollment is introduced.
+
+| Area | Evidence and limits |
+| --- | --- |
+| Focused tests | `--filter 'agent|Agent'` with project-local Swift/module caches and `--disable-sandbox --skip-update`: **10 core and 4 app tests passed, no skips**. New checks cover lazy factory activation, exactly-snapshot requests, correlated endpoint success with no state creation, interruption/invalidation/unavailable mapping, `untrustedIdentity` refused at activation with no request sent, explicit reconnection with fresh transports, a 30 ms fixture timeout, invalid timeouts rejected before connecting, concurrent-request rejection, duplicate/late/stale-session callback immunity, cancellation of a scheduled task and an in-flight request with same-client recovery, public `cancel()` followed by an immediate fresh request, and malformed/oversize/wrong-version/wrong-or-nil-UUID/ambiguous (absent or doubled payload)/wrong-capability/negative-count/wrong-mode/progress-bearing replies plus preserved correlated storage and command-unavailable failures. Log: ignored `var/validation/2026-10-04-agent-client/agent-tests.log`. |
+| Build / static | Debug core/app/CLI/agent/tests compiled during the filtered run. `.build/debug/VoiceRelayAgent --self-check` passed with no listener or persistent state. Project and packaging plist lint and `git diff --check` pass. Logs: ignored `var/validation/2026-10-04-agent-client/agent-self-check.log`, `plutil.log`, `git-diff-check.log`. |
+| Limits / warnings | Fake transports only; no real XPC, listener, enrollment, preference, Safari or model activity was exercised. Signed peer acceptance, Canvas/GUI presentation of the diagnostics section, and an actual enrolled agent remain operator gates. The beta compiler aborted once while diagnosing an implicit `catch` variable shadowing the model's `error` field; explicit `self.` in the final source compiles. This run's log shows the deprecated `--skip-update` warning and the pre-existing always-true NSError assertion warning; unavailable user caches are a historical limitation, not observed this run. No Xcode bundle build, Release or full suite was run for this increment. |
+
+## October 4 filesystem-based native audio retention
+
+The user explicitly authorizes automatic audio expiry, superseding the earlier
+retention deferral for native owned output. Settings → General → Storage now has
+all ten requested options, with 1 month as the persisted default. File modification
+dates determine age; calendar subtraction handles month choices. No age/deadline
+timestamps or schema migration are added. Existing episode lifecycle uses EXPIRED
+intent to retire local RSS enclosures before unlink and recover interruptions.
+
+| Area | Evidence and limits |
+| --- | --- |
+| Scope / timing | Known completed UUID-named native M4A files only, in each episode's captured folder. Queue members, unfinished episodes, unrelated files, source snapshots, runtime/model assets and historical/reference output are excluded. Startup, refresh, policy changes, post-processing and an idle 15-minute app-open loop trigger the shared-coordinator sweep. No service enrollment, remote publication, startup inference or cleanup while quit. |
+| Filesystem / recovery | Hash and regular-file checks precede retirement; file/folder links and changed media are refused. Empty/missing libraries and disconnected folders are not recreated. Feed failure leaves media intact, with retirement intent pending for retry. Never/longer retention can restore a pending entry whose intact file remains; deleted audio stays retired. Saved Audio/Inspect clear expired results, while retained source text/settings/identity allow explicit regeneration. Cancellation coalesces pending library reads without reviving stale progress. |
+| Focused retention pass | `--filter audioRetention`, project-local Swift/module caches and `--disable-sandbox --skip-update`: **5 core tests plus 1 app test passed**, no skips. Covers ten options/default/JSON round trips, fixed-hour and calendar/leap-month cutoffs, filesystem dates independent of publication dates, Never, queue/unfinished/unrelated preservation, boundary dates, captured folders, feed failure/recovery, changed/linked media, regeneration and visible-library/Inspect removal. An initial guard incorrectly rejected macOS /var temporary aliases; it was corrected to inspect the captured folder and child. Log: ignored `var/validation/2026-10-04-audio-retention/focused.log`. |
+| Broader regression / final targeted checks | Filter `audioRetention\|queue\|Queue\|VoiceRelayAppTests\|managed\|reviewedSpeech\|interruption\|damaged\|pendingFeed\|cancellationStops\|speechHelper`: **43 of 44 core tests and all 5 app tests passed** initially. The sole failure was the new test retaining its simulated competing writer while checking a disconnected folder. Explicitly releasing that test owner corrected the fixture; the final targeted test passed. After adding cancellation/refresh coalescing, the Debug app rebuilt and **all 5 app lifecycle tests plus the ownership test passed again**. Thus all 49 distinct selected functions passed across these runs; no full-suite pass is claimed. Logs: ignored `regression.log`, `ownership-final.log`, `app-final.log` in `var/validation/2026-10-04-audio-retention/`. Synthetic audio exercised actual ffmpeg/ffprobe; no real Kokoro or GUI run. |
+| Build / static evidence | Debug core, app, CLI, agent and tests compile. The new core source appears in Xcode's source navigator and the shared package auto-includes it. Project/app plist lint and `git diff --check` pass. Existing inaccessible user-cache/deprecated-option and always-true test type-check warnings remain. No new Xcode bundle build, Release, GUI, Canvas or signed agent acceptance is claimed. |
+| Operator gates | Confirm dropdown ordering/default, persistence through relaunch, disposable-file deletion using a deliberately aged modification date, Never behavior, visible-library/Inspect updates, regeneration and playback. Exact Terminal and Xcode steps are in [SOURCE_REVIEW.md](SOURCE_REVIEW.md#audio-retention). Actual app-open timing, folder access, listening and the previous window/Dock/menu checks remain operator-owned. |
+| Preservation | Source and synthetic fixtures only; no live library, real audio, protected Safari file or model assets were modified by the agent. Historical Python/config/state/feed/audio and unrelated changes remain intact. No commit, uploads, downloads, enrollment, hosting changes or automated computer use. |
+
+## October 4 queue completion, cancellation and window activation
+
+The operator reports two-article aggregate progress/chunk totals functioning,
+but a current-article label remained at 1/2, completed items stayed queued, and a
+read failure left stale progress without recovery controls. The visible screenshot
+shows ENCODING 5/25 and 0/2 after a queue action; the first screenshot was unavailable.
+The exact unreadable artifact in that run is not established. No private live
+library, Safari file, published media or runtime assets were read or modified in
+this investigation.
+
+| Area | Evidence and limits |
+| --- | --- |
+| Article progress | Fixed-batch updates now carry a one-based current index and emit it before each article starts. Completion counts advance after a verified coordinator return and queue acknowledgement. Labels display 1/2 then 2/2 independently of global chunks; the final aggregate has no active index. Existing optional-field decoding compatibility is retained. |
+| Successful queue removal | New completed runs delete only queue membership after media hash/probe/decode and local feed commit. Episodes/snapshots/media remain. Legacy completed rows are reverified on explicit Generate Audio. Failed/cancelled/unfinished items remain; a published episode alone never triggers removal. Explicit manual Remove remains a separate user action. |
+| Cancel/error recovery | Always-present Cancel clears stale progress/errors and invalidates late callbacks. An owned task stays busy until cleanup returns, preventing overlapping generation; failed/cancelled runs release controls and preserve unfinished entries/checkpoints. Earlier verified results remain inspectable after a subsequent failure. Artifact errors identify saved/staged/encoded audio or generated chunk roles without paths. |
+| Focused regression / Debug build | Project-local module/SwiftPM caches, `--disable-sandbox --skip-update`, filter `queue\|Queue\|cancelClears\|cancellingWaits\|failedGeneration\|completedArticleLeaves\|managed\|reviewedSpeech\|interruption\|damaged\|pendingFeed\|cancellationStops\|speechHelper`: **38 core tests plus 4 app lifecycle tests passed, no skips**. The cancellation acknowledgement test includes encoding and published cases. Debug core, app, CLI, agent and tests compiled. Synthetic providers exercised actual ffmpeg/ffprobe. Lifecycle tests use injected isolated temp storage/providers, without preferences/Safari/GUI access. Earlier compile failures involving notification isolation, an overload function reference and throwing test macros were corrected before this final pass. Log: ignored `var/validation/2026-10-04-queue-recovery/regression.log`. Existing user-cache/deprecated-option warnings remain. No Kokoro inference/listening was run. |
+| Native window/source integration | `WindowPresence.swift` is in the Xcode app compile phase and SwiftPM app target. Only standalone scene windows register; weak window references, close/key/visibility/minimize notifications and deferred activation updates leave MenuBarExtra windows out of the Dock decision. Panel window-opening buttons close their own attached menu window before activation/opening. `plutil -lint` and `git diff --check` pass. This is source/build evidence; no GUI, Dock, ⌘-Tab, menu reopening or Canvas behavior was exercised. |
+| Final app check | After removing duplicate current-article labels, the Debug app rebuilt and **all 4 app lifecycle tests passed** again (`--filter VoiceRelayAppTests`). Log: ignored `var/validation/2026-10-04-queue-recovery/app-final.log`. No further source changes followed. |
+| Outstanding operator gates | Build/run **VoiceRelay → My Mac** in Xcode. Validate current-article advance, automatic dequeue, Saved Audio playback, cancellation/Retry, errors if they recur, menu dismissal/reopening, multiple standalone windows, minimization and last-window close. Exact steps are in [SOURCE_REVIEW.md](SOURCE_REVIEW.md). App lifecycle tests currently run through SwiftPM; the Xcode test scheme retains core tests. No new Xcode app bundle build, Release/full suite, service enrollment, agent-context ownership, remote delivery or real speech acceptance is claimed. |
+| Preservation | Existing unrelated changes (including an externally removed fixture example), historical Python/config/state/feed/audio, local model/runtime assets and dependency pins are preserved. No commits, uploads, service registration, GUI automation or hosting changes. This queue/UI correction precedes the planned agent client/ownership work. |
+
+## October 3 global batch progress, naming and agent foundation
+
+The operator reports the queue-first workflow working well so far; this is general
+feedback, not an itemized report of specialized acceptance gates. Generate Audio
+replaces Run queued speech, and Saved Audio replaces Saved speech. The coordinator
+captures the waiting FIFO batch at click time. Global chunk counts accumulate
+across articles; the bar counts chunks plus an encoding/publication completion
+unit per article, remaining below 100% until the batch finishes. Cancellation
+keeps earlier completed work and later waiting entries. Per-article inspection
+results remain available if a subsequent item stops. Named inert global-encoding
+preview added; normal sample/saved-article progress remains individual.
+
+Continued Slice 4 with `AgentContract.swift`, a bounded version-1 Codable
+command/status/error envelope, UUID correlation, read-only snapshot endpoint,
+same-user/trusted-team NSXPC listener executable, shared package target and
+Xcode/SwiftPM bundled LaunchAgent layout. The agent advertises snapshot only;
+all mutation commands return unavailable. The GUI still owns processing. No
+client, service registration, runtime download, automatic scheduling, enrollment,
+upload or live-data migration is added. Ad hoc builds support the inert self-check;
+listener mode requires trusted identities. This is foundation evidence, not
+managed-worker, signed-peer or unattended acceptance.
+
+| Check | Result and scope |
+| --- | --- |
+| Focused regression | **25 Swift Testing tests passed in one suite**, no skips, filter `queue\|Queue\|agent\|Agent\|readingList\|ReadingList\|durable\|Durable`. Six new checks cover global totals/monotonic encoding progress and completion, cancellation retaining earlier/later work, bounded/versioned malformed requests, read-only snapshots/mutation refusal and privacy, foreign-state preservation/reply correlation, and requirement construction with fixed identities. **Two batch tests passed again** after adding per-article completion callbacks; they are a subset, not two additional tests. Synthetic pages/providers with real ffmpeg/ffprobe; no Safari/network/real Kokoro. Logs: ignored `var/validation/2026-10-03-global-progress-agent/focused.log` and `final-batch.log`. |
+| Build / self-check | Debug core/app/CLI/agent/tests compiled. Package builds and agent `--self-check` passed. Self-check starts no listener, creates no persistent state and performs no inference. Existing unavailable user-cache/deprecated SwiftPM-option and existing always-true NSError assertion warnings remain. |
+| Packaging / static | An isolated generated app under the validation directory contains app/agent binaries, core resource bundle, acknowledgements and the LaunchAgent plist. Ad hoc agent/app signing and `codesign --verify --strict --deep` pass; packaged agent self-check passes. Project/app/agent plist lint, build-script syntax and `git diff --check` pass. This is bundle/layout/ad hoc evidence, not trusted signing or service registration. |
+| Xcode / operator | Command-line Xcode build could not resolve the local package because the filesystem sandbox blocks manifest diagnostic output in the user cache. A retry with supported local cache/module options removed the module-cache failure but still could not write `~/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading/voicerelay.dia` (exit 74). Neither attempt reached app/helper compilation; this is not an app compile failure. Xcode GUI build/bundle-copy checks, global progress/Canvas, real audio/listening and actual signed peer/service-context checks remain operator-owned. See SOURCE_REVIEW.md and AGENT_PROTOCOL.md. |
+| Preservation / next work | Existing uncommitted changes, historical Python/customized config/state/feed/audio, installed runtime/model assets and dependency pins remain intact. UserDefaults keys and native schema are unchanged by this continuation. Changes remain uncommitted; no push. Next: configuration transfer, GUI XPC client and exclusive agent mutation/task ownership, followed by explicit SMAppService enrollment and actual-context validation; automatic FIFO scheduling and remote delivery remain later gates. |
+
+## October 3 queue-first workflow and Settings troubleshooting
+
+The operator reports article quality generally good and requests moving review
+to Settings as a troubleshooting tool. This is quality feedback, not itemized
+acceptance of the new workflow. Articles now supports multiple selection without
+fetching, explicit sequential Add selected to queue, and Run queued speech. New
+entries are fetched/prepared by the coordinator; saved entries reuse stored text
+offline, retaining identity, captured choices and FIFO position. Failures/cancellation
+retain earlier additions; the failed/unattempted selections remain in the UI.
+Exclusions are skipped/rechecked after fetch. A diagnostic-created queue item
+acquires its Reading List link when added from the list, enabling exclusion policy.
+Semantic/narration/URL review moves to Settings → Troubleshooting and cannot
+enqueue or start speech. The source picker is in Settings → General. Menu Run
+uses the queue rather than implicit sample generation. Named inert previews are
+retained for troubleshooting and added for normal multiple selection.
+
+| Check | Result and scope |
+| --- | --- |
+| Focused tests | **19 Swift Testing tests passed in one suite, no skips**, filter `readingList\|ReadingList\|queue\|Queue\|durable\|Durable`. Six new checks cover displayed selection order/exclusion filtering, queueing without review/inference/scratch, offline duplicate/removal reuse and diagnostic linking, unavailable/excluded/mismatched source refusal, blocked/network/cancel retention, and exclusion recheck after an asynchronous fetch. Existing FIFO, durable retry/interruption, captured settings, writer-lock and read-only discovery checks pass. Fetches used synthetic injected pages; inference providers used synthetic WAVs with real ffmpeg/ffprobe. No live network/Safari/Kokoro access. Log: ignored `var/validation/2026-10-03-queue-workflow/focused.log`. Existing SwiftPM cache/deprecated-option warnings and an existing always-true NSError assertion warning remain. |
+| Build / static | Debug app/core/CLI/tests compiled with the focused run. A subsequent Debug `swift build` passed after the final menu progress-display change; `git diff --check` and project/app plist lint pass. Build log: ignored `var/validation/2026-10-03-queue-workflow/build.log`. No dependency, runtime, model, deployment or signing changes. No Xcode GUI or Canvas execution. |
+| Operator gates | New Settings tabs, multi-selection, queueing with no preview, source failure/cancel selection retention, captured choices, duplicate display and actual FIFO speech/listening require manual checks in SOURCE_REVIEW.md. Physical interruption/volume, final-agent/sandbox permissions, runtime relocation, long runs and remote delivery remain separate gates. |
+| Preservation / future mode | Existing uncommitted work and historical Python/config/state/feed/audio remain intact. No GUI automation, downloads, enrollment, migration of live state, upload or hosting changes. Fully automatic FIFO mode is roadmap-only, explicit opt-in after agent/recovery gates. No timer or startup processing is introduced. Changes remain uncommitted; no Git commit/push attempted. |
+
+## October 3 operator validation and durable manual queue continuation
+
+The operator reports the preceding audio-folder, implicit article selection and
+menu-font iteration **validated**. This is general operator acceptance of that
+iteration; no itemized report, physical-volume, Canvas, crash, hours-long listening
+or final-agent permission evidence was supplied. Those specialized gates remain
+separate. This report does not certify the new queue behavior below.
+
+The continuation adds persistent Reading List inventory/current membership and
+exclusions, plus manual reviewed-article queue state, in native schema 3. Explicit
+refresh/exclusion/enqueue mutations initialize or upgrade the app-managed library;
+read-only initial snapshots create no store and access no Safari/network. Native
+schema-1/2 upgrades add tables while preserving episode records and source blobs;
+Python/foreign/newer stores remain refused. Add to queue atomically captures text,
+episode identity, voice/speed and audio destination without inference or scratch
+creation. Duplicate additions retain the same item/settings/order. Generate speech
+runs only that article. Queue processing is FIFO and explicitly started, with
+persisted running claims, pause/failure and manual retry. Excluding a waiting entry
+pauses it. Include alone does not restart it. Queue removal preserves source/episode
+and any audio. The GUI shares the existing actor and submits commands rather than
+writing its own database. A named inert waiting/interrupted Queue preview is added.
+No automatic backlog narration, retry timers, service enrollment or upload.
+
+| Check | Result and scope |
+| --- | --- |
+| Focused regression / Debug build | **29 Swift Testing tests passed in one suite, no skips**; Debug core/app/CLI/tests compiled. Filter `queue\|Queue\|durable\|Durable\|nativeSchema\|managed\|reviewedSpeech\|libraryReadOnly\|interruption\|pendingFeed\|configuration\|ReadingList\|readingList`, project-local Swift/module caches, `--disable-sandbox --skip-update`. Ten new checks cover persisted inventory/exclusions and absence/error retention, enqueue with no scratch/audio and duplicate/captured-setting preservation, FIFO offline completion and immutable repeats, fixed failure diagnostics/cancellation/manual retry, simulated interrupted claims, exclusion/include/retry policy, removal/missing volume preservation, native schema-2 byte preservation, competing writer refusal before inference, and blocked-source refusal before storage creation. Existing native schema-1 upgrade and audio/recovery/read-only/source checks also pass. Synthetic WAV providers exercised real ffmpeg/ffprobe; no real model inference or live network/Safari reads. Log: ignored `var/validation/2026-10-03-durable-queue/focused.log`. Existing deprecated-option/unavailable user-cache warnings remain. |
+| Static / Xcode project | `git diff --check` passes; project/app plist lint passes. The new shared-core source is visible in the Xcode navigator and compiled through the same local Swift package. No package/runtime/model pins changed; private config/model/runtime/generated directories remain ignored. Xcode GUI build/Canvas were not agent-run. |
+| Operator / remaining gates | The new Queue tab, inventory/exclusion persistence, adding without inference, duplicate display, captured voice/folder, real speech/listening, Pause/relaunch/Retry, and unavailable-volume behavior need operator checks. The interrupted-claim test seeds durable state; it does not certify actual process-kill/power-loss recovery. See SOURCE_REVIEW.md's queue acceptance steps. Managed agent/XPC, relocatable runtime, automatic scheduling/backoff, signed/sandboxed/final-context permissions, representative corpus/long runs and remote delivery remain open. |
+| Preservation | Earlier uncommitted storage/UI work is retained. Historical Python/custom config/state/feed/audio, original native workspaces and installed runtime/model assets are unchanged. No automated GUI, new downloads, enrollment, migration of live reference state, host cutover or uploads. Current changes remain in the working tree; no commit or push was attempted in this continuation. |
+
+## October 3 audio-folder, temporary-work and article-selection correction
+
+The operator confirms settings persistence but reports `Fixture storage is missing`.
+Source inspection localizes that message to the old workspace guard requiring
+private/work/media folders together. The app was still using that fixture layout
+for normal generation. This check does not identify which folder was missing in
+that past run; the default speech workspace's folders existed during the current
+read-only inspection. The normal app now uses a separate managed storage route;
+the strict fixture guard remains only for developer CLI/historical fixture APIs.
+
+Settings now exposes one remembered audio-folder chooser, with no runtime,
+sample-workspace or private-export directory chooser. Finished M4A files go there;
+intermediate files use standard macOS temporary storage and completed episode
+work is removed. Atomic publication briefly stages audio only beside the final
+file, enabling cross-volume use without private data in the hosted folder. The
+internal Application Support library retains a private SQLite index, approved
+article text/raw provenance and local diagnostic RSS. Durable source snapshots
+allow offline recovery after temporary-directory purge/reboot. Native schema 2
+adds integrity-checked snapshots with a transactional native schema-1 upgrade;
+Python/foreign/newer stores remain refused. Old native workspaces are preserved,
+not automatically adopted. Changing audio folder affects new episodes; saved
+episodes keep their destinations. RSS now validates each episode's own media path.
+
+Selecting a Reading List article implicitly fetches/extracts/displays it; there
+is no Review button. A request identity and cancellation prevent superseded
+results/errors from replacing the latest selection. URL entry uses Open article
+or Return. Selection never starts synthesis. Excluded entries still display;
+generation stays disabled until included. Menu small text is 14 pt, status 15 pt
+and footer 13 pt, with a wider panel and wrapping footer/error text.
+
+| Check | Result and scope |
+| --- | --- |
+| Focused regression / Debug compilation | **21 Swift Testing tests passed, no skips** (the recovery-boundary test contains five cases), with project-local Swift/module caches, `--disable-sandbox --skip-update`, filter `managed\|nativeSchemaOne\|reviewedSpeech\|speechPreferences\|libraryReadOnly\|Fixture\|fixture\|interruption\|damaged\|pendingFeed\|symlink\|configuration`. Debug app/core/CLI/tests compiled. Seven new tests exercise audio-only destination contents and unrelated-file preservation, scratch cleanup/purge/reboot with immutable completed audio, offline unfinished recovery/captured settings, different audio destinations with complete RSS, missing destination/overlap refusal without creation, snapshot integrity/linked-output refusal, native schema-1 preservation/upgrade, and sample speech in the same library. Synthetic test WAV providers exercised real ffmpeg/ffprobe; no Kokoro inference was run. Log: ignored `var/validation/2026-10-03-audio-storage/focused.log`. Existing unavailable user-cache/deprecated-option warnings remain. |
+| Static / project / exclusions | `git diff --check` passes; project/app plists pass `plutil -lint`. Source inspection confirms one app directory-output chooser (audio) and a separate read-only Reading List file chooser; the Review/sample/runtime/export directory controls are removed. `config.toml`, `models/`, `.runtime/` and `var/` remain ignored. |
+| GUI / actual speech | Not agent-run. Operator steps cover folder/bookmark persistence, implicit loading and rapid selection/cancellation, larger menu/footer, actual speech/listening, pause/relaunch, folder changes and removable-volume refusal. Canvas, signed/sandboxed permission persistence, cross-volume physical device and hosting acceptance remain separate gates. See SOURCE_REVIEW.md. |
+| Preservation | Historical Python/config/published data, project-local runtime/models and previous managed/fixture outputs were not changed. No model downloads, protected Safari reads, GUI automation, enrollment, host cutover or uploads. This new app library intentionally does not list/adopt historical workspace episodes; their files remain in place. |
+
+The prior speech-only continuation was subsequently committed as `5811286`, as
+verified by the current local Git history. The signing failure below is historical.
+The present storage/UI changes are a new working-tree change.
 
 ## October 3 speech-only app and reviewed-article continuation
 

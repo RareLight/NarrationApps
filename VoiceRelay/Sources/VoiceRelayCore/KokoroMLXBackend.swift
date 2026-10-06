@@ -40,7 +40,7 @@ public final class KokoroMLXBackend: TTSBackend, Sendable {
             "HUGGINGFACE_HUB_CACHE": "models/huggingface/hub", "HF_XET_CACHE": ".runtime/cache/huggingface/xet",
             "HF_ASSETS_CACHE": ".runtime/cache/huggingface/assets", "TRANSFORMERS_CACHE": "models/huggingface/hub",
             "XDG_CACHE_HOME": ".runtime/cache/xdg", "XDG_CONFIG_HOME": ".runtime/config", "XDG_DATA_HOME": ".runtime/data",
-            "NLTK_DATA": ".runtime/data/nltk", "TMPDIR": ".runtime/tmp"]
+            "NLTK_DATA": ".runtime/data/nltk"]
         for (key, path) in paths { env[key] = try confined(path).path }
         env["PYTHONNOUSERSITE"] = "1"; env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["HF_HUB_OFFLINE"] = "1"; env["TRANSFORMERS_OFFLINE"] = "1"
@@ -49,13 +49,19 @@ public final class KokoroMLXBackend: TTSBackend, Sendable {
         // Fingerprint the adapter, pins, interpreter catalog, full dependency lock, configured settings,
         // and selected voice bytes. Runtime preparation verifies model/package pins.
         let voiceFile = try confined("models/kokoro/a71e4d38b236d968966a2002c4c895dbd12b1c3c/voices/\(configuration.voice).safetensors")
-        let parts = try [source, pins, setup, lock, downloads].map { try Files.hash($0) }
+        let parts = try [source, pins, setup, lock, downloads].map { try Files.hash($0, description: "speech runtime sources or dependency pins") }
             + [configuration.voice, String(configuration.speed), (try? Files.hash(voiceFile)) ?? "missing-voice",
                (try? Files.hash(confined("models/kokoro/a71e4d38b236d968966a2002c4c895dbd12b1c3c/asset-manifest.json"))) ?? "missing-voice-manifest"]
         let id = "kokoro-mlx-audio-v1-" + Files.hash(Data(parts.joined(separator: "\n").utf8))
+        let helperTemporary = AppStorage.temporaryWork.appendingPathComponent("SpeechHelper", isDirectory: true)
+        guard helperTemporary.isFileURL, helperTemporary.path != "/",
+              !Files.contains(root, helperTemporary), !Files.contains(helperTemporary, root) else {
+            throw RelayError.setup("Unsafe helper temporary storage.")
+        }
         helper = ExecutableSpeechBackend(identity: BackendIdentity(id: id, displayName: "Kokoro via mlx-audio — speech", isMock: false),
             executable: python, arguments: ["-I", "-B", source.path], environment: env, voice: configuration.voice, speed: configuration.speed,
-            prepareTimeout: configuration.prepareTimeout, synthesisTimeout: configuration.synthesisTimeout)
+            prepareTimeout: configuration.prepareTimeout, synthesisTimeout: configuration.synthesisTimeout,
+            temporaryRoot: helperTemporary)
     }
     public func prepare() throws { try helper.prepare() }
     public func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult { try helper.synthesize(request, directory: directory) }

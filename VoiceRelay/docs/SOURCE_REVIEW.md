@@ -1,171 +1,282 @@
-# Manual source review — Slice 3 development
+# Articles and local speech — Slice 3 development
 
-October 3, 2026. **Articles…** contains **Review articles** and **Saved speech**.
-The continuation adds explicit reviewed-article Kokoro speech and an automatically
-managed, persistent native episode library. It retains manual discovery/fetch,
-semantic/narration review and optional private export. The app has no tone mode.
-Reading List inventory/exclusions and a bulk processing queue remain deferred.
+Updated October 5, 2026. The sidebar workspace contains **Articles**, **Queue**
+and **Saved Audio**. Select entries, **Add to Queue**, then **Generate Speech**.
+Selecting entries fetches nothing and requires no article review.
+Article inspection opens the dedicated **Article Preview** window: double-click
+an entry or use its **Preview Article** menu in Articles. Reading List source
+selection is
+**Settings → General → Reading List**.
 
-## Reviewed-article speech and managed storage
+## Queue-first article selection
 
-Settings exposes saved voice/speed preferences, with Heart at 1.0× by default;
-audio/chunk/fetch settings use internal defaults. Users do not need a configuration
-file or output folder. Development runtime selection is separate until packaging.
-After inspecting a readable review, **Generate speech** runs the existing shared
-SQLite/checkpoint → supervised provider → validated M4A → local RSS pipeline.
-Login/consent/blocked/failed reviews cannot start speech. Generation does not fetch
-again, enqueue the Safari backlog, enroll an agent, or upload a feed.
+- A chosen Reading List source is re-read automatically — on Articles
+  appearance, on source selection, and roughly every 30 seconds while the app
+  runs — without changing bookmarks or Reading List flags; the plist and its
+  entries are strictly read-only, never deleted, rewritten or marked read.
+  There is no Refresh control. With no source chosen, Articles only loads the
+  private saved inventory and asks you to choose a source in Settings. Entries
+  and membership persist; failed source reads retain them.
+- Select several articles with ⌘-click or Shift-click. **Add to Queue**
+  runs as a background task: each selected entry immediately shows a
+  *Preparing…* pending row, then entries are captured in displayed inventory
+  order with current voice, speed and audio-folder choices.
+- New selected articles are fetched, extracted and validated sequentially before
+  their text is committed. Adding starts no inference and creates no scratch/audio.
+  Already saved articles reuse their stored text offline; duplicates keep identity,
+  choices and FIFO position. Removing/readding also reuses saved text. Deliberate
+  source revision replacement remains later work.
+- A failed entry records a per-entry issue in Articles and does not abort the
+  other additions. Earlier committed items remain queued; failed and unattempted
+  entries keep their pending row until the task finishes. **Stop Generating** also
+  preserves earlier additions. Unsaved selections are UI state, not durable work;
+  add them again after relaunch if needed. Blocked/login/consent or unreadable
+  pages are refused; inspect them by double-clicking the entry in Articles.
+- **Generate Speech** in Queue or the status menu processes waiting items
+  FIFO from saved text — prepared rows show a *Ready* checkmark. It does not
+  refetch pages. The run drains until nothing eligible remains: it takes the
+  earliest Ready row even when earlier admissions are still preparing, waits
+  out pending preparations, and processes commits that arrive while speech is
+  active, so a late **Add to Queue** needs no second click. Identity-compatible
+  consecutive items share one prepared speech-helper session, so the local
+  engine/model does not reload between them. A failure keeps its failed row
+  and chunk checkpoints but does not stop the run; later Ready items continue.
+  Helper failures surface a privacy-safe, role-specific message — no paths or
+  content — with completed chunks retained.
+- Successful processing automatically removes an item from Queue only after
+  audio hash/probe/decode verification and local feed commitment. The episode,
+  source and audio remain in Saved Audio. Older completed queue rows are reverified
+  on the next explicit Generate Speech command before removal; this is not startup
+  processing. Readding a saved episode queues a verification run, preserving its
+  captured settings and existing audio.
+- **Stop Generating** appears only during owned speech work (including while a
+  run waits on pending preparations) and disables while stopping. It clears the
+  active/stale progress readout, cancels the worker, abandons only the
+  interrupted item's owned scratch and checkpoint rows, and returns that row to
+  Ready — never silently Paused. Earlier verified completions stay saved and
+  leave the queue; published audio, feeds and source snapshots are never
+  removed by Stop. Quit uses the legacy cancellation path instead and retains
+  unfinished checkpoints. Failed rows require **Retry → Generate Speech**;
+  Retry alone starts no inference. Individual rows remove with their × control
+  or as an arbitrary multi-selection — including pending *Preparing…* rows,
+  which cancels their add — without confirmation and without deleting saved
+  text/audio; the currently processing row is protected while it runs. Queue and
+  Saved Audio share one selection-management control and one row-removal button:
+  below two selections the pane offers its reset action, and at two or more the
+  same stable button switches to Remove Selections. The Queue
+  toolbar's **Reset Queue…** is the only explicit confirmed action and removes
+  only queue membership, preserving Reading List inventory, saved text,
+  published audio and preferences. Row removals are per-entry metadata work:
+  they never toggle global running/progress state or disable unrelated controls.
+  Double-clicking a queue row (or its Preview Article menu) opens the same
+  Article Preview window; resolving its URL reads the saved snapshot without
+  fetching and the preview window then fetches the page as it does for Articles;
+  a *Preparing…* row previews from its catalog entry. The former Reading List exclusion feature is
+  removed; no saved state blocks enqueue or retry, and legacy excluded/paused
+  rows are retryable.
+- The shared coordinator owns discovery, enqueue and pipeline writes. Pipeline
+  work takes short-lived writer stores per step plus a per-library filesystem
+  lease that allows exactly one speech worker — across coordinators and
+  processes — while metadata writes such as pending admissions proceed
+  concurrently. The UI submits commands and displays
+  snapshots. This app-owned coordinator is the permanent execution owner; work
+  lives and stops with the running app — Quit cancels and awaits it.
 
-The managed library lives under the app's Application Support directory. It has
-a distinct ownership marker; source/cleaned/semantic/narration files are private,
-and media uses opaque UUID filenames. Episode identity is keyed by a hash of the
-original URL, and settings are captured once. Changed unfinished source invalidates
-the affected semantic/audio checkpoints. A different source snapshot for an
-already-published URL is refused; existing source/media/feed are preserved.
-Explicit published-revision replacement is future work.
+Fully automatic FIFO mode is planned as explicit opt-in within the running app's
+lifetime, after recovery, retry/backoff and final-context gates. No discovery timer,
+startup fetch, automatic
+backlog speech, service enrollment, uploads or hosting changes are enabled here.
 
-**Saved speech** reads native SQLite without creating storage, then lists saved
-episode state. **Resume** validates saved snapshot hashes and uses the reviewed
-semantic snapshot and response bytes without a network request. It retains the
-captured voice/speed and compatible completed chunks. **Inspect** loads a published
-review and **Play** opens the audio. Published artifacts remain immutable. An
-interruption before the extraction checkpoint is committed requires reviewing
-the source again; a durable fetching/queue stage is still pending. Tampered or
-escaped sources are refused. Old tone workspaces are preserved and rejected.
+## Audio retention
 
-New manual acceptance steps:
+**Settings → General → Storage → Delete audio older than** offers 12 hours, 1 day,
+3 days, 1 week, 2 weeks, **1 month (default)**, 2 months, 3 months, 6 months and Never.
+The choice saves automatically. Filesystem modification dates determine age;
+month choices use calendar months. Cleanup runs while VoiceRelay is open: startup,
+automatic rechecks, after processing, after a policy change and every 15 minutes
+when idle.
+If processing is active, cleanup waits until it finishes. No enrolled background
+service performs deletion while the app is quit.
 
-1. Build/run in Xcode, open **Settings…**, change voice/speed and relaunch; confirm
-   the choices persist and no config-file picker or tone mode appears.
-2. Open **Articles… → Review articles**, review one short HTTPS article, inspect
-   its narration, then click **Generate speech**. No folder choice is required.
-3. Open **Saved speech**, refresh, then **Play** and **Inspect**. Compare narration
-   with the source and listen for omissions, footnote cues and chunk joins.
-4. Repeat for a second article; confirm both remain in the list and play normally.
-   The local RSS is still isolated; it is not a live podcast delivery result.
-5. Pause a longer article after some progress, quit/relaunch, then use **Saved
-   speech → Resume**. Confirm captured settings/progress survive and no refetch
-   occurs. Change new-article preferences and verify resumed content retains its
-   saved settings. Test repeat of a completed item for unchanged media/identity.
-6. A login/consent/error review should keep **Generate speech** disabled. Check
-   Settings and Saved speech Canvas previews separately from builds.
+Only completed audio in the native library is eligible; queued/paused/failed work
+and unrelated files are preserved. Captured audio folders remain authoritative,
+even after selecting a different folder for new articles. Expired files leave
+Saved Audio and local RSS. Article text and identities remain; readd an article
+and Generate Speech to recreate expired audio using its captured settings. Never
+stops future expiry; it cannot restore files already removed. Cleanup failures
+appear in Settings/Queue/Saved Audio and recheck automatically after restoring
+folder access (reopen the pane to prompt an immediate recheck). Model assets, source snapshots, Python/reference output and remote
+feeds are not included.
 
-## Behavior and boundaries
+Saved Audio also supports explicit removal: a row × deletes that audio file and
+retires its feed enclosure after verifying the file's hash and identity; two or
+more selections switch the shared pane control to Remove Selections, and zero or
+one offers **Reset Saved Audio…**, which confirms and deletes every file shown at
+that moment. Removal runs on the app's own work lifetime under the per-library
+lease, marks durable intent before unlinking so an interrupted deletion is resumed
+on the next automatic recheck, and refuses substituted, linked, unreadable or unavailable
+files. Article text, queue membership, source inventory and preferences are never
+touched; a removed article can be re-added and regenerated under the same identity.
 
-- Refresh explicitly reads one property-list file using Foundation. It supports
-  saved XML/binary hierarchies, prefers Safari UUIDs, and uses a URL/insertion-date
-  fingerprint when a UUID is absent. It does not change Safari flags or bookmarks.
-  Successful refreshes merge entries; absent entries remain visible. A failed or
-  incomplete refresh retains known entries and exclusions.
-- The inventory, selection and exclusions last only for the current app session.
-  They are source-review controls, not durable queue or episode state. Selecting
-  an entry does not fetch it; **Review selected** does. **Review URL** fetches
-  exactly the entered URL, independently of the Reading List inventory.
-- Each fetch has a fresh ephemeral URLSession, no cookies, credential store or
-  cache, a byte bound and overall deadline. Defaults are 10,000,000 response
-  bytes, 30 seconds and five redirects. Imported `max_article_bytes`,
-  `http_timeout_seconds` and `chunk_max_chars` are used; fetch limits above 50 MB
-  or 300 seconds are refused. HTML/XHTML, HTTP status and encoding are checked.
-  UTF BOM, declared charset and HTML meta charset are supported; otherwise UTF-8
-  is required. Credentials in URLs and every HTTPS-to-HTTP redirect are refused;
-  authorization/cookie headers are stripped on accepted redirects.
-- HTTP and HTTPS source URLs are recognized, but **system transport security
-  remains enabled**. An HTTP source may be refused in the app; use its HTTPS URL.
-  App-bundle HTTP behavior remains an operator gate. No blanket ATS exception is
-  installed. Apple describes this policy in its
-  [App Transport Security documentation](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity).
-- Fixed diagnostics avoid echoing private URLs or server error descriptions.
-  Conservative title heuristics flag some login, consent and access-check pages;
-  these are inspection aids, not comprehensive detection. Unknown pages still
-  require review. Unsupported/status/deadline failures remain visible errors.
-- Extraction and narration use the existing replaceable core. The window renders
-  plain text only: ordered block kinds/text, warnings, bounded narration chunks
-  and special-structure notices. It never loads scripts or displays downloaded
-  HTML as a web page. Saved HTML is private source material, not sanitized HTML.
-- **Save private snapshot…** is an explicit export to an empty folder or a marked
-  VoiceRelay source-review folder. It refuses overlap with imported source,
-  configuration, state, media and feed paths, the app's selected fixture workspace,
-  and marked fixture ancestors. Root/export folders use mode 0700;
-  files use 0600. The destination must be separate from fixture and served media.
-  Each export has an opaque UUID directory. `response.json` is committed last;
-  a directory without it is incomplete. Export cancellation can leave an incomplete
-  private directory. Quit cancels and awaits owned review/fixture work.
+Operator validation:
 
-```text
-source-review/
-  .voicerelay-source-review
-  <uuid>/
-    source.html       original response bytes
-    response.json     original/final URLs, fetch metadata, source SHA-256, issue
-    article.json      ordered semantic article and extraction version, if extracted
-    cleaned.html      extractor output, if extracted
-    narration.json    deterministic chunks/provenance/notices, if prepared
-```
+1. Build/run **VoiceRelay → My Mac**. In Settings → General → Storage, confirm the
+   default is 1 month and the dropdown has all ten options in the requested order.
+   Choose Never, quit/relaunch, and confirm it persists. Named Settings previews
+   remain synthetic/inert; Canvas rendering is still operator-owned.
+2. For a deletion check, use a newly generated, disposable native article. Keep
+   its file intact, choose Never, and identify its UUID-named M4A in your audio
+   folder. Do not use historical/reference media or a file you need to preserve.
+3. In Terminal, change only that disposable file's modification date to two days
+   ago (drag its M4A onto Terminal to supply the quoted absolute path):
+   `touch -m -t "$(date -v-2d +%Y%m%d%H%M.%S)" "/absolute/path/to/disposable-uuid.m4a"`.
+   Reopen the Saved Audio pane while Never is selected; it should remain playable.
+4. Choose 1 day. The disposable audio should disappear from the folder and Saved
+   Audio. Other recent audio
+   should remain. Add the same article and Generate Speech; it should regenerate
+   from saved text, under the same identity/captured choices, without fetching.
+5. Restore your preferred policy (default 1 month). App-open scheduling, local
+   feed consistency, folder permissions and real playback remain operator gates.
+   Focused tests cover exact boundaries, failure recovery, queued/unrelated file
+   preservation and the shared coordinator using isolated synthetic audio.
 
-Failed extraction or a flagged HTML page can still be exported for inspection.
-An HTTP/type/size/encoding failure does not create an export. Snapshots contain
-private URLs and article text and must remain outside served media. Use
-`var/source-review/` if storing them in this project; `var/` is ignored. Model and
-runtime paths remain project-local and ignored; this slice adds no downloads.
+## Settings troubleshooting
 
-## Step-by-step Xcode checks
+Select **Settings → Troubleshooting** for compact Reading List source
+diagnostics: the chosen source path or Safari Reading List, its status and any
+error, with explicit **Choose Reading List…** and **Stop Loading** controls.
+Source reads run automatically; there is no Refresh control. The pane has no saved-article list, typed URL or
+Preview control — double-click an entry in Articles to open the Article Preview
+window instead. The window fetches once with the standard bounded fetcher and
+displays title, original/final URLs, issues, semantic blocks, warnings,
+narration chunks and notices. It adds nothing to the queue and starts no
+speech; closing the window cancels its fetch. Downloaded content is rendered
+as plain text, never executable HTML.
 
-No GUI or protected Safari validation has been performed by the agent.
+Fetches use a fresh ephemeral URLSession without stored cookies or credentials,
+a 10 MB bound, 30-second deadline and five redirects. Charset/BOM/meta declarations
+are checked; otherwise UTF-8 is required. URL credentials and HTTPS → HTTP
+redirects are refused. App Transport Security stays enabled. Login/consent/access
+checks remain conservative heuristics; source completeness and pronunciation
+still require representative listening. CLI private export remains available;
+there is no app export-folder chooser.
 
-1. Quit any running copy of VoiceRelay. Open
-   `/path/to/VoiceRelay/VoiceRelay.xcodeproj` in Xcode.
-   Choose **VoiceRelay → My Mac**, then **Product → Build** (⌘B).
-   Run **Product → Test** (⌘U) when ready to run the core tests yourself.
-   Report build/test failures with their first source diagnostic.
-2. **Product → Run** (⌘R). Click the waveform in the macOS menu bar, then
-   **Articles…**. Expect an ordinary review window. Opening it should not refresh
-   Safari, fetch an article, start speech, or alter a feed.
-3. Click **Choose Reading List…** and select
-   `/path/to/VoiceRelay/Fixtures/reading-list.synthetic.plist`.
-   Click **Refresh Reading List**. Expect two synthetic entries, including
-   “Café 日本語”, and zero skipped entries. Select an entry, click **Exclude**,
-   refresh and confirm its exclusion remains. Click **Include** to restore it.
-   The fixture's `.invalid` URLs are placeholders; use the URL field for the
-   article-quality checks below.
-4. For actual Safari discovery, choose your `~/Library/Safari/Bookmarks.plist`
-   through **Choose Reading List…**, then refresh explicitly. This step reads protected
-   data under the actual app identity. If access is denied, keep the error and
-   report it; permission changes remain your decision. A previously chosen
-   synthetic file overrides the default Safari source until another file is chosen.
-   Alternatively test with a saved plist copy you can already access. Verify
-   expected entries against Safari and that Safari's state remains unchanged.
-5. Select one actual entry and click **Review selected**, or enter one public
-   article's HTTPS URL and click **Review URL**. Expect either a plain-text review
-   or an inspectable error. Confirm the original/final URLs and compare title,
-   beginning/middle/end, headings, list order, quotation, Unicode and punctuation
-   with the source. Check that menus, ads and footers have not become narration.
-   Review code/table omission notices if present. Repeating the explicit fetch
-   retries that one source; it does not process the backlog.
-6. Click **Save private snapshot…**. Create/select a new empty directory outside
-   all media/fixture roots, for example the project's ignored `var/source-review`.
-   In Finder, inspect the returned UUID folder. Expect the files above and matching
-   private source/provenance. A flagged/failed extraction has fewer files. Save
-   again and expect a different UUID, preserving the earlier export.
-7. While a fetch is in progress, click **Cancel**; the window should stay responsive
-   and return to idle. A very fast response may finish before you can cancel.
-   Enter `file:///private/synthetic` and click **Review URL** to check safe refusal.
-   Try a selected PDF URL and verify it is reported as unsupported. Neither should
-   produce speech, RSS, or published media.
-8. Refresh with an invalid/unreadable plist (a copy you control). Confirm that
-   existing entries and exclusions remain visible with an error. Close/reopen
-   Articles and verify the session inventory remains. Quit/relaunch and verify
-   that the inventory resets while the chosen source and saved episodes remain;
-   no durable source queue is implemented yet.
-9. Open `Sources/VoiceRelayApp/SourceReviewView.swift`, enable **Editor → Canvas**,
-   and check the named synthetic review, consent and retained-entry previews.
-   They use inert file/network/export actions. Record Canvas rendering separately
-   from compilation. Continue to track startup layout/linkd messages with the
-   existing diagnostic guide; this slice does not claim to fix those warnings.
+## Managed storage and recovery
 
-Return the build/test outcome and any failed step. For source quality, a short
-description of omitted/reordered content is enough; private source exports do
-not need to be shared. Test a conventional short, medium and long article before
-we enable durable queueing or scheduled processing.
+Settings saves voice/speed (Heart at 1.0× by default) and exposes one output-folder
+choice: **General → Storage → Choose…** (or **Change…** once set). The folder is remembered.
+This development app is not sandboxed; final signing/sandbox/bookmark permissions
+remain separate gates. No config file is required.
+
+Only opaque UUID-named M4A files go into that folder. Atomic publication briefly
+uses an audio-only hidden sibling. Source/cleaned HTML, narration JSON, lossless
+chunks, encoding files and tool logs use standard per-user macOS temporary storage;
+completed processing scratch is removed. Each inference-helper session gets a new
+private directory under the same app-owned system temporary root, removed after
+its worker stops. Private Application Support `SpeechLibrary`
+contains the internal SQLite schema-3 inventory, queue, settings, checkpoints,
+integrity-checked source/text snapshots and local diagnostic RSS. It has no folder
+chooser. Native metadata runs in SQLite WAL mode with persisted sidecars
+(`-wal`/`-shm` are private durable state): read-only connections open and read
+concurrently with writers, and future backups must use the SQLite backup API
+rather than raw database copies. Transactional native schema-1/2 upgrades preserve episodes/snapshots;
+Python/foreign/newer databases are refused. Historical workspaces stay untouched.
+
+Saved Audio lists only finalized native files that exist and are accessible.
+**Queue → Retry → Generate Speech** restores unfinished work from private
+snapshots without fetching. Compatible chunks resume; purged chunks regenerate
+under the same identity. Completed audio requires no scratch files. Existing
+episodes retain voice/speed and destination when Settings changes. A confirmed
+externally deleted file retires from Saved Audio and the local feed while its
+text, identity and captured settings remain for explicit regeneration. An
+unavailable volume, unreadable folder or linked path is never treated as
+deletion: the row is hidden, metadata is kept, and the file reappears when the
+storage returns. Tampered snapshots are refused. An explicit row × or Remove
+Selections in Saved Audio is the only path that deletes audio files directly:
+it verifies each file's hash and identity, retires the feed enclosure first, and
+records durable intent so an interrupted removal finishes on the next automatic recheck.
+
+## Step-by-step Xcode workflow checks
+
+GUI, Safari access, listening, final permission context and Canvas are
+operator-owned checks; compilation/tests do not certify them.
+
+1. Quit earlier copies. Open `VoiceRelay.xcodeproj`, select **VoiceRelay → My Mac**,
+   build (⌘B), then run (⌘R). No runtime reinstall/download is required.
+2. Open **Settings → General**. Confirm voice, speed, audio folder and Reading List
+   source controls. Use **Choose Reading List…** if needed, then open Articles;
+   the chosen source syncs automatically. Existing inventory and saved speech
+   should remain intact.
+3. Select two new readable entries using ⌘-click. Selection should highlight them
+   without opening/loading a review. Click **Add to Queue (2)**. Both should
+   briefly show a *Preparing…* pending row, then show a Ready checkmark in Queue,
+   in displayed list order, with no new audio or speech. Double-click an entry
+   and its Article Preview window should load title, blocks and chunks; closing
+   the window cancels its fetch.
+4. Add one of those entries again. Expect one existing queue item, preserving its
+   original choices and position. Change voice/speed and optionally audio folder,
+   then add a different article; only the new article should capture those changes.
+5. Quit/relaunch. Queued entries should persist without processing. Click
+   **Generate Speech** in the toolbar or status menu, then listen via **Saved
+   Audio → Show in Finder** (Quick Look with Space, or Finder double-click).
+   Verify FIFO completion, source completeness, captured voice/speed/destination.
+   Watch the menu or Queue progress: article completion should advance from 0/2
+   to 1/2 to 2/2, and the current-article label from Article 1 of 2 to Article 2
+   of 2. Finishing audio or checking saved audio must not report 100% before
+   validation completes. Each verified completion leaves Queue and remains in
+   Saved Audio. After **Stop Generating** the interrupted row is already Ready;
+   **Generate Speech** starts a fresh batch of remaining waiting work.
+6. Open **Settings → Troubleshooting**. Confirm the Reading List source path,
+   status line and Choose control; the pane has no saved-article list,
+   URL field or Preview button. Double-click an entry in Articles to open the
+   Article Preview window; it should show semantic blocks and narration. Its
+   Close button dismisses it. These actions must not enqueue or synthesize
+   anything.
+7. If a selected source fails or presents consent/login, the pending row records
+   a per-entry issue while other selected entries still add. Diagnose it by
+   double-clicking its entry in Articles to open Article Preview. **Stop
+   Generating** does not cancel pending additions; while entries are being
+   added, remove a pending row with its × or as a multi-selection to cancel
+   its add, and earlier saved queue items must remain. Preview fetches stop
+   when their window closes. Double-click a committed queue row to reopen the
+   saved article in Article Preview; its URL resolves from the saved snapshot
+   and the preview fetches it like Articles rows.
+8. Add a longer article, start, then **Stop**. Confirm the interrupted row is
+   Ready and **Generate Speech** works without Retry. Separately quit during
+   processing and relaunch: unfinished work requires **Queue → Retry → Generate
+   Speech**. Queue removal preserves saved text and audio. In Saved Audio,
+   removing a row with × deletes its file and drops its feed enclosure while
+   the article text stays; two or more selections switch the pane control to
+   Remove Selections, and zero or one shows **Reset Saved Audio…**, which asks
+   for confirmation before deleting every shown file. Optional removable
+   volume testing: eject while idle, expect no substitute on failure, reconnect
+   and retry. Abrupt Xcode Stop/relaunch recovery remains a separate operator gate.
+9. Check named inert **Articles — inert multi-selection**, RelayMenu, WorkspaceView,
+   Settings, Troubleshooting, Queue and Article Preview previews in Canvas. Menu
+   and toolbar run controls use the queue; there is no sample-speech control.
+   Inert preview construction must fetch nothing. Continue
+   tracking beta layout/linkd messages separately from audio success.
+10. From the status menu, choose **Articles** and **Settings…** in
+    turn. The native menu dismisses itself and shows/focuses its window. Reopen
+    the menu after each action; it must remain usable. With any standalone window
+    open, expect a Dock icon and a VoiceRelay entry in ⌘-Tab. Open two windows,
+    close one, and confirm the entry remains. Minimize the remaining window and
+    confirm VoiceRelay remains switchable. Close the last standalone window;
+    the Dock icon should disappear and the menu-bar item should remain usable.
+11. Check that **Stop Generating** is disabled while idle. Start generation, stop
+    it, and confirm the interrupted row returns to Ready and **Generate Speech**
+    works. If a storage/read error recurs, capture its entire message and
+    note the article/stage. Restore the originally captured audio folder/volume
+    before retrying; changing the folder for new articles does not relocate saved
+    episodes. Do not delete real audio or article data to force this test.
+
+The dormant agent prototype remains bundled as inactive reference material;
+the app owns processing for its entire lifetime and nothing registers or
+launches the prototype. AGENT_PROTOCOL.md is now a superseded-design record.
+
+For synthetic discovery without protected files, choose
+`Fixtures/reading-list.synthetic.plist` and it syncs automatically: expect two
+entries and zero skips. Its `.invalid` URLs cannot provide live article content.
 
 ## Optional CLI and focused checks
 
@@ -181,8 +292,8 @@ swift test --filter SourceReviewTests
 
 Expected discovery output: two entries, zero skipped; no titles/URLs printed.
 `reading-list --plist /absolute/path/to/Bookmarks.plist` is the explicit protected
-read under the launching CLI/Terminal context. It is separate from app and future
-agent permissions. `doctor` remains read-only and does not read Reading List data.
+read under the launching CLI/Terminal context. It is separate from the app's own
+permission context. `doctor` remains read-only and does not read Reading List data.
 
 To fetch/export exactly one URL, choose the source yourself and substitute its
 HTTPS URL below. The command produces no audio/feed or live-state mutation:
@@ -193,8 +304,7 @@ HTTPS URL below. The command produces no audio/feed or live-state mutation:
 ```
 
 An optional explicit `--config /absolute/config.toml` preserves imported limits
-and adds destination-overlap protection. A local `config.toml`, if present, is
-also imported read-only. A review-needed outcome is a completed diagnostic
+and adds destination-overlap protection. No local `config.toml` is imported unless `--config` is supplied. A review-needed outcome is a completed diagnostic
 export, not successful article acceptance. Operational fetch/export failure
 returns exit 1 with a fixed diagnostic.
 
@@ -236,7 +346,7 @@ unmarked citations are not guessed or stripped. Decorative symbol separators
 are retained semantically and omitted from speech.
 
 Extraction/narration version fingerprints have changed. Existing exported
-snapshots remain unchanged; fetch/review/save again to create a new export.
+snapshots remain unchanged; run the explicit diagnostic CLI export again to create a new export.
 Published fixture checkpoints continue to use their validated saved versions;
 they are not re-extracted or regenerated merely because a version changed.
 Use a new empty fixture folder to test the current policy. Browser rendering
@@ -250,8 +360,8 @@ cancellation, semantic provenance, failed-page outcomes and private exports.
 It does not establish live network redirect/auth/TLS behavior, actual Safari
 hierarchy/permissions, Xcode bundle/Canvas behavior or article quality.
 
-Persistent queue/exclusion/retry state, representative real-source corpus,
-reviewed-article Kokoro processing/listening, signed app relocation, agent
+Automatic discovery/backoff, representative real-source corpus,
+reviewed-article Kokoro processing/listening, signed app relocation, final app
 permissions and delivery remain future work. The existing explicit Kokoro speech
 fixture has its own [operator guide and listening gates](KOKORO_PROVIDER.md).
 No model inference, helper enrollment, live state adoption or upload occurs as

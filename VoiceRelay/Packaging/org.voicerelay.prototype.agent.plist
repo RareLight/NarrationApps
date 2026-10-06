@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>org.voicerelay.prototype.agent</string>
+    <key>BundleProgram</key><string>Contents/MacOS/VoiceRelayAgent</string>
+    <key>MachServices</key><dict><key>org.voicerelay.prototype.agent</key><true/></dict>
+    <key>LimitLoadToSessionType</key><string>Aqua</string>
+    <key>RunAtLoad</key><false/>
+</dict>
+</plist>

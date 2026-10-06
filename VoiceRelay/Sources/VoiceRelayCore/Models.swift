@@ -1,11 +1,12 @@
 import Foundation
 
 public enum RelayError: Error, LocalizedError, Sendable, Equatable {
-    case setup(String), extraction(String), artifact(String), storage(String), tool(String), interrupted
+    case setup(String), extraction(String), artifact(String), storage(String), tool(String), interrupted, writerBusy
     public var errorDescription: String? {
         switch self {
         case .setup(let s), .extraction(let s), .artifact(let s), .storage(let s), .tool(let s): return s
         case .interrupted: return "Fixture interrupted at the requested recovery boundary. Run it again to resume."
+        case .writerBusy: return "Another native coordinator owns this fixture database."
         }
     }
 }
@@ -13,6 +14,7 @@ public enum RelayError: Error, LocalizedError, Sendable, Equatable {
 public enum Stage: String, Codable, Sendable {
     case discovered = "DISCOVERED", fetching = "FETCHING", extracted = "EXTRACTED"
     case synthesizing = "SYNTHESIZING", encoding = "ENCODING", encoded = "ENCODED", published = "PUBLISHED"
+    case expired = "EXPIRED"
 }
 
 public struct ContentBlock: Codable, Sendable, Equatable {
@@ -72,6 +74,8 @@ public struct Episode: Codable, Sendable {
     public var audioHash: String?
     public var info: AudioInfo?
     public var synthesisFingerprint: String?
+    public var audioVolumeID: String? = nil
+    public var manualAudioDeletionRequested: Bool? = nil
     public var settings: PrototypeProfile
     public var guid: String { id }
 }

@@ -32,6 +32,54 @@ struct ExtractionCheckpoint: Codable {
     let cleanedHash: String
 }
 
+/// Durable approved text/provenance, independent of disposable processing files.
+struct StoredExtraction: Codable {
+    static let names = ["source.html", "article.json", "cleaned.html", "narration.json", "extraction-checkpoint.json"]
+    let files: [String: Data]
+    init(directory: URL) throws {
+        files = try Dictionary(uniqueKeysWithValues: Self.names.map { ($0, try Data(contentsOf: directory.appendingPathComponent($0))) })
+    }
+    init(review: ReviewedSource, chunkLimit: Int) throws {
+        guard review.issue == nil, let document = review.document else { throw RelayError.setup("Select a readable article before adding speech.") }
+        let narration = try Narration.prepare(document.article, limit: chunkLimit)
+        let article = try Files.json(document.article), plan = try Files.json(narration), cleaned = Data(document.cleanedHTML.utf8)
+        let cp = ExtractionCheckpoint(sourceHash: Files.hash(review.page.bytes), extractorVersion: document.article.extractorVersion,
+                                      narrationVersion: narration.version, articleHash: Files.hash(article),
+                                      narrationHash: Files.hash(plan), cleanedHash: Files.hash(cleaned))
+        files = [Self.names[0]: review.page.bytes, Self.names[1]: article, Self.names[2]: cleaned,
+                 Self.names[3]: plan, Self.names[4]: try Files.json(cp)]
+    }
+    func review() throws -> ReviewedSource {
+        guard Set(files.keys) == Set(Self.names), let checkpoint = files[Self.names[4]],
+              let source = files[Self.names[0]], let articleData = files[Self.names[1]],
+              let cleaned = files[Self.names[2]], let narrationData = files[Self.names[3]],
+              let html = String(data: cleaned, encoding: .utf8) else {
+            throw RelayError.artifact("Saved article snapshot is incomplete.")
+        }
+        let cp = try JSONDecoder().decode(ExtractionCheckpoint.self, from: checkpoint)
+        guard Files.hash(source) == cp.sourceHash, Files.hash(articleData) == cp.articleHash,
+              Files.hash(cleaned) == cp.cleanedHash, Files.hash(narrationData) == cp.narrationHash else {
+            throw RelayError.artifact("Saved article snapshot integrity failed. Existing audio is preserved.")
+        }
+        let article = try JSONDecoder().decode(SemanticArticle.self, from: articleData)
+        let narration = try JSONDecoder().decode(NarrationPlan.self, from: narrationData)
+        let page = FetchedPage(originalURL: article.originalURL, finalURL: article.finalURL, bytes: source,
+                               html: "", contentType: "text/html", encoding: "saved-response", fetchedAt: .distantPast)
+        return ReviewedSource(page: page, document: ExtractedDocument(article: article, cleanedHTML: html), narration: narration, issue: nil)
+    }
+    func restore(to directory: URL) throws {
+        _ = try review()
+        for name in Self.names {
+            let destination = directory.appendingPathComponent(name)
+            guard !Files.hasSymlink(destination, below: directory) else { throw RelayError.setup("Temporary article storage contains an unexpected link.") }
+            let data = files[name]!
+            if FileManager.default.fileExists(atPath: destination.path) {
+                guard try Files.hash(destination, description: "temporary article snapshot") == Files.hash(data) else { throw RelayError.artifact("Temporary article snapshot integrity failed.") }
+            } else { try Files.write(data, to: destination) }
+        }
+    }
+}
+
 enum FixtureWorkspace {
     static let markerText = "VoiceRelay isolated speech workspace v1\n"
     static func prepare(root: URL, imported: PrototypeProfile?, articles: Bool = false) throws -> PrototypeProfile {
@@ -89,6 +137,59 @@ enum FixtureWorkspace {
 
 public actor FixtureCoordinator {
     public init() {}
+    var activeDrainRoots: Set<String> = []
+    var beforeEnqueueCommit: (@Sendable () -> Void)?
+    func setBeforeEnqueueCommit(_ hook: (@Sendable () -> Void)?) { beforeEnqueueCommit = hook }
+    var beforeOwnedAudioUnlink: (@Sendable (URL) -> Void)?
+    func setBeforeOwnedAudioUnlink(_ hook: (@Sendable (URL) -> Void)?) { beforeOwnedAudioUnlink = hook }
+    var beforeAudioRemovalLease: (@Sendable () -> Void)?
+    func setBeforeAudioRemovalLease(_ hook: (@Sendable () -> Void)?) { beforeAudioRemovalLease = hook }
+    public func library(storage: ManagedSpeechStorage) throws -> [Episode] {
+        try storage.validate()
+        let p = storage.profile
+        guard FileManager.default.fileExists(atPath: p.database.path) else { return [] }
+        try storage.validateState()
+        let episodes = try NativeStore(url: p.database, readOnly: true).episodes()
+        for e in episodes {
+            guard UUID(uuidString: e.id) != nil,
+                  [e.settings.database, e.settings.work, e.settings.audio, e.settings.feed].allSatisfy(\.isFileURL),
+                  Files.samePath(e.settings.database, p.database), Files.samePath(e.settings.feed, p.feed),
+                  ["reviewed-article-speech", "speech-fixture"].contains(e.settings.backendSelector), e.settings.webdavURL == nil else {
+                throw RelayError.setup("Saved articles do not match their private library.")
+            }
+            try ManagedSpeechStorage(audioDirectory: e.settings.audio, stateRoot: storage.stateRoot,
+                                     temporaryRoot: storage.temporaryRoot).validate()
+        }
+        return episodes
+    }
+    public func articlePreviewURL(articleID: String, stateRoot: URL = AppStorage.managedLibrary) throws -> URL {
+        try ManagedSpeechStorage.validateLibrary(stateRoot: stateRoot)
+        let database = PrototypeProfile.fixture(at: stateRoot).database
+        guard FileManager.default.fileExists(atPath: database.path), UUID(uuidString: articleID) != nil,
+              let data = try NativeStore(url: database, readOnly: true).snapshot(articleID: articleID) else {
+            throw RelayError.setup("The saved article text is unavailable. Double-click it in Articles to preview it.")
+        }
+        let url = try JSONDecoder().decode(StoredExtraction.self, from: data).review().page.originalURL
+        try ArticleURL.validate(url)
+        return url
+    }
+    public func resume(storage: ManagedSpeechStorage, articleID: String, backend: any TTSBackend,
+                       onProgress: @escaping @Sendable (PipelineProgress) -> Void = { _ in }) async throws -> FixtureResult {
+        guard let e = try library(storage: storage).first(where: { $0.id == articleID }),
+              let data = try NativeStore(url: storage.profile.database, readOnly: true).snapshot(articleID: e.id) else {
+            throw RelayError.setup("The saved article text is unavailable. Select the article again before generating speech.")
+        }
+        let review = try JSONDecoder().decode(StoredExtraction.self, from: data).review()
+        let captured = ManagedSpeechStorage(audioDirectory: e.settings.audio, stateRoot: storage.stateRoot,
+                                            temporaryRoot: storage.temporaryRoot)
+        let voice = e.settings.voice ?? "af_heart", speed = e.settings.backendSettings["speed"]?.numericValue ?? 1
+        if e.settings.backendSelector == "speech-fixture" {
+            return try await runSpeech(root: captured.stateRoot, backend: backend, voice: voice, speed: speed,
+                                       storage: captured, onProgress: onProgress)
+        }
+        return try await runReviewed(root: captured.stateRoot, review: review, backend: backend, voice: voice, speed: speed,
+                                     storage: captured, onProgress: onProgress)
+    }
     public func library(root: URL) throws -> [Episode] {
         guard root.isFileURL else { throw RelayError.setup("Article storage must be local.") }
         let p = PrototypeProfile.fixture(at: root)
@@ -110,7 +211,7 @@ public actor FixtureCoordinator {
         return episodes
     }
     public func resumeReviewed(root: URL, articleID: String, backend: any TTSBackend,
-                               onProgress: @Sendable (PipelineProgress) -> Void = { _ in }) throws -> FixtureResult {
+                               onProgress: @escaping @Sendable (PipelineProgress) -> Void = { _ in }) async throws -> FixtureResult {
         try Task.checkCancellation()
         guard let episode = try library(root: root).first(where: { $0.id == articleID }) else {
             throw RelayError.setup("Saved article is unavailable in this library.")
@@ -122,8 +223,10 @@ public actor FixtureCoordinator {
             throw RelayError.setup("Saved source paths are invalid.")
         }
         let cp = try JSONDecoder().decode(ExtractionCheckpoint.self, from: Data(contentsOf: paths[4]))
-        guard try Files.hash(paths[0]) == cp.sourceHash, try Files.hash(paths[1]) == cp.articleHash,
-              try Files.hash(paths[2]) == cp.cleanedHash, try Files.hash(paths[3]) == cp.narrationHash else {
+        guard try Files.hash(paths[0], description: "saved article source") == cp.sourceHash,
+              try Files.hash(paths[1], description: "saved article text") == cp.articleHash,
+              try Files.hash(paths[2], description: "saved cleaned article") == cp.cleanedHash,
+              try Files.hash(paths[3], description: "saved narration") == cp.narrationHash else {
             throw RelayError.artifact("Saved article snapshot integrity failed. Existing audio is preserved.")
         }
         let article = try JSONDecoder().decode(SemanticArticle.self, from: Data(contentsOf: paths[1]))
@@ -134,24 +237,27 @@ public actor FixtureCoordinator {
                                bytes: try Data(contentsOf: paths[0]), html: "", contentType: "text/html",
                                encoding: "saved-response", fetchedAt: .distantPast)
         let review = ReviewedSource(page: page, document: document, narration: narration, issue: nil)
-        return try runReviewed(root: root, review: review, backend: backend,
-                               voice: episode.settings.voice ?? "af_heart",
-                               speed: episode.settings.backendSettings["speed"]?.numericValue ?? 1, onProgress: onProgress)
+        return try await runReviewed(root: root, review: review, backend: backend,
+                                     voice: episode.settings.voice ?? "af_heart",
+                                     speed: episode.settings.backendSettings["speed"]?.numericValue ?? 1, onProgress: onProgress)
     }
     public func runSpeech(root: URL, imported: PrototypeProfile? = nil, backend: any TTSBackend,
                           voice: String? = nil, speed: Double? = nil,
                           interruptAfter: FixtureBoundary? = nil,
-                          onBoundary: @Sendable (FixtureBoundary) -> Void = { _ in },
-                          onProgress: @Sendable (PipelineProgress) -> Void = { _ in }) throws -> FixtureResult {
+                          storage: ManagedSpeechStorage? = nil,
+                          onBoundary: @escaping @Sendable (FixtureBoundary) -> Void = { _ in },
+                          onProgress: @escaping @Sendable (PipelineProgress) -> Void = { _ in }) async throws -> FixtureResult {
         guard !backend.identity.isMock else { throw RelayError.setup("Speech checks require an explicitly selected real-speech provider.") }
-        return try execute(root: root, imported: imported, backend: backend,
-                           speechVoice: voice, speechSpeed: speed,
-                           interruptAfter: interruptAfter, onBoundary: onBoundary, onProgress: onProgress)
+        return try await executeWork(root: root, imported: imported, backend: backend,
+                                     storage: storage,
+                                     speechVoice: voice, speechSpeed: speed,
+                                     interruptAfter: interruptAfter, onBoundary: onBoundary, onProgress: onProgress)
     }
     public func runReviewed(root: URL, review: ReviewedSource, backend: any TTSBackend,
                             voice: String = "af_heart", speed: Double = 1,
                             interruptAfter: FixtureBoundary? = nil,
-                            onProgress: @Sendable (PipelineProgress) -> Void = { _ in }) throws -> FixtureResult {
+                            storage: ManagedSpeechStorage? = nil,
+                            onProgress: @escaping @Sendable (PipelineProgress) -> Void = { _ in }) async throws -> FixtureResult {
         try Task.checkCancellation()
         guard !backend.identity.isMock, review.issue == nil, let document = review.document,
               let narration = review.narration, !narration.chunks.isEmpty,
@@ -160,21 +266,42 @@ public actor FixtureCoordinator {
             throw RelayError.setup("Review a readable article before requesting speech.")
         }
         try ArticleURL.validate(review.page.originalURL); try ArticleURL.validate(review.page.finalURL)
-        return try execute(root: root, imported: nil, backend: backend, review: review,
-                           speechVoice: voice, speechSpeed: speed, interruptAfter: interruptAfter,
-                           onBoundary: { _ in }, onProgress: onProgress)
+        return try await executeWork(root: root, imported: nil, backend: backend, review: review,
+                                     storage: storage,
+                                     speechVoice: voice, speechSpeed: speed, interruptAfter: interruptAfter,
+                                     onBoundary: { _ in }, onProgress: onProgress)
     }
-    private func execute(root: URL, imported: PrototypeProfile?, backend: any TTSBackend, review: ReviewedSource? = nil,
-                         speechVoice: String? = nil, speechSpeed: Double? = nil,
-                         interruptAfter: FixtureBoundary?, onBoundary: @Sendable (FixtureBoundary) -> Void,
-                         onProgress: @Sendable (PipelineProgress) -> Void) throws -> FixtureResult {
+    private func executeWork(root: URL, imported: PrototypeProfile?, backend: any TTSBackend, review: ReviewedSource? = nil,
+                             storage: ManagedSpeechStorage? = nil,
+                             speechVoice: String? = nil, speechSpeed: Double? = nil,
+                             interruptAfter: FixtureBoundary?, onBoundary: @escaping @Sendable (FixtureBoundary) -> Void,
+                             onProgress: @escaping @Sendable (PipelineProgress) -> Void) async throws -> FixtureResult {
+        let child = Task.detached(priority: .userInitiated) {
+            try Self.execute(root: root, imported: imported, backend: backend, review: review,
+                             storage: storage, speechVoice: speechVoice, speechSpeed: speechSpeed,
+                             interruptAfter: interruptAfter, onBoundary: onBoundary, onProgress: onProgress)
+        }
+        return try await withTaskCancellationHandler {
+            try await child.value
+        } onCancel: {
+            child.cancel()
+        }
+    }
+    private nonisolated static func execute(root: URL, imported: PrototypeProfile?, backend: any TTSBackend, review: ReviewedSource? = nil,
+                                            storage: ManagedSpeechStorage? = nil,
+                                            speechVoice: String? = nil, speechSpeed: Double? = nil,
+                                            interruptAfter: FixtureBoundary?, onBoundary: @Sendable (FixtureBoundary) -> Void,
+                                            onProgress: @Sendable (PipelineProgress) -> Void) throws -> FixtureResult {
         try Task.checkCancellation()
         let root = root.resolvingSymlinksInPath().standardizedFileURL
         guard speechVoice == nil || speechVoice!.range(of: "^[ab][fm]_[a-z0-9_]+$", options: .regularExpression) != nil,
               speechSpeed == nil || (speechSpeed!.isFinite && (0.25...4).contains(speechSpeed!)) else {
             throw RelayError.setup("Speech voice or speed is unsupported.")
         }
-        var selected = try FixtureWorkspace.prepare(root: root, imported: imported, articles: review != nil)
+        if let storage {
+            guard imported == nil, Files.samePath(root, storage.stateRoot) else { throw RelayError.setup("Managed speech storage does not match its private library.") }
+        }
+        var selected = try storage?.prepare() ?? FixtureWorkspace.prepare(root: root, imported: imported, articles: review != nil)
         selected.backendSelector = review == nil ? "speech-fixture" : "reviewed-article-speech"
         selected.voice = speechVoice ?? imported?.voice
         selected.backendSettings = imported?.backendSettings ?? [:]
@@ -185,10 +312,34 @@ public actor FixtureCoordinator {
         guard ToolRunner.locate(selected.ffmpeg) != nil, ToolRunner.locate(selected.ffprobe) != nil else {
             throw RelayError.setup("Install ffmpeg/ffprobe or select their executable paths in the imported profile.")
         }
-        let store = try NativeStore(url: selected.database)
+        let lease = try PipelineLease(database: selected.database)
+        defer { lease.release() }
+        let store = try PipelineStore(databaseURL: selected.database)
         let sourceKey = review.map { "reviewed-url-v1-" + Files.hash(Data($0.page.originalURL.absoluteString.utf8)) }
             ?? "bundled-synthetic-article-v1"
         var e = try store.episode(sourceKey: sourceKey, settings: selected)
+        if e.stage == .expired {
+            guard e.manualAudioDeletionRequested != true else {
+                throw RelayError.setup("Saved audio removal is unfinished. Reopen Saved Audio to finish it before regenerating.")
+            }
+            guard !FileManager.default.fileExists(atPath: e.settings.audio.appendingPathComponent(e.id + ".m4a").path) else {
+                throw RelayError.setup("Audio expiry cleanup is unfinished. Restore folder access and reopen Saved Audio before generating again.")
+            }
+            e.encodedHash = nil; e.audioHash = nil; e.info = nil; e.synthesisFingerprint = nil; e.publicationDate = nil
+        }
+        if let storage {
+            // A location change affects new episodes; saved episodes keep their destination.
+            _ = try ManagedSpeechStorage(audioDirectory: e.settings.audio, stateRoot: storage.stateRoot,
+                                         temporaryRoot: storage.temporaryRoot).prepare()
+            let volumeID = (try? e.settings.audio.resourceValues(forKeys: [.volumeUUIDStringKey]))?.volumeUUIDString
+            if let stored = e.audioVolumeID, stored != volumeID {
+                throw RelayError.setup("The original audio volume is unavailable. Reconnect it before resuming.")
+            }
+            if e.audioVolumeID == nil { e.audioVolumeID = volumeID }
+            e.settings.work = selected.work
+            selected.audio = e.settings.audio
+            try store.save(e)
+        }
         let p = e.settings // Capture relevant settings once; subsequent profile changes affect new work.
         guard Files.samePath(p.database, selected.database), Files.samePath(p.work, selected.work),
               Files.samePath(p.audio, selected.audio), Files.samePath(p.feed, selected.feed),
@@ -216,6 +367,12 @@ public actor FixtureCoordinator {
         let cleanedFile = directory.appendingPathComponent("cleaned.html")
         let extractionFile = directory.appendingPathComponent("extraction-checkpoint.json")
         let sourceBytes = try review?.page.bytes ?? FixtureResource.html(); let sourceHash = Files.hash(sourceBytes)
+        if storage != nil, let data = try store.snapshot(articleID: e.id) {
+            let saved = try JSONDecoder().decode(StoredExtraction.self, from: data)
+            let savedReview = try saved.review()
+            if Files.hash(savedReview.page.bytes) == sourceHash { try saved.restore(to: directory) }
+            else if e.stage == .published { throw RelayError.setup("This article already has audio from a different source snapshot. Existing audio is preserved.") }
+        }
         if review != nil, e.stage == .published,
            let bytes = try? Data(contentsOf: extractionFile),
            let cp = try? JSONDecoder().decode(ExtractionCheckpoint.self, from: bytes), cp.sourceHash != sourceHash {
@@ -252,8 +409,11 @@ public actor FixtureCoordinator {
             try Files.write(try Files.json(narration), to: narrationFile)
             try Files.write(Data(document.cleanedHTML.utf8), to: cleanedFile)
             let cp = ExtractionCheckpoint(sourceHash: sourceHash, extractorVersion: document.article.extractorVersion, narrationVersion: Narration.version,
-                                          articleHash: try Files.hash(articleFile), narrationHash: try Files.hash(narrationFile), cleanedHash: try Files.hash(cleanedFile))
+                                          articleHash: try Files.hash(articleFile, description: "prepared article text"),
+                                          narrationHash: try Files.hash(narrationFile, description: "prepared narration"),
+                                          cleanedHash: try Files.hash(cleanedFile, description: "cleaned article"))
             try Files.write(try Files.json(cp), to: extractionFile)
+            if storage != nil { try store.saveSnapshot(articleID: e.id, data: Files.json(StoredExtraction(directory: directory))) }
             article = document.article; plan = narration; e.title = document.article.title
             e.encodedHash = nil; e.info = nil; e.stage = .extracted; try store.save(e)
         }
@@ -261,6 +421,7 @@ public actor FixtureCoordinator {
         progress(e.stage, 0, plan.chunks.count)
         let encoded = directory.appendingPathComponent("episode.m4a")
         let destination = p.audio.appendingPathComponent(e.id + ".m4a")
+        guard !Files.hasSymlink(destination, below: p.audio) else { throw RelayError.setup("The saved audio path contains an unexpected link.") }
         var syntheses = 0
         let inputFingerprint = Files.hash(try Files.json(EncodingFingerprint(backend: backend.identity,
             profile: p, extraction: article.extractorVersion, narration: plan)))
@@ -270,7 +431,7 @@ public actor FixtureCoordinator {
                 && (try? processor.probe(encoded, final: true)) != nil
             if !encodedValid {
                 e.stage = .synthesizing; try store.save(e); progress(.synthesizing, 0, plan.chunks.count)
-                defer { backend.cancel() }; try backend.prepare()
+                try backend.prepare()
                 var artifacts: [LosslessArtifact] = []
                 for chunk in plan.chunks {
                     try Task.checkCancellation()
@@ -296,7 +457,7 @@ public actor FixtureCoordinator {
                         catch let error as RelayError { throw error }
                         catch { throw RelayError.artifact("Fixture backend failed; completed chunks are retained.") }
                         try processor.validate(result, within: chunkDirectory)
-                        let cp = ChunkCheckpoint(request: request, result: result, hashes: try result.artifacts.map { try Files.hash($0.url) })
+                        let cp = ChunkCheckpoint(request: request, result: result, hashes: try result.artifacts.map { try Files.hash($0.url, description: "generated speech chunk") })
                         try store.saveChunk(articleID: e.id, index: chunk.index, fingerprint: fingerprint, checkpoint: cp)
                         checkpoint = cp; syntheses += 1
                         try boundary(.chunkCommitted)
@@ -306,7 +467,7 @@ public actor FixtureCoordinator {
                 }
                 e.stage = .encoding; try store.save(e); progress(.encoding, plan.chunks.count, plan.chunks.count)
                 let (_, info) = try processor.encode(artifacts, in: directory)
-                e.info = info; e.encodedHash = try Files.hash(encoded)
+                e.info = info; e.encodedHash = try Files.hash(encoded, description: "encoded audio")
                 e.synthesisFingerprint = inputFingerprint
             }
             try processor.decode(encoded)
@@ -314,12 +475,12 @@ public actor FixtureCoordinator {
             if e.publicationDate == nil { e.publicationDate = Date() }
             try store.save(e); try boundary(.encoded)
             guard let encodedHash = e.encodedHash else { throw RelayError.artifact("Encoded checkpoint has no integrity record.") }
-            try processor.publish(encoded, destination: destination, expectedHash: encodedHash)
+            try processor.publish(encoded, destination: destination, expectedHash: encodedHash, inMediaDirectory: storage != nil)
             try boundary(.audioPlaced)
             e.audioHash = encodedHash; e.stage = .published
             try store.save(e, pendingFeed: true); try boundary(.episodeCommitted)
         }
-        guard let committedHash = e.audioHash, try Files.hash(destination) == committedHash else {
+        guard let committedHash = e.audioHash, try Files.hash(destination, description: "saved audio") == committedHash else {
             throw RelayError.artifact("Published media integrity failed; previous feed is preserved.")
         }
         _ = try processor.probe(destination, final: true); try processor.decode(destination)
@@ -327,6 +488,7 @@ public actor FixtureCoordinator {
         if (try? Data(contentsOf: p.feed)) != feed { try Files.write(feed, to: p.feed) }
         try boundary(.feedReplaced)
         try store.markFeed(Files.hash(feed)); progress(.published, plan.chunks.count, plan.chunks.count)
+        if storage != nil { try? FileManager.default.removeItem(at: directory) }
         return FixtureResult(episode: e, audioURL: destination, feedURL: p.feed, article: article, narration: plan,
                              synthesizedChunks: syntheses, localFeedCurrent: true, remoteDelivery: "disabled-fixture")
     }

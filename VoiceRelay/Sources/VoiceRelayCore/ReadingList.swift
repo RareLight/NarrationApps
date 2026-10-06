@@ -20,13 +20,19 @@ public struct ReadingListSnapshot: Sendable {
     }
 }
 
-/// Review-session inventory. Successful refreshes merge; absent entries are retained.
+/// Successful refreshes merge; absent entries are retained.
 /// A failed parse cannot be reconciled and never empties this inventory.
-public struct ReadingListCatalog: Sendable {
+public struct ReadingListCatalog: Codable, Sendable {
     public private(set) var entries: [ReadingListEntry] = []
     public private(set) var currentIDs: Set<String> = []
+    /// Legacy catalogs still decode this field; exclusion is no longer honored and each
+    /// saved reconcile clears it.
     public var excludedIDs: Set<String> = []
     public init() {}
+    /// Multi-selection retains displayed inventory order.
+    public func selectedEntries(_ ids: Set<String>) -> [ReadingListEntry] {
+        entries.filter { ids.contains($0.id) }
+    }
     public mutating func reconcile(_ snapshot: ReadingListSnapshot) {
         currentIDs = Set(snapshot.entries.map(\.id))
         let updates = Dictionary(snapshot.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
