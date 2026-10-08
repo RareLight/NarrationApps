@@ -21,7 +21,10 @@ struct LibroSpeechWorker {
             let response: [String: Any]
             if arguments == ["--probe"] {
                 let result = (MLXArray([Float(1), 2, 3]) * 2).asArray(Float.self)
-                guard result == [2, 4, 6] else { throw WorkerError.metalProbeFailed }
+                // Exercise non-leading scalar gather as well as basic arithmetic.
+                let gathered = take(MLXArray(0..<12, [3, 4]), MLXArray(Int32(2)), axis: 1)
+                    .asArray(Int32.self)
+                guard result == [2, 4, 6], gathered == [2, 6, 10] else { throw WorkerError.metalProbeFailed }
                 response = ["metal": "ready", "worker": "LibroSpeechWorker"]
             } else if arguments.count == 2, arguments[0] == "--prepare-g2p" {
                 let workspace = try NativeWorkspace(root: URL(fileURLWithPath: arguments[1], isDirectory: true))

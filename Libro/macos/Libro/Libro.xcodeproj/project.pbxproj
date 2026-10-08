@@ -11,7 +11,7 @@
 		0035FE99EA2940F7FA633A58 = { isa = PBXGroup; children = (DCC1C6FF747A9524174F17C4, C7F16744B7350406D43A58FF, 736BF95996D40C71307E3727, 7A2242B09BA5CE9CA8DD66E7, 0A3E27B8CA818264D75C8D81, F39DB396A68008CF77BCB592,); sourceTree = "<group>"; };
 		62389C075E76AF4A0B3DAE2B = { isa = XCLocalSwiftPackageReference; relativePath = ../LibroCore; };
 		4D66EE673667E9770C819366 = { isa = XCLocalSwiftPackageReference; relativePath = ../.build/dependencies/mlx-audio-swift; };
-		ED6B4E63797EBD749423822C = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/ml-explore/mlx-swift.git"; requirement = {kind = exactVersion; version = 0.31.4;}; };
+		ED6B4E63797EBD749423822C = { isa = XCLocalSwiftPackageReference; relativePath = ../.build/dependencies/mlx-swift; };
 		F0EC01878E8128903CF7D703 = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/huggingface/swift-huggingface.git"; requirement = {kind = exactVersion; version = 0.8.1;}; };
 		33D69C9690A9998D8D4A1229 = { isa = XCSwiftPackageProductDependency; package = 62389C075E76AF4A0B3DAE2B; productName = LibroCore; };
 		2ECF33268C9C7214ED56E0AA = { isa = PBXBuildFile; productRef = 33D69C9690A9998D8D4A1229; };

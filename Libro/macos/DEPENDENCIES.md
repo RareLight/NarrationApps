@@ -3,13 +3,13 @@
 This is a native Swift runtime. Python, the CLI environment and Homebrew are not native build or runtime dependencies.
 
 - Xcode: 27.0 (27A266a), Swift 6.4 (swiftlang-6.4.0.34.1).
-- Apple Silicon (`arm64`), macOS 15.0 deployment target, Swift 6 language mode and complete concurrency checks in Libro targets.
+- Apple Silicon (`arm64`), Swift 6 language mode and complete concurrency checks in Libro targets. Shared deployment configuration is macOS 15.0; the current local app's macOS 27.0 override is preserved.
 - MLX Audio Swift: `8d86630ade569728aaea3dc1a29fc44e2efa719b`, https://github.com/Blaizzy/mlx-audio-swift.
-- MLX Swift: 0.31.4 (`dc43e62d7055353c7f99fa071a4e71d29dfddc44`).
+- MLX Swift: 0.31.4 (`dc43e62d7055353c7f99fa071a4e71d29dfddc44`), root-local checkout with the recorded Metal backport below. Its MLX core remains `ce45c52505c8158ea48d2a54e8caae05efd86bfe`; MLX C remains `0726ca922fc902c4c61ef9c27d94132be418e945`.
 - MLX Swift LM: 3.31.4 (`bd4b7434e6bdb588c7ef55706ff8904cb7fd4c57`).
 - Swift Transformers: 1.1.9 (`150169bfba0889c229a2ce7494cf8949f18e6906`).
 - Swift Hugging Face: 0.8.1 (`de01c0ab8fd537bbd8216cea7f774275178501a2`).
-- The complete 31-package remote graph is retained in `Libro/Libro.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. The adapted MLX Audio package is a local checkout pinned by `scripts/prepare-dependencies.sh`.
+- The complete 30-package remote graph is retained in `Libro/Libro.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. MLX Audio and MLX Swift are local checkouts pinned by `scripts/prepare-dependencies.sh`; root-local MLX Swift also supplies all transitive MLX consumers. Moving MLX Swift local preserves every remaining remote pin.
 
 ## Narrow upstream adaptation
 
@@ -18,6 +18,10 @@ This is a native Swift runtime. Python, the CLI environment and Homebrew are not
 Why this is required: at the pinned revision, Misaki's convenience acquisition calls `ModelUtils.resolveOrDownloadModel`, whose cache shortcut requires a valid `config.json`. The pinned `beshkenadze/kitten-tts-g2p` repository supplies `us_bart_config.json`, `us_bart.safetensors`, `us_gold.json`, `us_silver.json`, and **no `config.json`**. It also lacks a public strict offline/prepared-directory option. The adapter avoids this acquisition path completely during speech.
 
 Update procedure: change the engine pin deliberately, inspect local loader/G2P changes, rebase the small patch, resolve and retain the full dependency graph, then repeat fixtures, Debug/Release packaged probes, both real models and blocked-network/missing/corrupt-asset tests. Never patch a floating package checkout.
+
+`Patches/mlx-empty-vector-metal.patch` backports the `set_vector_bytes` guard from [upstream MLX commit 08298bbb](https://github.com/ml-explore/mlx/commit/08298bbbdfbf932378b9db9e3a2aa67ea97c94c4), adapting only the encoder accessor to this older core. Nonempty vectors retain the existing binding. Empty metadata binds one zero-initialized value instead of a null pointer; the zero-rank kernel specialization does not read that metadata. This prevents the `bytes argument cannot be nil` assertion under Xcode Metal API validation without disabling validation or upgrading the graph. Other changes in that upstream commit are not included.
+
+Preparation verifies the parent and submodule revisions and the exact recorded diffs, refuses unexpected edits/untracked files, and is idempotent. Keep the checked-in backport and local root package reference together. A fresh checkout must run preparation before opening Xcode. When deliberately updating MLX, inspect whether the new core already contains the guard, remove/rebase the patch accordingly, and repeat real K/S generation with `MTL_DEBUG_LAYER=1` in both configurations. The worker probe includes arithmetic and non-leading scalar gather; a passing probe alone does not establish speech acceptance.
 
 ## Native assets
 
