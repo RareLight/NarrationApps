@@ -60,19 +60,20 @@ private final class LibroDelegate: NSObject, NSApplicationDelegate, UNUserNotifi
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let model = IntakeModel.shared
-        if model.isGenerating {
+        if model.isGenerating || model.isPreparingModel {
             let alert = NSAlert()
-            alert.messageText = "Libro is processing audio."
-            alert.informativeText = "Keep processing, or cancel this batch and quit. Complete audio already saved will be preserved."
+            alert.messageText = model.isPreparingModel ? "Libro is preparing model assets." : "Libro is processing audio."
+            alert.informativeText = model.isPreparingModel ? "Keep preparing, or cancel preparation and quit. Completed asset files can be reused when you prepare again." : "Keep processing, or cancel this batch and quit. Complete audio already saved will be preserved."
             alert.addButton(withTitle: "Keep Processing")
             alert.addButton(withTitle: "Cancel Processing and Quit")
             if alert.runModal() == .alertFirstButtonReturn { return .terminateCancel }
         }
         model.cancel()
         model.stopPlayback()
-        guard model.hasOwnedProbe || model.isGenerating else { return .terminateNow }
+        guard model.hasOwnedProbe || model.isGenerating || model.isPreparingModel else { return .terminateNow }
         Task {
             await model.stopGeneration()
+            await model.stopPreparation()
             await model.stopProbe()
             sender.reply(toApplicationShouldTerminate: true)
         }
@@ -126,6 +127,9 @@ private final class IntakeModel {
     var readiness = "Checking prepared model assets…"
     var assetsReady = false
     var checkingAssets = false
+    var isPreparingModel = false
+    var preparationStatus = ""
+    var preparationProgress: ModelPreparationProgress?
     var voices = ["af_aoede"]
     var activeBatch: BatchRequest?
     var speechProgress: SpeechProgress?
@@ -148,16 +152,18 @@ private final class IntakeModel {
     var hasSelectedAudio: Bool { selectedDocument.map { outcomes[$0.id]?.state == .published } ?? false }
     var hasSelectedFailure: Bool { selectedDocument.map { outcomes[$0.id]?.state == .failed || outcomes[$0.id]?.state == .cancelled } ?? false }
     var canGenerate: Bool {
-        !isGenerating && !busy && !planning && assetsReady && output?.url != nil && workspace?.url != nil &&
+        !isGenerating && !isPreparingModel && !busy && !planning && assetsReady && output?.url != nil && workspace?.url != nil &&
         planningError == nil && !candidates.isEmpty && planned.count == candidates.count
     }
-    var cancellable: Bool { scanner != nil || reader != nil || hasOwnedProbe || isGenerating }
+    var canPrepareModel: Bool { workspace?.url != nil && !isGenerating && !isPreparingModel && !busy && !checkingAssets && !hasOwnedProbe }
+    var cancellable: Bool { scanner != nil || reader != nil || hasOwnedProbe || isGenerating || isPreparingModel }
     var inputCancelLabel: String { scanner != nil ? "Cancel Scan" : (reader != nil ? "Cancel Read" : "Cancel Probe") }
     var hasOwnedProbe: Bool { probeProcess != nil }
     var activityStatus: String { scanner != nil ? "Scanning inputs… \(scanCount) entries checked." : status }
     var planning: Bool { planner != nil }
     var preview: Preview?
     var issues: [IntakeIssue] = []
+    var dropError: String?
     private let preferences = DirectoryPreferences()
     private var roots: [URL] = []
     private var removed = Set<String>()
@@ -173,6 +179,9 @@ private final class IntakeModel {
     private var generationTask: Task<Void, Never>?
     private var progressTask: Task<Void, Never>?
     private var readinessTask: Task<(String, [String]), Error>?
+    private var preparationTask: Task<Void, Never>?
+    private var preparationOperation = UUID()
+    private var preparationScopes: [DirectoryAccess] = []
     private var readinessOperation = UUID()
     private var batchScopes: [DirectoryAccess] = []
     private var outputScopes: [UUID: DirectoryAccess] = [:]
@@ -208,6 +217,7 @@ private final class IntakeModel {
     }
 
     func browse(_ role: DirectoryRole) {
+        guard role != .workspace || !isPreparingModel else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false; panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
@@ -273,6 +283,26 @@ private final class IntakeModel {
         }
     }
 
+    func importDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard !providers.isEmpty else { return false }
+        Self.logger.info("Receiving file drop: \(providers.count) items")
+        dropError = nil
+        status = "Receiving dropped files and folders…"
+        Task {
+            let result = await FileDrop.load(providers)
+            guard !result.urls.isEmpty else {
+                status = "The dropped items did not provide accessible file locations. Use Add Files or Add Folder to select them."
+                announce(status)
+                return
+            }
+            add(result.urls)
+            if result.unavailableItems > 0 {
+                dropError = "\(result.unavailableItems) dropped items did not provide accessible file locations. Use Add Files or Add Folder to select them."
+            }
+        }
+        return true
+    }
+
     func replan() {
         planner?.cancel()
         let token = UUID(); planOperation = token
@@ -323,6 +353,7 @@ private final class IntakeModel {
 
     func cancel() {
         cancelIntake()
+        if isPreparingModel { preparationStatus = "Cancelling preparation… waiting for the helper to stop."; preparationTask?.cancel() }
         if isGenerating { generationStatus = "Cancelling… waiting for native workers to stop."; generationTask?.cancel() }
     }
 
@@ -373,7 +404,7 @@ private final class IntakeModel {
     }
 
     func probe() {
-        guard !busy, !isGenerating, probeProcess == nil else { return }
+        guard !busy, !isGenerating, !isPreparingModel, probeProcess == nil else { return }
         let token = UUID(); operation = token
         busy = true; probeCancelled = false; status = "Checking embedded Metal runtime…"
         do {
@@ -391,6 +422,7 @@ private final class IntakeModel {
     }
 
     func refreshReadiness() {
+        guard !isPreparingModel else { return }
         readinessTask?.cancel(); readinessTask = nil
         let token = UUID(); readinessOperation = token
         assetsReady = false; checkingAssets = false; readinessScopes = []
@@ -408,10 +440,9 @@ private final class IntakeModel {
             var voices = [selected.voice]
             if selected.model == .kokoro {
                 try NativeG2P.validate(directory: store.g2pDirectory, workspace: store)
-                voices = try FileManager.default.contentsOfDirectory(at: primary.appendingPathComponent("voices"), includingPropertiesForKeys: nil)
-                    .filter { $0.pathExtension == "safetensors" }
-                    .map { $0.deletingPathExtension().lastPathComponent }
-                    .filter { $0.range(of: #"^[ab][fm]_[a-z]+$"#, options: .regularExpression) != nil }.sorted()
+                voices = NativePrimaryCatalog.specification(for: .kokoro).voices.filter {
+                    FileManager.default.fileExists(atPath: primary.appendingPathComponent("voices/\($0).safetensors").path)
+                }.sorted()
             }
             try Task.checkCancellation()
             return ("\(selected.model.rawValue.capitalized) ready for local generation.", voices)
@@ -424,9 +455,45 @@ private final class IntakeModel {
                 readiness = message; assetsReady = true
                 if selected.model == .kokoro { voices = available }
             } catch is CancellationError {}
-            catch { if readinessOperation == token { readiness = error.localizedDescription + " Choose a prepared Libro workspace." } }
+            catch { if readinessOperation == token { readiness = error.localizedDescription } }
             if readinessOperation == token { checkingAssets = false; readinessTask = nil; readinessScopes = [] }
         }
+    }
+
+    func prepareModel() {
+        guard canPrepareModel, let root = workspace?.url else { return }
+        let selected = settings
+        let token = UUID(); preparationOperation = token
+        isPreparingModel = true; assetsReady = false; preparationProgress = nil
+        preparationStatus = "Checking \(selected.model.rawValue.capitalized) assets in \(root.path)."
+        preparationScopes = [DirectoryAccess(root)]
+        let configuration = WorkerConfiguration(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), requestTimeout: .seconds(1_800))
+        let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Preparing user-requested Libro models")
+        preparationTask = Task { [self] in
+            do {
+                try await ModelPreparation.run(configuration: configuration, workspace: root, settings: selected) { [weak self] value in
+                    Task { @MainActor in
+                        guard let self, self.isPreparingModel, self.preparationOperation == token else { return }
+                        self.preparationProgress = value
+                        let scope = value.scope == .primary ? selected.model.rawValue.capitalized : "English pronunciation assets"
+                        self.preparationStatus = "\(value.phase.rawValue.capitalized) \(scope)…"
+                    }
+                }
+                preparationStatus = "\(selected.model.rawValue.capitalized) preparation complete. Generation uses local assets."
+            } catch is CancellationError {
+                preparationStatus = "Preparation cancelled. Completed asset files remain available for reuse."
+            } catch { preparationStatus = error.localizedDescription }
+            ProcessInfo.processInfo.endActivity(activity)
+            preparationOperation = UUID(); isPreparingModel = false; preparationTask = nil; preparationScopes = []
+            preparationProgress = nil
+            announce(preparationStatus)
+            refreshReadiness()
+        }
+    }
+
+    func stopPreparation() async {
+        preparationTask?.cancel()
+        await preparationTask?.value
     }
 
     func generate() {
@@ -462,7 +529,7 @@ private final class IntakeModel {
             }
         }
         requestNotificationAuthorization()
-        generationTask = Task {
+        generationTask = Task { [self] in
             do {
                 let summary = try await coordinator.run(request) { [weak self] event in
                     if case .speech(let value) = event, value.phase == .chunkWritten { updates.store(value) }
@@ -688,6 +755,20 @@ private struct IntakeView: View {
                     Text("Automatic").tag(false)
                     Text("Serial").tag(true)
                 }.frame(maxWidth: 180)
+            }.disabled(model.isPreparingModel)
+            HStack {
+                Button("Prepare Model") { model.prepareModel() }.disabled(!model.canPrepareModel)
+                    .help("Explicitly verify/reuse or download the selected model and required pronunciation assets into this Libro workspace")
+                if model.isPreparingModel { Button("Cancel Preparation") { model.cancel() } }
+                Text(model.preparationStatus).font(.callout).textSelection(.enabled)
+            }
+            let primary = NativePrimaryCatalog.specification(for: model.settings.model)
+            Text("\(primary.repository) · revision \(primary.revision)")
+                .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            if let value = model.preparationProgress {
+                ProgressView(value: Double(value.completedBytes), total: Double(value.totalBytes)) {
+                    Text("\(ByteCountFormatter.string(fromByteCount: value.completedBytes, countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: value.totalBytes, countStyle: .file))")
+                }.accessibilityLabel(model.preparationStatus)
             }
             directoryRow("Libro workspace:", selection: model.workspace, role: .workspace)
             directoryRow(model.isGenerating ? "Next batch saves to:" : "Save audio to:", selection: model.output, role: .output)
@@ -746,6 +827,7 @@ private struct IntakeView: View {
                 }
             }
             if let error = model.planningError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red).textSelection(.enabled) }
+            if let error = model.dropError { Label(error, systemImage: "exclamationmark.triangle").textSelection(.enabled) }
             if model.planning { ProgressView("Checking output destinations…").controlSize(.small) }
             if model.planned.contains(where: \.replacesExisting) {
                 Label("\(model.planned.filter(\.replacesExisting).count) existing WAVs share these destinations. Replacement confirmation will be required before generation.", systemImage: "doc.on.doc")
@@ -761,7 +843,7 @@ private struct IntakeView: View {
                 if model.busy { ProgressView().controlSize(.small).accessibilityLabel(model.activityStatus); Button(model.inputCancelLabel) { model.cancelIntake() } }
                 Text(model.activityStatus).font(.callout).textSelection(.enabled)
                 Spacer()
-                Button("Verify Embedded Worker") { model.probe() }.disabled(model.busy || model.hasOwnedProbe || model.isGenerating)
+                Button("Verify Embedded Worker") { model.probe() }.disabled(model.busy || model.hasOwnedProbe || model.isGenerating || model.isPreparingModel)
             }
             if model.isGenerating {
                 Text(model.generationStatus).textSelection(.enabled)
@@ -788,8 +870,10 @@ private struct IntakeView: View {
             }
         }
         .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
         .overlay { if dropTarget { RoundedRectangle(cornerRadius: 8).stroke(.tint, lineWidth: 3).padding(4).allowsHitTesting(false) } }
-        .dropDestination(for: URL.self) { urls, _ in model.add(urls); return !urls.isEmpty } isTargeted: { dropTarget = $0 }
+        .onDrop(of: [.fileURL], isTargeted: $dropTarget) { providers in model.importDrop(providers) }
         .toolbar {
             Button("Add Files…", systemImage: "doc.badge.plus") { model.openInputs() }
             Button("Add Folder…", systemImage: "folder.badge.plus") { model.openInputs(foldersOnly: true) }
@@ -797,7 +881,8 @@ private struct IntakeView: View {
             Button("Clear Finished") { model.clearFinished() }.disabled(!model.hasFinished || model.busy || model.isGenerating)
         }
         .onAppear { model.reopenWindow = { openWindow(id: "main") }; model.replan() }
-        .onChange(of: model.settings) { model.refreshReadiness() }
+        .onChange(of: model.settings.model) { model.refreshReadiness() }
+        .onChange(of: model.settings.voice) { model.refreshReadiness() }
         .sheet(item: $model.preview) { preview in
             VStack(alignment: .leading, spacing: 12) {
                 Text(preview.title).font(.headline)
@@ -819,7 +904,7 @@ private struct IntakeView: View {
                 if let error = selection?.error { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
             }.frame(maxWidth: .infinity, alignment: .leading)
             if let url = selection?.url { Button("Reveal") { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path) } }
-            Button("Browse…") { model.browse(role) }.disabled(model.busy).accessibilityLabel("Browse for \(role.rawValue) folder")
+            Button("Browse…") { model.browse(role) }.disabled(model.busy || (role == .workspace && model.isPreparingModel)).accessibilityLabel("Browse for \(role.rawValue) folder")
         }
     }
 }

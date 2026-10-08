@@ -32,6 +32,17 @@ struct FixtureWorker {
         while let command = try reader.next() {
             try record(command.kind.rawValue, command)
             if command.kind == .cancel || command.kind == .shutdown { return }
+            if command.kind == .prepare {
+                if mode == "assetStall" { signal(SIGTERM, SIG_IGN); Thread.sleep(forTimeInterval: 30) }
+                let total = NativePrimaryCatalog.specification(for: command.settings!.model).files.reduce(Int64(0)) { $0 + Int64($1.bytes) }
+                for identity in [AttemptIdentity(batch: UUID(), job: UUID()), command.identity] {
+                    let value = ModelPreparationProgress(scope: .primary, phase: .downloading,
+                        completedBytes: mode == "assetInvalid" ? -1 : 10, totalBytes: total)
+                    try FileHandle.standardOutput.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .assetProgress, identity: identity, preparation: value)))
+                }
+                try FileHandle.standardOutput.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .prepared, identity: command.identity)))
+                continue
+            }
             if command.kind == .initialize {
                 initial = command
                 if mode == "initializeFailureAndStall" {

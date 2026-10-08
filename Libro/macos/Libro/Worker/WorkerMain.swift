@@ -55,6 +55,19 @@ struct LibroSpeechWorker {
             do {
                 guard command.protocolVersion == 1 else { throw SpeechFailure(.invalidInput) }
                 switch command.kind {
+                case .prepare:
+                    guard context == nil, command.chunk == nil, command.text == nil, command.spoolDirectory == nil,
+                          let root = command.workspace, let settings = command.settings else { throw SpeechFailure(.invalidInput) }
+                    let workspace = try NativeWorkspace(root: root)
+                    try configureCache(workspace)
+                    let report: @Sendable (ModelPreparationProgress) -> Void = { value in
+                        if let data = try? SpeechIPC.encode(WorkerEvent(kind: .assetProgress, identity: command.identity, preparation: value)) {
+                            try? control.write(contentsOf: data)
+                        }
+                    }
+                    try await preparePrimary(workspace, settings: settings, report: report)
+                    if settings.model == .kokoro { try await prepareG2P(workspace, report: report) }
+                    try control.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .prepared, identity: command.identity)))
                 case .initialize:
                     guard context == nil, command.chunk == nil, let root = command.workspace,
                           let settings = command.settings, let spool = command.spoolDirectory else {
@@ -87,7 +100,8 @@ struct LibroSpeechWorker {
                 }
             } catch {
                 let code: SpeechFailureCode
-                if let failure = error as? SpeechFailure { code = failure.code }
+                if command.kind == .prepare { code = .acquisition }
+                else if let failure = error as? SpeechFailure { code = failure.code }
                 else if error is NativeAssetError || error is DecodingError { code = .invalidInput }
                 else if let failure = error as? AudioGenerationError {
                     // Includes Kokoro's actual phoneme-token ceiling. A serial
@@ -127,7 +141,10 @@ struct LibroSpeechWorker {
     }
 
     private static func configureCache(_ workspace: NativeWorkspace) throws {
-        _ = try workspace.managed(workspace.hubCache)
+        for url in [workspace.hubCache, workspace.nativeRoot.appendingPathComponent("hf"),
+                    workspace.nativeRoot.appendingPathComponent("xet"), workspace.nativeRoot.appendingPathComponent("hf-assets")] {
+            _ = try workspace.managed(url)
+        }
         for name in ["HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE"] {
             setenv(name, workspace.hubCache.path, 1)
         }
@@ -136,33 +153,139 @@ struct LibroSpeechWorker {
         setenv("HF_ASSETS_CACHE", workspace.nativeRoot.appendingPathComponent("hf-assets").path, 1)
     }
 
-    private static func prepareG2P(_ workspace: NativeWorkspace) async throws {
+    private static func preparePrimary(_ workspace: NativeWorkspace, settings: SpeechSettings,
+                                       report: @escaping @Sendable (ModelPreparationProgress) -> Void) async throws {
+        let specification = NativePrimaryCatalog.specification(for: settings.model)
+        let total = specification.files.reduce(Int64(0)) { $0 + Int64($1.bytes) }
+        report(.init(scope: .primary, phase: .waiting, totalBytes: total))
+        let lock = try acquisitionLock(workspace, name: settings.model.rawValue)
+        defer { flock(lock, LOCK_UN); close(lock) }
+        report(.init(scope: .primary, phase: .checking, totalBytes: total))
+        let shared = workspace.root.appendingPathComponent(settings.model.primaryRelativePath)
+        if (try? NativePrimaryStore.validate(directory: shared, specification: specification, workspace: workspace, sharedVoice: settings.voice)) != nil {
+            try NativePrimaryStore.recordReuse(directory: shared, specification: specification, workspace: workspace, voice: settings.voice)
+            report(.init(scope: .primary, phase: .reusing, completedBytes: total, totalBytes: total))
+            return
+        }
+        let target = try NativePrimaryStore.nativeDirectory(specification, workspace: workspace)
+        if (try? NativePrimaryStore.validateStaged(directory: target, specification: specification, workspace: workspace)) != nil { return }
+        let stage = try workspace.managed(workspace.nativeRoot.appendingPathComponent("staging/primary-\(settings.model.rawValue)-\(specification.revision)"))
+        let files = specification.files.map { AcquisitionFile(path: $0.path, bytes: $0.bytes, hash: $0.sha256, gitOID: $0.gitOID) }
+        try await acquire(repository: specification.repository, revision: specification.revision, files: files,
+                          stage: stage, workspace: workspace, scope: .primary, report: report)
+        report(.init(scope: .primary, phase: .validating, completedBytes: total, totalBytes: total))
+        try NativePrimaryStore.recordStaged(directory: stage, specification: specification, workspace: workspace)
+        try NativePrimaryStore.validateStaged(directory: stage, specification: specification, workspace: workspace)
+        report(.init(scope: .primary, phase: .publishing, completedBytes: total, totalBytes: total))
+        try publishAssets(stage, to: target, workspace: workspace)
+    }
+
+    private static func prepareG2P(_ workspace: NativeWorkspace,
+                                   report: @escaping @Sendable (ModelPreparationProgress) -> Void = { _ in }) async throws {
         let target = try workspace.managed(workspace.g2pDirectory)
         let staging = try workspace.managed(workspace.nativeRoot.appendingPathComponent("staging/g2p-\(NativeG2P.revision)"))
-        let lockURL = try workspace.managed(workspace.nativeRoot.appendingPathComponent("locks/g2p.lock"))
-        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let lock = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
-        guard lock >= 0 else { throw WorkerError.storage }
+        let total = NativeG2P.requiredFiles.values.reduce(Int64(0)) { $0 + Int64($1) }
+        report(.init(scope: .g2p, phase: .waiting, totalBytes: total))
+        let lock = try acquisitionLock(workspace, name: "g2p")
         defer { flock(lock, LOCK_UN); close(lock) }
-        guard flock(lock, LOCK_EX) == 0 else { throw WorkerError.storage }
+        report(.init(scope: .g2p, phase: .checking, totalBytes: total))
         if (try? NativeG2P.validate(directory: target, workspace: workspace)) != nil { return }
-        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        let client = HubClient(session: URLSession(configuration: configuration), host: HubClient.defaultHost,
-                               cache: HubCache(cacheDirectory: workspace.hubCache))
-        guard let repo = Repo.ID(rawValue: NativeG2P.repository) else { throw WorkerError.invalidRequest }
-        _ = try await client.downloadSnapshot(of: repo, to: staging, revision: NativeG2P.revision,
-                                             matching: Array(NativeG2P.requiredFiles.keys), maxConcurrentDownloads: 2)
+        let files = NativeG2P.requiredFiles.map { AcquisitionFile(path: $0.key, bytes: $0.value, hash: NativeG2P.sha256ByFile[$0.key]!, gitOID: nil) }
+        try await acquire(repository: NativeG2P.repository, revision: NativeG2P.revision, files: files,
+                          stage: staging, workspace: workspace, scope: .g2p, report: report)
+        report(.init(scope: .g2p, phase: .validating, completedBytes: total, totalBytes: total))
         try NativeG2P.record(directory: staging, workspace: workspace)
         try NativeG2P.validate(directory: staging, workspace: workspace)
+        report(.init(scope: .g2p, phase: .publishing, completedBytes: total, totalBytes: total))
+        try publishAssets(staging, to: target, workspace: workspace)
+    }
+
+    private static func acquisitionLock(_ workspace: NativeWorkspace, name: String) throws -> Int32 {
+        let url = try workspace.managed(workspace.nativeRoot.appendingPathComponent("locks/\(name).lock"))
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let descriptor = open(url.path, O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
+        guard descriptor >= 0 else { throw WorkerError.storage }
+        guard flock(descriptor, LOCK_EX) == 0 else { close(descriptor); throw WorkerError.storage }
+        return descriptor // Reaped helper exit releases a blocked/held OS lock.
+    }
+
+    private static func acquire(repository: String, revision: String, files: [AcquisitionFile], stage: URL,
+                                workspace: NativeWorkspace, scope: ModelPreparationProgress.Scope,
+                                report: @escaping @Sendable (ModelPreparationProgress) -> Void) async throws {
+        _ = try workspace.managed(stage)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        let cache = HubCache(cacheDirectory: workspace.hubCache)
+        let client = HubClient(session: URLSession(configuration: configuration), host: HubClient.defaultHost,
+                               cache: cache)
+        guard let repo = Repo.ID(rawValue: repository) else { throw WorkerError.invalidRequest }
+        var missing: [AcquisitionFile] = []
+        var requiresNetwork = false
+        let total = files.reduce(Int64(0)) { $0 + Int64($1.bytes) }
+        let progress = AcquisitionProgress(total: total)
+        for file in files {
+            let destination = try workspace.managed(stage.appendingPathComponent(file.path))
+            if file.matches(destination) { progress.value.completedUnitCount += Int64(file.bytes); continue }
+            if FileManager.default.fileExists(atPath: destination.path) { try quarantine(destination, workspace: workspace) }
+            if let cached = cache.cachedFilePath(repo: repo, kind: .model, revision: revision, filename: file.path) {
+                let blob = try workspace.managed(cached.resolvingSymlinksInPath())
+                guard blob.path.hasPrefix(workspace.hubCache.path + "/") else { throw NativeAssetError.outsideWorkspace }
+                if !file.matches(blob) { try quarantine(blob, workspace: workspace); requiresNetwork = true }
+            } else { requiresNetwork = true }
+            missing.append(file)
+        }
+        if requiresNetwork {
+            let tree = try await client.listFiles(in: repo, revision: revision)
+            for file in files {
+                guard let entry = tree.first(where: { $0.path == file.path }), entry.type == .file,
+                      entry.size == file.bytes, file.gitOID == nil || entry.oid == file.gitOID else { throw NativeAssetError.changed(file.path) }
+            }
+        }
+        let updates = Task {
+            while !Task.isCancelled {
+                report(.init(scope: scope, phase: .downloading,
+                             completedBytes: min(total, max(0, progress.value.completedUnitCount)), totalBytes: total))
+                do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            }
+        }
+        defer { updates.cancel() }
+        // Hub owns HTTP and cache locks. Completed-file reuse is verified;
+        // interrupted-file byte resumption remains an acceptance gate.
+        // File APIs avoid the snapshot shortcut copying unrequested files.
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var next = 0
+            func submit(_ file: AcquisitionFile) {
+                let child = AcquisitionProgress(total: Int64(file.bytes))
+                progress.value.addChild(child.value, withPendingUnitCount: Int64(file.bytes))
+                group.addTask {
+                    let destination = try workspace.managed(stage.appendingPathComponent(file.path))
+                    try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    _ = try await client.downloadFile(at: file.path, from: repo, to: destination, revision: revision, progress: child.value, transport: .lfs)
+                    guard file.matches(destination) else { throw NativeAssetError.changed(file.path) }
+                    child.value.completedUnitCount = child.value.totalUnitCount
+                }
+            }
+            for _ in 0..<min(2, missing.count) { submit(missing[next]); next += 1 }
+            while try await group.next() != nil {
+                if next < missing.count { submit(missing[next]); next += 1 }
+            }
+        }
+    }
+
+    private static func quarantine(_ url: URL, workspace: NativeWorkspace) throws {
+        _ = try workspace.managed(url)
+        try FileManager.default.moveItem(at: url, to: url.appendingPathExtension("invalid-\(UUID().uuidString)"))
+    }
+
+    private static func publishAssets(_ stage: URL, to target: URL, workspace: NativeWorkspace) throws {
+        _ = try workspace.managed(stage); _ = try workspace.managed(target)
+        try Task.checkCancellation()
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: target.path) {
-            // Only the explicitly GUI-owned namespace is eligible for replacement.
-            let quarantine = target.appendingPathExtension("invalid-\(UUID().uuidString)")
-            try FileManager.default.moveItem(at: target, to: quarantine)
+            try quarantine(target, workspace: workspace)
         }
-        try FileManager.default.moveItem(at: staging, to: target)
+        try FileManager.default.moveItem(at: stage, to: target)
     }
 
     private static func synthesize(_ request: SpikeRequest) async throws -> [String: Any] {
@@ -195,6 +318,23 @@ struct LibroSpeechWorker {
             throw WorkerError.storage
         }
     }
+}
+
+private struct AcquisitionFile: Sendable {
+    let path: String
+    let bytes: Int
+    let hash: String
+    let gitOID: String?
+    func matches(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) == bytes && (try? NativeG2P.sha256(url)) == hash
+    }
+}
+
+/// Foundation Progress synchronizes its counters; only that object crosses
+/// the SDK download/progress tasks. No model state is involved.
+private final class AcquisitionProgress: @unchecked Sendable {
+    let value: Progress
+    init(total: Int64) { value = Progress(totalUnitCount: total) }
 }
 
 private struct WorkerContext {

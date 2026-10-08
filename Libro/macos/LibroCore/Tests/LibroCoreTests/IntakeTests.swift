@@ -52,6 +52,28 @@ final class IntakeTests: XCTestCase {
         XCTAssertEqual(result.issues.count, 1)
     }
 
+    func testExplicitInputsInsideDestinationRemainAcceptedWhileIncidentalSubtreeIsExcluded() throws {
+        let root = try temporary()
+        let markdown = try file(root, "shared/chapter.md")
+        let pdf = try file(root, "shared/chapter.pdf")
+        _ = try file(root, "shared/nested/notes.txt")
+        _ = try file(root, "shared/recording.wav")
+        let output = root.appendingPathComponent("shared")
+        let direct = try InputCollector.collect([markdown, pdf], excludingOutput: output)
+        XCTAssertEqual(Set(direct.documents.map(\.source)), [markdown, pdf])
+        XCTAssertFalse(direct.excludedOutput)
+        let folder = try InputCollector.collect([output], excludingOutput: output)
+        XCTAssertEqual(folder.documents.count, 3)
+        XCTAssertFalse(folder.excludedOutput)
+        XCTAssertEqual(folder.ignoredCount, 1)
+        let incidental = try InputCollector.collect([root], excludingOutput: output)
+        XCTAssertTrue(incidental.documents.isEmpty)
+        XCTAssertTrue(incidental.excludedOutput)
+        let explicitOverride = try InputCollector.collect([root, output, markdown], excludingOutput: output)
+        XCTAssertEqual(explicitOverride.documents.count, 3)
+        XCTAssertEqual(Set(explicitOverride.documents.map(\.source)), Set(folder.documents.map(\.source)))
+    }
+
     func testStrictTextMarkdownParagraphsAndRTF() throws {
         let root = try temporary()
         let text = try file(root, "bom.txt", "\u{feff}Hello [12]  world.\n\n\nNext.")

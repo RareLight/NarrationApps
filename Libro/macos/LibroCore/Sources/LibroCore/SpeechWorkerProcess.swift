@@ -26,6 +26,7 @@ final class SpeechWorkerProcess: @unchecked Sendable {
         let token: UUID
         let command: WorkerCommand
         let continuation: CheckedContinuation<WorkerEvent, Error>
+        let progress: (@Sendable (ModelPreparationProgress) -> Void)?
         var timer: Task<Void, Never>?
     }
     private let process = Process()
@@ -72,7 +73,7 @@ final class SpeechWorkerProcess: @unchecked Sendable {
         DispatchQueue(label: "org.librotts.worker-diagnostics").async { [self] in drainDiagnostics() }
     }
 
-    func request(_ command: WorkerCommand) async throws -> WorkerEvent {
+    func request(_ command: WorkerCommand, progress: (@Sendable (ModelPreparationProgress) -> Void)? = nil) async throws -> WorkerEvent {
         try Task.checkCancellation()
         let data = try SpeechIPC.encode(command)
         let token = UUID()
@@ -83,7 +84,7 @@ final class SpeechWorkerProcess: @unchecked Sendable {
                     guard pending == nil, !stopStarted else {
                         continuation.resume(throwing: SpeechFailure(.protocolViolation)); return false
                     }
-                    pending = Pending(token: token, command: command, continuation: continuation)
+                    pending = Pending(token: token, command: command, continuation: continuation, progress: progress)
                     return true
                 }
                 guard accepted else { return }
@@ -130,6 +131,7 @@ final class SpeechWorkerProcess: @unchecked Sendable {
     }
 
     private func consume(_ event: WorkerEvent) {
+        var update: (ModelPreparationProgress, @Sendable (ModelPreparationProgress) -> Void)?
         let completion: (Pending, Result<WorkerEvent, Error>)? = lock.withLock {
             guard event.protocolVersion == 1 else {
                 terminalError = SpeechFailure(.protocolViolation)
@@ -139,15 +141,22 @@ final class SpeechWorkerProcess: @unchecked Sendable {
             // Events from previous attempts/chunks cannot move current progress.
             guard event.identity == identity, let active = pending,
                   event.chunk == active.command.chunk else { return nil }
+            if active.command.kind == .prepare, event.kind == .assetProgress,
+               let value = event.preparation, let model = active.command.settings?.model, value.isValid(for: model) {
+                if let callback = active.progress { update = (value, callback) }
+                return nil
+            }
             let result: Result<WorkerEvent, Error>
             if event.kind == .failure, let code = event.failure {
                 result = .failure(SpeechFailure(code))
             } else if (active.command.kind == .initialize && event.kind == .ready) ||
-                        (active.command.kind == .generate && event.kind == .chunk) {
+                        (active.command.kind == .generate && event.kind == .chunk) ||
+                        (active.command.kind == .prepare && event.kind == .prepared) {
                 result = .success(event)
             } else { result = .failure(SpeechFailure(.protocolViolation)) }
             pending = nil; return (active, result)
         }
+        if let (value, callback) = update { callback(value) }
         if let (active, result) = completion {
             active.timer?.cancel(); active.continuation.resume(with: result)
         }

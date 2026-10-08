@@ -81,9 +81,15 @@ public enum InputCollector {
             }
         }
         folders = Dictionary(grouping: folders, by: \.path).values.compactMap(\.first).sorted { $0.path < $1.path }
-        // An outer selected folder owns the relative placement of its children.
-        folders = folders.filter { folder in !folders.contains { $0 != folder && isWithin(folder, $0) } }
         let excluded = excludingOutput?.standardizedFileURL.resolvingSymlinksInPath()
+        // An outer root owns placement, except explicitly selected descendants
+        // inside an otherwise excluded output subtree. Selection is authority
+        // to import those documents; WAV output is an unsupported input type.
+        folders = folders.filter { folder in !folders.contains { outer in
+            guard outer != folder, isWithin(folder, outer) else { return false }
+            if let excluded, isWithin(folder, excluded), !isWithin(outer, excluded) { return false }
+            return true
+        } }
         var labels = Set<String>()
         var identities = Set<String>()
         var visited = 0
@@ -94,7 +100,7 @@ public enum InputCollector {
         }
         for folder in folders {
             try Task.checkCancellation()
-            if let excluded, isWithin(folder, excluded) { result.excludedOutput = true; continue }
+            let recursiveExclusion = excluded.flatMap { isWithin(folder, $0) ? nil : $0 }
             let base = folder.lastPathComponent.isEmpty ? "Folder" : folder.lastPathComponent
             var label = base
             var number = 2
@@ -116,7 +122,7 @@ public enum InputCollector {
                     let values = try url.resourceValues(forKeys: keys)
                     // Enumerators can return /var URLs for a /private/var root.
                     let canonical = url.standardizedFileURL.resolvingSymlinksInPath()
-                    if let excluded, isWithin(canonical, excluded) {
+                    if let excluded = recursiveExclusion, isWithin(canonical, excluded) {
                         if values.isDirectory == true { enumerator.skipDescendants() }
                         result.excludedOutput = true
                         continue
@@ -138,7 +144,6 @@ public enum InputCollector {
         for url in loose.sorted(by: { $0.path < $1.path }) {
             try Task.checkCancellation()
             visited += 1
-            if let excluded, isWithin(url, excluded) { result.excludedOutput = true; continue }
             add(url, relative: url.lastPathComponent)
         }
         progress(visited)

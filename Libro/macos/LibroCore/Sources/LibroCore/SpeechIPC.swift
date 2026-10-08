@@ -2,12 +2,12 @@ import Foundation
 import Darwin
 
 public enum SpeechFailureCode: String, Codable, Sendable {
-    case invalidInput, storage, generation, protocolViolation, timeout, workerExited
+    case invalidInput, storage, acquisition, generation, protocolViolation, timeout, workerExited
 
     public var permitsSerialRetry: Bool {
         switch self {
         case .generation, .protocolViolation, .timeout, .workerExited: true
-        case .invalidInput, .storage: false
+        case .invalidInput, .storage, .acquisition: false
         }
     }
 }
@@ -21,6 +21,7 @@ public struct SpeechFailure: Error, LocalizedError, Sendable {
         switch code {
         case .invalidInput: "The speech request or prepared model assets are invalid."
         case .storage: "Could not read, write, or publish audio in the selected folders."
+        case .acquisition: "Model preparation failed. Check network access and available workspace storage, then prepare again."
         case .generation: "The speech engine could not generate a valid audio chunk."
         case .protocolViolation: "The speech worker returned an invalid response."
         case .timeout: "The speech worker did not respond within the time limit."
@@ -39,7 +40,7 @@ public struct AttemptIdentity: Codable, Equatable, Sendable {
 }
 
 public struct WorkerCommand: Codable, Sendable {
-    public enum Kind: String, Codable, Sendable { case initialize, generate, cancel, shutdown }
+    public enum Kind: String, Codable, Sendable { case initialize, generate, prepare, cancel, shutdown }
     public var protocolVersion = 1
     public let kind: Kind
     public let identity: AttemptIdentity
@@ -59,7 +60,7 @@ public struct WorkerCommand: Codable, Sendable {
 }
 
 public struct WorkerEvent: Codable, Sendable {
-    public enum Kind: String, Codable, Sendable { case ready, chunk, failure }
+    public enum Kind: String, Codable, Sendable { case ready, chunk, assetProgress, prepared, failure }
     public var protocolVersion = 1
     public let kind: Kind
     public let identity: AttemptIdentity
@@ -69,13 +70,15 @@ public struct WorkerEvent: Codable, Sendable {
     public let channels: Int?
     public let pcmFile: String?
     public let failure: SpeechFailureCode?
+    public let preparation: ModelPreparationProgress?
 
     public init(kind: Kind, identity: AttemptIdentity, chunk: Int? = nil,
                 sampleRate: Int? = nil, frames: Int? = nil, channels: Int? = nil,
-                pcmFile: String? = nil, failure: SpeechFailureCode? = nil) {
+                pcmFile: String? = nil, failure: SpeechFailureCode? = nil, preparation: ModelPreparationProgress? = nil) {
         self.kind = kind; self.identity = identity; self.chunk = chunk
         self.sampleRate = sampleRate; self.frames = frames; self.channels = channels
         self.pcmFile = pcmFile; self.failure = failure
+        self.preparation = preparation
     }
 }
 

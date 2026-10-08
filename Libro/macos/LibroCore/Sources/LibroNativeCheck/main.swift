@@ -8,7 +8,8 @@ import Darwin
 struct NativeCheck {
     static func main() async {
         do {
-            if CommandLine.arguments.dropFirst().dropFirst(3).first == "batch" { try await runBatch() }
+            if CommandLine.arguments.dropFirst().dropFirst(3).first == "prepare" { try await prepare() }
+            else if CommandLine.arguments.dropFirst().dropFirst(3).first == "batch" { try await runBatch() }
             else { try run() }
         }
         catch {
@@ -17,17 +18,53 @@ struct NativeCheck {
         }
     }
 
-    private static func offlineProfile(_ workspace: NativeWorkspace) -> String {
-        var denied = [workspace.hubCache.path,
-            workspace.nativeRoot.appendingPathComponent("hf").path,
-            workspace.nativeRoot.appendingPathComponent("xet").path,
+    private static func offlineProfile(_ workspace: NativeWorkspace, allowNativeCache: Bool = false) -> String {
+        var denied = [
             workspace.root.appendingPathComponent("models/.hf").path,
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cache/huggingface").path,
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/huggingface").path]
+        if !allowNativeCache {
+            denied += [workspace.hubCache.path, workspace.nativeRoot.appendingPathComponent("hf").path,
+                       workspace.nativeRoot.appendingPathComponent("xet").path]
+        }
         if let source = ProcessInfo.processInfo.environment["LIBRO_CHECK_DENY_ROOT"] { denied.append(source) }
         return "(version 1)(allow default)(deny network*)" + denied.map {
             "(deny file-read* file-write* (subpath \"\($0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\"))"
         }.joined()
+    }
+
+    private static func prepare() async throws {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        guard arguments.count >= 4, let model = SpeechModel(rawValue: arguments[2]),
+              arguments.dropFirst(4).allSatisfy({ $0 == "--offline" || $0.hasPrefix("--cancel-after=") }) else { exit(2) }
+        let worker = URL(fileURLWithPath: arguments[0]).standardizedFileURL
+        let workspace = try NativeWorkspace(root: URL(fileURLWithPath: arguments[1], isDirectory: true))
+        var configuration = WorkerConfiguration(executable: worker, requestTimeout: .seconds(1_800))
+        if arguments.contains("--offline") {
+            configuration = WorkerConfiguration(executable: URL(fileURLWithPath: "/usr/bin/sandbox-exec"),
+                arguments: ["-p", offlineProfile(workspace, allowNativeCache: true), worker.path, "--serve"], requestTimeout: .seconds(1_800))
+        }
+        let specification = NativePrimaryCatalog.specification(for: model)
+        print("Preparing \(specification.repository) at \(specification.revision)")
+        let checkConfiguration = configuration
+        let task = Task {
+            try await ModelPreparation.run(configuration: checkConfiguration, workspace: workspace.root, settings: .init(model: model)) { value in
+                print("\(value.scope.rawValue) \(value.phase.rawValue): \(value.completedBytes)/\(value.totalBytes) bytes")
+            }
+        }
+        let cancellation: Task<Void, Never>?
+        if let argument = arguments.first(where: { $0.hasPrefix("--cancel-after=") }),
+           let seconds = Double(argument.dropFirst("--cancel-after=".count)), seconds > 0, seconds.isFinite {
+            cancellation = Task {
+                do { try await Task.sleep(for: .seconds(seconds)); task.cancel() } catch {}
+            }
+        } else { cancellation = nil }
+        defer { cancellation?.cancel() }
+        do { try await task.value }
+        catch is CancellationError where cancellation != nil { print("Preparation cancelled; owned helper reaped."); return }
+        _ = try workspace.primaryDirectory(for: model)
+        if model == .kokoro { try NativeG2P.validate(directory: workspace.g2pDirectory, workspace: workspace) }
+        print("Preparation inventory accepted; owned helper reaped.")
     }
 
     private static func runBatch() async throws {
