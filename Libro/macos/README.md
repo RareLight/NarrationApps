@@ -41,6 +41,8 @@ See `../docs/native-gui-m2-acceptance.md` for folder recovery/planning checks an
 
 ## Opt-in real speech
 
+For troubleshooting, choose **Libro > Settings… > Enable debug logging** before retrying. Failed rows have **Details**; logs can be opened/revealed from Settings and stay under the selected workspace's `models/.native/diagnostics/` with bounded rotation. Logging defaults to off and may retain private upstream messages. See `../docs/native-gui-debugging.md` for use, evidence and the known Xcode Metal-validation crash at the current MLX pin.
+
 Preparation first validates compatible primary snapshots read-only at the existing `models/kokoro/mlx-community__Kokoro-82M-bf16` and `models/soprano/mlx-community__Soprano-1.1-80M-bf16` paths. It never rewrites the Python manifest. Otherwise it acquires pinned primary assets into `models/.native/primary/`; required English G2P assets live under `models/.native/assets/`. Native completion metadata, staging, locks and persistent SDK caches are all under `models/.native/`. The SDK temporarily receives downloads in macOS system temporary storage; acceptance of that transfer scratch and interrupted-file byte resumption remain open M5 gates. See `../docs/native-gui-m5-acceptance.md` before treating acquisition as fully accepted.
 
 Use the explicit preparation action or opt-in native acceptance harness, then generate offline. Supply absolute paths for the worker, selected Libro workspace and chosen sample output directory:

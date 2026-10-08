@@ -99,6 +99,7 @@ struct NativeCheck {
                 arguments: ["-p", offlineProfile(workspace), worker.path, "--serve"])
         }
         let coordinator = QueueCoordinator(configuration: configuration)
+        let debugLog = ProcessInfo.processInfo.environment["LIBRO_CHECK_DEBUG_LOG"] == "1" ? try DebugLog(workspace: workspace.root) : nil
         var results: [[String: Any]] = []
         for model in SpeechModel.allCases {
             let settings = SpeechSettings(model: model)
@@ -107,7 +108,7 @@ struct NativeCheck {
                                        settings: settings, serial: false, replaceExisting: true)
             let progress = CheckProgress()
             let started = ContinuousClock.now
-            let summary = try await coordinator.run(request) { event in
+            let summary = try await coordinator.run(request, debugLog: debugLog) { event in
                 if case .speech(let value) = event { progress.append(value) }
             }
             guard summary.successfulCount == 1, summary.failedCount == 0, !summary.cancelled else {

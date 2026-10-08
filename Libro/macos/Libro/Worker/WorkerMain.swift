@@ -41,6 +41,7 @@ struct LibroSpeechWorker {
             let data = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
             try control.write(contentsOf: data + Data([10]))
         } catch {
+            debugError(error)
             // Library errors may contain narration; only controlled failures
             // are emitted by Libro. Upstream diagnostics have their own pipe.
             try? FileHandle.standardError.write(contentsOf: Data("Libro speech worker failed.\n".utf8))
@@ -99,6 +100,7 @@ struct LibroSpeechWorker {
                     return
                 }
             } catch {
+                debugError(error)
                 let code: SpeechFailureCode
                 if command.kind == .prepare { code = .acquisition }
                 else if let failure = error as? SpeechFailure { code = failure.code }
@@ -118,6 +120,12 @@ struct LibroSpeechWorker {
                 return // Failed model state is never reused for more inference.
             }
         }
+    }
+
+    private static func debugError(_ error: any Error) {
+        guard ProcessInfo.processInfo.environment["LIBRO_DEBUG_LOG"] == "1" else { return }
+        let description = "Libro debug error: \(String(reflecting: error))\n"
+        try? FileHandle.standardError.write(contentsOf: Data(description.prefix(8_192).utf8))
     }
 
     private static func validate(text: String, settings: SpeechSettings) throws {

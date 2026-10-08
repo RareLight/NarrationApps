@@ -16,9 +16,13 @@ public enum SpeechFailureCode: String, Codable, Sendable {
 /// narration never become error messages or completion notifications.
 public struct SpeechFailure: Error, LocalizedError, Sendable {
     public let code: SpeechFailureCode
-    public init(_ code: SpeechFailureCode) { self.code = code }
+    public let operation: WorkerCommand.Kind?
+    public let chunk: Int?
+    public init(_ code: SpeechFailureCode, operation: WorkerCommand.Kind? = nil, chunk: Int? = nil) {
+        self.code = code; self.operation = operation; self.chunk = chunk
+    }
     public var errorDescription: String? {
-        switch code {
+        let description = switch code {
         case .invalidInput: "The speech request or prepared model assets are invalid."
         case .storage: "Could not read, write, or publish audio in the selected folders."
         case .acquisition: "Model preparation failed. Check network access and available workspace storage, then prepare again."
@@ -27,6 +31,13 @@ public struct SpeechFailure: Error, LocalizedError, Sendable {
         case .timeout: "The speech worker did not respond within the time limit."
         case .workerExited: "The speech worker stopped before completing its request."
         }
+        let stage = switch operation {
+        case .initialize: " During model initialization."
+        case .generate: " While generating chunk \((chunk ?? 0) + 1)."
+        case .prepare: " During model preparation."
+        default: ""
+        }
+        return description + stage + " Error: \(code.rawValue)."
     }
 }
 

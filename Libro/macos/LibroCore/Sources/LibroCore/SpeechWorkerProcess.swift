@@ -8,13 +8,15 @@ public struct WorkerConfiguration: Sendable {
     public var requestTimeout: Duration
     public var shutdownGrace: TimeInterval
     public var terminationGrace: TimeInterval
+    public var debugLog: DebugLog?
 
     public init(executable: URL, arguments: [String] = ["--serve"],
                 environment: [String: String] = [:], requestTimeout: Duration = .seconds(180),
-                shutdownGrace: TimeInterval = 0.5, terminationGrace: TimeInterval = 1) {
+                shutdownGrace: TimeInterval = 0.5, terminationGrace: TimeInterval = 1, debugLog: DebugLog? = nil) {
         self.executable = executable; self.arguments = arguments; self.environment = environment
         self.requestTimeout = requestTimeout; self.shutdownGrace = shutdownGrace
         self.terminationGrace = terminationGrace
+        self.debugLog = debugLog
     }
 }
 
@@ -36,6 +38,7 @@ final class SpeechWorkerProcess: @unchecked Sendable {
     private let lock = NSLock()
     private let writerQueue = DispatchQueue(label: "org.librotts.worker-input")
     private let exited = DispatchSemaphore(value: 0)
+    private let diagnosticsDrained = DispatchSemaphore(value: 0)
     private let configuration: WorkerConfiguration
     private let identity: AttemptIdentity
     private var pending: Pending?
@@ -59,12 +62,17 @@ final class SpeechWorkerProcess: @unchecked Sendable {
         process.arguments = configuration.arguments
         process.currentDirectoryURL = FileManager.default.temporaryDirectory
         process.environment = ProcessInfo.processInfo.environment.merging(configuration.environment) { _, new in new }
+        process.environment?["LIBRO_DEBUG_LOG"] = configuration.debugLog == nil ? "0" : "1"
         process.standardInput = input
         process.standardOutput = output
         process.standardError = diagnostics
         process.terminationHandler = { [weak self] _ in self?.exited.signal() }
         do { try process.run() }
-        catch { throw SpeechFailure(.workerExited) }
+        catch {
+            configuration.debugLog?.record("worker launch failed: \((error as NSError).domain) code=\((error as NSError).code)")
+            throw SpeechFailure(.workerExited)
+        }
+        log("started pid=\(process.processIdentifier) metalValidation=\(process.environment?["MTL_DEBUG_LAYER"] ?? "unset")")
         // Closing our copies of the child's pipe ends makes EOF meaningful.
         try? input.fileHandleForReading.close()
         try? output.fileHandleForWriting.close()
@@ -76,6 +84,7 @@ final class SpeechWorkerProcess: @unchecked Sendable {
     func request(_ command: WorkerCommand, progress: (@Sendable (ModelPreparationProgress) -> Void)? = nil) async throws -> WorkerEvent {
         try Task.checkCancellation()
         let data = try SpeechIPC.encode(command)
+        log("request=\(command.kind.rawValue) chunk=\(command.chunk.map(String.init) ?? "none") model=\(command.settings?.model.rawValue ?? "unchanged")")
         let token = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -148,7 +157,7 @@ final class SpeechWorkerProcess: @unchecked Sendable {
             }
             let result: Result<WorkerEvent, Error>
             if event.kind == .failure, let code = event.failure {
-                result = .failure(SpeechFailure(code))
+                result = .failure(SpeechFailure(code, operation: active.command.kind, chunk: active.command.chunk))
             } else if (active.command.kind == .initialize && event.kind == .ready) ||
                         (active.command.kind == .generate && event.kind == .chunk) ||
                         (active.command.kind == .prepare && event.kind == .prepared) {
@@ -158,6 +167,10 @@ final class SpeechWorkerProcess: @unchecked Sendable {
         }
         if let (value, callback) = update { callback(value) }
         if let (active, result) = completion {
+            switch result {
+            case .success: log("response=\(event.kind.rawValue) chunk=\(event.chunk.map(String.init) ?? "none")")
+            case .failure: log("failure=\(event.failure?.rawValue ?? "protocolViolation") request=\(active.command.kind.rawValue) chunk=\(active.command.chunk.map(String.init) ?? "none")")
+            }
             active.timer?.cancel(); active.continuation.resume(with: result)
         }
     }
@@ -169,12 +182,18 @@ final class SpeechWorkerProcess: @unchecked Sendable {
             let active = pending; pending = nil
             return active
         }
-        active?.timer?.cancel(); active?.continuation.resume(throwing: error)
+        let contextual: any Error
+        if let active, let failure = error as? SpeechFailure {
+            contextual = SpeechFailure(failure.code, operation: active.command.kind, chunk: active.command.chunk)
+        } else { contextual = error }
+        active?.timer?.cancel(); active?.continuation.resume(throwing: contextual)
+        if let active { log("request failed=\((error as? SpeechFailure)?.code.rawValue ?? (error is CancellationError ? "cancelled" : "unknown")) request=\(active.command.kind.rawValue) chunk=\(active.command.chunk.map(String.init) ?? "none")") }
     }
 
     private func drainDiagnostics() {
         // Drain even after reaching the limit; never let library logging fill a
-        // pipe. Keep only a private 8 KiB tail, without persistence or UI echo.
+        // pipe. Retain an 8 KiB tail; persistence is explicitly opt-in.
+        defer { diagnosticsDrained.signal() }
         while let bytes = try? SpeechIPC.readPipe(diagnostics.fileHandleForReading) {
             lock.withLock {
                 diagnosticTail.append(bytes)
@@ -207,6 +226,10 @@ final class SpeechWorkerProcess: @unchecked Sendable {
                     }
                 }
                 process.waitUntilExit() // Foundation reaps this owned PID.
+                _ = diagnosticsDrained.wait(timeout: .now() + 1)
+                let tail = lock.withLock { diagnosticTail }
+                log("stopped pid=\(process.processIdentifier) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit") status=\(process.terminationStatus)")
+                if !tail.isEmpty { log("private stderr tail:\n" + String(decoding: tail, as: UTF8.self)) }
                 try? output.fileHandleForReading.close()
                 try? diagnostics.fileHandleForReading.close()
                 let waiters = lock.withLock {
@@ -216,5 +239,9 @@ final class SpeechWorkerProcess: @unchecked Sendable {
                 for waiter in waiters { waiter.resume() }
             }
         }
+    }
+
+    private func log(_ message: String) {
+        configuration.debugLog?.record("batch=\(identity.batch) job=\(identity.job) attempt=\(identity.attempt) \(message)")
     }
 }

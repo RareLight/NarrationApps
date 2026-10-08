@@ -26,6 +26,11 @@ struct FixtureWorker {
             try handle.close()
         }
         try record("launch")
+        if mode == "diagnosticCrash" {
+            try FileHandle.standardError.write(contentsOf: Data(repeating: 120, count: 40_000))
+            try FileHandle.standardError.write(contentsOf: Data("\nPublic diagnostic crash tail.\n".utf8))
+            exit(7)
+        }
         defer { try? record("exit") }
         let reader = WorkerCommandReader()
         var initial: WorkerCommand?

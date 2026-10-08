@@ -34,18 +34,21 @@ public enum CoordinatorError: Error, LocalizedError {
 /// One coordinator owns the global execution budget. Actor reentrancy permits
 /// cancellation while its task is awaiting workers; another run is rejected.
 public actor QueueCoordinator {
-    private let scheduler: ChunkScheduler
+    private let configuration: WorkerConfiguration
     private var active: Task<BatchSummary, Never>?
-    public init(configuration: WorkerConfiguration) { scheduler = ChunkScheduler(configuration: configuration) }
+    public init(configuration: WorkerConfiguration) { self.configuration = configuration }
 
-    public func run(_ request: BatchRequest, events: @escaping @Sendable (BatchEvent) -> Void = { _ in }) async throws -> BatchSummary {
+    public func run(_ request: BatchRequest, debugLog: DebugLog? = nil, events: @escaping @Sendable (BatchEvent) -> Void = { _ in }) async throws -> BatchSummary {
         guard active == nil else { throw CoordinatorError.busy }
         try Task.checkCancellation()
         // Whole-batch preflight happens before any document/model is opened.
         let bindings = try Dictionary(uniqueKeysWithValues: Self.revalidate(request).map {
             ($0.id, try OutputPaths.resolved($0.destination))
         })
-        let task = Task { await execute(request, bindings: bindings, events: events) }
+        var selected = configuration
+        if let debugLog { selected.debugLog = debugLog }
+        let scheduler = ChunkScheduler(configuration: selected)
+        let task = Task { await execute(request, bindings: bindings, scheduler: scheduler, debugLog: selected.debugLog, events: events) }
         active = task
         defer { active = nil }
         return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
@@ -59,12 +62,13 @@ public actor QueueCoordinator {
         _ = await task?.value
     }
 
-    private func execute(_ request: BatchRequest, bindings: [UUID: URL],
+    private func execute(_ request: BatchRequest, bindings: [UUID: URL], scheduler: ChunkScheduler, debugLog: DebugLog?,
                          events: @escaping @Sendable (BatchEvent) -> Void) async -> BatchSummary {
         var outcomes: [DocumentOutcome] = []
         for document in request.documents {
             if Task.isCancelled { break }
             events(.preparing(batch: request.id, job: document.id))
+            debugLog?.record("batch=\(request.id) job=\(document.id) preparing type=\(document.input.kind.rawValue)")
             let outcome: DocumentOutcome
             do {
                 let preparation = Task.detached(priority: .userInitiated) {
@@ -83,6 +87,7 @@ public actor QueueCoordinator {
                 outcome = .init(id: document.id, state: .published, destination: document.destination, message: nil)
             } catch is CancellationError { break }
             catch {
+                debugLog?.record("batch=\(request.id) job=\(document.id) document failed: \(error.localizedDescription)")
                 // File read errors can include the selected source path, but
                 // never extracted text. Worker errors are controlled above.
                 outcome = .init(id: document.id, state: .failed, destination: document.destination,

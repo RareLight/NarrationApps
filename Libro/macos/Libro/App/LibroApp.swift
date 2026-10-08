@@ -39,6 +39,24 @@ struct LibroApp: App {
                 Button("Cancel Processing") { model.cancel() }.keyboardShortcut(".").disabled(!model.cancellable)
             }
         }
+        Settings {
+            Form {
+                Toggle("Enable debug logging", isOn: $model.debugLogging)
+                    .disabled(model.isGenerating || model.isPreparingModel)
+                Text("Records local worker diagnostics for generation and model preparation. Library messages may include document text or paths. Nothing is uploaded. Up to two 1 MB log files are retained in the selected Libro workspace.")
+                    .font(.callout).foregroundStyle(.secondary)
+                if let url = model.debugLogURL {
+                    Text(url.path).font(.caption).textSelection(.enabled)
+                    HStack {
+                        Button("Open Debug Log") { NSWorkspace.shared.open(url) }
+                        Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    }
+                }
+                if let message = model.debugLogStatus { Text(message).textSelection(.enabled) }
+                Text("Enable logging before retrying a failed document. Logging is off by default and its preference is remembered.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }.padding().frame(width: 520)
+        }
     }
 }
 
@@ -164,6 +182,17 @@ private final class IntakeModel {
     var preview: Preview?
     var issues: [IntakeIssue] = []
     var dropError: String?
+    var debugLogging = UserDefaults.standard.bool(forKey: "LibroDebugLogging") {
+        didSet { UserDefaults.standard.set(debugLogging, forKey: "LibroDebugLogging") }
+    }
+    var debugLogURL: URL?
+    var debugLogStatus: String?
+    struct FailureDetails: Identifiable {
+        let id: UUID
+        let name: String
+        let message: String
+    }
+    var failureDetails: FailureDetails?
     private let preferences = DirectoryPreferences()
     private var roots: [URL] = []
     private var removed = Set<String>()
@@ -199,6 +228,7 @@ private final class IntakeModel {
             Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker")))
         output = preferences.load(.output)
         workspace = preferences.load(.workspace)
+        if let root = workspace?.url { debugLogURL = DebugLog.existingURL(workspace: root) }
         refreshReadiness()
     }
 
@@ -467,7 +497,9 @@ private final class IntakeModel {
         isPreparingModel = true; assetsReady = false; preparationProgress = nil
         preparationStatus = "Checking \(selected.model.rawValue.capitalized) assets in \(root.path)."
         preparationScopes = [DirectoryAccess(root)]
-        let configuration = WorkerConfiguration(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), requestTimeout: .seconds(1_800))
+        let log = makeDebugLog(root)
+        log?.record("preparation started model=\(selected.model.rawValue) revision=\(NativePrimaryCatalog.specification(for: selected.model).revision)")
+        let configuration = WorkerConfiguration(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), requestTimeout: .seconds(1_800), debugLog: log)
         let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Preparing user-requested Libro models")
         preparationTask = Task { [self] in
             do {
@@ -483,6 +515,8 @@ private final class IntakeModel {
             } catch is CancellationError {
                 preparationStatus = "Preparation cancelled. Completed asset files remain available for reuse."
             } catch { preparationStatus = error.localizedDescription }
+            log?.record("preparation settled: \(preparationStatus)")
+            if log?.writeFailed == true { debugLogStatus = "Debug logging stopped because its file could not be written. Processing was unaffected." }
             ProcessInfo.processInfo.endActivity(activity)
             preparationOperation = UUID(); isPreparingModel = false; preparationTask = nil; preparationScopes = []
             preparationProgress = nil
@@ -512,6 +546,8 @@ private final class IntakeModel {
         }
         let request = BatchRequest(documents: plans, outputDirectory: destination, workspace: root,
                                    settings: settings, serial: serial, replaceExisting: approved)
+        let log = makeDebugLog(root)
+        log?.record("batch=\(request.id) started documents=\(plans.count) model=\(settings.model.rawValue) voice=\(settings.voice) speed=\(settings.speed) serial=\(serial) app=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown") os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
         activeBatch = request; speechProgress = nil; batchSummary = nil; notificationSummary = nil
         retryQueued.subtract(request.documents.map(\.id))
         for document in request.documents { outcomes[document.id] = nil; states[document.id] = "Waiting" }
@@ -531,7 +567,7 @@ private final class IntakeModel {
         requestNotificationAuthorization()
         generationTask = Task { [self] in
             do {
-                let summary = try await coordinator.run(request) { [weak self] event in
+                let summary = try await coordinator.run(request, debugLog: log) { [weak self] event in
                     if case .speech(let value) = event, value.phase == .chunkWritten { updates.store(value) }
                     else { Task { @MainActor in self?.receive(event) } }
                 }
@@ -561,6 +597,8 @@ private final class IntakeModel {
                 }
                 Self.logger.error("Batch preflight failed \(request.id.uuidString, privacy: .public)")
             }
+            log?.record("batch=\(request.id) settled: \(generationStatus)")
+            if log?.writeFailed == true { debugLogStatus = "Debug logging stopped because its file could not be written. Processing was unaffected." }
             progressTask?.cancel(); progressTask = nil
             activeBatch = nil; speechProgress = nil; batchScopes = []
             if let activity { ProcessInfo.processInfo.endActivity(activity); self.activity = nil }
@@ -612,11 +650,29 @@ private final class IntakeModel {
         if let outcome = outcomes[document.id] {
             switch outcome.state {
             case .published: return "Saved"
-            case .failed: return outcome.message ?? "Failed"
+            case .failed: return "Failed: " + (outcome.message ?? "Unknown failure. Open Details.")
             case .cancelled: return "Cancelled"
             }
         }
         return states[document.id] ?? (isGenerating ? "Queued for next batch" : "Queued")
+    }
+
+    private func makeDebugLog(_ workspace: URL) -> DebugLog? {
+        guard debugLogging else { return nil }
+        do {
+            let log = try DebugLog(workspace: workspace)
+            debugLogURL = log.url; debugLogStatus = nil
+            return log
+        } catch {
+            debugLogStatus = "Debug log unavailable in the selected workspace: " + error.localizedDescription
+            return nil
+        }
+    }
+
+    func showFailure(_ document: InputDocument) {
+        guard let outcome = outcomes[document.id], outcome.state == .failed else { return }
+        failureDetails = .init(id: document.id, name: document.source.lastPathComponent,
+                              message: outcome.message ?? "Unknown failure.")
     }
 
     func outputName(_ document: InputDocument) -> String {
@@ -819,8 +875,11 @@ private struct IntakeView: View {
                                         .labelStyle(.iconOnly).help(outcome.destination.path).accessibilityLabel("Reveal audio for \(document.source.lastPathComponent)")
                                 }.accessibilityElement(children: .contain)
                             } else {
-                                Button("Retry") { model.retry(document) }.disabled(model.retryQueued.contains(document.id))
-                                    .help("Queue this document for the next batch")
+                                VStack {
+                                    if outcome.state == .failed { Button("Details") { model.showFailure(document) } }
+                                    Button("Retry") { model.retry(document) }.disabled(model.retryQueued.contains(document.id))
+                                        .help("Queue this document for the next batch")
+                                }
                             }
                         }
                     }.width(90)
@@ -828,6 +887,7 @@ private struct IntakeView: View {
             }
             if let error = model.planningError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red).textSelection(.enabled) }
             if let error = model.dropError { Label(error, systemImage: "exclamationmark.triangle").textSelection(.enabled) }
+            if let message = model.debugLogStatus { Label(message, systemImage: "exclamationmark.triangle").textSelection(.enabled) }
             if model.planning { ProgressView("Checking output destinations…").controlSize(.small) }
             if model.planned.contains(where: \.replacesExisting) {
                 Label("\(model.planned.filter(\.replacesExisting).count) existing WAVs share these destinations. Replacement confirmation will be required before generation.", systemImage: "doc.on.doc")
@@ -883,6 +943,19 @@ private struct IntakeView: View {
         .onAppear { model.reopenWindow = { openWindow(id: "main") }; model.replan() }
         .onChange(of: model.settings.model) { model.refreshReadiness() }
         .onChange(of: model.settings.voice) { model.refreshReadiness() }
+        .sheet(item: $model.failureDetails) { details in
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Generation failed: \(details.name)").font(.headline)
+                Text(details.message).textSelection(.enabled)
+                Text("Job: \(details.id.uuidString)").font(.caption).textSelection(.enabled)
+                if let url = model.debugLogURL {
+                    Button("Open Debug Log") { NSWorkspace.shared.open(url) }
+                }
+                Text("For more detail, enable debug logging in Libro Settings before retrying. The log stays in the selected workspace.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Button("Done") { model.failureDetails = nil }.keyboardShortcut(.defaultAction)
+            }.padding().frame(width: 560)
+        }
         .sheet(item: $model.preview) { preview in
             VStack(alignment: .leading, spacing: 12) {
                 Text(preview.title).font(.headline)
