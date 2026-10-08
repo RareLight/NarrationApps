@@ -231,6 +231,31 @@ extension FixtureCoordinator {
             return item
         } catch { try? store.execute("ROLLBACK"); throw error }
     }
+    /// Temporary files can be evicted by macOS. Recover unconfirmed output from retained
+    /// text, or recreate a released copy when the user changes the upload destination.
+    /// Failed queue rows remain manual Retry; confirmed remote-only history stays intact.
+    public func recoverTemporaryAudio(storage: ManagedSpeechStorage, settings: DeliverySettings?) throws {
+        let database = storage.profile.database
+        guard FileManager.default.fileExists(atPath: database.path) else { return }
+        let store = try metadataWriter(storage.stateRoot)
+        let settings = try settings?.normalized()
+        try store.execute("BEGIN IMMEDIATE")
+        do {
+            let existing = Set(try store.queue().map(\.id))
+            for episode in try store.published() where episode.settings.temporaryAudio == true || episode.localAudioReleased == true {
+                guard !existing.contains(episode.id), temporaryAudioIsMissing(episode) else { continue }
+                if let settings, DeliveryPublicationStatus.unconfirmed(episode, settings: settings) == .uploaded { continue }
+                // Disabled delivery retains confirmed history, without repeatedly regenerating it.
+                if settings == nil, episode.delivery?.status == .uploaded { continue }
+                guard try store.snapshot(articleID: episode.id) != nil else {
+                    throw RelayError.storage("Temporary audio is missing and its saved article text is unavailable.")
+                }
+                try store.saveQueueItem(SpeechQueueItem(id: episode.id, title: episode.title,
+                    sourceEntryID: nil, state: .queued, sourceHost: episode.sourceHost))
+            }
+            try store.execute("COMMIT")
+        } catch { try? store.execute("ROLLBACK"); throw error }
+    }
     public func retryQueued(_ id: String, stateRoot: URL = AppStorage.managedLibrary) throws -> SpeechQueueItem {
         try Task.checkCancellation()
         let store = try metadataWriter(stateRoot)

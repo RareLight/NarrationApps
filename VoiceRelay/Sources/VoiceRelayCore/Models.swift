@@ -99,6 +99,10 @@ public struct Episode: Codable, Sendable {
     public var info: AudioInfo?
     public var synthesisFingerprint: String?
     public var audioVolumeID: String? = nil
+    /// Durable cleanup intent, committed before unlink; remote episode membership is retained.
+    public var localAudioReleased: Bool? = nil
+    /// Cleanup cannot race final publication validation, even if a periodic delivery starts.
+    public var audioFinalizationComplete: Bool? = nil
     public var manualAudioDeletionRequested: Bool? = nil
     public var author: String? = nil
     public var sourceHost: String? = nil

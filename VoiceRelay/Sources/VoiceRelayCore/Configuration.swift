@@ -120,13 +120,20 @@ public enum AppStorage {
     }
 }
 
-/// Persistent metadata is private; only finished audio goes in the chosen folder.
+/// Persistent metadata is private; app output is temporary until remote publication is confirmed.
 public struct ManagedSpeechStorage: Sendable {
     public let stateRoot: URL
     public let temporaryRoot: URL
     public let audioDirectory: URL
+    public let temporaryAudio: Bool
+    public static func appStorage(stateRoot: URL = AppStorage.managedLibrary) -> Self {
+        let audio = FileManager.default.temporaryDirectory.appendingPathComponent("VoiceRelayAudio", isDirectory: true)
+            .appendingPathComponent(Files.hash(Data(stateRoot.path.utf8)), isDirectory: true)
+        return Self(audioDirectory: audio, stateRoot: stateRoot, temporaryAudio: true)
+    }
     public init(audioDirectory: URL, stateRoot: URL = AppStorage.managedLibrary,
-                temporaryRoot: URL = AppStorage.temporaryWork) {
+                temporaryRoot: URL = AppStorage.temporaryWork, temporaryAudio: Bool = false) {
+        self.temporaryAudio = temporaryAudio
         self.audioDirectory = audioDirectory.resolvingSymlinksInPath().standardizedFileURL
         self.stateRoot = stateRoot.resolvingSymlinksInPath().standardizedFileURL
         self.temporaryRoot = temporaryRoot.resolvingSymlinksInPath().standardizedFileURL
@@ -135,6 +142,7 @@ public struct ManagedSpeechStorage: Sendable {
         var p = PrototypeProfile.fixture(at: stateRoot)
         p.work = temporaryRoot.appendingPathComponent(Files.hash(Data(stateRoot.path.utf8)), isDirectory: true)
         p.audio = audioDirectory
+        p.temporaryAudio = temporaryAudio ? true : nil
         return p
     }
     static let markerText = "VoiceRelay managed speech library v1\n"
@@ -181,6 +189,12 @@ public struct ManagedSpeechStorage: Sendable {
     func prepare() throws -> PrototypeProfile {
         try validate()
         let fm = FileManager.default
+        if temporaryAudio {
+            guard !Files.hasSymlink(audioDirectory, below: audioDirectory.deletingLastPathComponent()) else {
+                throw RelayError.setup("Temporary audio storage contains an unexpected link.")
+            }
+            try Files.directory(audioDirectory)
+        }
         var directory: ObjCBool = false
         guard fm.fileExists(atPath: audioDirectory.path, isDirectory: &directory), directory.boolValue,
               fm.isWritableFile(atPath: audioDirectory.path) else {
@@ -209,6 +223,8 @@ public struct PrototypeProfile: Codable, Sendable, Equatable {
     public var database: URL
     public var work: URL
     public var audio: URL
+    /// Nil on historical/diagnostic profiles; only app-owned temporary output is auto-released.
+    public var temporaryAudio: Bool? = nil
     public var feed: URL
     public var audioBaseURL: URL
     public var feedURL: URL

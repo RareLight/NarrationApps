@@ -1269,3 +1269,179 @@ private final class SessionCredentialFixture: DeliveryCredentialStore, @unchecke
     old.removeValue(forKey: "artworkURL")
     #expect(try JSONDecoder().decode(Episode.self, from: JSONSerialization.data(withJSONObject: old)).artworkURL == nil)
 }
+
+private func temporaryDeliveryStorage(_ root: URL) -> ManagedSpeechStorage {
+    ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("temporary-audio"),
+        stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"),
+        temporaryAudio: true)
+}
+
+@Test func temporaryAudioPublicationReleasesBytesKeepsHistoryAndSupportsServerDeletion() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let first = try await publishReview(storage: storage, delivery: settings), transport = FakeWebDAVTransport()
+    #expect(first.episode.settings.temporaryAudio == true && first.episode.audioFinalizationComplete == true)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(!FileManager.default.fileExists(atPath: first.audioURL.path))
+    let history = try #require(try await coordinator.savedAudio(storage: storage).first)
+    #expect(history.id == first.episode.id && history.localAudioReleased == true && history.stage == .published)
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings).publicationStates[history.id] == .published)
+    #expect(try await coordinator.reconcileMissingAudio(storage: storage).isEmpty)
+    // A second publication must preserve the released first enclosure in BOTH feeds.
+    let second = try await publishReview("second", storage: storage, delivery: settings)
+    #expect(String(decoding: try Data(contentsOf: second.feedURL), as: UTF8.self).contains(history.id))
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    let feedPath = "/" + settings.remoteFeedPath
+    #expect(String(decoding: try #require(transport.body(feedPath)), as: UTF8.self).contains(history.id))
+    try FileManager.default.removeItem(at: storage.audioDirectory) // macOS may evict the entire directory.
+    _ = try await coordinator.removeSavedAudio(ids: [history.id], storage: storage)
+    let count = transport.recordedCalls.count
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    let calls = Array(transport.recordedCalls.dropFirst(count))
+    #expect(calls.firstIndex { $0.method == "PUT" && $0.path == feedPath }! < calls.firstIndex { $0.method == "DELETE" }!)
+    #expect(!String(decoding: try #require(transport.body(feedPath)), as: UTF8.self).contains(history.id))
+    #expect(transport.objectLength("/" + settings.remoteMediaPath(history.id)) == nil)
+    #expect(try await coordinator.savedAudio(storage: storage).map(\.id) == [second.episode.id])
+}
+
+@Test(arguments: [false, true]) func temporaryAudioRetainedUntilMediaAndFeedBothVerified(failFeed: Bool) async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let result = try await publishReview(storage: storage, delivery: settings), transport = FakeWebDAVTransport()
+    transport.statusFor = { method, path in
+        method == "PUT" && (failFeed ? path.hasSuffix("feed.xml") : path.hasSuffix(".m4a")) ? 503 : nil
+    }
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(FileManager.default.fileExists(atPath: result.audioURL.path))
+    #expect(try await coordinator.library(storage: storage).first?.localAudioReleased != true)
+    transport.statusFor = nil
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(!FileManager.default.fileExists(atPath: result.audioURL.path))
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings).publicationStates[result.episode.id] == .published)
+}
+
+@Test func temporaryAudioCleanupWaitsForFinalizationAndRejectsSubstitutedBytes() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let result = try await publishReview(storage: storage, delivery: settings), transport = FakeWebDAVTransport()
+    var episode = result.episode; episode.audioFinalizationComplete = nil
+    try NativeStore(url: storage.profile.database).save(episode)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(FileManager.default.fileExists(atPath: result.audioURL.path))
+    episode = try #require(try await coordinator.library(storage: storage).first)
+    episode.audioFinalizationComplete = true; try NativeStore(url: storage.profile.database).save(episode)
+    let original = try Data(contentsOf: result.audioURL)
+    try Files.write(Data("substituted".utf8), to: result.audioURL)
+    await #expect(throws: RelayError.self) {
+        try await coordinator.releaseConfirmedTemporaryAudio(storage: storage, settings: settings)
+    }
+    #expect(try Data(contentsOf: result.audioURL) == Data("substituted".utf8))
+    try Files.write(original, to: result.audioURL)
+    // Intent survives a crash before unlink; an idle drain repairs it without credentials/HTTP.
+    episode.localAudioReleased = true; try NativeStore(url: storage.profile.database).save(episode)
+    let idle = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: nil), transport: idle)
+    #expect(!FileManager.default.fileExists(atPath: result.audioURL.path) && idle.methods.isEmpty)
+}
+
+@Test func temporaryAudioLossRegeneratesFromSnapshotAndDestinationChangePreservesGUID() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), coordinator = FixtureCoordinator()
+    var settings = deliverySettings()
+    let initial = try await publishReview(storage: storage, delivery: settings)
+    try FileManager.default.removeItem(at: storage.audioDirectory)
+    try await coordinator.recoverTemporaryAudio(storage: storage, settings: settings)
+    #expect(try await coordinator.queue(stateRoot: storage.stateRoot).map(\.id) == [initial.episode.id])
+    let recovered = try await coordinator.runQueued(initial.episode.id, storage: storage, backend: { _ in DeliveryTestBackend() }, delivery: settings)
+    #expect(recovered.synthesizedChunks > 0 && recovered.episode.id == initial.episode.id)
+    let old = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: old)
+    try await coordinator.recoverTemporaryAudio(storage: storage, settings: settings)
+    #expect(try await coordinator.queue(stateRoot: storage.stateRoot).isEmpty)
+    settings.feedFolderURL = URL(string: "https://new.example/new-podcast/")
+    try await coordinator.recoverTemporaryAudio(storage: storage, settings: settings)
+    let fresh = try await coordinator.runQueued(initial.episode.id, storage: storage, backend: { _ in DeliveryTestBackend() }, delivery: settings)
+    #expect(fresh.episode.id == initial.episode.id && fresh.episode.publicationDate == initial.episode.publicationDate)
+    #expect(fresh.episode.settings.voice == initial.episode.settings.voice)
+    let target = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: target)
+    #expect(old.objectLength("/" + deliverySettings().remoteMediaPath(initial.episode.id)) != nil)
+    #expect(!target.methods.contains("DELETE") && target.methods.contains("PUT"))
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings).publicationStates[initial.episode.id] == .published)
+}
+
+@Test func temporaryAudioFailedServerRemovalStaysInHistoryUntilConfirmed() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let result = try await publishReview(storage: storage, delivery: settings), transport = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    _ = try await coordinator.removeSavedAudio(ids: [result.episode.id], storage: storage)
+    transport.statusFor = { method, path in method == "PUT" && path.hasSuffix("feed.xml") ? 503 : nil }
+    let failed = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(failed.remoteDeletes == 0)
+    #expect(try await coordinator.savedAudio(storage: storage).first?.stage == .expired)
+    #expect(transport.objectLength("/" + settings.remoteMediaPath(result.episode.id)) != nil)
+    transport.statusFor = nil
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(try await coordinator.savedAudio(storage: storage).isEmpty)
+}
+
+@Test func temporaryAudioRecoveryPreservesManualRetryForFailedRows() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    try FileManager.default.removeItem(at: result.audioURL)
+    try await coordinator.recoverTemporaryAudio(storage: storage, settings: settings)
+    var item = try #require(try await coordinator.queue(stateRoot: storage.stateRoot).first)
+    item.state = .failed; item.lastError = "Fixture failure"
+    try NativeStore(url: storage.profile.database).saveQueueItem(item)
+    try await coordinator.recoverTemporaryAudio(storage: storage, settings: settings)
+    #expect(try await coordinator.queue(stateRoot: storage.stateRoot).first == item)
+}
+
+@Test func existingNativeAudioAdoptsConfirmedCleanupWithoutDeletingUnrelatedFiles() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let legacy = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let original = try await publishReview("legacy", storage: legacy, delivery: settings)
+    let unrelated = legacy.audioDirectory.appendingPathComponent("unrelated.m4a")
+    try Files.write(Data("unrelated".utf8), to: unrelated)
+    let app = temporaryDeliveryStorage(root), transport = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: app, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(!FileManager.default.fileExists(atPath: original.audioURL.path))
+    #expect(try Data(contentsOf: unrelated) == Data("unrelated".utf8))
+    let history = try #require(try await coordinator.savedAudio(storage: app).first)
+    #expect(history.id == original.episode.id && history.localAudioReleased == true)
+    let next = try await publishReview("fresh", storage: app, delivery: settings)
+    #expect(next.episode.settings.temporaryAudio == true)
+    #expect(String(decoding: try Data(contentsOf: next.feedURL), as: UTF8.self).contains(history.id))
+    _ = try await coordinator.deliverPending(storage: app, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    var changed = settings; changed.feedFolderURL = URL(string: "https://new.example/show/")
+    try await coordinator.recoverTemporaryAudio(storage: app, settings: changed)
+    let regenerated = try await coordinator.runQueued(history.id, storage: app, backend: { _ in DeliveryTestBackend() }, delivery: changed)
+    #expect(regenerated.episode.id == original.episode.id && regenerated.episode.settings.temporaryAudio == true)
+    #expect(Files.samePath(regenerated.audioURL.deletingLastPathComponent(), app.audioDirectory))
+    #expect(try Data(contentsOf: unrelated) == Data("unrelated".utf8))
+}
+
+@Test func serverAudioRepeatedRemovalIsIdempotentBeforeAndAfterConfirmation() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let result = try await publishReview(storage: storage, delivery: settings), transport = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    let ids = [result.episode.id]
+    _ = try await coordinator.removeSavedAudio(ids: ids, storage: storage)
+    let pending = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(try await coordinator.removeSavedAudio(ids: ids, storage: storage) == ids)
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot) == pending)
+    #expect(try await coordinator.library(storage: storage).first?.manualAudioDeletionRequested == false)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    let confirmed = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    let record = try Files.json(try #require(try await coordinator.library(storage: storage).first))
+    #expect(try await coordinator.removeSavedAudio(ids: ids, storage: storage) == ids)
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot) == confirmed)
+    #expect(try Files.json(try #require(try await coordinator.library(storage: storage).first)) == record)
+    #expect(try await coordinator.savedAudio(storage: storage).isEmpty)
+    let quiet = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: nil), transport: quiet)
+    #expect(quiet.methods.isEmpty && confirmed.pendingRemoteDeletes.isEmpty)
+}

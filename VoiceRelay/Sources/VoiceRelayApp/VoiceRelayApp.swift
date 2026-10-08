@@ -37,7 +37,6 @@ final class AppModel {
     var cancelling = false
     var queueSelection: Set<QueueSelectionID> = []
     var preferences = SpeechPreferences() { didSet { savePreferences() } }
-    var audioRetention = AudioRetention.defaultValue { didSet { saveAudioRetention() } }
     var audioCleanupError: String?
     /// Set-and-forget automation preferences; storage-injected models stay manual by default.
     var autoAdmitEnabled = false { didSet { saveAutoAdmit() } }
@@ -73,7 +72,6 @@ final class AppModel {
     var preview = false
     var sourceReview = SourceReviewModel(preview: true)
     var runtimeProject = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Coding/VoiceRelay")
-    var audioDirectory: URL?
     @ObservationIgnored let coordinator = FixtureCoordinator()
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var enqueueTask: Task<Void, Never>?
@@ -94,8 +92,9 @@ final class AppModel {
     @ObservationIgnored private var autoAttempted: Set<String> = []
     @ObservationIgnored private var launchResumeDone = false
     @ObservationIgnored private var libraryTask: Task<Void, Never>?
-    @ObservationIgnored private var pendingLibraryCleanup: Bool?
-    @ObservationIgnored private var maintenanceTask: Task<Void, Never>?
+    /// Discard saved-audio snapshots read before a removal or delivery confirmation.
+    @ObservationIgnored private var audioLibraryRevision = UUID()
+    @ObservationIgnored private var pendingLibraryRefresh: Bool?
     @ObservationIgnored private var deliveryTask: Task<Void, Never>?
     @ObservationIgnored private var deliveryTestTask: Task<Void, Never>?
     @ObservationIgnored private var deliveryCredentialTask: Task<Void, Never>?
@@ -132,34 +131,22 @@ final class AppModel {
         sourceReview.onContextChange = { [weak self] in self?.notices.reset(key: "source") }
         guard !preview else {
             runtimeProject = URL(fileURLWithPath: "/synthetic/VoiceRelay")
-            audioDirectory = URL(fileURLWithPath: "/synthetic/Audio")
             return
         }
         debugLoggingEnabled = defaults.bool(forKey: "debugLoggingEnabled")
         loadDeliverySettings()
         // Isolated lifecycle tests supply storage/providers and never read user preferences or Safari.
-        if let storage { audioDirectory = storage.audioDirectory; return }
+        if storage != nil { return }
         if let bytes = defaults.data(forKey: "speechPreferences") {
             do {
                 let saved = try JSONDecoder().decode(SpeechPreferences.self, from: bytes)
                 try saved.validate(); preferences = saved
             } catch { self.error = "Saved voice and speed preferences could not be read. Default voice and speed are active." }
         }
-        if let bookmark = UserDefaults.standard.data(forKey: "audioDirectoryBookmark") {
-            var stale = false
-            do {
-                audioDirectory = try URL(resolvingBookmarkData: bookmark, options: .withoutUI,
-                                         relativeTo: nil, bookmarkDataIsStale: &stale)
-                if stale, let audioDirectory { try rememberAudioDirectory(audioDirectory) }
-            } catch { self.error = "The saved audio folder is unavailable. Choose it again in Settings." }
-        }
-        if let path = UserDefaults.standard.string(forKey: "runtimeProject") { runtimeProject = URL(fileURLWithPath: path) }
-        if let raw = UserDefaults.standard.string(forKey: "audioRetention"), let saved = AudioRetention(rawValue: raw) {
-            audioRetention = saved
-        }
+        if let path = defaults.string(forKey: "runtimeProject") { runtimeProject = URL(fileURLWithPath: path) }
         autoAdmitEnabled = defaults.object(forKey: "autoAdmitArticles") as? Bool ?? true
         autoProcessEnabled = defaults.object(forKey: "autoProcessArticles") as? Bool ?? true
-        startAudioMaintenance()
+        refreshLibrary()
         startAutomationLoop()
         sourceReview.startAutomaticSynchronization()
         triggerDelivery()
@@ -286,17 +273,19 @@ final class AppModel {
     /// Coalesced background drain; requests during a drain schedule one follow-up.
     func triggerDelivery(force: Bool = false) {
         guard !preview, !stopping, !deliveryCredentialBusy, deliverySettings.enabled,
-              (try? deliverySettings.validate()) != nil, let audio = audioDirectory,
+              (try? deliverySettings.validate()) != nil,
               let makeTransport = deliveryTransportFactory, let credential = deliveryCredentialStore else { return }
         if deliveryTask != nil { pendingDeliveryForce = (pendingDeliveryForce ?? false) || force; return }
         if force { credential.retryFailedAccess(username: deliverySettings.credentialUsername, host: deliverySettings.credentialHost) }
-        let storage = storage(for: audio), settings = deliverySettings
+        let storage = speechStorage, settings = deliverySettings
         deliveryBusy = true
         deliveryDebugLog.record(.deliveryStarted)
         deliveryTask = Task { [weak self] in
             guard let self else { return }
             defer {
                 deliveryTask = nil; deliveryBusy = false; refreshDeliveryCredentialState()
+                audioLibraryRevision = UUID()
+                refreshLibrary(allowDelivery: false)
                 let again = pendingDeliveryForce; pendingDeliveryForce = nil
                 if let again { triggerDelivery(force: again) }
             }
@@ -385,23 +374,6 @@ final class AppModel {
     func cancelDeliveryTest() {
         deliveryTestID = UUID(); deliveryTestTask?.cancel(); deliveryTestResult = .untested
     }
-    private func saveAudioRetention() {
-        guard !preview else { return }
-        if storageOverride == nil { UserDefaults.standard.set(audioRetention.rawValue, forKey: "audioRetention") }
-        libraryTask?.cancel()
-        refreshLibrary()
-    }
-    func startAudioMaintenance() {
-        guard !preview, storageOverride == nil, maintenanceTask == nil, !stopping else { return }
-        maintenanceTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard self != nil else { return }
-                self?.refreshLibrary()
-                do { try await Task.sleep(for: .seconds(15 * 60)) }
-                catch { return }
-            }
-        }
-    }
     /// Periodic set-and-forget tick: drain pending delivery and process ready work.
     private func startAutomationLoop() {
         guard !preview, storageOverride == nil, automationTask == nil, !stopping else { return }
@@ -418,23 +390,6 @@ final class AppModel {
         guard !preview, (try? preferences.validate()) != nil,
               let bytes = try? JSONEncoder().encode(preferences) else { return }
         defaults.set(bytes, forKey: "speechPreferences")
-    }
-    private func rememberAudioDirectory(_ url: URL) throws {
-        let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
-        UserDefaults.standard.set(bookmark, forKey: "audioDirectoryBookmark")
-    }
-    func selectAudioDirectory() {
-        guard !preview, !running, !stopping, !audioMutationBusy else { return }
-        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
-        panel.canCreateDirectories = true; panel.title = "Choose where finished audio files will be saved"
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                try ManagedSpeechStorage(audioDirectory: url).validate()
-                try rememberAudioDirectory(url)
-                audioDirectory = url; error = nil
-                refreshLibrary()
-            } catch { self.error = (error as? RelayError)?.localizedDescription ?? "The audio folder could not be saved." }
-        }
     }
     var readyQueueCount: Int { queueItems.filter { $0.state.isReady }.count }
     var canGenerateAudio: Bool { !preview && !stopping && !running && !audioMutationBusy
@@ -477,31 +432,35 @@ final class AppModel {
         guard !running, !stopping else { return }
         start(saved: episode)
     }
-    func refreshLibrary(cleanup: Bool = true) {
+    func refreshLibrary(allowDelivery: Bool = true) {
         guard !preview, !stopping, !running else { return }
         if libraryTask != nil {
-            pendingLibraryCleanup = (pendingLibraryCleanup ?? false) || cleanup
+            pendingLibraryRefresh = (pendingLibraryRefresh ?? false) || allowDelivery
             return
         }
-        let audio = audioDirectory, token = progressID, retention = audioRetention
+        let token = progressID, audioRevision = audioLibraryRevision
         let sweepsBlocked = audioMutationBusy
         let deliverySettings = deliverySettings
         let deliveryOn = deliverySettings.enabled
         libraryTask = Task {
             defer {
                 libraryTask = nil
-                let pending = pendingLibraryCleanup; pendingLibraryCleanup = nil
-                if let pending { refreshLibrary(cleanup: pending) }
-                else if audioRetention != retention || (!Task.isCancelled && progressID != token && !running) { refreshLibrary() }
+                let pending = pendingLibraryRefresh; pendingLibraryRefresh = nil
+                if let pending { refreshLibrary(allowDelivery: pending) }
+                else if !Task.isCancelled && progressID != token && !running { refreshLibrary() }
             }
             do {
-                let items = try await coordinator.queue(stateRoot: storageOverride?.stateRoot ?? AppStorage.managedLibrary)
+                let storage = speechStorage
+                if !sweepsBlocked {
+                    try await coordinator.recoverTemporaryAudio(storage: storage,
+                        settings: deliverySettings.enabled ? deliverySettings : nil)
+                }
+                let items = try await coordinator.queue(stateRoot: storage.stateRoot)
                 var saved: [Episode] = []
                 var library: [Episode] = []
                 var cleanupError: String?
                 var delivery: DeliverySummary?
-                if let audio {
-                    let storage = storage(for: audio)
+                do {
                     if !sweepsBlocked {
                         do { _ = try await coordinator.resumePendingAudioRemovals(storage: storage) }
                         catch is CancellationError { return }
@@ -509,20 +468,20 @@ final class AppModel {
                         do { _ = try await coordinator.reconcileMissingAudio(storage: storage) }
                         catch is CancellationError { return }
                         catch { cleanupError = cleanupError ?? ((error as? RelayError)?.localizedDescription ?? "Saved audio cleanup could not finish.") }
-                        if cleanup {
-                            do { _ = try await coordinator.expireAudio(storage: storage, retention: retention) }
-                            catch is CancellationError { return }
-                            catch { cleanupError = cleanupError ?? ((error as? RelayError)?.localizedDescription ?? "Audio cleanup could not finish. Check audio folder access; Saved Audio rechecks automatically.") }
-                        }
                     }
                     library = try await coordinator.library(storage: storage)
                     saved = try await coordinator.savedAudio(storage: storage)
-                    if cleanupError == nil && library.filter({ $0.stage == .published || $0.manualAudioDeletionRequested == true }).count > saved.count {
+                    let shownIDs = Set(saved.map(\.id))
+                    if cleanupError == nil && library.contains(where: {
+                        ($0.stage == .published || $0.manualAudioDeletionRequested == true)
+                            && $0.settings.temporaryAudio != true && $0.localAudioReleased != true
+                            && $0.delivery?.status != .uploaded && !shownIDs.contains($0.id)
+                    }) {
                         cleanupError = "Some saved audio is unavailable. Reconnect its original storage or restore access."
                     }
                     delivery = try? await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: deliverySettings)
                 }
-                guard progressID == token, !running else { return }
+                guard progressID == token, audioLibraryRevision == audioRevision, !running else { return }
                 if let result, library.contains(where: { $0.id == result.episode.id && $0.stage == .expired && $0.manualAudioDeletionRequested != true }) { self.result = nil }
                 queueItems = items; savedEpisodes = saved; audioCleanupError = cleanupError
                 if cleanupError == nil { notices.reset(key: "audio") }
@@ -533,7 +492,7 @@ final class AppModel {
                     if deliveryOn {
                         deliveryPendingCount = delivery.pendingMedia + delivery.pendingRemoteDeletes
                         if deliveryError == nil { deliveryError = delivery.lastError }
-                        if delivery.needsDrain { triggerDelivery() }
+                        if allowDelivery && delivery.needsDrain { triggerDelivery() }
                     }
                 }
                 if !launchResumeDone {
@@ -542,7 +501,7 @@ final class AppModel {
                 } else { maybeAutoProcess() }
             }
             catch {
-                guard progressID == token, !running else { return }
+                guard progressID == token, audioLibraryRevision == audioRevision, !running else { return }
                 self.error = (error as? RelayError)?.localizedDescription ?? "The saved article library could not be read."
             }
         }
@@ -556,9 +515,7 @@ final class AppModel {
             }
         }
     }
-    private func storage(for audio: URL) -> ManagedSpeechStorage {
-        storageOverride ?? ManagedSpeechStorage(audioDirectory: audio)
-    }
+    private var speechStorage: ManagedSpeechStorage { storageOverride ?? .appStorage() }
     private func backendFactory() -> @Sendable (Episode) throws -> any TTSBackend {
         if let backendOverride { return backendOverride }
         let project = runtimeProject, log = deliveryDebugLog
@@ -581,7 +538,7 @@ final class AppModel {
         }
         stopped = false; queueControl = nil
         running = false; processingSpeech = false; cancelling = false; task = nil
-        refreshLibrary(cleanup: !wasCancelling)
+        refreshLibrary()
     }
     private var progressHandler: @Sendable (PipelineProgress) -> Void {
         let token = progressID
@@ -625,9 +582,8 @@ final class AppModel {
     }
     /// Shared admission path for manual Add to Queue and automatic discovery adds.
     private func admit(entries: [ReadingListEntry], automatic: Bool) {
-        guard let audioDirectory else { error = "Choose an audio folder in Settings before adding speech."; return }
         // Snapshot list order and settings at the click; selection order never changes FIFO.
-        let storage = storage(for: audioDirectory), choices = preferences
+        let storage = speechStorage, choices = preferences
         if !automatic {
             articleSelection.removeAll()
             enqueueIssues = []
@@ -657,7 +613,7 @@ final class AppModel {
     /// no queue/pending item and no recorded episode (a removed item is never re-added).
     /// Entries whose admission failed are skipped for the rest of the session.
     func autoAdmitNewEntries() async {
-        guard autoAdmitEnabled, !preview, !stopping, audioDirectory != nil,
+        guard autoAdmitEnabled, !preview, !stopping,
               !sourceReview.busy, !sourceReview.persistenceBusy else { return }
         let catalog = sourceReview.catalog
         let queued = Set(queueItems.compactMap(\.sourceEntryID))
@@ -678,7 +634,7 @@ final class AppModel {
     /// Automatic processing obeys the same readiness guards as Generate; explicit Stop holds
     /// it until new work arrives or Generate is pressed again.
     func maybeAutoProcess() {
-        guard autoProcessEnabled, !autoHalted, audioDirectory != nil, canGenerateAudio else { return }
+        guard autoProcessEnabled, !autoHalted, canGenerateAudio else { return }
         runQueue()
     }
     /// Launch resume: items left .running by a previous Quit are legitimate unfinished work —
@@ -884,11 +840,7 @@ final class AppModel {
     }
     func runQueue() {
         guard canGenerateAudio else { return }
-        guard let audioDirectory else {
-            error = "Choose an audio folder in Settings before generating speech."
-            status = "Choose audio storage"; return
-        }
-        let storage = storage(for: audioDirectory), factory = backendFactory()
+        let storage = speechStorage, factory = backendFactory()
         let completion = BatchCompletion()
         resetProgress()
         let change = queueHandler, token = progressID
@@ -957,15 +909,11 @@ final class AppModel {
     }
     private func start(saved: Episode) {
         guard !preview, !running, !stopping, !sourceReview.persistenceBusy else { return }
-        guard let audioDirectory else {
-            error = "Choose an audio folder in Settings before generating speech."
-            status = "Choose audio storage"; return
-        }
         resetProgress()
         running = true; processingSpeech = true; stopped = false; error = nil; progress = nil; result = nil
         notices.reset(key: "global")
         status = "Resuming audio…"
-        let storage = storage(for: audioDirectory)
+        let storage = speechStorage
         let control = QueueRunControl()
         queueControl = control
         autoHalted = false
@@ -1015,7 +963,7 @@ final class AppModel {
         guard let info = episode.info else { return nil }
         let duration = Self.durationString(info.duration)
         let size = ByteCountFormatter.string(fromByteCount: info.byteLength, countStyle: .file)
-        return "Speech ready · \(duration) · \(size)"
+        return "Audio · \(duration) · \(size)"
     }
     static func durationString(_ duration: TimeInterval) -> String {
         let total = max(0, Int(duration.rounded()))
@@ -1024,7 +972,7 @@ final class AppModel {
             : String(format: "%d:%02d", minutes, seconds)
     }
 
-    var savedAudioResetCandidates: [String] { savedEpisodes.map(\.id) }
+    var savedAudioResetCandidates: [String] { savedEpisodes.filter(canRemoveSavedAudio).map(\.id) }
     private func recordDeliveryPublication(_ summary: DeliverySummary) {
         deliveryPublicationStates = summary.publicationStates
         deliveryPublicationAudioHashes = summary.publicationAudioHashes
@@ -1055,27 +1003,43 @@ final class AppModel {
         !preview && !stopping && !processingSpeech && !cancelling && !audioMutationBusy
             && !sourceReview.persistenceBusy && !savedEpisodes.isEmpty
     }
+    func canRemoveSavedAudio(_ episode: Episode) -> Bool {
+        canDeleteSavedAudio && !mutatingSavedAudioIDs.contains(episode.id)
+            && !(episode.stage == .expired && deliveryBusy)
+    }
+    func savedAudioRemovalStatus(_ episode: Episode) -> String? {
+        if mutatingSavedAudioIDs.contains(episode.id) || (episode.stage == .expired && deliveryBusy) { return "Removing…" }
+        if episode.stage == .expired || episode.manualAudioDeletionRequested == true { return "Removal pending" }
+        return nil
+    }
     func removeSavedAudio(ids: [String]) {
-        guard canDeleteSavedAudio, !ids.isEmpty, let audio = audioDirectory else { return }
-        let storage = storage(for: audio)
-        let targets = Set(ids)
+        guard canDeleteSavedAudio, !ids.isEmpty else { return }
+        let requested = Set(ids)
+        let targets = savedEpisodes.filter { requested.contains($0.id) && canRemoveSavedAudio($0) }
+        guard !targets.isEmpty else { return }
+        let storage = speechStorage, targetIDs = targets.map(\.id)
+        let retry = targets.contains { $0.stage == .expired }
         notices.reset(key: "audio"); notices.reset(key: "global")
+        audioLibraryRevision = UUID()
         audioMutationBusy = true
-        mutatingSavedAudioIDs.formUnion(targets)
+        mutatingSavedAudioIDs.formUnion(targetIDs)
         audioMutationTask = Task {
             defer {
                 audioMutationTask = nil; audioMutationBusy = false; mutatingSavedAudioIDs = []
-                refreshLibrary(cleanup: false)
-                // Retired media records remote-delete intent in the ledger; drain it now.
-                triggerDelivery()
+                audioLibraryRevision = UUID()
+                refreshLibrary()
+                // A pending removal's explicit Retry overrides delivery backoff.
+                triggerDelivery(force: retry && savedEpisodes.contains { targetIDs.contains($0.id) && $0.stage == .expired })
             }
             do {
-                let removed = try await coordinator.removeSavedAudio(ids: ids, storage: storage)
-                savedEpisodes.removeAll { removed.contains($0.id) }
+                let removed = try await coordinator.removeSavedAudio(ids: targetIDs, storage: storage)
+                // Local retirement is not server confirmation. Keep durable pending
+                // removals visible instead of optimistically dropping/re-adding rows.
+                savedEpisodes = try await coordinator.savedAudio(storage: storage)
                 savedAudioSelection.subtract(removed)
             } catch is CancellationError {
             } catch {
-                self.error = (error as? RelayError)?.localizedDescription ?? "The saved audio could not be removed."
+                self.error = (error as? RelayError)?.localizedDescription ?? "The server audio could not be removed."
             }
         }
     }
@@ -1089,7 +1053,7 @@ final class AppModel {
         } else {
             running = false; cancelling = false
             status = "Ready; queued articles and saved progress are retained"
-            refreshLibrary(cleanup: false)
+            refreshLibrary()
         }
     }
     func waitForProcessing() async {
@@ -1105,11 +1069,11 @@ final class AppModel {
         stopping = true
         // Stop owned work before terminating the UI.
         progressID = UUID()
-        let current = task, enqueue = enqueueTask, library = libraryTask, maintenance = maintenanceTask
+        let current = task, enqueue = enqueueTask, library = libraryTask
         let mutation = queueMutationTask, audioMutation = audioMutationTask, preview = previewTask
         let delivery = deliveryTask, deliveryTest = deliveryTestTask, automation = automationTask, credential = deliveryCredentialTask
         previewRequestID = UUID()
-        current?.cancel(); enqueue?.cancel(); maintenance?.cancel(); library?.cancel(); mutation?.cancel()
+        current?.cancel(); enqueue?.cancel(); library?.cancel(); mutation?.cancel()
         audioMutation?.cancel(); preview?.cancel(); delivery?.cancel(); deliveryTest?.cancel(); automation?.cancel()
         credential?.cancel(); deliveryCredentialStore?.cancelAuthentication()
         sourceReview.cancel()
@@ -1117,7 +1081,6 @@ final class AppModel {
         if let current { await current.value }
         if let enqueue { await enqueue.value }
         if let library { await library.value }
-        if let maintenance { await maintenance.value }
         if let mutation { await mutation.value }
         if let audioMutation { await audioMutation.value }
         if let preview { await preview.value }
@@ -1147,7 +1110,7 @@ enum DeliveryTestResult: Equatable {
 enum WorkspaceSection: String, CaseIterable, Identifiable {
     case articles = "Articles"
     case queue = "Queue"
-    case savedAudio = "Saved Audio"
+    case savedAudio = "Server Audio"
     var id: Self { self }
     var systemImage: String {
         switch self {
@@ -1278,7 +1241,7 @@ struct RelayMenu: View {
         Divider()
         Button("Articles") { openWorkspace(.articles) }.disabled(model.preview)
         Button("Queue") { openWorkspace(.queue) }.disabled(model.preview)
-        Button("Saved Audio") { openWorkspace(.savedAudio) }.disabled(model.preview)
+        Button("Server Audio") { openWorkspace(.savedAudio) }.disabled(model.preview)
         Divider()
         Button("Settings…") { WindowPresence.shared.prepareToOpen(); openSettings() }.disabled(model.preview)
         Button("Quit VoiceRelay") { model.quit() }.disabled(model.preview)
@@ -1360,19 +1323,6 @@ struct ConfigurationView: View {
             } header: {
                 SectionHelpHeader(title: "Reading List",
                     explanation: "VoiceRelay checks the chosen Reading List file automatically while it runs.\nThe file is strictly read-only — nothing is written back.\nWith automatic processing on, newly discovered articles are added to the queue and processed without a click.\nStop suspends this until new work arrives or Generate is pressed.")
-            }
-            Section {
-                LabeledContent("Audio folder", value: model.audioDirectory?.path ?? "Not chosen")
-                    .lineLimit(1).truncationMode(.middle)
-                    .help(model.audioDirectory?.path ?? "")
-                Button(model.audioDirectory == nil ? "Choose…" : "Change…") { model.selectAudioDirectory() }
-                    .disabled(model.running || model.preview)
-                Picker("Delete audio older than", selection: $model.audioRetention) {
-                    ForEach(AudioRetention.allCases) { policy in Text(policy.label).tag(policy) }
-                }.pickerStyle(.menu).disabled(model.running || model.preview)
-            } header: {
-                SectionHelpHeader(title: "Storage",
-                    explanation: "New audio saves here; existing audio keeps its captured folder.\nProcessing and cleanup run while VoiceRelay is running.\nQuit stops owned work and preserves queued articles and saved text.")
             }
         }.formStyle(.grouped)
     }
@@ -1765,7 +1715,7 @@ struct QueueView: View {
         Group {
             if model.queueItems.isEmpty && model.pendingAdds.isEmpty {
                 ContentUnavailableView("Queue Is Empty", systemImage: "list.bullet",
-                                       description: Text("Add articles to the queue, then choose Generate Speech."))
+                                       description: Text("Add articles to the queue, then choose Generate Audio."))
             } else {
                 List(selection: $model.queueSelection) {
                     ForEach(model.queueItems) { item in
@@ -1791,7 +1741,7 @@ struct QueueView: View {
                             if [.paused, .failed, .running].contains(item.state) {
                                 Button("Retry") { model.changeQueue(item.id, remove: false) }
                                     .disabled(model.preview || model.stopping || current || mutating)
-                                    .help("Make this article ready, then choose Generate Speech.")
+                                    .help("Make this article ready, then choose Generate Audio.")
                             }
                             RowRemovalButton(accessibilityLabel: "Remove \(item.title) from queue",
                                 help: current ? "Stop generating speech first" : "Remove from queue; saved article and audio are kept",
@@ -1951,8 +1901,8 @@ struct LibraryView: View {
     var body: some View {
         Group {
             if model.savedEpisodes.isEmpty {
-                ContentUnavailableView("No Saved Audio", systemImage: "waveform",
-                                       description: Text("Add selected articles to the queue, then choose Generate Speech."))
+                ContentUnavailableView("No Server Audio", systemImage: "waveform",
+                                       description: Text("Add selected articles to the queue, then choose Generate Audio."))
             } else {
                 List(selection: $model.savedAudioSelection) {
                     ForEach(model.savedEpisodes, id: \.id) { episode in
@@ -1960,14 +1910,15 @@ struct LibraryView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(episode.title).font(.headline).lineLimit(2)
                             let meta = model.savedAudioMeta(episode)
-                            Text(episode.manualAudioDeletionRequested == true
-                                 ? "Removal pending\(meta.map { " · " + $0 } ?? ""); retry its remove control to finish."
-                                 : meta ?? "Speech ready").font(AppTypography.secondary).foregroundStyle(.secondary)
-                            if episode.manualAudioDeletionRequested != true {
+                            let removal = model.savedAudioRemovalStatus(episode)
+                            Text(removal.map { "\($0)\(meta.map { " · " + $0 } ?? "")" }
+                                 ?? meta ?? "Speech ready").font(AppTypography.secondary).foregroundStyle(.secondary)
+                            if removal == nil {
                                 SavedAudioDeliveryIndicator(status: model.savedAudioDeliveryStatus(episode))
                             }
                         }
                         Spacer()
+                        if episode.settings.temporaryAudio != true && episode.localAudioReleased != true {
                         GlassEffectContainer(spacing: 8) {
                             HStack(spacing: 8) {
                                 Button("Show in Finder") { reveal(episode) }.disabled(model.preview)
@@ -1975,9 +1926,10 @@ struct LibraryView: View {
                                     .help("Reveal the saved audio file in Finder")
                             }
                         }
+                        }
                         RowRemovalButton(accessibilityLabel: "Delete \(episode.title) audio",
-                            help: "Delete this audio file and remove it from the feed; saved article text is kept",
-                            isEnabled: model.canDeleteSavedAudio && !model.mutatingSavedAudioIDs.contains(episode.id)) {
+                            help: "Remove this episode from the server feed and delete its audio; saved article text is kept",
+                            isEnabled: model.canRemoveSavedAudio(episode)) {
                             model.removeSavedAudio(ids: [episode.id])
                         }
                     }
@@ -1988,7 +1940,7 @@ struct LibraryView: View {
         }.task {
             guard !model.preview else { return }
             while !Task.isCancelled, !model.stopping {
-                model.refreshLibrary(cleanup: false)
+                model.refreshLibrary()
                 try? await Task.sleep(for: .seconds(3))
             }
         }
@@ -2004,10 +1956,10 @@ struct LibraryView: View {
             }
             ToolbarItem(placement: .secondaryAction) {
                 SelectionManagementControl(selectionCount: model.savedAudioSelection.count,
-                    resetTitle: "Reset Saved Audio…", canReset: model.canDeleteSavedAudio,
-                    canRemove: model.canDeleteSavedAudio,
-                    resetHelp: "Delete all shown audio files and remove them from the feed; saved article text is kept",
-                    removeHelp: "Delete the selected audio files and remove them from the feed; saved article text is kept",
+                    resetTitle: "Reset Server Audio…", canReset: !model.savedAudioResetCandidates.isEmpty,
+                    canRemove: model.savedEpisodes.contains { model.savedAudioSelection.contains($0.id) && model.canRemoveSavedAudio($0) },
+                    resetHelp: "Remove all shown episodes and their server audio; saved article text is kept",
+                    removeHelp: "Remove selected episodes and their server audio; saved article text is kept",
                     onReset: {
                         capturedResetIDs = model.savedAudioResetCandidates
                         confirmingReset = true
@@ -2015,21 +1967,21 @@ struct LibraryView: View {
                     onRemove: { model.removeSavedAudio(ids: Array(model.savedAudioSelection)) })
             }
         }
-        .confirmationDialog("Reset saved audio?", isPresented: $confirmingReset) {
-            Button("Reset Saved Audio", role: .destructive) {
+        .confirmationDialog("Remove all server audio?", isPresented: $confirmingReset) {
+            Button("Reset Server Audio", role: .destructive) {
                 let ids = capturedResetIDs
                 capturedResetIDs = []
                 model.removeSavedAudio(ids: ids)
             }
             Button("Cancel", role: .cancel) { capturedResetIDs = [] }
         } message: {
-            Text("Permanently delete the audio files for all \(capturedResetIDs.count) shown items and remove them from the feed? Saved article text and Reading List entries are kept.")
+            Text("Remove the episodes and server audio for all \(capturedResetIDs.count) shown items and remove them from the feed? Saved article text and Reading List entries are kept.")
         }
     }
     private func reveal(_ episode: Episode) {
         let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
         if FileManager.default.fileExists(atPath: file.path) { NSWorkspace.shared.activateFileViewerSelecting([file]) }
-        else { model.error = "The saved audio file is unavailable. Check the audio folder in Settings." }
+        else { model.error = "The temporary audio file is unavailable; published episodes remain on the server." }
     }
 }
 
@@ -2077,8 +2029,8 @@ struct LibraryView: View {
     model.batchProgress = QueueBatchProgress(stage: .encoding, completedChunks: 5, totalChunks: 12, completedArticles: 0, totalArticles: 2)
     return QueueView(model: model)
 }
-#Preview("Saved Audio — inert empty library") { LibraryView(model: AppModel(preview: true)) }
-#Preview("Saved Audio — inert delivery states") {
+#Preview("Server Audio — inert empty library") { LibraryView(model: AppModel(preview: true)) }
+#Preview("Server Audio — inert delivery states") {
     let model = AppModel(preview: true)
     model.deliverySettings.enabled = true
     model.deliverySettings.feedFolderURL = URL(string: "https://upload.example/podcast/")

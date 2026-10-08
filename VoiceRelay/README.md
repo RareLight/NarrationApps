@@ -9,8 +9,10 @@ mode.** Synthetic audio providers exist only inside automated tests.
 The current Slice 3 continuation adds article selection and batch enqueue, a saved
 speech library with offline resume, in-app voice/speed preferences, persistent
 Reading List entries, and a durable manual speech queue. Normal
-app use requires no TOML file or pipeline parameters. Settings offers one audio
-folder choice; processing files use macOS temporary storage. Article inspection
+app use requires no TOML file or pipeline parameters. Generated audio uses app-owned macOS temporary storage until its upload and
+feed publication are confirmed, then the local copy is removed. Server Audio
+retains episode history and server removal controls; metadata and article text
+remain private and persistent. No folder choice or scheduled rotation is required. Article inspection
 and narration previews open in a dedicated Article Preview window, reached from
 Articles.
 The pinned inference runtime still needs explicit development setup; bundled
@@ -36,10 +38,10 @@ Requires macOS 27.0+, Xcode with the macOS 27 SDK (Swift 6.2+), ffmpeg/ffprobe a
 the explicitly installed project-local Kokoro runtime. Open `VoiceRelay.xcodeproj`,
 choose **VoiceRelay → My Mac**, build (⌘B) and run (⌘R). The waveform menu-bar icon
 opens a native status menu; no Dock icon or startup window is expected.
-Choosing **Articles**, **Queue**, **Saved Audio** or **Settings…** opens and
+Choosing **Articles**, **Queue**, **Server Audio** or **Settings…** opens and
 focuses the corresponding standalone window, which enables the Dock icon and
 ⌘-Tab entry while any such window is open, including when minimized. The main
-window's sidebar switches between **Articles**, **Queue** and **Saved Audio**.
+window's sidebar switches between **Articles**, **Queue** and **Server Audio**.
 Closing the last standalone window returns to menu-bar-only operation.
 
 1. In **Settings… → General → Speech**, choose Language & Region, then a voice and
@@ -50,18 +52,11 @@ Closing the last standalone window returns to menu-bar-only operation.
    gaps and 1,800-character narration chunks. Processing uses floating-point
    intermediates. Existing finalized audio is preserved; unfinished app work
    adopts the encoding policy while retaining reusable speech chunks.
-2. In **Settings… → General → Storage**, click **Choose…** (or **Change…** if
-   already set) and select or create the folder where finished audio is saved.
-   This is the only output-location control. The folder choice is remembered.
-   **Delete audio older than** defaults to **1 month**, with options from 12 hours
-   through 6 months, plus Never. Age uses each file's modification date; month
-   options use calendar months. While the app is open, cleanup runs on startup,
-   automatic library rechecks, retention changes and after processing, plus
-   every 15 minutes when idle.
-   It deletes only completed native-library audio that is not queued. Expired audio
-   leaves Saved Audio and the local feed; saved article text remains for regeneration.
-   The development runtime uses its installed project-local location; building
-   or opening the app never downloads or starts inference.
+2. Configure **Settings… → Delivery** with the Feed folder and Public folder URLs
+   and your app password. `feed.xml` and `audio/` are implicit. Copy the subscription
+   URL into Overcast. New audio is temporary until upload and publication are both
+   confirmed; **Server Audio** retains history and manages server deletion. Existing VoiceRelay local
+   audio follows the same cleanup policy after confirmed delivery. Starting the app never downloads models automatically.
 3. Choose **Articles** in the status menu. Pick the source once under
    **Settings → General → Reading List**; VoiceRelay then re-reads it
    at startup and every five minutes while the app runs. Pull down in Articles
@@ -72,7 +67,7 @@ Closing the last standalone window returns to menu-bar-only operation.
    Queue** in the toolbar. Selected rows immediately show a *Preparing…* pending
    state while a background task converts them in displayed list order: new
    articles are fetched/extracted and saved with current voice,
-   speed and audio folder; previously saved text is reused without a fetch.
+   voice and speed; previously saved text is reused without a fetch.
    A failed source becomes a per-entry error in Articles and does not stop the
    remaining additions; saved items remain. There is no required review step.
    Double-click an entry (or use its **Preview Article** menu) to open its page
@@ -80,7 +75,7 @@ Closing the last standalone window returns to menu-bar-only operation.
    Reading List source, its status and diagnostics only.
    Newly generated narration starts with the article title and source and ends
    with a separate **End of article.** paragraph. Existing finalized audio is
-   preserved. Article Open Graph/Twitter preview metadata supplies optional
+   retained until confirmed upload/publication, then its local copy is removed. Article Open Graph/Twitter preview metadata supplies optional
    episode artwork; absent images never block processing. Publisher image URLs
    appear in RSS as `itunes:image`, without downloading or embedding the image.
    Current Overcast supports episode artwork on podcast screens and during
@@ -88,25 +83,19 @@ Closing the last standalone window returns to menu-bar-only operation.
    See [Overcast's release notes](https://apps.apple.com/us/app/overcast-podcast-app/id888422857)
    and the [Open Graph protocol](https://ogp.me/). Artwork availability, sizing
    and persistence depend on the publisher and player.
-5. Open **Saved Audio** — it updates automatically — and click
-   **Show in Finder** on a row to listen with Quick Look (Space) or Finder
-   double-click. Each row shows the audio's duration and file size.
-   Delivery labels show **Not uploaded**, **Awaiting upload**, **Uploaded ·
-   awaiting publication**, **Published**, or **Upload failed**. Published confirms
-   both the audio copy and its inclusion in the server feed. With publishing
-   enabled, **Upload New Items** appears while shown items still need delivery;
-   it remains available for retry after failure and hides once publication is
-   confirmed. Automatic delivery continues to work as before.
-   A row's × deletes that audio file and retires it from
-   the local feed; selecting two or more rows switches the pane control to
-   **Remove Selections**, and zero or one shows **Reset Saved Audio…**, the only
-   confirmed action, which deletes every shown file. Saved article text and
-   Reading List entries are always kept. The progress display disappears when processing
-   finishes; completed audio stays in Saved Audio. **Stop Generating** abandons the interrupted article's unfinished work and returns it to Ready; Quit instead preserves unfinished checkpoints. After quit/relaunch,
-   **Queue → Retry → Generate Speech**
-   uses saved article text and captured settings without fetching again. If macOS
-   purges temporary processing files, unfinished audio is regenerated from saved
-   text under the same episode identity. Completed audio never needs scratch files.
+5. Open **Server Audio** — it updates automatically — to see episode history,
+   duration, size and delivery status. **Published** confirms both the media copy
+   and its inclusion in the server feed. Temporary audio is removed at that point,
+   including existing VoiceRelay output after confirmed delivery. Listen in Overcast.
+   **Show in Finder** is available only for older local copies awaiting cleanup.
+   **Upload New Items** appears while shown episodes need upload/publication and
+   hides when complete; failures leave it available for retry. A row's × or
+   **Remove Selections** retires the episode from the feed before deleting server
+   audio. **Reset Server Audio…** confirms removal of every shown episode.
+   Pending server removals remain listed until confirmed. Article text and Reading
+   List entries are kept. Stop returns interrupted speech to Ready; Quit preserves
+   unfinished checkpoints. Missing pending temporary files regenerate from retained
+   text under the same GUID and captured voice; failed rows stay manual Retry.
 
 6. Open **Queue** and click **Generate Speech** to process waiting items in
    order; prepared rows show a *Ready* checkmark. The run keeps draining while
@@ -115,7 +104,7 @@ Closing the last standalone window returns to menu-bar-only operation.
    click. Compatible consecutive items share one prepared speech-helper
    session, so the local model does not reload between articles.
    The current-article readout advances through the run. Verified completed items
-   leave Queue automatically and remain in Saved Audio. The bar also includes each
+   leave Queue automatically and remain in Server Audio. The bar also includes each
    article's encoding/publication completion, so it
    reaches 100% only when nothing eligible remains.
    **Stop Generating** abandons only the interrupted article's unfinished work
@@ -156,31 +145,22 @@ processing until new work arrives or Generate is pressed; failed rows stay for
 explicit Retry and are never silently retried forever. Relaunch re-readies any
 interrupted item when automation is enabled.
 
-Only finished opaque UUID-named M4A files go in the chosen audio folder. A hidden,
-transient audio-only file in that folder provides atomic publication on the same
-filesystem; it is removed after publication. Intermediate HTML, JSON, lossless
-chunks, encoding files and tool logs use the standard per-user macOS temporary
-directory and completed episode work is removed. Inference helpers get a fresh
-per-session scratch directory under the same app-owned system temporary root;
-it is removed when the helper stops. The private SQLite index,
-approved source/text and local diagnostic RSS live internally under
-`~/Library/Application Support/VoiceRelayPrototype/SpeechLibrary`; these durable
-records are needed for offline recovery and have no folder chooser.
-
-Changing the audio folder affects new episodes. Existing episodes retain their
-original destinations, identities and settings; no audio is moved or deleted.
-An unavailable/unmounted destination produces an actionable error without
-recreating it. Saved Audio lists only existing, accessible finalized files.
-Confirmed externally deleted media leaves Saved Audio and the local feed while
-saved text, identity and captured settings remain for explicit regeneration.
-An unavailable volume, unreadable folder or linked path is never treated as
-deletion: its rows stay hidden but recover when the storage returns. Earlier `Articles`/`SpeechFixture` workspaces and their preferences
-are preserved as historical data and are not silently adopted. The app has no
-sample-speech or Inspect window; fixture generation and snapshot export remain
-developer CLI capabilities.
+Finished opaque UUID-named M4A files use app-owned macOS temporary storage, alongside
+separate processing/helper scratch. Completed processing scratch is removed after
+publication; finished M4A copies remain until byte-confirmed upload and feed
+membership, then durable cleanup intent and hash/file-identity checks permit unlink.
+Server Audio history remains after unlink. There is no audio-folder preference or
+scheduled retention. Earlier VoiceRelay output follows the same confirmed-cleanup
+policy; unrelated files and Python/reference output are never adopted or deleted.
+The private SQLite index, saved article text and diagnostic RSS stay under
+`~/Library/Application Support/VoiceRelayPrototype/SpeechLibrary` for recovery.
+If macOS clears unconfirmed output, it is requeued from saved text. A changed upload
+destination recreates released bytes using the same GUID; old-host files are kept.
+Unfinished server removals remain visible and their remote deletion waits for feed
+confirmation. The diagnostic CLI still supports explicit isolated output folders.
 Extracted content is rendered as plain text; raw HTML is never rendered as a page.
 
-Processing and retention are owned by the running app itself, bound to its
+Processing and delivery are owned by the running app itself, bound to its
 lifetime. Closing the status menu or a standalone window keeps current work
 running; **Quit** cancels and waits for owned work — that is the stop control,
 through either the menu's **Quit VoiceRelay** or standard macOS Quit. Relaunch restores

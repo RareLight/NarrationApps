@@ -1006,7 +1006,10 @@ extension FixtureCoordinator {
         let feedDue = feedPending && (force || ledger.feedAttempts == 0 || ledger.lastAttemptAt == nil
             || now >= ledger.lastAttemptAt! + Self.deliveryBackoff(ledger.feedAttempts))
         let deletesDue = !feedPending && !ledger.pendingRemoteDeletes.isEmpty
-        guard force || mediaDue || feedDue || deletesDue else { return result }
+        guard force || mediaDue || feedDue || deletesDue else {
+            try releaseConfirmedTemporaryAudio(storage: storage, settings: settings)
+            return result
+        }
         let client: WebDAVClient
         do {
             client = try WebDAVClient(transport: transport, settings: settings, credential: credential, debugLog: debugLog)
@@ -1182,6 +1185,7 @@ extension FixtureCoordinator {
             }
             try ledger.save(stateRoot: root)
         }
+        try releaseConfirmedTemporaryAudio(storage: storage, settings: settings)
         return result
     }
 }

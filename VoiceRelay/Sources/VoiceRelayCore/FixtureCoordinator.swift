@@ -187,8 +187,9 @@ public actor FixtureCoordinator {
             throw RelayError.setup("The saved article text is unavailable. Select the article again before generating speech.")
         }
         let review = try JSONDecoder().decode(StoredExtraction.self, from: data).review()
-        let captured = ManagedSpeechStorage(audioDirectory: e.settings.audio, stateRoot: storage.stateRoot,
-                                            temporaryRoot: storage.temporaryRoot)
+        let captured = storage.temporaryAudio && (e.settings.temporaryAudio == true || e.localAudioReleased == true || e.stage != .published)
+            ? storage : ManagedSpeechStorage(audioDirectory: e.settings.audio, stateRoot: storage.stateRoot,
+                temporaryRoot: storage.temporaryRoot, temporaryAudio: e.settings.temporaryAudio == true)
         let voice = e.settings.voice ?? "af_heart", speed = e.settings.backendSettings["speed"]?.numericValue ?? 1
         guard !backend.identity.isMock, review.issue == nil, review.document != nil,
               review.narration?.chunks.isEmpty == false else {
@@ -357,9 +358,25 @@ public actor FixtureCoordinator {
             e.encodedHash = nil; e.audioHash = nil; e.info = nil; e.synthesisFingerprint = nil; e.publicationDate = nil
         }
         if let storage {
-            // A location change affects new episodes; saved episodes keep their destination.
+            if e.settings.temporaryAudio == true || e.localAudioReleased == true, e.stage == .published,
+               temporaryAudioIsMissing(e) {
+                // A retained snapshot regenerates lost/released temporary output using
+                // the same GUID and captured voice. Remote history is unchanged until commit.
+                e.stage = .extracted
+                e.encodedHash = nil; e.audioHash = nil; e.info = nil; e.synthesisFingerprint = nil
+                e.localAudioReleased = nil; e.audioFinalizationComplete = nil; e.delivery = nil
+            }
+            if storage.temporaryAudio, e.stage != .published,
+               !FileManager.default.fileExists(atPath: e.settings.audio.appendingPathComponent(e.id + ".m4a").path) {
+                e.settings.audio = storage.audioDirectory
+                e.settings.temporaryAudio = true
+                e.audioVolumeID = nil
+            }
+            // Cleanup must not race a periodic drain while this item is being validated.
+            e.audioFinalizationComplete = false
+            // Existing placed files finish publication unchanged; new output uses temporary storage.
             _ = try ManagedSpeechStorage(audioDirectory: e.settings.audio, stateRoot: storage.stateRoot,
-                                         temporaryRoot: storage.temporaryRoot).prepare()
+                                         temporaryRoot: storage.temporaryRoot, temporaryAudio: e.settings.temporaryAudio == true).prepare()
             let volumeID = (try? e.settings.audio.resourceValues(forKeys: [.volumeUUIDStringKey]))?.volumeUUIDString
             if let stored = e.audioVolumeID, stored != volumeID {
                 throw RelayError.setup("The original audio volume is unavailable. Reconnect it before resuming.")
@@ -563,7 +580,7 @@ public actor FixtureCoordinator {
             }
             try boundary(.audioPlaced)
             // Origin metadata is captured at the commit whether or not delivery is enabled.
-            e.audioHash = encodedHash; e.stage = .published
+            e.audioHash = encodedHash; e.stage = .published; e.localAudioReleased = nil
             e.author = article.author
             e.sourceHost = article.finalURL.host ?? article.originalURL.host
             e.sourceURL = article.canonicalURL ?? article.finalURL
@@ -599,6 +616,10 @@ public actor FixtureCoordinator {
         if (try? Data(contentsOf: p.feed)) != feed { try Files.write(feed, to: p.feed) }
         try boundary(.feedReplaced)
         try store.markFeed(Files.hash(feed)); progress(.published, plan.chunks.count, plan.chunks.count)
+        if storage != nil {
+            e.audioFinalizationComplete = true
+            try store.save(e)
+        }
         if storage != nil { try? FileManager.default.removeItem(at: directory) }
         return FixtureResult(episode: e, audioURL: destination, feedURL: p.feed, article: article, narration: plan,
                              synthesizedChunks: syntheses, localFeedCurrent: true,

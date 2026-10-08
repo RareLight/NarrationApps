@@ -1,5 +1,111 @@
 # Validation evidence
 
+## October 8: Server Audio removal visibility and stale actions
+
+The previous UI dropped rows immediately after local retirement, then its library
+refresh restored pending server removals. A second action after remote confirmation
+could reach an expired record with a cleared remote path before the UI refreshed,
+producing the obsolete finalized-audio error. Fixed the transition rather than
+hiding the error:
+
+- Removal reloads durable history, keeping a row visible until server confirmation.
+  Active local/server removal shows Removing… and disables that row's removal
+  action. A failed remote operation remains Removal pending and can be retried.
+  Reset/selection actions filter unavailable targets; stale UI actions are no-ops.
+- Saved-audio refresh results and errors are guarded by a revision changed at
+  removal boundaries and delivery completion, so older reads cannot restore stale
+  rows or overwrite current removal state.
+- Core removal treats explicitly completed local retirement (`expired` plus
+  `manualAudioDeletionRequested == false`) as idempotent, both while its server
+  removal is pending and after confirmation. Repeated requests do not rewrite the
+  record/ledger or re-add a confirmed remote delete. Validation and identity checks
+  remain for actionable media; unknown/corrupt/unfinalized records still fail safely.
+- Explicit pending-removal Retry forces delivery past backoff, while a stale action
+  after confirmation does not force a redundant upload. No live data was modified.
+
+Validation: **16 core + 8 app tests passed (24 total)** using the focused serial
+removal/history/upload-control filter. The new gated DELETE app fixture checks
+continuous row presence, active-control disabling, repeated/stale actions, success,
+failure visibility and manual Retry; the core fixture checks identical records and
+ledgers before/after duplicate requests and zero subsequent network work. Existing
+local removal, captured-ID reset, file safety, pending removal recovery and upload
+control tests passed. Signed Xcode **Release build/package passed** and deep/strict
+signature verification passed. `git diff --check` passed. Logs are ignored under
+`var/validation/2026-10-08-server-removal-race/`.
+
+Manual check: quit the previous app, open `dist/VoiceRelay.app`, and remove a
+disposable Server Audio episode. Its row should stay visible as Removing… until
+confirmation, then disappear once. Its remove control should be disabled while
+active; a failed deletion should remain Removal pending and become retryable.
+GUI/Canvas and live WebDAV hosting deletion were not run by the agent.
+
+
+## October 8: temporary output and Server Audio history
+
+Removed General's Storage section, audio-folder bookmark/chooser, retention
+preferences, age-policy enum/sweep and 15-minute maintenance task. The app uses
+owned system temporary output; diagnostic fixtures still accept explicit isolated
+folders. Persistent SQLite metadata and article snapshots remain private for
+recovery. Server Audio replaces the screen/menu name and retains remote episode
+history after local cleanup. Pending uploads and unfinished server removals stay
+visible; removal updates the feed before deleting remote bytes.
+
+Byte-confirmed media upload plus confirmed feed membership at the current
+destination gates cleanup. Durable release intent precedes unlink; hash/size/file
+identity are checked again at unlink. Finalization-complete metadata prevents a
+periodic drain from deleting bytes during publication validation. Existing native
+VoiceRelay copies follow the same confirmed-cleanup rule (user explicitly waived
+preservation); unrelated files and Python/reference media are untouched. Missing
+unconfirmed temporary output is requeued from retained snapshots, with failed rows
+kept manual Retry. Released output recreates on destination changes using the same
+GUID, publication date and captured voice. Local feed rendering no longer depends
+on intentionally released copies. Idle cleanup avoids redundant database writes.
+
+Delivery completion reloads history without immediately triggering another drain;
+this prevents a failure/refresh retry loop while preserving manual and periodic
+requests and retry backoff. Availability notices compare episode IDs so confirmed
+remote-only history cannot hide an unavailable unuploaded local item.
+
+Validation:
+
+- Full serial Swift suite: **228 core + 84 app tests passed (312 total)** before
+  the final existing-audio cleanup extension and completion-path refinements.
+- After extending existing-audio cleanup: **38 core + 9 app focused tests passed
+  (47 total)**. Coverage includes temporary generation, confirmation-gated
+  cleanup, failed PUT/feed confirmation retaining bytes, changed-file refusal,
+  crash-intent retry without network/credentials, finalization gating, retained
+  history, remote deletion order, removal failure visibility, relaunch, GUID/voice
+  recovery, changed destinations, legacy cleanup and unrelated-file preservation.
+- Final app completion checks: **7 tests passed**, including the new no-immediate-
+  retry-loop and mixed local/remote availability cases, plus publication during
+  later inference, history/relaunch, upload controls and removal of legacy rotation.
+- Signed Xcode **Release build/package passed**, and the completed app passed
+  `codesign --verify --deep --strict`. No app launch, GUI/Canvas rendering, real speech/listening,
+  live source read, upload, hosting cutover or live-file cleanup ran.
+- Logs: `var/validation/2026-10-08-temporary-audio/`. `git diff --check` passed.
+
+Operator checks:
+
+1. Quit the previous app and open `dist/VoiceRelay.app`. Confirm General has no
+   Storage section and the sidebar/menu now says Server Audio.
+2. Generate a small test article with Delivery enabled. Wait for Published;
+   verify it plays in Overcast, its row survives reopening/relaunch, and Upload
+   New Items hides. The owned local M4A copy is removed only after confirmations.
+3. Generate another test article. Confirm the earlier episode remains in the
+   subscription. Disable Delivery for a new item, then re-enable it; unconfirmed
+   temporary output stays available and upload completes normally.
+4. Remove a disposable episode from Server Audio. Confirm feed removal and server
+   audio deletion; a failed remote removal must remain listed as Removal pending.
+   Do not expect old-host copies to be deleted when changing destinations.
+
+Performance: the supplied partial log has finalizer wait **0.0 ms**, ready items
+**0**, **17.866 s** encoding for **1217.800 s** audio (**0.880 s/audio minute**),
+**1.445 s** assembly and approximately **8 s** subsequent media upload. Its final
+GPU idle tail is consistent with finishing CPU encoding with no ready inference;
+retain the single worker and unnormalized 96k AAC. The excerpt cannot establish
+whole-queue throughput or earlier overlap, and cleanup has no claimed speedup.
+
+
 ## October 7: US/UK regional voice settings
 
 Added Language & Region before the filtered Voice picker: US English defaults to

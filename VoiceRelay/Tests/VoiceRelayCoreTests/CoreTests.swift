@@ -11,144 +11,6 @@ private func temporary() throws -> URL {
     try Files.directory(url); return url
 }
 
-@Test func audioRetentionOptionsDefaultsAndCalendarCutoffs() throws {
-    #expect(AudioRetention.defaultValue == .oneMonth)
-    #expect(AudioRetention.allCases.map(\.label) == ["12 hours", "1 day", "3 days", "1 week", "2 weeks", "1 month", "2 months", "3 months", "6 months", "Never"])
-    var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-    let now = try #require(calendar.date(from: DateComponents(year: 2024, month: 3, day: 31, hour: 12)))
-    for (policy, hours) in [(AudioRetention.twelveHours, 12), (.oneDay, 24), (.threeDays, 72), (.oneWeek, 168), (.twoWeeks, 336)] {
-        #expect(policy.cutoff(before: now, calendar: calendar) == now.addingTimeInterval(-Double(hours) * 3600))
-    }
-    for (policy, months) in [(AudioRetention.oneMonth, 1), (.twoMonths, 2), (.threeMonths, 3), (.sixMonths, 6)] {
-        #expect(policy.cutoff(before: now, calendar: calendar) == calendar.date(byAdding: .month, value: -months, to: now))
-    }
-    #expect(calendar.component(.day, from: try #require(AudioRetention.oneMonth.cutoff(before: now, calendar: calendar))) == 29)
-    #expect(AudioRetention.never.cutoff(before: now) == nil)
-    for policy in AudioRetention.allCases {
-        #expect(try JSONDecoder().decode(AudioRetention.self, from: JSONEncoder().encode(policy)) == policy)
-    }
-}
-
-@Test func audioRetentionUsesFileDatesAndPreservesQueuedUnfinishedAndUnrelatedMedia() async throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let audio = root.appendingPathComponent("audio"); try Files.directory(audio)
-    let storage = ManagedSpeechStorage(audioDirectory: audio, stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
-    let coordinator = FixtureCoordinator(), now = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
-    let old = try await coordinator.runReviewed(root: storage.stateRoot, review: reviewedArticle(), backend: SyntheticSpeechContractBackend("retention"), storage: storage)
-    let recent = try await coordinator.runReviewed(root: storage.stateRoot, review: reviewedArticle("recent"), backend: SyntheticSpeechContractBackend("retention"), storage: storage)
-    let queued = try await coordinator.enqueue(reviewedArticle("recent"), storage: storage, preferences: SpeechPreferences())
-    let unfinished = try await coordinator.enqueue(reviewedArticle("unfinished"), storage: storage, preferences: SpeechPreferences())
-    let unfinishedMedia = audio.appendingPathComponent(unfinished.id + ".m4a")
-    try FileManager.default.copyItem(at: old.audioURL, to: unfinishedMedia)
-    let unrelated = audio.appendingPathComponent(UUID().uuidString.lowercased() + ".m4a")
-    try FileManager.default.copyItem(at: old.audioURL, to: unrelated)
-    for file in [old.audioURL, recent.audioURL, unfinishedMedia, unrelated] {
-        try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-24 * 3600)], ofItemAtPath: file.path)
-    }
-    #expect(try await coordinator.expireAudio(storage: storage, retention: .never, now: now).isEmpty)
-    #expect(try await coordinator.expireAudio(storage: storage, retention: .oneDay, now: now) == [old.episode.id])
-    #expect(!FileManager.default.fileExists(atPath: old.audioURL.path))
-    #expect([recent.audioURL, unfinishedMedia, unrelated].allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
-    #expect(try await coordinator.queue(stateRoot: storage.stateRoot).map(\.id) == [queued.id, unfinished.id])
-    #expect(try await coordinator.library(storage: storage).first(where: { $0.id == old.episode.id })?.stage == .expired)
-    let feed = try String(contentsOf: recent.feedURL, encoding: .utf8)
-    #expect(!feed.contains(old.episode.id) && feed.contains(recent.episode.id))
-    // Source snapshots are retained; explicit recreation keeps identity/settings and performs speech again.
-    let readded = try await coordinator.enqueue(reviewedArticle(), storage: storage, preferences: SpeechPreferences(voice: .bella))
-    #expect(readded.id == old.episode.id)
-    let regenerated = try await coordinator.runQueued(readded.id, storage: storage, backend: { _ in SyntheticSpeechContractBackend("retention") })
-    #expect(regenerated.synthesizedChunks > 0 && regenerated.episode.settings.voice == old.episode.settings.voice)
-    #expect(try await coordinator.expireAudio(storage: storage, retention: .twelveHours, now: now).isEmpty)
-    #expect(FileManager.default.fileExists(atPath: old.audioURL.path))
-}
-
-@Test func audioRetentionBoundaryRecentAndCapturedFolders() async throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let audio = root.appendingPathComponent("audio"), other = root.appendingPathComponent("other")
-    try Files.directory(audio); try Files.directory(other)
-    let storage = ManagedSpeechStorage(audioDirectory: audio, stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
-    let coordinator = FixtureCoordinator(), now = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
-    let old = try await coordinator.runReviewed(root: storage.stateRoot, review: reviewedArticle(), backend: SyntheticSpeechContractBackend("retention"), storage: storage)
-    let recent = try await coordinator.runReviewed(root: storage.stateRoot, review: reviewedArticle("recent"), backend: SyntheticSpeechContractBackend("retention"), storage: storage)
-    try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-12 * 3600 - 1)], ofItemAtPath: old.audioURL.path)
-    try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-12 * 3600 + 1)], ofItemAtPath: recent.audioURL.path)
-    let changedStorage = ManagedSpeechStorage(audioDirectory: other, stateRoot: storage.stateRoot, temporaryRoot: storage.temporaryRoot)
-    #expect(try await coordinator.expireAudio(storage: changedStorage, retention: .twelveHours, now: now) == [old.episode.id])
-    #expect(FileManager.default.fileExists(atPath: recent.audioURL.path))
-    #expect(try FileManager.default.contentsOfDirectory(atPath: other.path).isEmpty)
-}
-
-@Test func audioRetentionFeedFailureLeavesAudioAndRecoversWithNever() async throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let audio = root.appendingPathComponent("audio"); try Files.directory(audio)
-    let storage = ManagedSpeechStorage(audioDirectory: audio, stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
-    let coordinator = FixtureCoordinator(), now = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
-    let result = try await coordinator.runReviewed(root: storage.stateRoot, review: reviewedArticle(), backend: SyntheticSpeechContractBackend("retention"), storage: storage)
-    try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-48 * 3600)], ofItemAtPath: result.audioURL.path)
-    let hash = try Files.hash(result.audioURL)
-    try FileManager.default.removeItem(at: result.feedURL); try Files.directory(result.feedURL)
-    do { _ = try await coordinator.expireAudio(storage: storage, retention: .oneDay, now: now); Issue.record("Expected feed commit failure") }
-    catch { #expect(error is RelayError) }
-    #expect(try Files.hash(result.audioURL) == hash)
-    #expect(try await coordinator.library(storage: storage).first?.stage == .expired)
-    #expect(try NativeStore(url: storage.profile.database, readOnly: true).query("SELECT pending FROM feed_status").first?.first == "1")
-    try FileManager.default.removeItem(at: result.feedURL)
-    #expect(try await coordinator.expireAudio(storage: storage, retention: .never, now: now).isEmpty)
-    #expect(try await coordinator.library(storage: storage).first?.stage == .published)
-    #expect(try Files.hash(result.audioURL) == hash)
-    #expect(try String(contentsOf: result.feedURL, encoding: .utf8).contains(result.episode.id))
-    #expect(try await coordinator.expireAudio(storage: storage, retention: .oneDay, now: now) == [result.episode.id])
-}
-
-@Test(arguments: ["changed", "file link", "folder link"])
-func audioRetentionRefusesChangedOrLinkedFilesBeforeDeleting(_ mode: String) async throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let audio = root.appendingPathComponent("audio"); try Files.directory(audio)
-    let storage = ManagedSpeechStorage(audioDirectory: audio, stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
-    let coordinator = FixtureCoordinator(), now = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
-    let result = try await coordinator.runReviewed(root: storage.stateRoot, review: reviewedArticle(), backend: SyntheticSpeechContractBackend("retention"), storage: storage)
-    let target = root.appendingPathComponent("preserve.m4a")
-    try FileManager.default.copyItem(at: result.audioURL, to: target)
-    let originalFeed = try Data(contentsOf: result.feedURL)
-    if mode == "file link" {
-        try FileManager.default.removeItem(at: result.audioURL)
-        try FileManager.default.createSymbolicLink(at: result.audioURL, withDestinationURL: target)
-    } else if mode == "folder link" {
-        let moved = root.appendingPathComponent("moved-audio")
-        try FileManager.default.moveItem(at: audio, to: moved)
-        try FileManager.default.createSymbolicLink(at: audio, withDestinationURL: moved)
-    } else { try Files.write(Data("foreign changed content".utf8), to: result.audioURL) }
-    try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-48 * 3600)], ofItemAtPath: result.audioURL.path)
-    do { _ = try await coordinator.expireAudio(storage: storage, retention: .oneDay, now: now); Issue.record("Unsafe expiry accepted") }
-    catch { #expect(error is RelayError) }
-    #expect(FileManager.default.fileExists(atPath: result.audioURL.path) && FileManager.default.fileExists(atPath: target.path))
-    #expect(try Data(contentsOf: result.feedURL) == originalFeed)
-    #expect(try await coordinator.library(storage: storage).first?.stage == .published)
-}
-
-@Test func audioRetentionDoesNotCreateMissingStorageAndHonorsWriterOwnership() async throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let audio = root.appendingPathComponent("audio")
-    let storage = ManagedSpeechStorage(audioDirectory: audio, stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
-    let coordinator = FixtureCoordinator()
-    #expect(try await coordinator.expireAudio(storage: storage, retention: .oneMonth).isEmpty)
-    #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
-    try Files.directory(audio)
-    let result = try await coordinator.runReviewed(root: storage.stateRoot, review: reviewedArticle(), backend: SyntheticSpeechContractBackend("retention"), storage: storage)
-    try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-48 * 3600)], ofItemAtPath: result.audioURL.path)
-    let originalFeed = try Data(contentsOf: result.feedURL)
-    var owner: NativeStore? = try NativeStore(url: storage.profile.database)
-    do { _ = try await coordinator.expireAudio(storage: storage, retention: .oneDay); Issue.record("Competing cleanup acquired ownership") }
-    catch { #expect(error is RelayError) }
-    #expect(FileManager.default.fileExists(atPath: result.audioURL.path))
-    #expect(try Data(contentsOf: result.feedURL) == originalFeed)
-    withExtendedLifetime(owner) {}
-    owner = nil
-    let disconnected = root.appendingPathComponent("disconnected")
-    try FileManager.default.moveItem(at: audio, to: disconnected)
-    #expect(try await coordinator.expireAudio(storage: storage, retention: .oneDay).isEmpty)
-    #expect(!FileManager.default.fileExists(atPath: audio.path))
-}
 private func config(at root: URL, suffix: String = "") throws -> URL {
     let file = root.appendingPathComponent("config.toml")
     let text = """
@@ -662,7 +524,6 @@ func interruptionResumesWithStableIdentityAndCheckpoints(_ boundary: FixtureBoun
         let store = try NativeStore(url: storage.profile.database, readOnly: true)
         return try store.snapshot(articleID: first.episode.id)
     }() == snapshot)
-    #expect(try await coordinator.expireAudio(storage: storage, retention: .never).isEmpty)
     #expect(try { () throws -> Stage? in
         let store = try NativeStore(url: storage.profile.database, readOnly: true)
         return try store.episodes().first(where: { $0.id == first.episode.id })?.stage
@@ -3612,14 +3473,13 @@ private func publishedEpisode(_ tag: String, storage: ManagedSpeechStorage) asyn
     #expect(!FileManager.default.fileExists(atPath: result.audioURL.path))
 }
 
-@Test func removeSavedAudioNeverRetentionDoesNotResurrectIntent() async throws {
+@Test func removeSavedAudioReconcileDoesNotResurrectIntent() async throws {
     let (root, storage) = try removalStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let coordinator = FixtureCoordinator()
     let result = try await publishedEpisode("one", storage: storage)
     var flagged = result.episode
     flagged.stage = .expired; flagged.manualAudioDeletionRequested = true
     try NativeStore(url: storage.profile.database).save(flagged)
-    _ = try await coordinator.expireAudio(storage: storage, retention: .never)
     let episode = try #require(try await coordinator.library(storage: storage).first)
     #expect(episode.stage == .expired && episode.manualAudioDeletionRequested == true)
     #expect(FileManager.default.fileExists(atPath: result.audioURL.path))
@@ -3719,7 +3579,6 @@ private func publishedEpisode(_ tag: String, storage: ManagedSpeechStorage) asyn
     #expect(try await coordinator.resumePendingAudioRemovals(storage: storage) == [flagged.id])
     _ = try await coordinator.resume(storage: storage, articleID: flagged.id, backend: SyntheticSpeechContractBackend("regen"))
     #expect(FileManager.default.fileExists(atPath: result.audioURL.path))
-    #expect(try await coordinator.expireAudio(storage: storage, retention: .never) == [])
     #expect(FileManager.default.fileExists(atPath: result.audioURL.path))
     #expect(try await coordinator.library(storage: storage).first?.stage == .published)
 }

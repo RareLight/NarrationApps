@@ -126,21 +126,20 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     #expect(try await coordinator.queue(stateRoot: storage.stateRoot).first?.attempts == 2)
 }
 
-@Test @MainActor func audioRetentionRefreshRemovesExpiredAudioFromVisibleLibraryAndInspection() async throws {
+@Test @MainActor func libraryRefreshNeverAppliesLegacyScheduledRetention() async throws {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    defaults.set("oneDay", forKey: "audioRetention")
     let coordinator = FixtureCoordinator()
     let result = try await coordinator.runReviewed(root: storage.stateRoot, review: article(), backend: SyntheticProvider(), storage: storage)
-    let model = AppModel(storage: storage)
-    #expect(model.audioRetention == .oneMonth)
-    model.audioRetention = .never; await model.waitForLibraryRefresh()
+    let model = AppModel(storage: storage, defaults: defaults)
     model.result = result
-    #expect(model.savedEpisodes.map(\.id) == [result.episode.id])
     try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-48 * 3600)], ofItemAtPath: result.audioURL.path)
     model.refreshLibrary(); await model.waitForLibraryRefresh()
+    #expect(model.savedEpisodes.map(\.id) == [result.episode.id])
+    #expect(model.result != nil && model.audioCleanupError == nil)
     #expect(FileManager.default.fileExists(atPath: result.audioURL.path))
-    model.audioRetention = .oneDay; await model.waitForLibraryRefresh()
-    #expect(model.savedEpisodes.isEmpty && model.result == nil && model.audioCleanupError == nil)
-    #expect(!FileManager.default.fileExists(atPath: result.audioURL.path))
+    await model.shutdown()
 }
 
 @Test @MainActor func queueResetIsExplicitAndPreservesSourceAndAudio() async throws {
@@ -450,7 +449,7 @@ private func agentDiagnosticsRoot() throws -> URL {
 
 @Test @MainActor func workspaceSectionsAndNativeViewsConstructInertly() async throws {
     #expect(WorkspaceSection.allCases == [.articles, .queue, .savedAudio])
-    #expect(Set(WorkspaceSection.allCases.map(\.rawValue)) == ["Articles", "Queue", "Saved Audio"])
+    #expect(Set(WorkspaceSection.allCases.map(\.rawValue)) == ["Articles", "Queue", "Server Audio"])
     let model = AppModel(preview: true)
     for section in WorkspaceSection.allCases {
         model.workspaceSection = section
@@ -1403,7 +1402,7 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     notices.dismiss(message: "Audio cleanup could not finish.", key: "audio")
     model.audioCleanupError = "Audio cleanup could not finish."
     #expect(!notices.isVisible(message: "Audio cleanup could not finish.", key: "audio"))
-    model.refreshLibrary(cleanup: false)
+    model.refreshLibrary()
     await model.waitForLibraryRefresh()
     #expect(model.audioCleanupError == nil)
     model.audioCleanupError = "Audio cleanup could not finish."
@@ -2020,9 +2019,9 @@ private func fetchFixture(url: URL) throws -> FetchedPage {
     #expect(AppModel.durationString(3661) == "1:01:01")
     #expect(AppModel.durationString(-5) == "0:00")
     #expect(model.savedAudioMeta(episode(duration: nil, bytes: 0)) == nil)
-    #expect(model.savedAudioMeta(episode(duration: 0, bytes: 512)) == "Speech ready · 0:00 · 512 bytes")
+    #expect(model.savedAudioMeta(episode(duration: 0, bytes: 512)) == "Audio · 0:00 · 512 bytes")
     let meta = try #require(model.savedAudioMeta(episode(duration: 3661, bytes: 3_250_000)))
-    #expect(meta.hasPrefix("Speech ready · 1:01:01 · ") && meta.contains("MB"))
+    #expect(meta.hasPrefix("Audio · 1:01:01 · ") && meta.contains("MB"))
 }
 
 @Test @MainActor func deliveryPaneAndAutomationControlsConstructInertly() throws {
@@ -2266,4 +2265,134 @@ private actor HeldDeliveryTransport: DeliveryTransport {
     #expect(model.catalog.entries.count == 2 && model.catalog.currentIDs.count == 2)
     #expect(try Data(contentsOf: plist) == next)
     await model.stop()
+}
+
+@Test @MainActor func serverAudioHistorySurvivesTemporaryCleanupAndRelaunchThenRemovesRemoteEpisode() async throws {
+    let (root, persistent) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = ManagedSpeechStorage(audioDirectory: persistent.audioDirectory, stateRoot: persistent.stateRoot,
+        temporaryRoot: persistent.temporaryRoot, temporaryAudio: true)
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let settings = appDeliverySettings(), coordinator = FixtureCoordinator(), transport = StubDeliveryTransport()
+    let item = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
+    let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, defaults: defaults,
+        deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = settings; model.queueItems = [item]; model.runQueue()
+    await model.waitForProcessing(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    #expect(model.error == nil && model.deliveryError == nil)
+    let saved = try #require(model.savedEpisodes.first)
+    #expect(saved.localAudioReleased == true && model.savedAudioDeliveryStatus(saved) == .published)
+    #expect(!model.showsUploadNewItems && !FileManager.default.fileExists(atPath: storage.audioDirectory.appendingPathComponent(item.id + ".m4a").path))
+    await model.shutdown()
+    let relaunched = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, defaults: defaults,
+        deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    relaunched.refreshLibrary(); await relaunched.waitForLibraryRefresh()
+    #expect(relaunched.savedEpisodes.map(\.id) == [item.id])
+    #expect(relaunched.savedAudioDeliveryStatus(try #require(relaunched.savedEpisodes.first)) == .published)
+    relaunched.removeSavedAudio(ids: [item.id])
+    await relaunched.waitForAudioMutation(); await relaunched.waitForDelivery(); await relaunched.waitForLibraryRefresh()
+    #expect(relaunched.error == nil && relaunched.savedEpisodes.isEmpty)
+    #expect(transport.calls.contains { $0.method == "DELETE" && $0.path.hasSuffix(item.id + ".m4a") })
+    await relaunched.shutdown()
+}
+
+@Test @MainActor func deliveryFailureHistoryRefreshDoesNotCreateImmediateRetryLoop() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let settings = appDeliverySettings(), coordinator = FixtureCoordinator(), transport = StubDeliveryTransport()
+    _ = try await coordinator.runReviewed(root: storage.stateRoot, review: article(), backend: SyntheticProvider(), storage: storage, delivery: settings)
+    transport.statusForPath = { method, path in method == "PUT" && path.hasSuffix("feed.xml") ? 503 : nil }
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = settings; model.debugLoggingEnabled = true; model.triggerDelivery()
+    await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    // Allow dispatched completion/refresh callbacks to settle; there is no periodic loop in this fixture.
+    try await Task.sleep(for: .milliseconds(30))
+    #expect(model.deliveryDebugLog.text.components(separatedBy: "delivery: started").count - 1 == 1)
+    #expect(model.savedEpisodes.count == 1 && model.deliveryError != nil && model.showsUploadNewItems)
+    await model.shutdown()
+}
+
+@Test @MainActor func remoteHistoryDoesNotMaskUnavailableUnuploadedLocalAudio() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let coordinator = FixtureCoordinator()
+    var unavailable = try await coordinator.runReviewed(root: storage.stateRoot, review: article("unavailable"), backend: SyntheticProvider(), storage: storage).episode
+    var remote = try await coordinator.runReviewed(root: storage.stateRoot, review: article("remote"), backend: SyntheticProvider(), storage: storage).episode
+    unavailable.audioVolumeID = "unavailable-fixture-volume"
+    remote.delivery = DeliveryState(status: .uploaded, remotePath: appDeliverySettings().remoteMediaPath(remote.id))
+    remote.delivery?.uploadedByteLength = remote.info?.byteLength
+    remote.delivery?.destinationURL = appDeliverySettings().feedFolderURL
+    try NativeStore(url: storage.profile.database).save(unavailable)
+    try NativeStore(url: storage.profile.database).save(remote)
+    let model = AppModel(storage: storage, defaults: defaults)
+    model.refreshLibrary(); await model.waitForLibraryRefresh()
+    #expect(model.savedEpisodes.map(\.id) == [remote.id])
+    #expect(model.audioCleanupError == "Some saved audio is unavailable. Reconnect its original storage or restore access.")
+    await model.shutdown()
+}
+
+/// Hold DELETE so tests can inspect the actual pending-removal row, without live I/O.
+private actor ServerDeletionGate: DeliveryTransport {
+    private let base = StubDeliveryTransport()
+    private var armed = false
+    private var held = false
+    private var failure = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    func arm(failure: Bool) { armed = true; self.failure = failure }
+    func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String]) async throws -> DeliveryResponse {
+        if armed && !held && method == "DELETE" {
+            held = true
+            let timeout = Task { try? await Task.sleep(for: .seconds(10)); self.release() }
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation = $0 }
+            } onCancel: { Task { await self.release() } }
+            timeout.cancel(); try Task.checkCancellation()
+        }
+        if method == "DELETE" && failure { return DeliveryResponse(status: 503) }
+        return try await base.request(method, url: url, body: body, file: file, headers: headers)
+    }
+    func waitUntilHeld() async throws {
+        let end = Date().addingTimeInterval(5)
+        while continuation == nil && Date() < end { try await Task.sleep(for: .milliseconds(10)) }
+        guard continuation != nil else { throw RelayError.tool("Synthetic server deletion did not start.") }
+    }
+    func release() { continuation?.resume(); continuation = nil }
+    func clearFailure() { failure = false }
+}
+
+@Test(arguments: [false, true]) @MainActor func serverAudioRemovalStaysVisibleUntilConfirmedAndClicksAreSafe(failDeletion: Bool) async throws {
+    let (root, original) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = ManagedSpeechStorage(audioDirectory: original.audioDirectory, stateRoot: original.stateRoot,
+        temporaryRoot: original.temporaryRoot, temporaryAudio: true)
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let settings = appDeliverySettings(), transport = ServerDeletionGate(), coordinator = FixtureCoordinator()
+    defer { Task { await transport.release() } }
+    let result = try await coordinator.runReviewed(root: storage.stateRoot, review: article(), backend: SyntheticProvider(), storage: storage, delivery: settings)
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = settings; model.triggerDelivery()
+    await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    let ids = [result.episode.id]
+    #expect(model.savedEpisodes.map(\.id) == ids)
+    await transport.arm(failure: failDeletion)
+    model.removeSavedAudio(ids: ids)
+    #expect(model.savedEpisodes.map(\.id) == ids)
+    #expect(model.savedAudioRemovalStatus(try #require(model.savedEpisodes.first)) == "Removing…")
+    await model.waitForAudioMutation(); try await transport.waitUntilHeld()
+    model.refreshLibrary(); await model.waitForLibraryRefresh()
+    let pending = try #require(model.savedEpisodes.first)
+    #expect(model.savedEpisodes.map(\.id) == ids && pending.stage == .expired)
+    #expect(model.savedAudioRemovalStatus(pending) == "Removing…" && !model.canRemoveSavedAudio(pending))
+    model.removeSavedAudio(ids: ids) // Simulate a repeated action while DELETE is in flight.
+    #expect(model.error == nil && !model.audioMutationBusy)
+    await transport.release(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    if failDeletion {
+        let failed = try #require(model.savedEpisodes.first)
+        #expect(model.savedAudioRemovalStatus(failed) == "Removal pending" && model.canRemoveSavedAudio(failed))
+        await transport.clearFailure()
+        model.removeSavedAudio(ids: ids)
+        await model.waitForAudioMutation(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    }
+    #expect(model.savedEpisodes.isEmpty && model.error == nil)
+    model.removeSavedAudio(ids: ids) // Simulate a stale action after the row is removed.
+    #expect(model.error == nil && !model.audioMutationBusy)
+    await model.shutdown()
 }

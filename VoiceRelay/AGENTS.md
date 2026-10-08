@@ -5,7 +5,7 @@ engineering brief, implementation plan, and validation record in `docs/` before
 extending a slice. Keep the independently testable Swift core shared by the Xcode
 app, diagnostic CLI, and Swift package tests.
 
-Current user-confirmed lifecycle: processing and retention are owned by the
+Current user-confirmed lifecycle: processing and delivery are owned by the
 running VoiceRelay app, and the app's purpose is set-and-forget automation.
 Closing a panel or window does not stop work; Quit stops and awaits owned work.
 While running, the app automatically admits newly discovered Reading List
@@ -34,10 +34,10 @@ require fresh byte-confirmed copies; preserve old remote files and never apply
 old-host deletes to a new destination. Failures use sanitized status text.
 
 Current UX direction: a native MenuBarExtra menu and one sidebar library window
-(Articles, Queue, Saved Audio). Settings uses native pane navigation for
+(Articles, Queue, Server Audio). Settings uses native pane navigation for
 General, Delivery and Troubleshooting, with no global Cancel. Generate/Stop
 live with audio work.
-Keep voice, speed, audio folder, retention and source choice as user preferences;
+Keep voice, speed and source choice as user preferences;
 technical encoding/runtime/feed details stay internal or diagnostic.
 Audio encoding uses 96 kbps AAC-LC/M4A at mono 24 kHz, with floating-point
 intermediates and original levels/dynamics: no normalization, gain, limiter or
@@ -89,7 +89,7 @@ keeps its row for Retry while later Ready items continue. Explicit Stop abandons
 only the interrupted item's owned scratch/checkpoints and returns that row to
 Ready — never silently Paused — while error and Quit retention stay distinct.
 Rows remove individually or by arbitrary multi-selection without confirmation;
-pane resets require confirmation. Queue and Saved Audio share one selection-management
+pane resets require confirmation. Queue and Server Audio share one selection-management
 control — reset below two selections, Remove Selections at two or more — and one
 row-removal button; per-row mutation state is tracked per entry so a removal never
 flips global running/progress or disables unrelated controls. Queue rows open the
@@ -113,24 +113,23 @@ Reading List plist and its entries are strictly read-only: never delete, rewrite
 or mark source entries read. The former exclusion feature is removed: saved inventory
 never blocks enqueue/retry and legacy excluded/paused rows are retryable. Reset
 Queue is explicit and confirmed, removes only native queue membership, and
-preserves source inventory, article snapshots, audio and preferences. Saved Audio
-shows only existing,
-accessible finalized native files with duration and byte size on each row;
-each row also shows delivery state, distinguishing a confirmed audio upload from
-confirmed publication in the server feed. A successful feed upload records the
-included audio hashes and feed identity. Saved Audio's Upload New Items button
-appears only when publishing is enabled and shown items still need upload or
-publication; it stays available after failure, disables during delivery, and hides
-after confirmation. Do not show it for remote deletes alone or pending removals.
-listening uses Show in Finder (Quick Look or
-Finder double-click), with no in-app play control. Its row × and Remove
-Selections delete the
-associated audio file and retire it from the local feed after hash/identity
-verification, while confirmed Reset Saved Audio deletes every shown file; article
-text, identity and source inventory are preserved for regeneration. Retire confirmed
-externally deleted media from
-visible listings and the local feed, preserving text/identity for explicit regeneration;
-never treat an unavailable volume, unreadable folder or linked path as deletion.
+preserves source inventory, article snapshots, audio and preferences. Server Audio
+is durable episode history, including pending uploads, confirmed remote episodes
+and unfinished server removals. New audio is generated in app-owned system temporary
+storage; delete its local copy only after both byte-confirmed media upload and
+confirmed feed membership for the current destination. Commit cleanup intent
+before unlink, verify hash/size/file identity, and never retire an episode just
+because its temporary copy is gone. Existing VoiceRelay audio is also eligible for confirmed-upload cleanup;
+never delete unrelated files or an unconfirmed copy. General has no Storage section,
+folder chooser or scheduled retention policy. Missing unconfirmed temporary output
+is requeued from retained article snapshots, preserving GUID and captured voice;
+failed rows remain manual Retry. Destination changes recreate released bytes from
+retained text and preserve old-host copies. VoiceRelay's Server Audio ×/Remove
+Selections and confirmed pane reset retire feed membership before remote deletion;
+keep pending server removals visible until confirmed. Upload New Items appears only
+for pending audio/publication, disables during delivery and hides after confirmation.
+Show in Finder remains only for legacy local audio. No hosted-file listing or server
+audit is performed; history reflects the app's recorded confirmations.
 Native metadata uses SQLite WAL with persisted sidecars so read-only connections can
 open and read concurrently with writers; future backups must use the SQLite backup
 API, never raw database copies.

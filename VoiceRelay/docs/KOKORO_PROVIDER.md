@@ -481,3 +481,16 @@ If an Xcode-only failure remains, compare the Terminal **speech-fixture** comman
 above using another empty folder. That comparison runs actual MLX/Metal and is
 operator-owned. No GUI automation or actual model execution was performed by the
 agent for this diagnosis. Linkd/Intents and menu-bar layout warnings remain separate.
+
+### October 7 operator performance sample (03:56–03:57 UTC capture)
+
+The supplied partial log covers the last 28 chunks of an article. Finalizer wait
+is 0.0 ms with zero ready items. The last article contains 1217.800 s of audio,
+with 1.445 s PCM assembly, 17.866 s AAC encoding (0.880 s per audio minute), and
+61.936 s total article time. The bounded excerpt cannot establish full-queue
+throughput or earlier overlap; its queue total is 110.128 s and includes other
+work. Media upload then takes approximately 8 s; media and feed size checks pass.
+The GPU idle tail is consistent with finishing the last article's CPU encoding
+with no ready inference work. Retain the single worker and unnormalized 96k AAC;
+no further concurrency change is supported by this sample. Temporary-output
+cleanup changes storage policy, not encoder quality or measured inference speed.

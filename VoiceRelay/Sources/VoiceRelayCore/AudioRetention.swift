@@ -1,13 +1,6 @@
 import Foundation
 import Darwin
 
-private func retentionPathIsSafe(_ file: URL, folder: URL) -> Bool {
-    // Inspect the captured folder itself and its child, allowing macOS's /var and /tmp aliases.
-    var info = stat()
-    return lstat(folder.path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
-        && !Files.hasSymlink(file, below: folder)
-}
-
 enum PublishedAudioAvailability { case available, missing, unavailable }
 
 private func capturedAudioFolderStat(_ episode: Episode) -> stat? {
@@ -47,46 +40,53 @@ func audioAvailability(_ episode: Episode, beforeMissingRecheck: (() -> Void)? =
     return errno == ENOENT ? .missing : .unavailable
 }
 
-public enum AudioRetention: String, Codable, CaseIterable, Sendable, Identifiable {
-    case twelveHours, oneDay, threeDays, oneWeek, twoWeeks, oneMonth
-    case twoMonths, threeMonths, sixMonths, never
-    public var id: String { rawValue }
-    public static let defaultValue: Self = .oneMonth
-    public var label: String {
-        switch self {
-        case .twelveHours: "12 hours"
-        case .oneDay: "1 day"
-        case .threeDays: "3 days"
-        case .oneWeek: "1 week"
-        case .twoWeeks: "2 weeks"
-        case .oneMonth: "1 month"
-        case .twoMonths: "2 months"
-        case .threeMonths: "3 months"
-        case .sixMonths: "6 months"
-        case .never: "Never"
-        }
-    }
-    public func cutoff(before now: Date, calendar: Calendar = .current) -> Date? {
-        switch self {
-        case .twelveHours: now.addingTimeInterval(-12 * 3600)
-        case .oneDay: now.addingTimeInterval(-24 * 3600)
-        case .threeDays: now.addingTimeInterval(-3 * 24 * 3600)
-        case .oneWeek: now.addingTimeInterval(-7 * 24 * 3600)
-        case .twoWeeks: now.addingTimeInterval(-14 * 24 * 3600)
-        case .oneMonth: calendar.date(byAdding: .month, value: -1, to: now)
-        case .twoMonths: calendar.date(byAdding: .month, value: -2, to: now)
-        case .threeMonths: calendar.date(byAdding: .month, value: -3, to: now)
-        case .sixMonths: calendar.date(byAdding: .month, value: -6, to: now)
-        case .never: nil
-        }
-    }
+func temporaryAudioIsMissing(_ episode: Episode) -> Bool {
+    guard episode.settings.temporaryAudio == true || episode.localAudioReleased == true else { return false }
+    guard UUID(uuidString: episode.id) != nil else { return false }
+    let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
+    guard !Files.hasSymlink(file, below: episode.settings.audio.deletingLastPathComponent()) else { return false }
+    var info = stat()
+    return lstat(file.path, &info) != 0 && errno == ENOENT
 }
 
 extension FixtureCoordinator {
     public func savedAudio(storage: ManagedSpeechStorage) throws -> [Episode] {
         try library(storage: storage).filter {
-            ($0.stage == .published || ($0.stage == .expired && $0.manualAudioDeletionRequested == true))
-                && $0.audioHash != nil && $0.info != nil && audioAvailability($0) == .available
+            ($0.stage == .published || ($0.stage == .expired && ($0.manualAudioDeletionRequested == true
+                    || (($0.settings.temporaryAudio == true || $0.localAudioReleased == true) && $0.delivery?.remotePath.isEmpty == false))))
+                && $0.audioHash != nil && $0.info != nil
+                && ($0.settings.temporaryAudio == true || $0.localAudioReleased == true
+                    || $0.delivery?.status == .uploaded || audioAvailability($0) == .available)
+        }
+    }
+    /// Release recorded native audio only after byte-confirmed upload AND feed membership.
+    /// Diagnostic local-output profiles retain their files; the running app opts into cleanup.
+    /// A crash between intent and unlink is retried locally on the next drain.
+    public func releaseConfirmedTemporaryAudio(storage: ManagedSpeechStorage, settings: DeliverySettings) throws {
+        guard storage.temporaryAudio, FileManager.default.fileExists(atPath: storage.profile.database.path) else { return }
+        let episodes = try library(storage: storage)
+        let settings = try settings.normalized()
+        let summary = try deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+        let store = try NativeStore(url: storage.profile.database)
+        for var episode in episodes where episode.stage == .published {
+            guard episode.audioFinalizationComplete != false,
+                  episode.settings.temporaryAudio != true || episode.audioFinalizationComplete == true,
+                  summary.publicationStates[episode.id] == .published else { continue }
+            // A temporary output folder from another session is never silently adopted.
+            if episode.settings.temporaryAudio == true && !Files.samePath(episode.settings.audio, storage.audioDirectory) { continue }
+            try Task.checkCancellation()
+            let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
+            if temporaryAudioIsMissing(episode) || audioAvailability(episode) == .missing {
+                if episode.localAudioReleased != true { episode.localAudioReleased = true; try store.save(episode) }
+                continue
+            }
+            guard audioAvailability(episode) == .available else {
+                throw RelayError.storage("Published audio could not be cleaned up; its server copy and history are preserved.")
+            }
+            let identity = try verifiedAudioIdentity(file: file, episode: episode)
+            episode.localAudioReleased = true
+            try store.save(episode)
+            try deleteOwnedAudio(episode, known: (file, identity), fm: .default)
         }
     }
     public func reconcileMissingAudio(storage: ManagedSpeechStorage) throws -> [String] {
@@ -95,7 +95,9 @@ extension FixtureCoordinator {
         guard !episodes.isEmpty else { return [] }
         let store = try NativeStore(url: storage.profile.database)
         var changed: [Episode] = []
-        for var episode in episodes where episode.stage == .published {
+        for var episode in episodes where episode.stage == .published
+            && episode.settings.temporaryAudio != true && episode.localAudioReleased != true
+            && episode.delivery?.status != .uploaded {
             guard audioAvailability(episode) == .missing else { continue }
             episode.stage = .expired
             changed.append(episode)
@@ -113,85 +115,9 @@ extension FixtureCoordinator {
         } catch let error as RelayError {
             throw error
         } catch {
-            throw RelayError.storage("The local feed could not be written; pending repair is retained. Reopen Saved Audio to retry.")
+            throw RelayError.storage("The local feed could not be written; pending repair is retained. Reopen Server Audio to retry.")
         }
         return changed.map(\.id)
-    }
-    /// Only native-library media is eligible. Age comes exclusively from the filesystem;
-    /// EXPIRED records retirement intent so a crash cannot leave a missing PUBLISHED enclosure.
-    public func expireAudio(storage: ManagedSpeechStorage, retention: AudioRetention,
-                            now: Date = Date(), calendar: Calendar = .current) throws -> [String] {
-        try Task.checkCancellation()
-        _ = try reconcileMissingAudio(storage: storage)
-        var episodes = try library(storage: storage)
-        guard !episodes.isEmpty else { return [] }
-        let cutoff = retention.cutoff(before: now, calendar: calendar)
-        let store = try NativeStore(url: storage.profile.database)
-        let protected = Set(try store.queue().map(\.id))
-        var deleting: [Episode] = [], changed: [Episode] = []
-        let fm = FileManager.default
-        for index in episodes.indices {
-            try Task.checkCancellation()
-            var episode = episodes[index]
-            guard episode.manualAudioDeletionRequested != true else { continue }
-            guard episode.stage == .published || episode.stage == .expired else { continue }
-            if episode.stage == .published && (cutoff == nil || protected.contains(episode.id)) { continue }
-            let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
-            // A disconnected volume is not evidence that its contents were deleted.
-            var isDirectory: ObjCBool = false
-            guard fm.fileExists(atPath: episode.settings.audio.path, isDirectory: &isDirectory), isDirectory.boolValue else { continue }
-            guard retentionPathIsSafe(file, folder: episode.settings.audio) else {
-                throw RelayError.setup("Audio cleanup refused a linked storage path. Restore the original audio folder.")
-            }
-            guard fm.fileExists(atPath: file.path) else { continue }
-            let values = try file.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
-            guard values.isRegularFile == true, let modified = values.contentModificationDate else {
-                throw RelayError.artifact("Audio cleanup requires a regular file with a modification date.")
-            }
-            let eligible = cutoff.map { modified <= $0 } == true && !protected.contains(episode.id)
-            guard eligible || episode.stage == .expired else { continue }
-            guard let hash = episode.audioHash, try Files.hash(file, description: "audio awaiting expiry") == hash else {
-                throw RelayError.artifact("Audio awaiting expiry has changed. Cleanup left it in place.")
-            }
-            if eligible {
-                deleting.append(episode)
-                if episode.stage != .expired { episode.stage = .expired; changed.append(episode) }
-            } else {
-                // A longer policy/Never, or newly queued work, can cancel an unfinished retirement.
-                episode.stage = .published
-                // Its remote copy may already be deleted; upload it again on the next drain.
-                if episode.delivery?.status == .uploaded {
-                    episode.delivery?.status = .pending
-                    episode.delivery?.nextAttemptAt = nil
-                }
-                changed.append(episode)
-            }
-            episodes[index] = episode
-        }
-        // Reconcile a prior crash after intent/feed commit but before unlink, including absent files.
-        let pending = try store.query("SELECT pending FROM feed_status WHERE singleton=1").first?.first == "1"
-        guard !changed.isEmpty || !deleting.isEmpty || (pending && episodes.contains(where: { $0.stage == .expired })) else { return [] }
-        let settings = episodes.first(where: { $0.stage == .published })?.settings ?? episodes[0].settings
-        let feed = try RSS.render(episodes.filter { $0.stage == .published }, settings: settings)
-        try Task.checkCancellation()
-        try retireEpisodes(changed, store: store, stateRoot: storage.stateRoot)
-        // Remove enclosures before deleting media. Durable EXPIRED intent permits safe retries.
-        try writeLocalFeed(feed, to: settings.feed)
-        var removed: [String] = []
-        for episode in deleting {
-            try Task.checkCancellation()
-            let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
-            // Recheck immediately before removal; a replacement/linked file is never ours to delete.
-            guard retentionPathIsSafe(file, folder: episode.settings.audio),
-                  try Files.hash(file, description: "audio awaiting expiry") == episode.audioHash,
-                  let modified = try file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-                  cutoff.map({ modified <= $0 }) == true else {
-                throw RelayError.artifact("Audio changed during cleanup. It was left in place; reopen Saved Audio to reconcile.")
-            }
-            try fm.removeItem(at: file); removed.append(episode.id)
-        }
-        try store.markFeed(Files.hash(feed))
-        return removed
     }
     private func retireEpisodes(_ episodes: [Episode], store: NativeStore, stateRoot: URL) throws {
         try store.execute("BEGIN IMMEDIATE")
@@ -237,7 +163,7 @@ extension FixtureCoordinator {
         do {
             if (try? Data(contentsOf: destination)) != feed { try Files.write(feed, to: destination) }
         } catch let error as RelayError { throw error }
-        catch { throw RelayError.storage("The local feed could not be written; pending repair is retained. Reopen Saved Audio to retry.") }
+        catch { throw RelayError.storage("The local feed could not be written; pending repair is retained. Reopen Server Audio to retry.") }
     }
     private func verifiedAudioIdentity(file: URL, episode: Episode) throws -> stat {
         var info = stat()
@@ -249,6 +175,7 @@ extension FixtureCoordinator {
         return info
     }
     private func deleteOwnedAudio(_ episode: Episode, known: (file: URL, identity: stat)?, fm: FileManager) throws {
+        if temporaryAudioIsMissing(episode) { return }
         switch audioAvailability(episode) {
         case .missing: return
         case .unavailable:
@@ -260,7 +187,7 @@ extension FixtureCoordinator {
         if let known {
             guard Files.samePath(file, known.file), identity.st_dev == known.identity.st_dev,
                   identity.st_ino == known.identity.st_ino else {
-                throw RelayError.artifact("Audio changed during removal. It was left in place; reopen Saved Audio to reconcile.")
+                throw RelayError.artifact("Audio changed during removal. It was left in place; reopen Server Audio to reconcile.")
             }
         }
         beforeOwnedAudioUnlink?(file)
@@ -271,7 +198,7 @@ extension FixtureCoordinator {
               current.st_mtimespec.tv_nsec == identity.st_mtimespec.tv_nsec,
               current.st_ctimespec.tv_sec == identity.st_ctimespec.tv_sec,
               current.st_ctimespec.tv_nsec == identity.st_ctimespec.tv_nsec else {
-            throw RelayError.artifact("Audio changed during removal. It was left in place; reopen Saved Audio to reconcile.")
+            throw RelayError.artifact("Audio changed during removal. It was left in place; reopen Server Audio to reconcile.")
         }
         do { try fm.removeItem(at: file) } catch {
             throw RelayError.artifact("The audio file could not be deleted. Restore write access to the audio folder and retry the removal.")
@@ -289,14 +216,23 @@ extension FixtureCoordinator {
         let targetIDs = Set(ids)
         let targets = episodes.filter { targetIDs.contains($0.id) }
         guard targets.count == targetIDs.count else {
-            throw RelayError.setup("A selected item is no longer in the saved library. Reopen Saved Audio and try again.")
+            throw RelayError.setup("A selected item is no longer in the saved library. Reopen Server Audio and try again.")
         }
         var files: [String: (file: URL, identity: stat)] = [:]
+        var retired: [String] = []
         for episode in targets {
-            guard episode.stage == .published || (episode.stage == .expired && episode.manualAudioDeletionRequested == true),
+            guard episode.stage == .published || (episode.stage == .expired && (episode.manualAudioDeletionRequested != nil
+                || ((episode.settings.temporaryAudio == true || episode.localAudioReleased == true) && episode.delivery?.remotePath.isEmpty == false))),
                   let info = episode.info, info.byteLength > 0, episode.audioHash != nil else {
-                throw RelayError.artifact("A selected item is not finalized saved audio. Reopen Saved Audio and try again.")
+                throw RelayError.artifact("A selected item is not finalized saved audio. Reopen Server Audio and try again.")
             }
+            // false is the durable completion of local removal. Its server delete
+            // may still be pending or already confirmed; either repeated request is a no-op.
+            // Do not rewrite a retired record: delivery may have just cleared its remote path.
+            if episode.stage == .expired && episode.manualAudioDeletionRequested == false {
+                retired.append(episode.id); continue
+            }
+            if temporaryAudioIsMissing(episode) { continue }
             let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
             switch audioAvailability(episode) {
             case .missing: continue
@@ -306,7 +242,9 @@ extension FixtureCoordinator {
                 files[episode.id] = (file: file, identity: try verifiedAudioIdentity(file: file, episode: episode))
             }
         }
-        var intent = targets
+        let retiredIDs = Set(retired)
+        var intent = targets.filter { !retiredIDs.contains($0.id) }
+        guard !intent.isEmpty else { return retired }
         for index in intent.indices {
             intent[index].stage = .expired
             intent[index].manualAudioDeletionRequested = true
@@ -317,7 +255,7 @@ extension FixtureCoordinator {
         let feed = try RSS.render(episodes.filter { $0.stage == .published && !targetIDs.contains($0.id) }, settings: settings)
         try writeLocalFeed(feed, to: storage.profile.feed)
         let fm = FileManager.default
-        var finalized: [Episode] = [], removed: [String] = []
+        var finalized: [Episode] = [], removed: [String] = retired
         for var episode in intent {
             try Task.checkCancellation()
             try deleteOwnedAudio(episode, known: files[episode.id], fm: fm)
@@ -349,7 +287,7 @@ extension FixtureCoordinator {
         for episode in pending {
             guard episode.stage == .expired, episode.audioHash != nil,
                   let info = episode.info, info.byteLength > 0, info.duration > 0 else {
-                throw RelayError.setup("A pending audio removal record is invalid. Nothing was changed; reopen Saved Audio after reconciling it.")
+                throw RelayError.setup("A pending audio removal record is invalid. Nothing was changed; reopen Server Audio after reconciling it.")
             }
         }
         let store = try NativeStore(url: storage.profile.database)
