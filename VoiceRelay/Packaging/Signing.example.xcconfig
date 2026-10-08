@@ -1,0 +1,3 @@
+// Copy to Signing.local.xcconfig at the project root for scripts/build-app.sh.
+// Replace this placeholder with your own Apple development team identifier.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID

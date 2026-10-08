@@ -36,7 +36,15 @@ Stop/Quit and listening checks, see the [pipeline guide](docs/KOKORO_PROVIDER.md
 
 Requires macOS 27.0+, Xcode with the macOS 27 SDK (Swift 6.2+), ffmpeg/ffprobe and
 the explicitly installed project-local Kokoro runtime. Open `VoiceRelay.xcodeproj`,
-choose **VoiceRelay → My Mac**, build (⌘B) and run (⌘R). The waveform menu-bar icon
+select your own development team in Signing & Capabilities,
+choose **VoiceRelay → My Mac**, build (⌘B) and run (⌘R).
+For `scripts/build-app.sh`, copy `Packaging/Signing.example.xcconfig` to
+`Signing.local.xcconfig` at the project root and set your own team there.
+That local file is ignored; the script passes it to Xcode without putting
+signing identifiers in the shared project. Use an Apple Development identity
+and a matching provisioning profile for the Data Protection Keychain entitlement.
+
+The waveform menu-bar icon
 opens a native status menu; no Dock icon or startup window is expected.
 Choosing **Articles**, **Queue**, **Server Audio** or **Settings…** opens and
 focuses the corresponding standalone window, which enables the Dock icon and
@@ -127,7 +135,51 @@ Closing the last standalone window returns to menu-bar-only operation.
    retained for resume. Queue and source inventory use the same internal native
    database.
 
-Provider-specific setup details are omitted. The provider's published website root can differ from its WebDAV root; map both URLs to the same feed and media files using the provider's instructions.
+7. **Settings… → Delivery** configures the private podcast upload with one
+   **Feed folder URL**, a **Public folder URL**, and channel details.
+   Enter the complete HTTPS upload folder supplied by your WebDAV provider,
+   for example `https://webdav.example/podcast`. VoiceRelay always uploads
+   `feed.xml` in that folder and
+   `.m4a` files in its lowercase `audio/` subfolder. Neither name is configurable.
+   Common pasted URL variations normalize on leaving the field or taking an
+   action: missing HTTPS, surrounding whitespace, spaces/percent-encoded spaces,
+   redundant slashes, dot segments, default ports and trailing slashes. A pasted
+   `feed.xml` URL also resolves to its containing folder. Credentials and query
+   parameters require a brief, field-specific correction; they are never echoed.
+   Existing folders are checked first; upload creates missing parents in order.
+   The public folder is the website address that serves these same files, which
+   can differ from the WebDAV address. **Subscription URL** shows the complete
+   derived `…/feed.xml` address read-only; **Copy** puts it on the clipboard for
+   your podcatcher. Public audio links always use `…/audio/` beneath that folder.
+   Existing settings retain their feed destination and adopt the fixed layout;
+   saved local audio uploads again when its destination changes. Old remote
+   copies are preserved, and old delete requests never follow a changed host.
+   The password persists only in the device-local Data Protection Keychain,
+   never in settings files or logs. Save it again when first using this protected
+   store. Touch ID, a supported paired Apple Watch, or your Mac password can
+   authorize access; macOS chooses the available authentication methods.
+   Tests and uploads share a successful unlock until Quit. Opening Settings
+   does not query Keychain, and cancelled access is not retried automatically.
+   Replacing/removing a credential may require separate macOS confirmation.
+   **Test Connection** checks the feed and implicit audio folders read-only.
+   It reports readable destinations, not write permission, and creates nothing.
+   If a folder is missing but its parent is readable, the result says folders
+   will be created on upload. **Upload Now** creates them if permitted.
+   Editing settings or saved credentials invalidates the result. **Upload Now**
+   retries items blocked by credentials, permissions or remote-size verification
+   after you correct them. Uploaded sizes are confirmed using HEAD, with a
+   read-only WebDAV file-property check when HEAD cannot confirm the length.
+   Use the username required by your provider and a password or app password
+   authorized for WebDAV writes. Configure the public HTTPS folder to serve
+   the same uploaded files; its path may differ from the upload path because
+   the website can publish a subfolder as its root. Follow your provider's
+   hosting instructions rather than assuming the two URLs are identical.
+   Test Connection checks WebDAV folders; it does not verify public mapping.
+   With delivery
+   enabled, each verified publication uploads its audio, then the remote feed,
+   and retired audio is removed remotely after the feed no longer references
+   it — uploads drain automatically after publishing, removals, launch and
+   periodic refresh while the app runs.
 
    **Troubleshooting → Enable debug logging** captures up to 200 delivery events
    in memory for the current app session. **Copy Debug Log** copies the captured
@@ -246,5 +298,12 @@ Open gates include GUI/Canvas of the new settings/library, actual reviewed-artic
 speech/listening, interrupted/relaunch recovery, long-input memory and packaged
 runtime onboarding. Safari permissions must be verified in the actual app context.
 Live migration needs reviewed backups;
-WebDAV hosting/WebDAV, media hosting, Tailscale and Overcast need deliberate independent
+WebDAV uploads, public media hosting and Overcast need deliberate independent
 acceptance before delivery is enabled.
+
+## License
+
+VoiceRelay is licensed under the [GNU Affero General Public License v3](LICENSE).
+Third-party dependencies and runtime/model assets retain their own licenses;
+see [Acknowledgements](Acknowledgements/Kokoro-Runtime.md) and the notices in
+`Acknowledgements/`. Downloaded runtime and model assets are not included in Git.

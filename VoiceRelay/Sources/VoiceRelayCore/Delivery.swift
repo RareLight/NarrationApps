@@ -649,7 +649,7 @@ public struct WebDAVClient: Sendable {
         guard acceptable(response.status) else { throw DeliveryError.classify(response.status) }
         return response
     }
-    /// Probe first: WebDAV hosting's account/files ancestors already exist and must not be
+    /// Probe first: existing account/files ancestors must not be
     /// created. Create only confirmed-missing collections, parent before child.
     public func ensureCollections() async throws {
         try await ensureCollection(settings.remoteFolder, role: .feed, level: try DeliverySettings.pathSegments(settings.remoteFolder).count)

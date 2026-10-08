@@ -1374,7 +1374,7 @@ struct DeliveryPaneView: View {
                     .onSubmit { commitURLs() }
                     .help("The complete upload folder address, for example https://webdav.example/podcast. VoiceRelay puts feed.xml and audio/ here.")
                 TextField("Username", text: usernameBinding)
-                    .help("For WebDAV hosting, use your original full login username, not an alias, and an app password with Files access")
+                    .help("Use the login username required by your WebDAV provider and a password or app password with file upload access")
                 SecureField("Password", text: $model.deliveryPassword)
                     .help("Test Connection uses the password saved in Keychain. Click Save Password after editing this field.")
                 HStack(spacing: 8) {
@@ -1397,7 +1397,7 @@ struct DeliveryPaneView: View {
                 TextField("Public folder URL", text: $publicFolderText)
                     .focused($focusedURL, equals: .published)
                     .onSubmit { commitURLs() }
-                    .help("The public website folder serving the same files as your upload folder. Paste its URL or an existing feed.xml URL. WebDAV hosting: https://public.example/podcast/")
+                    .help("The public website folder serving the same files as your upload folder. Paste its URL or an existing feed.xml URL. Example: https://public.example/podcast/")
                 LabeledContent("Subscription URL") {
                     VStack(alignment: .trailing, spacing: 6) {
                         Text(draftSubscriptionURL?.absoluteString ?? "Enter a public folder URL")
@@ -1411,7 +1411,7 @@ struct DeliveryPaneView: View {
                 TextField("Channel description", text: $model.deliverySettings.channelDescription)
             } header: {
                 SectionHelpHeader(title: "Public feed",
-                    explanation: "The public folder determines the subscription URL and audio links written into feed.xml. The filename is always feed.xml, and audio is always in audio/. Copy the displayed Subscription URL into your podcast app. the hosting provider’s website settings selects which folder the website publishes. Its public URL paths are relative to that folder, while the Feed folder URL is the complete WebDAV destination. Both must serve the same feed.xml and audio/ files.\nFor WebDAV hosting encrypted websites, use https://public.example/podcast/ followed by the public file path. The remote feed lists only byte-confirmed uploads.")
+                    explanation: "The public folder determines the subscription URL and audio links written into feed.xml. The filename is always feed.xml, and audio is always in audio/. Copy the displayed Subscription URL into your podcast app. Your hosting provider determines which folder the public website serves. Public paths are relative to that folder, while the Feed folder URL is the complete WebDAV destination. Both must serve the same feed.xml and audio/ files. Test Connection checks upload folders; verify public access separately.\nThe remote feed lists only byte-confirmed uploads.")
             }
             Section {
                 LabeledContent("Pending uploads", value: "\(model.deliveryPendingCount)")

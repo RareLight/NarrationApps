@@ -1,5 +1,31 @@
 # Validation evidence
 
+## October 8: repository publication preparation
+
+Reviewed the tracked tree and all five original local commits before any GitHub
+upload. No actual delivery endpoint, password, token or generated media was found.
+Personal filesystem/attachment paths, a concrete signing-team identifier and
+provider-specific hosting examples were present; publication preparation removes
+them from the tree and earlier commits. Synthetic credential-rejection tests and
+pinned dependency notices/lockfiles remain. Public examples use reserved domains.
+
+The GitHub Swift ignore template is combined with local runtime/model/cache,
+private configuration/signing, database sidecar, generated audio/feed and build
+artifact exclusions. `Signing.local.xcconfig` privately retains developer signing;
+`scripts/build-app.sh` applies it when present. Other developers use the tracked
+placeholder template or select their own team in Xcode. App WebDAV request and
+public-folder mapping behavior is unchanged; setup help is provider-neutral.
+
+Validation: **54 core + 17 app focused tests passed (71 total)**, including URL
+normalization, separate public/upload paths, size verification, delivery lifecycle
+and the required Xcode project-reference regression. Signed **Release build and
+package passed**, as did deep/strict signature verification, shell syntax and
+`git diff --check`. Synthetic ignore probes confirmed private signing/config,
+state, model/runtime assets and generated media are excluded. No app launch, GUI,
+protected source read, speech/listening, Keychain query or live delivery ran.
+Evidence and the original-history recovery bundle are private under ignored
+`var/publication-preflight/`; neither is a publication candidate.
+
 ## October 8: Server Audio removal visibility and stale actions
 
 The previous UI dropped rows immediately after local retirement, then its library
@@ -37,7 +63,7 @@ Manual check: quit the previous app, open `dist/VoiceRelay.app`, and remove a
 disposable Server Audio episode. Its row should stay visible as Removing… until
 confirmation, then disappear once. Its remove control should be disabled while
 active; a failed deletion should remain Removal pending and become retryable.
-GUI/Canvas and live WebDAV hosting deletion were not run by the agent.
+GUI/Canvas and live server deletion were not run by the agent.
 
 
 ## October 8: temporary output and Server Audio history
@@ -563,8 +589,8 @@ Operator steps:
 Delivery now stores one complete Feed folder URL and one Public folder URL.
 Both imply feed.xml and lowercase audio/. Removed WebDAV-root, relative feed,
 relative audio and public-media inputs; the full Subscription URL is read-only
-with Copy. Public and upload folder addresses remain distinct because WebDAV hosting's
-website Publish folder controls the public mapping. No mapping is guessed.
+with Copy. Public and upload folder addresses remain distinct because the hosting provider
+controls the public mapping. No mapping is guessed.
 
 Input uses Foundation URLComponents parsing/encoding and a focused folder policy:
 trim whitespace, supply/upgrade HTTPS, normalize host/default ports, repeated
@@ -606,7 +632,24 @@ entitlements.
 
 Operator steps:
 
-Provider-specific setup details are omitted. The provider's published website root can differ from its WebDAV root; map both URLs to the same feed and media files using the provider's instructions.
+1. Quit the old app, then Run the VoiceRelay scheme from VoiceRelay.xcodeproj.
+2. In Delivery enter Feed folder URL `https://webdav.example/podcast`.
+   Confirm editing accepts the same value with whitespace or without HTTPS and
+   settles on `https://webdav.example/podcast/` after leaving the field.
+   Save the known app password for this host if it was stored for the old host.
+3. Set Public folder URL to the actual website URL serving those same files.
+   Verify the provider's published root: if it is the podcast folder, use the
+   website root; otherwise include the podcast path in the public URL.
+   The upload host is not necessarily the public subscription host.
+   Test Connection does not certify public mapping.
+4. Test Connection: expect Folders verified, or Connected; folders created on
+   upload. Enable publishing and press Upload Now; confirm feed.xml directly
+   inside podcast and audio/*.m4a below it. Saved local audio is re-uploaded into
+   the new layout without regeneration. Enable Troubleshooting debug logging if
+   diagnosing a failure; expect a matched HEAD or PROPFIND size event per upload.
+5. Copy Subscription URL, paste it into a browser, confirm current feed items
+   and reachable audio links, then paste it into the podcatcher. Verify neither
+   copy nor RSS adds a second feed.xml or audio directory.
 
 ## October 7 uploaded-size verification and public website investigation
 
@@ -636,27 +679,48 @@ verification keeps remote deletes gated until a confirmed replacement.
 Protocol basis: HTTP permits omission of generated HEAD metadata in
 [RFC 9110 section 9.3.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.2).
 [RFC 4918 section 15.4](https://www.rfc-editor.org/rfc/rfc4918.html#section-15.4)
-defines DAV:getcontentlength as the representation length. No WebDAV hosting-specific
+defines DAV:getcontentlength as the representation length. No provider-specific
 HEAD behavior is asserted without live response metadata.
 
-Provider-specific setup details are omitted. The provider's published website root can differ from its WebDAV root; map both URLs to the same feed and media files using the provider's instructions.
-
-Provider-specific setup details are omitted. The provider's published website root can differ from its WebDAV root; map both URLs to the same feed and media files using the provider's instructions.
+The user explicitly requested verification of public URLs/stale content.
+Read-only inspection found uploads directed to a different folder from the
+public website's published root, plus a public hostname that failed TLS
+hostname validation. A provider-supported public address passed TLS and returned
+stale feed content. Private addresses and response bodies are omitted from this
+record. Public paths can differ from WebDAV's account/files ancestors; verify
+the hosting provider's published root and do not guess the mapping or silently
+change preferences, hosting or subscription URLs. Test Connection certifies
+only readable WebDAV folders, not the public website.
 
 | Area | Evidence and limits |
 | --- | --- |
 | Core fixtures | All 36 delivery tests passed, including cases for missing/malformed/mismatched/unsupported HEAD, matching DAV size for feed and file uploads, encoding headers, strict metadata rejection, cancellation/auth/redirect preservation, saved verification-failure retry, public-vs-DAV path independence and feed-size failure blocking deletes. The parameterized feed-failure test covers PUT failure and metadata failure. |
 | App suite | All 71 app tests passed. Source-local inert delivery controls still construct. |
 | Build/static | Xcode Debug build succeeded; strict codesign verification and diff whitespace checks passed. Project references were unchanged. |
-| Live boundary | Only user-authorized unauthenticated public GETs and nonsecret preference reads were run. No app GUI, credentials, authenticated DAV calls, uploads, hosting changes, local-state writes or subscriber updates. Actual WebDAV hosting getcontentlength compatibility and matching public Publish folder remain operator acceptance. |
+| Live boundary | Only user-authorized unauthenticated public GETs and nonsecret preference reads were run. No app GUI, credentials, authenticated DAV calls, uploads, hosting changes, local-state writes or subscriber updates. Actual provider getcontentlength compatibility and matching public root remain operator acceptance. |
 
 Logs: `var/validation/2026-10-07-webdav-size/` (gitignored).
 
-Provider-specific setup details are omitted. The provider's published website root can differ from its WebDAV root; map both URLs to the same feed and media files using the provider's instructions.
+Operator sequence: Quit the old app and rebuild/run VoiceRelay → My Mac. Keep
+Publishing disabled while confirming the provider's published website root.
+Align upload/public folders and use a provider-supported public HTTPS URL.
+Enable debug logging, re-enable
+Publishing and use Upload Now to recover prior size-verification failures. A
+successful run should show HEAD matched or HEAD unavailable/mismatch followed
+by PROPFIND matched. Verify the corrected public feed contains current entries
+and correct enclosure URLs, and verify subscriber access separately. Copy the
+log before Quit if verification still fails. No password resave is needed for
+path-only changes on the same WebDAV host/username.
 
 ## October 7 WebDAV paths and existing-folder handling
 
-Provider-specific setup details are omitted. The provider's published website root can differ from its WebDAV root; map both URLs to the same feed and media files using the provider's instructions.
+The operator's evidence showed MKCOL returning 403 while a root PROPFIND returned
+207, plus validation rejecting nested folder paths. The supplied GET directory
+listing established an existing capitalized `Podcast Feed/` folder; it does not
+establish write access or the location/existence of an audio folder. The provider
+supports both an account/files path beneath its DAV root and a direct files root.
+No private account names/endpoints from the attachment were copied into source,
+fixtures or this record.
 
 Feed folder receives feed.xml; Audio folder receives .m4a files. Both fields are
 now independent relative paths beneath the WebDAV root URL, with blank meaning
@@ -671,7 +735,7 @@ Test Connection checks the root and both configured destinations read-only,
 deduplicating shared paths; it reports missing folders and never creates them.
 Uploads probe every ancestor first, create only 404-missing collections in
 parent order, and verify created collections or 405 creation races. Existing
-readable folders never receive MKCOL, including WebDAV hosting's account/files
+readable folders never receive MKCOL, including existing account/files
 ancestors. A denied/noncollection response stops creation. Debug logs identify
 root/feed/audio role and depth using typed events without recording names/URLs.
 The UI labels are WebDAV root URL, Feed folder and Audio folder; the success
@@ -794,9 +858,8 @@ Logs: `var/validation/2026-10-07-delivery-auth/` (gitignored).
 
 Operator sequence: disable Publishing in the old app and Quit; open the Xcode
 project, choose VoiceRelay → My Mac, build/run. Enable debug logging in
-Troubleshooting. In Delivery, use the WebDAV hosting files-directory endpoint
-`https://webdav.example/` (or the full account/files path on the DAV host),
-the independently verified original full login username and Files-enabled app
+Troubleshooting. In Delivery, use the complete upload folder URL supplied by
+your WebDAV provider, its required login username and a write-authorized app
 password, and Save Password for the new host. Keep Publishing disabled for Test
 Connection; expect Authentication verified. Match upload folders to the public
 website/feed/audio paths before enabling Publishing and clicking Upload Now.

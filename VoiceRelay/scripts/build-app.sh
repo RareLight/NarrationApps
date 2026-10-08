@@ -13,6 +13,10 @@ cd "$native_root"
 build_command=(xcodebuild -project VoiceRelay.xcodeproj -scheme VoiceRelay
   -configuration "$xcode_configuration" -derivedDataPath "$native_root/DerivedData"
   -disableAutomaticPackageResolution)
+# Optional developer-local configuration is intentionally excluded from Git.
+if [[ -f "$native_root/Signing.local.xcconfig" ]]; then
+  build_command+=(-xcconfig "$native_root/Signing.local.xcconfig")
+fi
 if [[ -n "${VOICERELAY_SIGNING_IDENTITY:-}" ]]; then
   build_command+=("CODE_SIGN_IDENTITY=$VOICERELAY_SIGNING_IDENTITY")
 fi
