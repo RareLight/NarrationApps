@@ -1,0 +1,1271 @@
+import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
+import Testing
+#if canImport(Security)
+import Security
+#endif
+@testable import VoiceRelayCore
+
+private func deliveryTemporary() throws -> URL {
+    let url = URL(fileURLWithPath: NSTemporaryDirectory()).resolvingSymlinksInPath().appendingPathComponent("voicerelay-delivery-\(UUID().uuidString)")
+    try Files.directory(url); return url
+}
+
+private func deliveryStorage(root: URL) throws -> ManagedSpeechStorage {
+    try Files.directory(root.appendingPathComponent("audio"))
+    return ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"),
+                                stateRoot: root.appendingPathComponent("state"),
+                                temporaryRoot: root.appendingPathComponent("scratch"))
+}
+
+private func deliveryReview(_ path: String = "one", host: String = "articles.example") throws -> ReviewedSource {
+    let url = URL(string: "https://\(host)/\(path)")!
+    let html = String(decoding: try FixtureResource.html(), as: UTF8.self)
+    let page = FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
+                           contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
+    return try ReviewedSource.prepare(page, chunkLimit: 1800)
+}
+
+private func deliverySettings(enabled: Bool = true) -> DeliverySettings {
+    var settings = DeliverySettings()
+    settings.enabled = enabled
+    settings.feedFolderURL = URL(string: "https://webdav.example/remote.php/dav/files/user/Podcast%20Feed/")
+    settings.username = "user@example.com"
+    settings.publicFolderURL = URL(string: "https://podcast.example/")
+    return settings
+}
+
+private struct FakeCredentials: DeliveryCredentialStore {
+    let password: String?
+    func readPassword(username: String, host: String) throws -> String? { password }
+    func writePassword(_ password: String, username: String, host: String) throws {}
+    func deletePassword(username: String, host: String) throws {}
+}
+
+/// In-memory WebDAV double. Records every call, stores PUT byte counts, serves HEAD
+/// from stored sizes, and can inject per-call status overrides or thrown failures.
+private final class FakeWebDAVTransport: DeliveryTransport, @unchecked Sendable {
+    struct Call { let method: String; let path: String; let authorized: Bool; let bytes: Int; let credentials: String?; let depth: String?; let directory: Bool; let url: URL; let encoding: String? }
+    private let lock = NSLock()
+    private var calls: [Call] = []
+    private var objects: [String: Int] = [:]
+    private var bodies: [String: Data] = [:]
+    var statusFor: ((String, String) -> Int?)?
+    var throwFor: ((String, String) -> (any Error)?)?
+    var headLengths: [String: Int] = [:]
+    var headHeaders: [String: [String: String]] = [:]
+    var davLengths: [String: Int] = [:]
+    var propfindBodyFor: ((String) -> Data)?
+    var recordedCalls: [Call] { lock.withLock { calls } }
+    var methods: [String] { recordedCalls.map(\.method) }
+    func objectLength(_ path: String) -> Int? { lock.withLock { objects[path] } }
+    func body(_ path: String) -> Data? { lock.withLock { bodies[path] } }
+    func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String]) async throws -> DeliveryResponse {
+        try Task.checkCancellation()
+        let path = url.path
+        let bytes = try body?.count ?? file.map { try Int(Data(contentsOf: $0).count) } ?? 0
+        let (injected, failure) = lock.withLock { () -> (Int?, (any Error)?) in
+            calls.append(Call(method: method, path: path,
+                              authorized: headers["Authorization"]?.hasPrefix("Basic ") == true, bytes: bytes,
+                              credentials: headers["Authorization"].flatMap { raw -> String? in
+                                  guard raw.hasPrefix("Basic "), let data = Data(base64Encoded: String(raw.dropFirst(6))),
+                                        let decoded = String(data: data, encoding: .utf8) else { return nil }
+                                  return decoded
+                              }, depth: headers["Depth"], directory: url.hasDirectoryPath, url: url, encoding: headers["Accept-Encoding"]))
+            return (statusFor?(method, path), throwFor?(method, path))
+        }
+        if let failure { throw failure }
+        if let injected { return DeliveryResponse(status: injected) }
+        switch method {
+        case "PROPFIND":
+            let length = lock.withLock { objects[path].map { davLengths[path] ?? $0 } }
+            let properties = length.map { "<d:getcontentlength>\($0)</d:getcontentlength><d:resourcetype/>" }
+                ?? "<d:resourcetype><d:collection/></d:resourcetype>"
+            let href = URLComponents(url: url, resolvingAgainstBaseURL: false)!.percentEncodedPath
+            let xml = "<d:multistatus xmlns:d=\"DAV:\"><d:response><d:href>\(href)</d:href><d:propstat><d:prop>\(properties)</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"
+            return DeliveryResponse(status: 207, body: propfindBodyFor?(path) ?? Data(xml.utf8))
+        case "MKCOL": return DeliveryResponse(status: 201)
+        case "PUT":
+            lock.withLock {
+                objects[path] = bytes
+                bodies[path] = body ?? file.flatMap { try? Data(contentsOf: $0) }
+            }
+            return DeliveryResponse(status: 201)
+        case "HEAD":
+            if let headers = headHeaders[path] { return DeliveryResponse(status: 200, headers: headers) }
+            let known = lock.withLock { headLengths[path] ?? objects[path] }
+            guard let known else { return DeliveryResponse(status: 404) }
+            return DeliveryResponse(status: 200, headers: ["Content-Length": String(known)])
+        case "DELETE":
+            let existed = lock.withLock { () -> Bool in
+                bodies.removeValue(forKey: path)
+                return objects.removeValue(forKey: path) != nil
+            }
+            return DeliveryResponse(status: existed ? 204 : 404)
+        default: return DeliveryResponse(status: 405)
+        }
+    }
+}
+
+// Test-only audio, identical in spirit to the CoreTests synthesizer.
+private struct DeliveryTestBackend: TTSBackend {
+    let identity = BackendIdentity(id: "delivery-test-audio-v1", displayName: "Synthetic delivery test audio", isMock: false)
+    func prepare() throws { try Task.checkCancellation() }
+    func cancel() {}
+    func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
+        try Task.checkCancellation()
+        let rate = 24000; let count = rate / 4
+        var pcm = Data()
+        func u16(_ v: UInt16) { var v = v.littleEndian; withUnsafeBytes(of: &v) { pcm.append(contentsOf: $0) } }
+        func u32(_ v: UInt32) { var v = v.littleEndian; withUnsafeBytes(of: &v) { pcm.append(contentsOf: $0) } }
+        pcm.append(Data("RIFF".utf8)); u32(UInt32(36 + count * 2)); pcm.append(Data("WAVEfmt ".utf8))
+        u32(16); u16(1); u16(1); u32(UInt32(rate)); u32(UInt32(rate * 2)); u16(2); u16(16)
+        pcm.append(Data("data".utf8)); u32(UInt32(count * 2))
+        for sample in 0..<count {
+            let ramp = min(1.0, Double(min(sample, count - 1 - sample)) / 240.0)
+            u16(UInt16(bitPattern: Int16(sin(Double(sample) * 2 * .pi * 330 / Double(rate)) * 3000 * ramp)))
+        }
+        let file = directory.appendingPathComponent("segment.wav")
+        try Files.write(pcm, to: file)
+        return SynthesisResult(artifacts: [LosslessArtifact(url: file, sampleRate: rate, channels: 1, format: "wav")])
+    }
+}
+
+private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage,
+                           delivery: DeliverySettings? = nil) async throws -> FixtureResult {
+    try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: deliveryReview(path),
+                                               backend: DeliveryTestBackend(), storage: storage, delivery: delivery)
+}
+
+@Test func readingListEpisodeDatesReachLocalAndRemoteFeedsInSavedOrder() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let oldest = ReadingListEntry(id: "oldest", safariID: "oldest", url: URL(string: "https://articles.example/oldest")!,
+                                 title: "Oldest", addedAt: Date(timeIntervalSinceReferenceDate: 0))
+    let newest = ReadingListEntry(id: "newest", safariID: "newest", url: URL(string: "https://articles.example/newest")!,
+                                 title: "Newest", addedAt: Date(timeIntervalSinceReferenceDate: 86_400))
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [oldest, newest], skippedEntries: 0), stateRoot: storage.stateRoot)
+    // Generate in the opposite order to the dates saved in Reading List.
+    var results: [FixtureResult] = []
+    for entry in [newest, oldest] {
+        let review = try deliveryReview(entry.id)
+        let item = try await coordinator.enqueueReadingList(entry.id, storage: storage, preferences: SpeechPreferences(),
+                                                            fetch: { _ in review.page })
+        let queued = try #require(await coordinator.library(storage: storage).first { $0.id == item.id })
+        #expect(queued.readingListSavedAt == entry.addedAt && queued.publicationDate == nil)
+        let result = try await coordinator.resume(storage: storage, articleID: item.id, backend: DeliveryTestBackend(), delivery: settings)
+        #expect(result.episode.readingListSavedAt == entry.addedAt)
+        #expect(try #require(result.episode.publicationDate) > Date(timeIntervalSinceReferenceDate: 86_400))
+        results.append(result)
+    }
+    let local = try String(contentsOf: storage.profile.feed, encoding: .utf8)
+    #expect(local.contains("<pubDate>Tue, 02 Jan 2001 00:00:00 GMT</pubDate>"))
+    #expect(local.contains("<pubDate>Mon, 01 Jan 2001 00:00:00 GMT</pubDate>"))
+    #expect(try #require(local.range(of: results[0].episode.guid)).lowerBound < #require(local.range(of: results[1].episode.guid)).lowerBound)
+    let transport = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    let remote = String(decoding: try #require(transport.body("/" + settings.remoteFeedPath)), as: UTF8.self)
+    #expect(remote.contains("<pubDate>Tue, 02 Jan 2001 00:00:00 GMT</pubDate>"))
+    #expect(remote.contains("<pubDate>Mon, 01 Jan 2001 00:00:00 GMT</pubDate>"))
+    #expect(try #require(remote.range(of: results[0].episode.guid)).lowerBound < #require(remote.range(of: results[1].episode.guid)).lowerBound)
+    // Undated/old JSON records keep the generation-date fallback.
+    var undated = results[0].episode; undated.readingListSavedAt = nil
+    let encoded = try #require(JSONSerialization.jsonObject(with: Files.json(undated)) as? [String: Any])
+    #expect(encoded["readingListSavedAt"] == nil)
+    let decoded = try JSONDecoder().decode(Episode.self, from: JSONSerialization.data(withJSONObject: encoded))
+    #expect(decoded.readingListSavedAt == nil && decoded.podcastDate == decoded.publicationDate)
+    let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+    let fallbackDate = "<pubDate>\(formatter.string(from: try #require(decoded.publicationDate)))</pubDate>"
+    #expect(String(decoding: try RSS.render([decoded], settings: decoded.settings), as: UTF8.self).contains(fallbackDate))
+    // Use the confirmed record for the remote fallback.
+    var confirmed = try #require(await coordinator.library(storage: storage).first { $0.id == decoded.id })
+    confirmed.readingListSavedAt = nil
+    #expect(String(decoding: try RSS.renderRemote([confirmed], channel: RemoteChannel(settings: settings)), as: UTF8.self).contains(fallbackDate))
+}
+
+@Test func readingListEpisodeDatesRecoverExistingPublishedMetadataWithoutAudioUpload() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let result = try await publishReview("legacy-date", storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings).remoteFeedPending == false)
+    let original = result.article.originalURL
+    #expect(result.episode.sourceURL != original) // Canonical link differs from Reading List identity.
+    let entry = ReadingListEntry(id: "legacy-date", safariID: "legacy-date", url: original, title: "Legacy date",
+                                 addedAt: Date(timeIntervalSinceReferenceDate: 0))
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let record: String
+    do { record = try #require(NativeStore(url: storage.profile.database, readOnly: true).query("SELECT record FROM episodes WHERE id=?", [result.episode.id]).first?.first) }
+    let saved = try #require(await coordinator.library(storage: storage).first)
+    #expect(saved.readingListSavedAt == entry.addedAt && saved.publicationDate == result.episode.publicationDate)
+    do { #expect(try NativeStore(url: storage.profile.database, readOnly: true).query("SELECT record FROM episodes WHERE id=?", [saved.id]).first?.first == record) }
+    #expect(String(decoding: try RSS.render([saved], settings: saved.settings), as: UTF8.self).contains("<pubDate>Mon, 01 Jan 2001 00:00:00 GMT</pubDate>"))
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings).remoteFeedPending)
+    let updated = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(updated.feedUploaded && updated.uploadedMedia == 0)
+    #expect(try Files.hash(result.audioURL) == result.episode.audioHash)
+    let remote = String(decoding: try #require(transport.body("/" + settings.remoteFeedPath)), as: UTF8.self)
+    #expect(remote.contains("<pubDate>Mon, 01 Jan 2001 00:00:00 GMT</pubDate>"))
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings).remoteFeedPending == false)
+}
+
+@Test func deliverySettingsValidationMatrix() throws {
+    try deliverySettings().validate()
+    var missing = deliverySettings(); missing.feedFolderURL = nil
+    #expect(throws: RelayError.self) { try missing.validate() }
+    missing = deliverySettings(); missing.publicFolderURL = nil
+    #expect(throws: RelayError.self) { try missing.validate() }
+    missing.enabled = false; try missing.validate()
+    missing = deliverySettings(); missing.username = nil; try missing.validate()
+    for username in [" ", "user:name", "user\nname"] {
+        missing.username = username
+        #expect(throws: RelayError.self) { try missing.validate() }
+    }
+    for input in ["ftp://example.com/podcast", "https://user:secret@example.com/podcast", "https://example.com/podcast?x=1", "https://example.com:0/podcast", "https://example.com/a%2fb", "https://example.com/a%0ab", "https://bad host/podcast", "https://", "https://example.com/a\\b", "https://example.com/a\nb"] {
+        #expect(throws: RelayError.self) { try DeliveryURL.folder(input) }
+    }
+}
+
+@Test func deliveryFolderURLNormalizationAndFixedNames() throws {
+    let cases: [(String, String)] = [
+        ("  webdav.example/podcast  ", "https://webdav.example/podcast/"),
+        ("https://WEBDAV.EXAMPLE:443//podcast/./", "https://webdav.example/podcast/"),
+        ("http://example.com:80/old/../podcast/#anchor", "https://example.com/podcast/"),
+        ("//example.com/../../podcast/feed.xml", "https://example.com/podcast/"),
+        ("https://example.com/Podcast Feed/", "https://example.com/Podcast%20Feed/"),
+        ("https://example.com/Podcast%20Feed", "https://example.com/Podcast%20Feed/"),
+        ("https://example.com/a/%2e%2e/podcast", "https://example.com/podcast/"),
+        ("https://example.com/Café/音声", "https://example.com/Caf%C3%A9/%E9%9F%B3%E5%A3%B0/"),
+        ("https://example.com/100%25", "https://example.com/100%25/"),
+        ("https://example.com", "https://example.com/")
+    ]
+    #expect(try DeliveryURL.folder("   ") == nil)
+    for (input, expected) in cases {
+        let folder = try #require(try DeliveryURL.folder(input))
+        #expect(folder.absoluteString == expected)
+        #expect(try DeliveryURL.folder(folder.absoluteString) == folder)
+        var settings = deliverySettings()
+        settings.feedFolderURL = folder; settings.publicFolderURL = folder
+        try settings.validate()
+        #expect(settings.publicFeedURL?.absoluteString == expected + "feed.xml")
+        #expect(settings.publicAudioBaseURL?.absoluteString == expected + "audio/")
+    }
+}
+
+@Test func deliveryErrorClassification() {
+    for status in [401] {
+        #expect(DeliveryError.classify(status) == .authFailed("Delivery credentials were rejected (HTTP \(status))."))
+    }
+    #expect(DeliveryError.classify(403) == .permissionDenied(DeliveryError.permissionNotice))
+    for status in [500, 502, 503, 599] {
+        guard case .retryable = DeliveryError.classify(status) else { Issue.record("5xx not retryable"); return }
+    }
+    for status in [301, 302, 400, 404, 409, 418] {
+        guard case .fatal = DeliveryError.classify(status) else { Issue.record("status \(status) not fatal"); return }
+    }
+}
+
+@Test func deliverySendsPasswordOnlyCredentialWhenUsernameUnset() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    var settings = deliverySettings()
+    settings.username = nil
+    try settings.validate()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "app-password"), transport: transport)
+    #expect(drain.uploadedMedia == 1 && drain.feedUploaded)
+    let calls = transport.recordedCalls
+    #expect(calls.allSatisfy { $0.authorized && $0.credentials == ":app-password" })
+    let episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
+    #expect(episode?.delivery?.status == .uploaded)
+    var named = deliverySettings()
+    named.username = "user@example.com"
+    let namedTransport = FakeWebDAVTransport()
+    try await WebDAVClient(transport: namedTransport, settings: named,
+                           credential: FakeCredentials(password: "pw")).ensureCollections()
+    #expect(namedTransport.recordedCalls.allSatisfy { $0.credentials == "user@example.com:pw" })
+}
+
+@Test func transportErrorClassificationDistinguishesTLSFromReachability() {
+    let certificate = URLSessionDeliveryTransport.classifyTransport(
+        URLError(.serverCertificateUntrusted))
+    guard case .fatal(let message) = certificate else { Issue.record("TLS failure not fatal"); return }
+    #expect(message.contains("certificate"))
+    guard case .fatal = URLSessionDeliveryTransport.classifyTransport(URLError(.cannotFindHost)) else {
+        Issue.record("DNS failure not fatal"); return
+    }
+    guard case .retryable = URLSessionDeliveryTransport.classifyTransport(URLError(.cannotConnectToHost)) else {
+        Issue.record("connect failure not retryable"); return
+    }
+    guard case .retryable = URLSessionDeliveryTransport.classifyTransport(URLError(.timedOut)) else {
+        Issue.record("timeout not retryable"); return
+    }
+    struct Other: Error {}
+    guard case .retryable = URLSessionDeliveryTransport.classifyTransport(Other()) else {
+        Issue.record("unknown error not retryable"); return
+    }
+}
+
+@Test func episodeDeliveryFieldsDecodeFromOlderRecordsAndRoundTrip() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let result = try await publishReview(storage: storage, delivery: deliverySettings())
+    var episode = result.episode
+    #expect(episode.author == "Private Author")
+    #expect(episode.sourceHost == "articles.example")
+    #expect(episode.sourceURL?.absoluteString == "https://articles.example/private-canonical")
+    #expect(episode.delivery?.status == .pending)
+    #expect(episode.delivery?.remotePath == "remote.php/dav/files/user/Podcast Feed/audio/\(episode.id).m4a")
+    #expect(result.remoteDelivery == "pending")
+    var legacy = try #require(JSONSerialization.jsonObject(with: Files.json(episode)) as? [String: Any])
+    for key in ["author", "sourceHost", "sourceURL", "delivery", "audioVolumeID", "manualAudioDeletionRequested"] {
+        legacy.removeValue(forKey: key)
+    }
+    let restored = try JSONDecoder().decode(Episode.self, from: JSONSerialization.data(withJSONObject: legacy))
+    #expect(restored.id == episode.id && restored.author == nil && restored.sourceURL == nil && restored.delivery == nil)
+    episode.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/x.m4a",
+                                   attempts: 2, uploadedByteLength: 123, lastAttemptAt: Date(timeIntervalSince1970: 100))
+    let decoded = try JSONDecoder().decode(Episode.self, from: Files.json(episode))
+    #expect(decoded.delivery == episode.delivery && decoded.author == episode.author)
+    let secondRoot = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: secondRoot) }
+    let noDelivery = try await publishReview("two", storage: deliveryStorage(root: secondRoot))
+    #expect(noDelivery.remoteDelivery == "disabled" && noDelivery.episode.delivery == nil)
+}
+
+@Test func deliveryDrainUploadsMediaThenFeedInOrder() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "app-password"), transport: transport)
+    #expect(drain.uploadedMedia == 1 && drain.feedUploaded && !drain.skipped)
+    let sequence = transport.recordedCalls.map { "\($0.method) \($0.path)" }
+    let mediaPath = "/remote.php/dav/files/user/Podcast Feed/audio/\(result.episode.id).m4a"
+    let feedPath = "/remote.php/dav/files/user/Podcast Feed/feed.xml"
+    #expect(sequence == ["PROPFIND /remote.php/dav/files/user/Podcast Feed",
+                         "PROPFIND /remote.php/dav/files/user/Podcast Feed/audio",
+                         "PUT \(mediaPath)", "HEAD \(mediaPath)", "PUT \(feedPath)", "HEAD \(feedPath)"])
+    #expect(transport.recordedCalls.map(\.authorized).allSatisfy { $0 })
+    let episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
+    #expect(episode?.delivery?.status == .uploaded)
+    #expect(episode?.delivery?.uploadedByteLength == episode?.info?.byteLength)
+    let ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(!ledger.remoteFeedPending && ledger.lastUploadedFeedHash != nil && ledger.pendingRemoteDeletes.isEmpty)
+    // A steady-state drain performs no work.
+    let quiet = FakeWebDAVTransport()
+    let credentials = SessionCredentialFixture()
+    credentials.failure = .credentialUnavailable("Idle delivery must not ask for credentials")
+    for _ in 0..<3 {
+        let again = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+            credential: credentials, transport: quiet)
+        #expect(again.uploadedMedia == 0 && !again.feedUploaded && quiet.methods.isEmpty)
+    }
+    #expect(credentials.reads == 0)
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot) == ledger)
+}
+
+@Test func deliveryIdleDrainRescindsStaleDeleteIntentWithoutNetworkAccess() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: FakeWebDAVTransport())
+    var ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    ledger.pendingRemoteDeletes = [settings.remoteMediaPath(result.episode.id)]
+    try ledger.save(stateRoot: storage.stateRoot)
+    let quiet = FakeWebDAVTransport(), credentials = SessionCredentialFixture()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings,
+        credential: credentials, transport: quiet)
+    #expect(quiet.methods.isEmpty && credentials.reads == 0)
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).pendingRemoteDeletes.isEmpty)
+}
+
+@Test func deliveryBackoffSkipsCredentialsAndResumesWhenDue() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport(), credentials = SessionCredentialFixture()
+    let start = Date(timeIntervalSince1970: 1_000)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings,
+        credential: credentials, transport: transport, now: start)
+    let store = try PipelineStore(databaseURL: storage.profile.database)
+    var episode = try #require(store.published().first { $0.id == result.episode.id })
+    episode.delivery?.status = .pending
+    episode.delivery?.attempts = 1
+    episode.delivery?.nextAttemptAt = start + 60
+    try store.save(episode)
+    var ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    ledger.remoteFeedPending = true; ledger.feedAttempts = 1; ledger.lastAttemptAt = start
+    try ledger.save(stateRoot: storage.stateRoot)
+    let count = transport.recordedCalls.count, reads = credentials.reads
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings,
+        credential: credentials, transport: transport, now: start + 59)
+    #expect(transport.recordedCalls.count == count && credentials.reads == reads)
+    let resumed = try await coordinator.deliverPending(storage: storage, settings: settings,
+        credential: credentials, transport: transport, now: start + 60)
+    #expect(resumed.uploadedMedia == 1 && resumed.feedUploaded && credentials.reads > reads)
+}
+
+@Test func deliveryDrainBackfillsUndeliveredPublishedEpisodes() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let published = try await publishReview(storage: storage)
+    #expect(published.episode.delivery == nil && published.remoteDelivery == "disabled")
+    let transport = FakeWebDAVTransport()
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: deliverySettings(),
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(drain.uploadedMedia == 1 && drain.feedUploaded)
+    let episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == published.episode.id }
+    #expect(episode?.delivery?.status == .uploaded)
+    #expect(episode?.author == "Private Author" && episode?.sourceHost == "articles.example")
+}
+
+@Test func deliveryDrainSkipsWhenDisabled() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    _ = try await publishReview(storage: storage, delivery: deliverySettings())
+    let transport = FakeWebDAVTransport()
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: deliverySettings(enabled: false),
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(drain.skipped && transport.recordedCalls.isEmpty)
+}
+
+@Test func deliveryUnconfirmedSizeFailsEpisodeWithoutFeedReferenceAndExplicitRetryRecovers() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    let mediaPath = "/remote.php/dav/files/user/Podcast Feed/audio/\(result.episode.id).m4a"
+    transport.headLengths[mediaPath] = 1
+    transport.davLengths[mediaPath] = 1
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(drain.failed == 1 && drain.feedUploaded)
+    let episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
+    #expect(episode?.delivery?.status == .failed)
+    // The feed still uploads; the unconfirmed item is simply absent from it.
+    let feedPath = "/remote.php/dav/files/user/Podcast Feed/feed.xml"
+    let feed = String(decoding: try #require(transport.body(feedPath)), as: UTF8.self)
+    #expect(!feed.contains(result.episode.id))
+    let ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(!ledger.remoteFeedPending && ledger.lastUploadedFeedHash != nil)
+    // Automatic drains preserve the failure. Upload Now can recover this specific
+    // verification failure without retrying unrelated fatal failures.
+    transport.headLengths.removeAll(); transport.davLengths.removeAll()
+    let automatic = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(automatic.uploadedMedia == 0)
+    let retry = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(retry.uploadedMedia == 1 && retry.feedUploaded)
+    #expect(try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }?.delivery?.status == .uploaded)
+}
+
+@Test func savedAudioPublicationTracksConfirmedFeedMembershipAndCopyIdentity() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let first = try await publishReview("first", storage: storage, delivery: settings)
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+        .publicationStates[first.episode.id] == .awaitingUpload)
+    let transport = FakeWebDAVTransport(), credentials = FakeCredentials(password: "x")
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials, transport: transport)
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+        .publicationStates[first.episode.id] == .published)
+    let second = try await publishReview("second", storage: storage, delivery: settings)
+    transport.statusFor = { method, path in method == "PUT" && path.hasSuffix("/feed.xml") ? 503 : nil }
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials, transport: transport)
+    let pending = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+    #expect(pending.remoteFeedPending && pending.publicationStates[first.episode.id] == .published)
+    #expect(pending.publicationStates[second.episode.id] == .uploaded)
+    transport.statusFor = nil
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials, transport: transport, force: true)
+    let complete = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+    #expect(complete.publicationStates.values.allSatisfy { $0 == .published })
+    var changed = settings
+    changed.enabled = false; changed.username = "another@example.com"
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: changed).publicationStates == complete.publicationStates)
+    changed = settings; changed.publicFolderURL = URL(string: "https://podcast.example/new/")
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: changed)
+        .publicationStates.values.allSatisfy { $0 == .uploaded })
+    changed = settings; changed.feedFolderURL = URL(string: "https://another.example/podcast/")
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: changed)
+        .publicationStates.values.allSatisfy { $0 == .notUploaded })
+    // A regenerated copy with the same episode ID must wait for a new feed confirmation.
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        var episode = try #require(try store.episodes().first { $0.id == first.episode.id })
+        episode.audioHash = "a-new-audio-copy"
+        try store.save(episode)
+    }
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+        .publicationStates[first.episode.id] == .uploaded)
+}
+
+@Test func savedAudioPublicationInfersLegacyConfirmationOnlyFromMatchingFeedBytes() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let first = try await publishReview(storage: storage, delivery: settings)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: FakeWebDAVTransport())
+    let url = DeliveryLedger.fileURL(stateRoot: storage.stateRoot)
+    var legacy = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    legacy.removeValue(forKey: "lastPublishedAudioHashes"); legacy.removeValue(forKey: "lastPublishedSettingsHash")
+    try JSONSerialization.data(withJSONObject: legacy).write(to: url, options: .atomic)
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).lastPublishedAudioHashes == nil)
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+        .publicationStates[first.episode.id] == .published)
+    let second = try await publishReview("unlisted", storage: storage, delivery: settings)
+    let pending = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+    #expect(pending.publicationStates[first.episode.id] == .published && pending.publicationStates[second.episode.id] == .awaitingUpload)
+    var ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    ledger.lastUploadedFeedHash = "an-unrelated-feed"
+    try ledger.save(stateRoot: storage.stateRoot)
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+        .publicationStates[first.episode.id] == .uploaded)
+}
+
+@Test func deliveryRetryableBackoffForceAndRecovery() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    var failPut = true
+    transport.statusFor = { method, path in failPut && method == "PUT" && path.contains("/audio/") ? 503 : nil }
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(drain.retrying == 1 && drain.uploadedMedia == 0)
+    var episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
+    #expect(episode?.delivery?.status == .pending && episode?.delivery?.attempts == 1)
+    let nextAttempt = try #require(episode?.delivery?.nextAttemptAt)
+    #expect(nextAttempt > Date())
+    // Not yet due: a second drain performs no media PUT.
+    let callsBefore = transport.recordedCalls.count
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(transport.recordedCalls.dropFirst(callsBefore).allSatisfy { $0.method == "PROPFIND" })
+    episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
+    #expect(episode?.delivery?.status == .pending)
+    failPut = false
+    let forced = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(forced.uploadedMedia == 1 && forced.feedUploaded)
+    episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
+    #expect(episode?.delivery?.status == .uploaded && episode?.delivery?.nextAttemptAt == nil)
+}
+
+@Test func deliveryAuthFailureMarksAndSettingsChangeResets() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    var settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    var reject = true
+    transport.statusFor = { method, _ in reject && method == "PUT" ? 401 : nil }
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(drain.failed == 1)
+    var episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
+    #expect(episode?.delivery?.status == .failed && episode?.delivery?.lastError == DeliveryError.authNotice)
+    // Same settings: the credential failure is not retried.
+    let callsBefore = transport.recordedCalls.count
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(transport.recordedCalls.dropFirst(callsBefore).allSatisfy { $0.method == "PROPFIND" })
+    // Any settings change makes auth failures eligible again.
+    reject = false
+    settings.publicFolderURL = URL(string: "https://podcast.example/new-show/")
+    let retry = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(retry.uploadedMedia == 1 && retry.feedUploaded)
+    episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
+    #expect(episode?.delivery?.status == .uploaded && episode?.delivery?.lastError == nil)
+}
+
+@Test func deliveryFatalFailureStaysFailed() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    transport.statusFor = { method, _ in method == "PUT" ? 400 : nil }
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(drain.failed == 1)
+    let episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
+    #expect(episode?.delivery?.status == .failed && episode?.delivery?.nextAttemptAt == nil)
+    transport.statusFor = nil
+    let callsBefore = transport.recordedCalls.count
+    // The failed item is never retried; it blocks nothing, so the feed uploads without it.
+    let second = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(second.feedUploaded && second.uploadedMedia == 0)
+    #expect(transport.recordedCalls.dropFirst(callsBefore).allSatisfy { $0.method == "PROPFIND" || $0.path.hasSuffix("feed.xml") })
+    #expect(try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }?.delivery?.status == .failed)
+}
+
+@Test func deliveryDrainOrdersFeedBeforeRemoteDeletes() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let keep = try await publishReview("keep", storage: storage, delivery: settings)
+    let retired = try await publishReview("retire", storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(transport.objectLength("/remote.php/dav/files/user/Podcast Feed/audio/\(retired.episode.id).m4a") != nil)
+    _ = try await FixtureCoordinator().removeSavedAudio(ids: [retired.episode.id], storage: storage)
+    let callsBefore = transport.recordedCalls.count
+    // A fresh coordinator instance resumes from durable ledger state.
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(drain.remoteDeletes == 1 && drain.feedUploaded && drain.uploadedMedia == 0)
+    let sequence = transport.recordedCalls.dropFirst(callsBefore)
+    let feedIndex = sequence.firstIndex { $0.method == "PUT" && $0.path.hasSuffix("Podcast Feed/feed.xml") }
+    let deleteIndex = sequence.firstIndex { $0.method == "DELETE" }
+    #expect(feedIndex != nil && deleteIndex != nil && feedIndex! < deleteIndex!)
+    #expect(transport.objectLength("/remote.php/dav/files/user/Podcast Feed/audio/\(retired.episode.id).m4a") == nil)
+    #expect(transport.objectLength("/remote.php/dav/files/user/Podcast Feed/audio/\(keep.episode.id).m4a") != nil)
+    let ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(ledger.pendingRemoteDeletes.isEmpty && !ledger.remoteFeedPending)
+}
+
+@Test(arguments: [false, true]) func deliveryFailedFeedUploadNeverStrandsRemoteDeletes(sizeFailure: Bool) async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let retired = try await publishReview("gone", storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    _ = try await FixtureCoordinator().removeSavedAudio(ids: [retired.episode.id], storage: storage)
+    if sizeFailure {
+        let feedPath = "/remote.php/dav/files/user/Podcast Feed/feed.xml"
+        transport.headLengths[feedPath] = 1; transport.davLengths[feedPath] = 1
+    } else {
+        transport.statusFor = { method, path in method == "PUT" && path.hasSuffix("feed.xml") ? 503 : nil }
+    }
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(!drain.feedUploaded && drain.remoteDeletes == 0)
+    #expect(transport.objectLength("/remote.php/dav/files/user/Podcast Feed/audio/\(retired.episode.id).m4a") != nil)
+    let ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(ledger.remoteFeedPending && ledger.pendingRemoteDeletes == ["remote.php/dav/files/user/Podcast Feed/audio/\(retired.episode.id).m4a"])
+    let callsBeforeBackoff = transport.recordedCalls.count
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: nil), transport: transport,
+        now: try #require(ledger.lastAttemptAt) + 1)
+    #expect(transport.recordedCalls.count == callsBeforeBackoff)
+    transport.statusFor = nil
+    transport.headLengths.removeAll(); transport.davLengths.removeAll()
+    let recovered = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(recovered.feedUploaded && recovered.remoteDeletes == 1)
+}
+
+@Test func removeSavedAudioQueuesRemoteDeleteWithoutNetwork() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    let calls = transport.recordedCalls.count
+    _ = try await FixtureCoordinator().removeSavedAudio(ids: [result.episode.id], storage: storage)
+    #expect(transport.recordedCalls.count == calls)
+    let ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(ledger.pendingRemoteDeletes == ["remote.php/dav/files/user/Podcast Feed/audio/\(result.episode.id).m4a"])
+    #expect(ledger.remoteFeedPending)
+}
+
+@Test func deliveryLedgerCorruptPreservesOriginal() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    _ = try await publishReview(storage: storage, delivery: deliverySettings())
+    let file = DeliveryLedger.fileURL(stateRoot: storage.stateRoot)
+    try Files.write(Data("not a ledger".utf8), to: file)
+    #expect(throws: RelayError.self) { try DeliveryLedger.load(stateRoot: storage.stateRoot) }
+    let siblings = try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path)
+    let preserved = siblings.filter { $0.hasPrefix("delivery.json.corrupt-") }
+    #expect(preserved.count == 1)
+    // The corrupt bytes are preserved under the timestamped name, never silently reset.
+    #expect(try Data(contentsOf: file.deletingLastPathComponent().appendingPathComponent(preserved[0])) == Data("not a ledger".utf8))
+    #expect(!FileManager.default.fileExists(atPath: file.path))
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot) == DeliveryLedger())
+}
+
+@Test func deliveryCancellationMidDrainLeavesResumableState() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let retired = try await publishReview("gone", storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    _ = try await FixtureCoordinator().removeSavedAudio(ids: [retired.episode.id], storage: storage)
+    transport.throwFor = { method, _ in method == "DELETE" ? CancellationError() : nil }
+    do {
+        _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+            credential: FakeCredentials(password: "x"), transport: transport)
+        Issue.record("Cancellation did not propagate")
+    } catch { #expect(error is CancellationError) }
+    let ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(ledger.pendingRemoteDeletes == ["remote.php/dav/files/user/Podcast Feed/audio/\(retired.episode.id).m4a"] && !ledger.remoteFeedPending)
+    transport.throwFor = nil
+    let resumed = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(resumed.remoteDeletes == 1)
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).pendingRemoteDeletes.isEmpty)
+    _ = result
+}
+
+@Test func renderRemoteIncludesConfirmedItemsOnlyWithOriginMetadata() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let channel = try RemoteChannel(settings: settings)
+    var uploaded = result.episode
+    uploaded.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/\(uploaded.id).m4a",
+                                    uploadedByteLength: uploaded.info!.byteLength)
+    let feed = String(decoding: try RSS.renderRemote([uploaded], channel: channel), as: UTF8.self)
+    #expect(feed.contains("xmlns:dc=\"http://purl.org/dc/elements/1.1/\""))
+    #expect(feed.contains("<link>https://articles.example/private-canonical</link>"))
+    #expect(feed.contains("<dc:creator>Private Author</dc:creator>"))
+    #expect(feed.contains("<enclosure url=\"https://podcast.example/audio/\(uploaded.id).m4a\""))
+    #expect(feed.contains("<itunes:block>yes</itunes:block>") && XMLParser(data: Data(feed.utf8)).parse())
+    // Public paths start at the website's selected Publish folder, independently
+    // of the account/files ancestors used by WebDAV uploads.
+    var website = settings
+    website.feedFolderURL = URL(string: "https://webdav.example/account.domain.com/files/Podcast%20Feed/")
+    website.publicFolderURL = URL(string: "https://public.example/podcast/")
+    let hosted = String(decoding: try RSS.renderRemote([uploaded], channel: RemoteChannel(settings: website)), as: UTF8.self)
+    #expect(hosted.contains("https://public.example/podcast/feed.xml"))
+    #expect(hosted.contains("https://public.example/podcast/audio/\(uploaded.id).m4a"))
+    #expect(!hosted.contains("account.domain.com/files"))
+    // Host fallback when the article carries no author.
+    var fallback = uploaded
+    fallback.author = nil
+    let rendered = String(decoding: try RSS.renderRemote([fallback], channel: channel), as: UTF8.self)
+    #expect(rendered.contains("<dc:creator>articles.example</dc:creator>"))
+    var noLink = uploaded; noLink.sourceURL = nil; noLink.author = nil; noLink.sourceHost = nil
+    let minimal = String(decoding: try RSS.renderRemote([noLink], channel: channel), as: UTF8.self)
+    #expect(!minimal.contains("<dc:creator>") && !minimal.contains("<link>https://articles.example"))
+    // Published-but-unconfirmed media is absent until its upload completes.
+    let pending = result.episode
+    #expect(String(decoding: try RSS.renderRemote([pending], channel: channel), as: UTF8.self).contains("<item>") == false)
+    var failed = result.episode
+    failed.delivery = DeliveryState(status: .failed, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/\(failed.id).m4a",
+                                    lastError: "The delivery endpoint refused the request.")
+    #expect(String(decoding: try RSS.renderRemote([failed], channel: channel), as: UTF8.self).contains("<item>") == false)
+    // An inconsistent confirmed record indicates corruption and still fails the render.
+    var corrupt = result.episode
+    corrupt.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/\(corrupt.id).m4a",
+                                    uploadedByteLength: corrupt.info!.byteLength + 1)
+    #expect(throws: RelayError.self) { try RSS.renderRemote([corrupt], channel: channel) }
+    var expired = uploaded; expired.stage = .expired
+    #expect(String(decoding: try RSS.renderRemote([expired], channel: channel), as: UTF8.self).contains("<item>") == false)
+    // Escaping matches the local feed contract.
+    var escaped = uploaded; escaped.title = "A & B <Private>"
+    #expect(String(decoding: try RSS.renderRemote([escaped], channel: channel), as: UTF8.self).contains("A &amp; B &lt;Private&gt;"))
+}
+
+@Test func remoteFeedUploadedBytesContainConfirmedEnclosure() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    let feedCall = try #require(transport.recordedCalls.first { $0.method == "PUT" && $0.path.hasSuffix("feed.xml") })
+    #expect(feedCall.bytes > 0)
+    let ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(ledger.lastUploadedFeedHash != nil)
+    _ = result
+}
+
+@Test func deliveryUnconfirmedItemDoesNotBlockFeedUpdate() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let good = try await publishReview("good", storage: storage, delivery: settings)
+    let stuck = try await publishReview("stuck", storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    transport.statusFor = { method, path in
+        method == "PUT" && path.contains("\(stuck.episode.id).m4a") ? 503 : nil
+    }
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(drain.uploadedMedia == 1 && drain.retrying == 1 && drain.failed == 0 && drain.feedUploaded)
+    // The feed still updates, listing only the byte-confirmed item.
+    let feed = String(decoding: try #require(transport.body("/remote.php/dav/files/user/Podcast Feed/feed.xml")), as: UTF8.self)
+    #expect(feed.contains(good.episode.id) && !feed.contains(stuck.episode.id))
+    let ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(!ledger.remoteFeedPending)
+}
+
+@Test func deliveryDrainReconcilesLostRemoteDeleteIntent() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let retired = try await publishReview("lost", storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    let mediaPath = "/remote.php/dav/files/user/Podcast Feed/audio/\(retired.episode.id).m4a"
+    _ = try await FixtureCoordinator().removeSavedAudio(ids: [retired.episode.id], storage: storage)
+    // Simulate the retire-crash window: the episode is durably expired but the
+    // ledger write was lost before the remote delete could be recorded.
+    var ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    ledger.pendingRemoteDeletes = []
+    ledger.remoteFeedPending = false
+    try ledger.save(stateRoot: storage.stateRoot)
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(drain.remoteDeletes == 1 && drain.feedUploaded)
+    #expect(transport.objectLength(mediaPath) == nil)
+    let calls = transport.recordedCalls
+    let feedIndex = try #require(calls.lastIndex { $0.method == "PUT" && $0.path.hasSuffix("feed.xml") })
+    let deleteIndex = try #require(calls.lastIndex { $0.method == "DELETE" })
+    #expect(feedIndex < deleteIndex)
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).pendingRemoteDeletes.isEmpty)
+}
+
+@Test func deliveryDrainFollowsDestinationChangesForPendingAndUploadedCopies() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    var settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let oldPath = "remote.php/dav/files/user/Podcast Feed/audio/\(result.episode.id).m4a"
+    #expect(result.episode.delivery?.remotePath == oldPath)
+    // A pending record follows the configured folders; its path is aspirational.
+    settings.feedFolderURL = URL(string: "https://webdav.example/remote.php/dav/files/user/Moved%20Feed/")
+    let transport = FakeWebDAVTransport()
+    let drain = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(drain.uploadedMedia == 1 && drain.feedUploaded)
+    var episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
+    let movedPath = "remote.php/dav/files/user/Moved Feed/audio/\(result.episode.id).m4a"
+    #expect(episode?.delivery?.remotePath == movedPath && episode?.delivery?.status == .uploaded)
+    #expect(transport.objectLength("/remote.php/dav/files/user/Moved Feed/audio/\(result.episode.id).m4a") != nil)
+    // An uploaded record must be confirmed at the newly configured host too.
+    settings.feedFolderURL = URL(string: "https://other.example/remote.php/dav/files/user/Moved%20Feed/")
+    let quiet = FakeWebDAVTransport()
+    let again = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: quiet)
+    #expect(again.uploadedMedia == 1 && again.feedUploaded)
+    #expect(quiet.recordedCalls.allSatisfy { $0.url.host == "other.example" })
+    episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
+    #expect(episode?.delivery?.remotePath == movedPath)
+}
+
+@Test func deliveryReadOnlyProbeRequiresExactReadableDAVCollection() async throws {
+    let transport = FakeWebDAVTransport()
+    let settings = deliverySettings()
+    let client = try WebDAVClient(transport: transport, settings: settings, credential: FakeCredentials(password: "pw"))
+    try await client.testConnection()
+    #expect(transport.methods == ["PROPFIND", "PROPFIND"])
+    #expect(transport.recordedCalls.first?.depth == "0")
+    #expect(transport.recordedCalls.first?.path == settings.feedFolderURL?.path)
+    #expect(transport.recordedCalls.first?.url == settings.feedFolderURL)
+    #expect(transport.recordedCalls.first?.authorized == true)
+    var noSlash = settings
+    noSlash.feedFolderURL = URL(string: "https://webdav.example/account/files")
+    try await WebDAVClient(transport: transport, settings: noSlash, credential: FakeCredentials(password: "pw")).testConnection()
+    #expect(transport.recordedCalls.last?.path == "/account/files/audio" && transport.recordedCalls.last?.directory == true)
+    #expect(transport.recordedCalls.last?.url.absoluteString == "https://webdav.example/account/files/audio/")
+    let path = settings.feedFolderURL!.path
+    func xml(href: String, status: String, property: String, namespace: String = "DAV:") -> Data {
+        Data("<d:multistatus xmlns:d=\"\(namespace)\"><d:response><d:href>\(href)</d:href><d:propstat><d:prop><d:resourcetype>\(property)</d:resourcetype></d:prop><d:status>\(status)</d:status></d:propstat></d:response></d:multistatus>".utf8)
+    }
+    for invalid in [Data("not xml".utf8), Data(),
+        xml(href: path, status: "HTTP/1.1 403 Forbidden", property: "<d:collection/>"),
+        xml(href: path, status: "HTTP/1.1 200 OK", property: ""),
+        xml(href: path, status: "invalid 200 status", property: "<d:collection/>"),
+        Data(("<!DOCTYPE d:multistatus [<!ENTITY extra 'private'>]>" + String(decoding: xml(href: path, status: "HTTP/1.1 200 OK", property: "<d:collection/>"), as: UTF8.self)).utf8),
+        xml(href: "/different-folder", status: "HTTP/1.1 200 OK", property: "<d:collection/>"),
+        xml(href: "https://other.example\(path)", status: "HTTP/1.1 200 OK", property: "<d:collection/>"),
+        xml(href: path, status: "HTTP/1.1 200 OK", property: "<d:collection/>", namespace: "not-DAV")] {
+        transport.propfindBodyFor = { _ in invalid }
+        await #expect(throws: DeliveryError.self) { try await client.testConnection() }
+    }
+    transport.propfindBodyFor = nil
+    transport.statusFor = { _, _ in 405 }
+    await #expect(throws: DeliveryError.self) { try await client.testConnection() }
+    #expect(transport.methods.allSatisfy { $0 == "PROPFIND" })
+}
+
+@Test func deliveryExistingCollectionRequiresVerificationAfter405() async throws {
+    let transport = FakeWebDAVTransport()
+    let root = "/remote.php/dav/files/user"
+    var existing: Set<String> = [root]
+    transport.statusFor = { method, path in
+        if method == "PROPFIND", !existing.contains(path) { return 404 }
+        if method == "MKCOL" { existing.insert(path); return 405 }
+        return nil
+    }
+    let client = try WebDAVClient(transport: transport, settings: deliverySettings(), credential: FakeCredentials(password: "pw"))
+    try await client.ensureCollections()
+    #expect(transport.methods == ["PROPFIND", "PROPFIND", "MKCOL", "PROPFIND", "PROPFIND", "PROPFIND", "MKCOL", "PROPFIND"])
+    transport.propfindBodyFor = { _ in Data("<not-a-collection/>".utf8) }
+    await #expect(throws: DeliveryError.self) { try await client.ensureCollections() }
+}
+
+@Test func deliveryFeedFolderCreatesFixedAudioAndEncodesNamesOnce() async throws {
+    var settings = deliverySettings()
+    settings.feedFolderURL = try DeliveryURL.folder("https://webdav.example//podcast feed/./")
+    settings.publicFolderURL = try DeliveryURL.folder("https://public.example/podcast")
+    #expect(settings.remoteFeedPath == "podcast feed/feed.xml")
+    #expect(settings.remoteMediaPath("opaque") == "podcast feed/audio/opaque.m4a")
+    let transport = FakeWebDAVTransport()
+    transport.statusFor = { method, _ in method == "MKCOL" ? 403 : nil }
+    let log = DeliveryDebugLog(); log.enabled = true
+    let client = try WebDAVClient(transport: LoggingDeliveryTransport(base: transport, log: log), settings: settings,
+        credential: FakeCredentials(password: "pw"), debugLog: log)
+    #expect(try await client.testConnection())
+    #expect(transport.recordedCalls.map(\.path) == ["/podcast feed", "/podcast feed/audio"])
+    try await client.ensureCollections()
+    try await client.uploadData(Data("feed".utf8), remotePath: settings.remoteFeedPath)
+    try await client.uploadData(Data("audio".utf8), remotePath: settings.remoteMediaPath("opaque"))
+    #expect(!transport.methods.contains("MKCOL"))
+    let puts = transport.recordedCalls.filter { $0.method == "PUT" }
+    #expect(puts.map { $0.url.absoluteString } == ["https://webdav.example/podcast%20feed/feed.xml", "https://webdav.example/podcast%20feed/audio/opaque.m4a"])
+    #expect(transport.recordedCalls.allSatisfy { $0.authorized && $0.url.host == "webdav.example" })
+    #expect(settings.publicFeedURL?.absoluteString == "https://public.example/podcast/feed.xml")
+    #expect(settings.publicAudioBaseURL?.absoluteString == "https://public.example/podcast/audio/")
+    #expect(log.text.contains("folder check: feed") && log.text.contains("folder check: audio"))
+    for sensitive in ["podcast feed", "pw", "webdav.example"] { #expect(!log.text.contains(sensitive)) }
+}
+
+@Test func deliveryCreatesOnlyMissingAncestorsInOrderAndStopsOnDeniedAccess() async throws {
+    var settings = deliverySettings()
+    settings.feedFolderURL = URL(string: "https://webdav.example/account.domain.com/files/Podcast%20Feed/Nested/")
+    var existing: Set<String> = ["/", "/account.domain.com", "/account.domain.com/files"]
+    let transport = FakeWebDAVTransport()
+    transport.statusFor = { method, path in
+        if method == "PROPFIND", !existing.contains(path) { return 404 }
+        if method == "MKCOL" {
+            let parent = String(path[..<path.lastIndex(of: "/")!])
+            guard existing.contains(parent.isEmpty ? "/" : parent) else { return 409 }
+            existing.insert(path)
+        }
+        return nil
+    }
+    let client = try WebDAVClient(transport: transport, settings: settings, credential: FakeCredentials(password: "pw"))
+    // A read-only test reports a missing configured destination without creating it.
+    #expect(try await client.testConnection() == false)
+    #expect(transport.methods.allSatisfy { $0 == "PROPFIND" })
+    try await client.ensureCollections()
+    let creates = transport.recordedCalls.filter { $0.method == "MKCOL" }
+    #expect(creates.map(\.path) == ["/account.domain.com/files/Podcast Feed", "/account.domain.com/files/Podcast Feed/Nested", "/account.domain.com/files/Podcast Feed/Nested/audio"])
+    #expect(creates.allSatisfy { $0.directory })
+    let before = transport.recordedCalls.count
+    try await client.ensureCollections()
+    #expect(transport.recordedCalls.dropFirst(before).allSatisfy { $0.method == "PROPFIND" })
+    transport.statusFor = { method, _ in method == "PROPFIND" ? 403 : nil }
+    await #expect(throws: DeliveryError.self) { try await client.ensureCollections() }
+    #expect(transport.recordedCalls.last?.method == "PROPFIND")
+}
+
+@Test func deliveryOlderSettingsKeepFeedDestinationAndAdoptFixedLayout() throws {
+    let old = Data(#"{"enabled":true,"webdavURL":"https://webdav.example/base/","remoteFolder":"Saved Feed","mediaFolder":"Separate Audio","publicFeedURL":"https://public.example/show/old.xml","publicAudioBaseURL":"https://public.example/audio/","username":"user"}"#.utf8)
+    let restored = try JSONDecoder().decode(DeliverySettings.self, from: old)
+    #expect(restored.feedFolderURL?.absoluteString == "https://webdav.example/base/Saved%20Feed/")
+    #expect(restored.remoteFeedPath == "base/Saved Feed/feed.xml")
+    #expect(restored.remoteMediaPath("id") == "base/Saved Feed/audio/id.m4a")
+    #expect(restored.publicFeedURL?.absoluteString == "https://public.example/show/feed.xml")
+    #expect(restored.publicAudioBaseURL?.absoluteString == "https://public.example/show/audio/")
+    let data = try JSONEncoder().encode(restored)
+    #expect(try JSONDecoder().decode(DeliverySettings.self, from: data) == restored)
+    let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    for retired in ["webdavURL", "remoteFolder", "mediaFolder", "publicFeedURL", "publicAudioBaseURL"] { #expect(object[retired] == nil) }
+}
+
+@Test func deliveryUploadNowRecoversCredentialsAndPermissionsWithoutSettingsChange() async throws {
+    for failure in [401, 403] {
+        let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+        let storage = try deliveryStorage(root: root)
+        let settings = deliverySettings()
+        let published = try await publishReview(storage: storage, delivery: settings)
+        let transport = FakeWebDAVTransport()
+        transport.statusFor = { method, _ in method == "PUT" ? failure : nil }
+        let coordinator = FixtureCoordinator()
+        let first = try await coordinator.deliverPending(storage: storage, settings: settings,
+            credential: FakeCredentials(password: "old"), transport: transport)
+        #expect(first.failed == 1)
+        transport.statusFor = nil
+        let automatic = try await coordinator.deliverPending(storage: storage, settings: settings,
+            credential: FakeCredentials(password: "corrected"), transport: transport)
+        #expect(automatic.uploadedMedia == 0)
+        let manual = try await coordinator.deliverPending(storage: storage, settings: settings,
+            credential: FakeCredentials(password: "corrected"), transport: transport, force: true)
+        #expect(manual.uploadedMedia == 1 && manual.feedUploaded)
+        let episode = try await coordinator.library(storage: storage).first { $0.id == published.episode.id }
+        #expect(episode?.delivery?.status == .uploaded)
+    }
+}
+
+@Test func deliveryDebugLoggingIsOptInBoundedAndSanitized() async throws {
+    let log = DeliveryDebugLog()
+    log.record(.credentialRead)
+    #expect(log.text.isEmpty)
+    log.enabled = true
+    let transport = FakeWebDAVTransport()
+    transport.statusFor = { _, _ in 403 }
+    let client = try WebDAVClient(transport: LoggingDeliveryTransport(base: transport, log: log),
+        settings: deliverySettings(), credential: FakeCredentials(password: "secret-password"), debugLog: log)
+    do { try await client.testConnection() } catch { log.recordFailure(error) }
+    #expect(log.text.contains("credential read: succeeded") && log.text.contains("PROPFIND HTTP 403"))
+    #expect(log.text.contains("failure: permissions"))
+    for privateValue in ["secret-password", "user@example.com", "webdav.example", "Authorization", "Basic ", "remote.php"] {
+        #expect(!log.text.contains(privateValue))
+    }
+    transport.throwFor = { _, _ in NSError(domain: "secret-password", code: 1, userInfo: [NSLocalizedDescriptionKey: "secret-password"]) }
+    transport.statusFor = nil
+    do { try await client.testConnection() } catch { log.recordFailure(error) }
+    #expect(!log.text.contains("secret-password"))
+    for _ in 0..<220 { log.record(.deliveryStarted) }
+    #expect(log.text.split(separator: "\n").count == 200)
+    let retained = log.text
+    log.enabled = false; log.record(.credentialRemoved)
+    #expect(log.text == retained)
+    log.clear(); #expect(log.text.isEmpty)
+}
+
+@Test func deliverySizeHeadersRequireNonnegativeDecimalBytes() {
+    for (text, expected) in [("42", Int64(42)), (" 42\r\n", 42), ("0", 0), ("+42", nil), ("-1", nil), ("", nil), ("42,42", nil), ("1.0", nil), ("9223372036854775808", nil)] {
+        #expect(DeliveryResponse(status: 200, headers: ["cOnTeNt-LeNgTh": text]).contentLength == expected)
+    }
+}
+
+@Test func deliveryVerifiesDAVFileSizeWhenHEADCannotConfirm() async throws {
+    let path = "/remote.php/dav/files/user/Podcast Feed/feed.xml"
+    for headers in [[:], ["Content-Length": "wrong"], ["Content-Length": "1"], ["Content-Length": "-1"]] {
+        let transport = FakeWebDAVTransport(); transport.headHeaders[path] = headers
+        let log = DeliveryDebugLog(); log.enabled = true
+        let client = try WebDAVClient(transport: LoggingDeliveryTransport(base: transport, log: log),
+            settings: deliverySettings(), credential: FakeCredentials(password: "private-secret"), debugLog: log)
+        try await client.uploadData(Data("fixture-feed".utf8), remotePath: deliverySettings().remoteFeedPath)
+        #expect(transport.methods == ["PUT", "HEAD", "PROPFIND"])
+        #expect(transport.recordedCalls.last?.depth == "0" && transport.recordedCalls.last?.directory == false)
+        #expect(transport.recordedCalls.filter { $0.method != "PUT" }.allSatisfy { $0.encoding == "identity" })
+        #expect(log.text.contains("upload size check: PROPFIND matched"))
+        for secret in ["private-secret", "Podcast Feed", "user@example.com", "webdav.example"] { #expect(!log.text.contains(secret)) }
+    }
+    for unsupported in [405, 501] {
+        let transport = FakeWebDAVTransport(); transport.statusFor = { method, _ in method == "HEAD" ? unsupported : nil }
+        try await WebDAVClient(transport: transport, settings: deliverySettings(), credential: FakeCredentials(password: "pw"))
+            .uploadData(Data("fixture".utf8), remotePath: deliverySettings().remoteFeedPath)
+        #expect(transport.methods == ["PUT", "HEAD", "PROPFIND"])
+    }
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let file = root.appendingPathComponent("fixture.m4a"); try Files.write(Data(repeating: 1, count: 1234), to: file)
+    let transport = FakeWebDAVTransport()
+    transport.headHeaders["/remote.php/dav/files/user/Podcast Feed/audio/opaque.m4a"] = [:]
+    try await WebDAVClient(transport: transport, settings: deliverySettings(), credential: FakeCredentials(password: "pw"))
+        .uploadFile(file, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/opaque.m4a")
+    #expect(transport.methods == ["PUT", "HEAD", "PROPFIND"] && transport.recordedCalls.first?.bytes == 1234)
+}
+
+@Test func deliveryRejectsUntrustedDAVFileSizesWithoutAcceptingXMLBodyLength() async throws {
+    let path = "/remote.php/dav/files/user/Podcast Feed/feed.xml"
+    let encoded = "/remote.php/dav/files/user/Podcast%20Feed/feed.xml"
+    func response(href: String = "/remote.php/dav/files/user/Podcast%20Feed/feed.xml", length: String = "8",
+                  status: String = "HTTP/1.1 200 OK", type: String = "") -> String {
+        "<d:response><d:href>\(href)</d:href><d:propstat><d:prop><d:getcontentlength>\(length)</d:getcontentlength><d:resourcetype>\(type)</d:resourcetype></d:prop><d:status>\(status)</d:status></d:propstat></d:response>"
+    }
+    func document(_ responses: String, namespace: String = "DAV:") -> Data {
+        Data("<d:multistatus xmlns:d=\"\(namespace)\">\(responses)</d:multistatus>".utf8)
+    }
+    let good = document(response())
+    let invalid = [Data(), Data("not XML".utf8), document(response(length: "7")),
+        document(response(length: "-1")), document(response(length: "9223372036854775808")), document(response(length: "8x")),
+        document(response(status: "HTTP/1.1 404 Not Found")), document(response(status: "invalid 200 status")),
+        document(response(href: "/different/feed.xml")), document(response(href: "https://other.example\(encoded)")),
+        document(response(href: encoded + "?query=1")), document(response(type: "<d:collection/>")),
+        document(response(href: encoded + "/")), document(response(length: "")),
+        document(response(), namespace: "not-DAV"), document(response() + response()),
+        document(response(length: "8</d:getcontentlength><d:getcontentlength>8")),
+        Data(("<!DOCTYPE d:multistatus [<!ENTITY secret '8'>]>" + String(decoding: good, as: UTF8.self)).utf8)]
+    for body in invalid {
+        let transport = FakeWebDAVTransport(); transport.headHeaders[path] = [:]
+        transport.propfindBodyFor = { _ in body }
+        let client = try WebDAVClient(transport: transport, settings: deliverySettings(), credential: FakeCredentials(password: "pw"))
+        await #expect(throws: DeliveryError.fatal(DeliveryError.verificationNotice)) {
+            try await client.uploadData(Data("12345678".utf8), remotePath: deliverySettings().remoteFeedPath)
+        }
+    }
+    for body in [good, document(response(length: " 8\n")), document(response(href: "feed.xml")),
+        document("<d:response><d:href>\(encoded)</d:href><d:propstat><d:prop><d:getcontentlength>8</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat><d:propstat><d:prop><d:resourcetype/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>")] {
+        let transport = FakeWebDAVTransport(); transport.headHeaders[path] = [:]
+        transport.propfindBodyFor = { _ in body }
+        try await WebDAVClient(transport: transport, settings: deliverySettings(), credential: FakeCredentials(password: "pw"))
+            .uploadData(Data("12345678".utf8), remotePath: deliverySettings().remoteFeedPath)
+        #expect(transport.recordedCalls.last?.authorized == true)
+    }
+    for status in [401, 403, 404, 500, 302] {
+        let transport = FakeWebDAVTransport(); transport.statusFor = { method, _ in method == "HEAD" ? status : nil }
+        await #expect(throws: DeliveryError.self) {
+            try await WebDAVClient(transport: transport, settings: deliverySettings(), credential: FakeCredentials(password: "pw"))
+                .uploadData(Data("12345678".utf8), remotePath: deliverySettings().remoteFeedPath)
+        }
+        #expect(transport.methods == ["PUT", "HEAD"])
+    }
+    let transport = FakeWebDAVTransport(); transport.throwFor = { method, _ in method == "HEAD" ? CancellationError() : nil }
+    await #expect(throws: CancellationError.self) {
+        try await WebDAVClient(transport: transport, settings: deliverySettings(), credential: FakeCredentials(password: "pw"))
+            .uploadData(Data("12345678".utf8), remotePath: deliverySettings().remoteFeedPath)
+    }
+    #expect(transport.methods == ["PUT", "HEAD"])
+}
+
+private final class SessionCredentialFixture: DeliveryCredentialStore, @unchecked Sendable {
+    private let lock = NSLock()
+    var failure: DeliveryError?
+    private(set) var reads = 0, writes = 0, deletes = 0, presenceChecks = 0
+    private var password: String? = "session-secret"
+    func readPassword(username: String, host: String) throws -> String? {
+        try lock.withLock {
+            reads += 1
+            if let failure { throw failure }
+            return password
+        }
+    }
+    func writePassword(_ password: String, username: String, host: String) throws {
+        lock.withLock { writes += 1; self.password = password }
+    }
+    func deletePassword(username: String, host: String) throws { lock.withLock { deletes += 1; password = nil } }
+    func hasPassword(username: String, host: String) throws -> Bool {
+        lock.withLock { presenceChecks += 1; return password != nil }
+    }
+}
+
+@Test func deliveryCredentialSessionCoalescesConcurrentReadsAndNeverQueriesStatus() async throws {
+    let base = SessionCredentialFixture()
+    let log = DeliveryDebugLog(); log.enabled = true
+    let session = SessionDeliveryCredentialStore(base: base, debugLog: log)
+    #expect(session.presence(username: "user", host: "host") == .unchecked)
+    #expect(try !session.hasPassword(username: "user", host: "host"))
+    try await withThrowingTaskGroup(of: String?.self) { group in
+        for _ in 0..<24 { group.addTask { try session.readPassword(username: " user\n", host: "HOST") } }
+        for try await password in group { #expect(password == "session-secret") }
+    }
+    #expect(base.reads == 1 && base.presenceChecks == 0)
+    #expect(session.presence(username: "user", host: "host") == .stored)
+    session.retryFailedAccess(username: "user", host: "host")
+    #expect(try session.readPassword(username: "user", host: "host") == "session-secret")
+    #expect(base.reads == 1)
+    #expect(log.text.contains("no Keychain query") && !log.text.contains("session-secret"))
+    // Save replaces the session value and never re-reads the keychain.
+    try session.writePassword("new-secret", username: "user", host: "host")
+    try session.writePassword("new-secret", username: "user", host: "host")
+    #expect(try session.readPassword(username: "user", host: "host") == "new-secret")
+    #expect(base.writes == 1 && base.reads == 1)
+    try session.deletePassword(username: "user", host: "host")
+    #expect(session.presence(username: "user", host: "host") == .missing)
+    #expect(try session.readPassword(username: "user", host: "host") == nil)
+    #expect(base.deletes == 1 && base.reads == 1)
+    session.clearSession()
+    #expect(session.presence(username: "user", host: "host") == .unchecked)
+}
+
+@Test func deliveryCredentialDenialDoesNotRepromptUntilExplicitRetry() throws {
+    let base = SessionCredentialFixture()
+    base.failure = .credentialUnavailable("Access cancelled")
+    let session = SessionDeliveryCredentialStore(base: base)
+    for _ in 0..<5 {
+        #expect(throws: DeliveryError.self) { try session.readPassword(username: "user", host: "host") }
+    }
+    #expect(base.reads == 1 && session.presence(username: "user", host: "host") == .unavailable)
+    base.failure = nil
+    session.retryFailedAccess(username: "user", host: "host")
+    #expect(try session.readPassword(username: "user", host: "host") == "session-secret")
+    #expect(base.reads == 2)
+    _ = try session.readPassword(username: "other", host: "host")
+    #expect(base.reads == 3) // different credentials never inherit a cached secret
+}
+
+#if canImport(Security)
+@Test func deliveryProtectedKeychainPolicyUsesLocalDataProtectionWithoutLegacyFallback() throws {
+    let query = KeychainCredentialStore().base(" user\n", "HOST")
+    #expect(query[kSecUseDataProtectionKeychain as String] as? Bool == true)
+    #expect(query[kSecAttrSynchronizable as String] as? Bool == false)
+    #expect(query[kSecAttrAccount as String] as? String == "host:user")
+    // In-memory policy construction only: no item, prompt, biometric or Keychain access.
+    _ = try KeychainCredentialStore.accessControl()
+}
+#endif
+
+@Test func deliveryDestinationChangesPreserveOldCopiesAndDoNotForwardDeletes() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    var settings = deliverySettings()
+    let coordinator = FixtureCoordinator()
+    let retiring = try await publishReview("retiring-copy", storage: storage, delivery: settings)
+    let retained = try await publishReview("retained-copy", storage: storage, delivery: settings)
+    let old = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "pw"), transport: old)
+    _ = try await coordinator.removeSavedAudio(ids: [retiring.episode.id], storage: storage)
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).pendingRemoteDeletes.count == 1)
+    settings.feedFolderURL = URL(string: "https://new.example/podcast/")
+    let fresh = FakeWebDAVTransport()
+    let drain = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "pw"), transport: fresh)
+    #expect(drain.uploadedMedia == 1 && drain.feedUploaded && drain.remoteDeletes == 0)
+    #expect(!fresh.methods.contains("DELETE"))
+    #expect(old.objectLength("/" + deliverySettings().remoteMediaPath(retiring.episode.id)) != nil)
+    #expect(old.objectLength("/" + deliverySettings().remoteMediaPath(retained.episode.id)) != nil)
+    let feed = String(decoding: try #require(fresh.body("/podcast/feed.xml")), as: UTF8.self)
+    #expect(feed.contains("/audio/\(retained.episode.id).m4a") && !feed.contains(retiring.episode.id))
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).pendingRemoteDeletes.isEmpty)
+    // A public-folder-only change refreshes feed links without uploading unchanged audio.
+    settings.publicFolderURL = URL(string: "https://public.example/new-show/")
+    let mapping = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "pw"), transport: fresh)
+    #expect(mapping.uploadedMedia == 0 && mapping.feedUploaded)
+    let remapped = String(decoding: try #require(fresh.body("/podcast/feed.xml")), as: UTF8.self)
+    #expect(remapped.contains("https://public.example/new-show/feed.xml"))
+    #expect(remapped.contains("https://public.example/new-show/audio/\(retained.episode.id).m4a"))
+}
+
+@Test func episodeArtworkSurvivesPublicationAndAppearsInLocalAndRemoteRSS() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let url = URL(string: "https://articles.example/artwork-story")!
+    let html = String(decoding: try FixtureResource.html(), as: UTF8.self).replacingOccurrences(of: "</head>",
+        with: "<meta property='og:image' content='https://images.example/preview.jpg?a=1&amp;b=2'><meta property='og:site_name' content='Synthetic News'></head>")
+    let page = FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
+        contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
+    let review = try ReviewedSource.prepare(page, chunkLimit: 1800)
+    let settings = deliverySettings()
+    let result = try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: review,
+        backend: DeliveryTestBackend(), storage: storage, delivery: settings)
+    #expect(result.episode.artworkURL?.absoluteString == "https://images.example/preview.jpg?a=1&b=2")
+    #expect(result.narration.chunks.first?.text.contains("Source: Synthetic News.") == true)
+    #expect(result.narration.chunks.last?.text == "End of article.")
+    let image = "<itunes:image href=\"https://images.example/preview.jpg?a=1&amp;b=2\"/>"
+    #expect(try String(contentsOf: result.feedURL, encoding: .utf8).contains(image))
+    let transport = FakeWebDAVTransport()
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "pw"), transport: transport)
+    let feed = try #require(transport.body("/" + settings.remoteFeedPath))
+    #expect(String(decoding: feed, as: UTF8.self).contains(image))
+    #expect(XMLParser(data: feed).parse())
+    var episode = try #require(await FixtureCoordinator().library(storage: storage).first)
+    episode.artworkURL = URL(string: "https://user:secret@images.example/private.jpg")
+    let noArt = try RSS.renderRemote([episode], channel: RemoteChannel(settings: settings))
+    #expect(!String(decoding: noArt, as: UTF8.self).contains("itunes:image"))
+    var old = try #require(JSONSerialization.jsonObject(with: Files.json(episode)) as? [String: Any])
+    old.removeValue(forKey: "artworkURL")
+    #expect(try JSONDecoder().decode(Episode.self, from: JSONSerialization.data(withJSONObject: old)).artworkURL == nil)
+}

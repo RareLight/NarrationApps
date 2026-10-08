@@ -22,21 +22,22 @@ public enum ToolRunner {
         let handle = try FileHandle(forWritingTo: output); defer { try? handle.close() }
         let process = Process(); process.executableURL = executable; process.arguments = arguments
         process.standardInput = FileHandle.nullDevice; process.standardOutput = handle; process.standardError = FileHandle.nullDevice
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
         do { try process.run() } catch { throw RelayError.tool("Audio tool could not start.") }
         func stop() {
             if process.isRunning { process.terminate() }
             let deadline = Date().addingTimeInterval(0.5)
-            while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+            while process.isRunning && Date() < deadline { _ = finished.wait(timeout: .now() + 0.01) }
             if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-            process.waitUntilExit()
+            while process.isRunning { _ = finished.wait(timeout: .now() + 0.01) }
         }
         let deadline = Date().addingTimeInterval(TimeInterval(timeout))
         while process.isRunning {
             if Task.isCancelled { stop(); throw CancellationError() }
             if Date() >= deadline { stop(); throw RelayError.tool("Audio tool exceeded its configured deadline.") }
-            Thread.sleep(forTimeInterval: 0.02)
+            _ = finished.wait(timeout: .now() + 0.02)
         }
-        process.waitUntilExit()
         guard process.terminationStatus == 0 else { throw RelayError.tool("Audio tool failed. Private artifacts are retained for inspection.") }
         let size = (try output.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0
         guard size <= 4_194_304 else { throw RelayError.tool("Audio tool output exceeded the inspection limit.") }

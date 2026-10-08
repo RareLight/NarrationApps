@@ -25,6 +25,11 @@ See [implementation sequence](docs/IMPLEMENTATION_PLAN.md),
 project. Historical Python code, customized configuration and published data are
 preserved in their original locations.
 
+Single-worker processing overlaps chunk validation and article encoding with
+inference, with one resident helper and at most two articles in flight. Debug
+logging in Troubleshooting includes sanitized stage timings. For throughput,
+Stop/Quit and listening checks, see the [pipeline guide](docs/KOKORO_PROVIDER.md#october-7-bounded-single-worker-optimization).
+
 ## Xcode and app use
 
 Requires macOS 27.0+, Xcode with the macOS 27 SDK (Swift 6.2+), ffmpeg/ffprobe and
@@ -37,9 +42,14 @@ focuses the corresponding standalone window, which enables the Dock icon and
 window's sidebar switches between **Articles**, **Queue** and **Saved Audio**.
 Closing the last standalone window returns to menu-bar-only operation.
 
-1. In **Settings… → General → Speech**, choose a voice and speed. Defaults are Heart and
-   1.0×. Choices save automatically. Audio defaults are mono 24 kHz AAC-LC at
-   64k, −16 LUFS, 0.15-second chunk gaps and 1,800-character narration chunks.
+1. In **Settings… → General → Speech**, choose Language & Region, then a voice and
+   speed. Defaults are US English, Heart and 1.0×. The menu shows ten US or eight
+   UK voices ordered by upstream quality grade; changing region picks its
+   highest-rated voice. Choices save automatically. Audio defaults are mono 24 kHz AAC-LC at
+   96k, original levels/dynamics without normalization or DRC, 0.15-second chunk
+   gaps and 1,800-character narration chunks. Processing uses floating-point
+   intermediates. Existing finalized audio is preserved; unfinished app work
+   adopts the encoding policy while retaining reusable speech chunks.
 2. In **Settings… → General → Storage**, click **Choose…** (or **Change…** if
    already set) and select or create the folder where finished audio is saved.
    This is the only output-location control. The folder choice is remembered.
@@ -54,8 +64,9 @@ Closing the last standalone window returns to menu-bar-only operation.
    or opening the app never downloads or starts inference.
 3. Choose **Articles** in the status menu. Pick the source once under
    **Settings → General → Reading List**; VoiceRelay then re-reads it
-   automatically while the app runs — there is no Refresh control. Discovery is
-   read-only;
+   at startup and every five minutes while the app runs. Pull down in Articles
+   to check immediately; opening Articles also checks the source. Troubleshooting
+   shows the last successful check and any source error. Discovery is read-only;
    entries persist across relaunch. Selecting entries does not fetch their pages.
 4. Select one or several entries (⌘-click or Shift-click), then click **Add to
    Queue** in the toolbar. Selected rows immediately show a *Preparing…* pending
@@ -67,9 +78,26 @@ Closing the last standalone window returns to menu-bar-only operation.
    Double-click an entry (or use its **Preview Article** menu) to open its page
    in the Article Preview window. **Settings → Troubleshooting** shows the
    Reading List source, its status and diagnostics only.
+   Newly generated narration starts with the article title and source and ends
+   with a separate **End of article.** paragraph. Existing finalized audio is
+   preserved. Article Open Graph/Twitter preview metadata supplies optional
+   episode artwork; absent images never block processing. Publisher image URLs
+   appear in RSS as `itunes:image`, without downloading or embedding the image.
+   Current Overcast supports episode artwork on podcast screens and during
+   playback (since 2025.11.1); playlists/widgets keep podcast-level identity.
+   See [Overcast's release notes](https://apps.apple.com/us/app/overcast-podcast-app/id888422857)
+   and the [Open Graph protocol](https://ogp.me/). Artwork availability, sizing
+   and persistence depend on the publisher and player.
 5. Open **Saved Audio** — it updates automatically — and click
    **Show in Finder** on a row to listen with Quick Look (Space) or Finder
-   double-click. A row's × deletes that audio file and retires it from
+   double-click. Each row shows the audio's duration and file size.
+   Delivery labels show **Not uploaded**, **Awaiting upload**, **Uploaded ·
+   awaiting publication**, **Published**, or **Upload failed**. Published confirms
+   both the audio copy and its inclusion in the server feed. With publishing
+   enabled, **Upload New Items** appears while shown items still need delivery;
+   it remains available for retry after failure and hides once publication is
+   confirmed. Automatic delivery continues to work as before.
+   A row's × deletes that audio file and retires it from
    the local feed; selecting two or more rows switches the pane control to
    **Remove Selections**, and zero or one shows **Reset Saved Audio…**, the only
    confirmed action, which deletes every shown file. Saved article text and
@@ -110,9 +138,23 @@ Closing the last standalone window returns to menu-bar-only operation.
    retained for resume. Queue and source inventory use the same internal native
    database.
 
-Fully automatic FIFO discovery/enqueue/processing is planned as a future opt-in
-mode that stays within the running app's lifetime. This build processes only
-explicit additions and starts speech only when requested.
+Provider-specific setup details are omitted. The provider's published website root can differ from its WebDAV root; map both URLs to the same feed and media files using the provider's instructions.
+
+   **Troubleshooting → Enable debug logging** captures up to 200 delivery events
+   in memory for the current app session. **Copy Debug Log** copies the captured
+   events; **Clear Log** discards them. Logging defaults off; the toggle persists,
+   while events do not. Disabling stops new recording and retains existing events
+   until cleared or Quit. Events include request methods, HTTP codes and fixed
+   failure categories, never passwords, usernames, URLs, paths, article content,
+   authorization headers or server bodies.
+
+While the app is running, new Reading List entries are automatically admitted
+and the ready queue is processed without further clicks — set-and-forget
+operation. Manual Add to Queue/Generate/Retry remain as overrides. **Stop
+Generating** still interrupts the current item and suspends automatic
+processing until new work arrives or Generate is pressed; failed rows stay for
+explicit Retry and are never silently retried forever. Relaunch re-readies any
+interrupted item when automation is enabled.
 
 Only finished opaque UUID-named M4A files go in the chosen audio folder. A hidden,
 transient audio-only file in that folder provides atomic publication on the same
@@ -142,9 +184,9 @@ Processing and retention are owned by the running app itself, bound to its
 lifetime. Closing the status menu or a standalone window keeps current work
 running; **Quit** cancels and waits for owned work — that is the stop control,
 through either the menu's **Quit VoiceRelay** or standard macOS Quit. Relaunch restores
-durable state but starts no speech until an explicit action. No worker is
-enrolled, no source is processed automatically, no live state is adopted and no
-feed is uploaded.
+durable state and resumes owned work. No worker is
+enrolled, no live state is adopted, and no feed is uploaded unless delivery is
+deliberately configured and enabled in Settings.
 
 The bundle still contains an inactive `VoiceRelayAgent` prototype and its
 versioned XPC contract as reference material. Nothing registers, launches or
@@ -161,8 +203,12 @@ swift build -c release
 ./scripts/build-app.sh release
 ```
 
-The optional build script packages an ad hoc signed app with resources and
-acknowledgements. Xcode builds its own app bundle directly. Both use the same
+The optional build script builds through Xcode and copies its signed bundle to
+`dist/VoiceRelay.app`, preserving resources, acknowledgements, Keychain
+entitlements and the matching provisioning profile. It requires development
+signing configured in Xcode. Set `VOICERELAY_SIGNING_IDENTITY` to a specific
+identity if needed; ad hoc signing cannot validate protected Keychain access.
+Xcode also builds its app bundle directly. Both use the same
 shared core and provisional `org.voicerelay.prototype` identity. Quit the previous
 app before running another copy. Canvas, GUI, speech/listening and final-context
 checks are operator-owned; compilation does not establish those gates.

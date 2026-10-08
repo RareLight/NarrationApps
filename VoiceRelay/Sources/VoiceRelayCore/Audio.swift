@@ -1,10 +1,20 @@
 import Foundation
 import Darwin
 
-struct AudioProcessor {
+struct AudioProcessor: Sendable {
+    static let encodingVersion = "float32-unprocessed-aac-1"
     let settings: PrototypeProfile
     let toolDirectory: URL
+    private let inspection = AudioInspectionCache()
+    private let diagnostics: SpeechDiagnostics
+    init(settings: PrototypeProfile, toolDirectory: URL, diagnostics: SpeechDiagnostics = SpeechDiagnostics(log: nil)) {
+        self.settings = settings; self.toolDirectory = toolDirectory; self.diagnostics = diagnostics
+    }
     func probe(_ url: URL, final: Bool) throws -> AudioInfo {
+        try Task.checkCancellation()
+        if !final, let wave = try FloatWave.inspect(url) { return wave.info }
+        let hash = final ? try Files.hash(url) : nil
+        if let hash, let cached = inspection.info(hash) { return cached }
         let data = try ToolRunner.run(settings.ffprobe,
             ["-v", "error", "-show_streams", "-show_format", "-of", "json", url.path],
             timeout: settings.toolTimeoutSeconds, directory: toolDirectory)
@@ -29,17 +39,24 @@ struct AudioProcessor {
                 throw RelayError.artifact("Backend audio must be lossless PCM, FLAC, or ALAC.")
             }
         }
-        return AudioInfo(duration: duration, byteLength: Int64(size), sampleRate: rate, channels: channels, codec: codec)
+        let info = AudioInfo(duration: duration, byteLength: Int64(size), sampleRate: rate, channels: channels, codec: codec)
+        if let hash { inspection.save(info, hash: hash) }
+        return info
     }
     func decode(_ url: URL) throws {
+        try Task.checkCancellation()
+        if let wave = try FloatWave.inspect(url) { try wave.stream(); return }
+        let hash = try Files.hash(url)
+        if inspection.isDecoded(hash) { return }
         _ = try ToolRunner.run(settings.ffmpeg,
             ["-nostdin", "-v", "error", "-xerror", "-i", url.path, "-map", "0:a:0", "-f", "null", "-"],
             timeout: settings.toolTimeoutSeconds, directory: toolDirectory)
+        inspection.markDecoded(hash)
     }
     func validate(_ result: SynthesisResult, within directory: URL) throws {
         guard !result.artifacts.isEmpty else { throw RelayError.artifact("Backend returned no lossless artifacts.") }
         for a in result.artifacts {
-            guard Files.contains(directory, a.url) else { throw RelayError.artifact("Backend output escaped its private chunk directory.") }
+            guard Files.contains(directory, a.url), !Files.hasSymlink(a.url, below: directory) else { throw RelayError.artifact("Backend output escaped its private chunk directory.") }
             let actual = try probe(a.url, final: false)
             guard actual.channels == a.channels, actual.sampleRate == a.sampleRate else {
                 throw RelayError.artifact("Lossless artifact metadata does not match the backend result.")
@@ -49,30 +66,42 @@ struct AudioProcessor {
     }
     func encode(_ artifacts: [LosslessArtifact], in directory: URL) throws -> (URL, AudioInfo) {
         guard !artifacts.isEmpty else { throw RelayError.artifact("No lossless audio to encode.") }
+        let assemblyStart = ProcessInfo.processInfo.systemUptime
         let combined = directory.appendingPathComponent("combined.pcm")
         try Files.write(Data(), to: combined)
         let output = try FileHandle(forWritingTo: combined); defer { try? output.close() }
         for (index, artifact) in artifacts.enumerated() {
             try Task.checkCancellation()
-            let pcm = directory.appendingPathComponent("pcm-\(index).raw")
-            _ = try ToolRunner.run(settings.ffmpeg,
-                ["-nostdin", "-v", "error", "-y", "-xerror", "-i", artifact.url.path, "-map", "0:a:0", "-vn", "-map_metadata", "-1", "-ac", "1", "-ar", String(settings.sampleRate), "-c:a", "pcm_s16le", "-f", "s16le", pcm.path],
-                timeout: settings.toolTimeoutSeconds, directory: toolDirectory)
-            let input = try FileHandle(forReadingFrom: pcm)
-            defer { try? input.close() }
-            while let data = try input.read(upToCount: 65_536), !data.isEmpty { try output.write(contentsOf: data) }
+            if let wave = try FloatWave.inspect(artifact.url), wave.channels == 1, wave.rate == settings.sampleRate {
+                try wave.stream(to: output)
+            } else {
+                let pcm = directory.appendingPathComponent("pcm-\(index).raw")
+                _ = try ToolRunner.run(settings.ffmpeg,
+                    ["-nostdin", "-v", "error", "-y", "-xerror", "-i", artifact.url.path, "-map", "0:a:0", "-vn", "-map_metadata", "-1", "-ac", "1", "-ar", String(settings.sampleRate), "-c:a", "pcm_f32le", "-f", "f32le", pcm.path],
+                    timeout: settings.toolTimeoutSeconds, directory: toolDirectory)
+                let input = try FileHandle(forReadingFrom: pcm)
+                defer { try? input.close() }
+                while let data = try input.read(upToCount: 65_536), !data.isEmpty { try output.write(contentsOf: data) }
+            }
             if index < artifacts.count - 1 {
-                try output.write(contentsOf: Data(repeating: 0, count: Int(Double(settings.sampleRate) * settings.gapSeconds) * 2))
+                try output.write(contentsOf: Data(repeating: 0, count: Int(Double(settings.sampleRate) * settings.gapSeconds) * 4))
             }
         }
         try output.synchronize(); try output.close()
+        diagnostics.record(.pcmAssembly, seconds: ProcessInfo.processInfo.systemUptime - assemblyStart)
         let partial = directory.appendingPathComponent("episode.partial.m4a")
-        _ = try ToolRunner.run(settings.ffmpeg,
-            ["-nostdin", "-v", "error", "-y", "-xerror", "-f", "s16le", "-ar", String(settings.sampleRate), "-ac", "1", "-i", combined.path,
-             "-map", "0:a:0", "-vn", "-map_metadata", "-1", "-map_chapters", "-1", "-af", "loudnorm=I=\(settings.loudnessLUFS):TP=-1.5:LRA=11",
+        let encodingStart = ProcessInfo.processInfo.systemUptime
+        _ = try diagnostics.measure(.encoding) { try ToolRunner.run(settings.ffmpeg,
+            ["-nostdin", "-v", "error", "-y", "-xerror", "-f", "f32le", "-ar", String(settings.sampleRate), "-ac", "1", "-i", combined.path,
+             "-map", "0:a:0", "-vn", "-map_metadata", "-1", "-map_chapters", "-1",
              "-c:a", "aac", "-profile:a", "aac_low", "-b:a", settings.bitrate, "-ac", "1", "-ar", String(settings.sampleRate), "-movflags", "+faststart", partial.path],
             timeout: settings.toolTimeoutSeconds, directory: toolDirectory)
-        let info = try probe(partial, final: true); try decode(partial)
+        }
+        let encodingSeconds = ProcessInfo.processInfo.systemUptime - encodingStart
+        let info = try diagnostics.measure(.validation) {
+            let info = try probe(partial, final: true); try decode(partial); return info
+        }
+        diagnostics.recordEncoding(seconds: encodingSeconds, audioDuration: info.duration)
         let complete = directory.appendingPathComponent("episode.m4a")
         try Files.write(try Data(contentsOf: partial), to: complete)
         try? FileManager.default.removeItem(at: partial)

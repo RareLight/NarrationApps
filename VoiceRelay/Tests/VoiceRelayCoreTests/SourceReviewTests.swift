@@ -97,9 +97,9 @@ private final class SourceReviewProtocol: URLProtocol, @unchecked Sendable {
         let article = SemanticArticle(title: "Synthetic", originalURL: sourcePage(html).originalURL, finalURL: sourcePage(html).finalURL,
             canonicalURL: nil, author: nil, blocks: blocks, warnings: [], extractorVersion: ArticleExtractor.version)
         let plan = try Narration.prepare(article, limit: 500)
-        #expect(plan.chunks.map(\.text) == ["Keep 2026 and ordinary wording.", "Footnote:", "First note paragraph with an apostrophe: isn’t.",
+        #expect(plan.chunks.filter { !$0.blockIndices.isEmpty }.map(\.text) == ["Keep 2026 and ordinary wording.", "Footnote:", "First note paragraph with an apostrophe: isn’t.",
             "Second note paragraph.", "End Footnote", "Continue here."])
-        #expect(plan.chunks[1].blockIndices == [0, 2, 3] && plan.chunks[2].blockIndices == [2])
+        #expect(plan.chunks.filter { !$0.blockIndices.isEmpty }[1].blockIndices == [0, 2, 3] && plan.chunks.filter { !$0.blockIndices.isEmpty }[2].blockIndices == [2])
         #expect(!plan.chunks.map(\.text).joined().contains("↩"))
     }
 
@@ -216,6 +216,37 @@ private final class SourceReviewProtocol: URLProtocol, @unchecked Sendable {
         #expect(ReadingList.date(Double.infinity) == nil)
         #expect(ReadingList.date("2001-01-01T00:00:01Z") == Date(timeIntervalSinceReferenceDate: 1))
         #expect(ReadingList.date("2001-01-01T00:00:01.500Z") == Date(timeIntervalSinceReferenceDate: 1.5))
+    }
+
+    @Test func readingListNewestFirstUpdatesAfterRefreshAndCatalogReload() throws {
+        func entry(_ id: String, saved: TimeInterval) -> ReadingListEntry {
+            ReadingListEntry(id: id, safariID: id, url: URL(string: "https://articles.example/\(id)")!,
+                             title: id, addedAt: Date(timeIntervalSinceReferenceDate: saved))
+        }
+        let oldest = entry("oldest", saved: 1), middle = entry("middle", saved: 2), newest = entry("newest", saved: 3)
+        var catalog = ReadingListCatalog()
+        catalog.reconcile(ReadingListSnapshot(entries: [oldest, middle], skippedEntries: 0))
+        #expect(catalog.newestFirstEntries.map(\.id) == ["middle", "oldest"])
+        catalog.reconcile(ReadingListSnapshot(entries: [oldest, middle, newest], skippedEntries: 0))
+        #expect(catalog.newestFirstEntries.map(\.id) == ["newest", "middle", "oldest"])
+        #expect(catalog.entries.map(\.id) == ["oldest", "middle", "newest"])
+        let reloaded = try JSONDecoder().decode(ReadingListCatalog.self, from: JSONEncoder().encode(catalog))
+        #expect(reloaded.newestFirstEntries == catalog.newestFirstEntries)
+        // Reconciliation can correct a saved date and retains entries absent from the latest read.
+        catalog.reconcile(ReadingListSnapshot(entries: [entry("oldest", saved: 4)], skippedEntries: 0))
+        #expect(catalog.newestFirstEntries.map(\.id) == ["oldest", "newest", "middle"])
+    }
+
+    @Test func readingListNewestFirstKeepsEqualAndMissingDatesStable() {
+        let entries = ["undated-one", "dated-one", "undated-two", "dated-two"].map { id in
+            ReadingListEntry(id: id, safariID: id, url: URL(string: "https://articles.example/\(id)")!,
+                             title: id, addedAt: id.hasPrefix("undated") ? nil : Date(timeIntervalSinceReferenceDate: 1))
+        }
+        var catalog = ReadingListCatalog()
+        #expect(catalog.newestFirstEntries.isEmpty)
+        catalog.reconcile(ReadingListSnapshot(entries: entries, skippedEntries: 0))
+        #expect(catalog.newestFirstEntries.map(\.id) == ["dated-one", "dated-two", "undated-one", "undated-two"])
+        #expect(catalog.entries == entries)
     }
 
     @Test func readingListReadDoesNotMutateAndFailuresRetainInventory() throws {
@@ -392,4 +423,44 @@ private final class SourceReviewProtocol: URLProtocol, @unchecked Sendable {
         let manifest = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: folder.appendingPathComponent("response.json"))) as? [String: Any])
         #expect(manifest["issue"] as? String == "extraction")
     }
+}
+
+@Test func articlePreviewMetadataUsesStandardsWithoutFetchingImages() throws {
+    let body = String(decoding: try FixtureResource.html(), as: UTF8.self)
+    let base = URL(string: "https://articles.example/path/article")!
+    let cases: [(String, String?)] = [
+        ("<meta property='og:image' content='/images/share.jpg?size=large&amp;v=2'>", "https://articles.example/images/share.jpg?size=large&v=2"),
+        ("<meta property='og:image' content='http://images.example/insecure.jpg'><meta property='og:image:secure_url' content='https://images.example/secure.jpg'>", "https://images.example/secure.jpg"),
+        ("<meta name='twitter:image' content='../card.png'>", "https://articles.example/card.png"),
+        ("<meta property='og:image' content='https://user:password@images.example/private.jpg'><meta name='twitter:image:src' content='//images.example/public.jpg'>", "https://images.example/public.jpg"),
+        ("<meta property='og:image' content='data:image/png;base64,abcd'><meta property='og:image' content='file:///private/image.png'>", nil),
+        ("", nil)
+    ]
+    for (meta, expected) in cases {
+        let html = body.replacingOccurrences(of: "</head>", with: "<meta property='og:site_name' content='Synthetic &amp; Source'>" + meta + "</head>")
+        let document = try ArticleExtractor.extract(html: html, originalURL: base, finalURL: base)
+        #expect(document.article.previewImageURL?.absoluteString == expected)
+        #expect(document.article.sourceName == "Synthetic & Source")
+        let decoded = try JSONDecoder().decode(SemanticArticle.self, from: Files.json(document.article))
+        #expect(decoded == document.article)
+    }
+}
+
+@Test func narrationAddsTitleSourceAndSeparateEndParagraphWithBoundedProvenance() throws {
+    let url = URL(string: "https://articles.example/story")!
+    let article = SemanticArticle(title: "A title?", originalURL: url, finalURL: url, canonicalURL: nil,
+        author: nil, blocks: [ContentBlock(kind: .paragraph, text: "Original first paragraph."), ContentBlock(kind: .paragraph, text: "Original final paragraph.")],
+        warnings: [], extractorVersion: ArticleExtractor.version, sourceName: "Synthetic News")
+    let plan = try Narration.prepare(article, limit: 1800)
+    #expect(plan.chunks.map(\.text) == ["A title? Source: Synthetic News.", "Original first paragraph.", "Original final paragraph.", "End of article."])
+    #expect(plan.chunks.map(\.blockIndices) == [[], [0], [1], []])
+    #expect(plan.chunks.map(\.index) == [0, 1, 2, 3])
+    var legacy = try #require(JSONSerialization.jsonObject(with: Files.json(article)) as? [String: Any])
+    legacy.removeValue(forKey: "sourceName"); legacy.removeValue(forKey: "previewImageURL")
+    let older = try JSONDecoder().decode(SemanticArticle.self, from: JSONSerialization.data(withJSONObject: legacy))
+    #expect(older.sourceName == nil && older.previewImageURL == nil)
+    #expect(try Narration.prepare(older, limit: 1800).chunks.first?.text == "A title? Source: articles.example.")
+    let bounded = try Narration.prepare(article, limit: 8)
+    #expect(bounded.chunks.allSatisfy { $0.text.count <= 8 })
+    #expect(article.blocks.map(\.text) == ["Original first paragraph.", "Original final paragraph."])
 }

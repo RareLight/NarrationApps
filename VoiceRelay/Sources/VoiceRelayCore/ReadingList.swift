@@ -29,7 +29,19 @@ public struct ReadingListCatalog: Codable, Sendable {
     /// saved reconcile clears it.
     public var excludedIDs: Set<String> = []
     public init() {}
-    /// Multi-selection retains displayed inventory order.
+    /// Articles display saved dates newest first without changing durable discovery order.
+    /// Equal dates and undated entries retain their inventory order; undated entries go last.
+    public var newestFirstEntries: [ReadingListEntry] {
+        entries.enumerated().sorted { left, right in
+            switch (left.element.addedAt, right.element.addedAt) {
+            case let (leftDate?, rightDate?) where leftDate != rightDate: return leftDate > rightDate
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return left.offset < right.offset
+            }
+        }.map(\.element)
+    }
+    /// Multi-selection retains durable inventory order for core clients.
     public func selectedEntries(_ ids: Set<String>) -> [ReadingListEntry] {
         entries.filter { ids.contains($0.id) }
     }

@@ -48,11 +48,45 @@ private struct SettingKey: CodingKey {
     init?(intValue: Int) { return nil }
 }
 
-public enum SpeechVoice: String, Codable, CaseIterable, Identifiable, Sendable {
-    case heart = "af_heart", bella = "af_bella", emma = "bf_emma"
+/// Regional options supported by the pinned English pronunciation runtime.
+public enum SpeechLanguageRegion: String, CaseIterable, Identifiable, Sendable {
+    case usEnglish = "en-US", ukEnglish = "en-GB"
     public var id: String { rawValue }
     public var label: String {
-        switch self { case .heart: "Heart · American English"; case .bella: "Bella · American English"; case .emma: "Emma · British English" }
+        switch self { case .usEnglish: "English (US)"; case .ukEnglish: "English (UK)" }
+    }
+    /// Upstream VOICES.md overall grades, descending; stable alphabetical ties.
+    /// No per-voice usage statistics are published, so this is not a popularity score.
+    public var voices: [SpeechVoice] {
+        switch self {
+        case .usEnglish: [.heart, .bella, .nicole, .aoede, .fenrir, .kore, .michael, .puck, .sarah, .alloy]
+        case .ukEnglish: [.emma, .fable, .george, .isabella, .lewis, .alice, .daniel, .lily]
+        }
+    }
+}
+
+public enum SpeechVoice: String, Codable, CaseIterable, Identifiable, Sendable {
+    case heart = "af_heart", bella = "af_bella", nicole = "af_nicole"
+    case aoede = "af_aoede", fenrir = "am_fenrir", kore = "af_kore"
+    case michael = "am_michael", puck = "am_puck", sarah = "af_sarah", alloy = "af_alloy"
+    case emma = "bf_emma", fable = "bm_fable", george = "bm_george", isabella = "bf_isabella"
+    case lewis = "bm_lewis", alice = "bf_alice", daniel = "bm_daniel", lily = "bf_lily"
+    public var id: String { rawValue }
+    public var languageRegion: SpeechLanguageRegion { rawValue.hasPrefix("a") ? .usEnglish : .ukEnglish }
+    public var label: String {
+        let name = rawValue.dropFirst(3).capitalized
+        return "\(name) · \(rawValue.dropFirst().hasPrefix("f") ? "Female" : "Male")"
+    }
+    public var qualityGrade: String {
+        switch self {
+        case .heart: "A"
+        case .bella: "A−"
+        case .nicole, .emma: "B−"
+        case .aoede, .fenrir, .kore, .michael, .puck, .sarah: "C+"
+        case .alloy, .fable, .george, .isabella: "C"
+        case .lewis: "D+"
+        case .alice, .daniel, .lily: "D"
+        }
     }
 }
 
@@ -60,6 +94,12 @@ public enum SpeechVoice: String, Codable, CaseIterable, Identifiable, Sendable {
 public struct SpeechPreferences: Codable, Sendable, Equatable {
     public var voice: SpeechVoice
     public var speed: Double
+    /// Deriving the region from the stored voice preserves legacy preferences and
+    /// prevents mismatched language/voice pairs without another persisted field.
+    public var languageRegion: SpeechLanguageRegion {
+        get { voice.languageRegion }
+        set { if newValue != voice.languageRegion { voice = newValue.voices[0] } }
+    }
     public init(voice: SpeechVoice = .heart, speed: Double = 1) { self.voice = voice; self.speed = speed }
     public func validate() throws {
         guard speed.isFinite, (0.75...1.5).contains(speed) else {
@@ -179,8 +219,9 @@ public struct PrototypeProfile: Codable, Sendable, Equatable {
     public var voice: String?
     public var backendSettings: [String: SettingValue] = [:]
     public var chunkMaxCharacters = 1800
-    public var bitrate = "64k"
+    public var bitrate = "96k"
     public var sampleRate = 24000
+    // Retained only for decoding/importing historical profiles; audio never uses it.
     public var loudnessLUFS = -16.0
     public var gapSeconds = 0.15
     public var ffmpeg = "ffmpeg"
@@ -240,9 +281,12 @@ public struct PrototypeProfile: Codable, Sendable, Equatable {
             p.backendSettings = v
         }
         p.chunkMaxCharacters = try integer("chunk_max_chars", 1800)
-        p.bitrate = try string("aac_bitrate", "64k")
+        p.bitrate = try string("aac_bitrate", "96k")
         p.sampleRate = try integer("sample_rate", 24000)
         p.loudnessLUFS = try number("loudness_lufs", -16)
+        if values["loudness_lufs"] != nil {
+            p.compatibilityNotices.append("Legacy loudness settings are retained for diagnostics; native audio preserves its original levels without normalization.")
+        }
         p.gapSeconds = try number("segment_gap_seconds", 0.15)
         p.ffmpeg = try string("ffmpeg", "ffmpeg"); p.ffprobe = try string("ffprobe", "ffprobe")
         p.toolTimeoutSeconds = try integer("tool_timeout_seconds", 1800)
@@ -282,7 +326,7 @@ public struct PrototypeProfile: Codable, Sendable, Equatable {
         _ = try Self.https(feedURL.absoluteString)
         if let webdavURL { _ = try Self.https(webdavURL.absoluteString) }
         guard (100...50_000).contains(chunkMaxCharacters), (8000...48000).contains(sampleRate),
-              (-30 ... -10).contains(loudnessLUFS), (0...5).contains(gapSeconds),
+              (0...5).contains(gapSeconds),
               bitrate.range(of: "^[1-9][0-9]{0,2}k$", options: .regularExpression) != nil,
               toolTimeoutSeconds > 0, httpTimeoutSeconds > 0, maxArticleBytes > 0, minimumFreeBytes >= 0 else {
             throw RelayError.setup("Invalid audio, chunk, storage reserve, or timeout settings.")

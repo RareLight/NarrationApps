@@ -374,8 +374,8 @@ private func agentDiagnosticsRoot() throws -> URL {
 }
 
 @Test @MainActor func settingsSectionsAreDistinctAndInertViewsConstruct() throws {
-    #expect(SettingsSection.allCases == [.general, .troubleshooting])
-    #expect(Set(SettingsSection.allCases.map(\.rawValue)) == ["General", "Troubleshooting"])
+    #expect(SettingsSection.allCases == [.general, .delivery, .troubleshooting])
+    #expect(Set(SettingsSection.allCases.map(\.rawValue)) == ["General", "Delivery", "Troubleshooting"])
     let model = AppModel(preview: true)
     let general = SettingsView(model: model)
     let troubleshooting = SettingsView(model: model, initialSection: .troubleshooting)
@@ -383,10 +383,32 @@ private func agentDiagnosticsRoot() throws -> URL {
     #expect(!model.running && !model.stopping)
 }
 
+@Test @MainActor func regionalVoiceSettingsPersistAndConstructWithoutStartingWork() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let model = AppModel(storage: storage, defaults: defaults)
+    #expect(model.preferences.languageRegion == .usEnglish)
+    model.preferences.languageRegion = .ukEnglish
+    #expect(model.preferences.voice == .emma)
+    model.preferences.voice = .fable
+    let data = try #require(defaults.data(forKey: "speechPreferences"))
+    let saved = try JSONDecoder().decode(SpeechPreferences.self, from: data)
+    #expect(saved.voice == .fable && saved.languageRegion == .ukEnglish)
+    _ = ConfigurationView(model: model).body
+    #expect(!model.running && model.result == nil && !model.deliveryBusy)
+    let previewDefaults = try #require(UserDefaults(suiteName: suite + "-preview"))
+    defer { previewDefaults.removePersistentDomain(forName: suite + "-preview") }
+    let preview = AppModel(preview: true, defaults: previewDefaults)
+    preview.preferences = SpeechPreferences(voice: .george)
+    _ = ConfigurationView(model: preview).body
+    #expect(previewDefaults.data(forKey: "speechPreferences") == nil)
+    await model.shutdown()
+}
+
 @Test @MainActor func settingsPanesShareFixedGlassControlLayout() async throws {
-    #expect(SettingsView.windowWidth == 880 && SettingsView.windowHeight == 680)
-    #expect(SettingsView.paneSelectorWidth == 196 && SettingsView.paneSelectorHeight == 46)
-    #expect(SettingsSection.allCases.map(\.systemImage) == ["gearshape", "stethoscope"])
+    #expect(SettingsView.windowWidth == 400 && SettingsView.windowHeight == 680)
+    #expect(SettingsView.paneSelectorWidth == 292 && SettingsView.paneSelectorHeight == 46)
+    #expect(SettingsSection.allCases.map(\.systemImage) == ["gearshape", "antenna.radiowaves.left.and.right", "stethoscope"])
     let model = AppModel(preview: true)
     _ = SettingsView(model: model)
     _ = SettingsView(model: model, initialSection: .troubleshooting)
@@ -409,6 +431,21 @@ private func agentDiagnosticsRoot() throws -> URL {
     model.error = "Synthetic file-access failure; previous entries retained."
     _ = SourceReviewView(model: model).body
     #expect(model.catalog.entries.count == 2 && !model.busy && !model.persistenceBusy)
+}
+
+@Test @MainActor func articlesSelectionFollowsNewestFirstDisplayOrder() {
+    let model = AppModel(preview: true)
+    let entries = ["oldest", "middle", "newest"].enumerated().map { index, id in
+        ReadingListEntry(id: id, safariID: id, url: URL(string: "https://articles.example/\(id)")!,
+                         title: id, addedAt: Date(timeIntervalSinceReferenceDate: Double(index)))
+    }
+    model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: entries, skippedEntries: 0))
+    model.articleSelection = Set(entries.map(\.id))
+    #expect(model.selectedArticles.map(\.id) == ["newest", "middle", "oldest"])
+    model.articleSelection = ["oldest", "newest"]
+    #expect(model.selectedArticles.map(\.id) == ["newest", "oldest"])
+    _ = ArticlesView(model: model).body
+    #expect(model.sourceReview.catalog.entries == entries && !model.running)
 }
 
 @Test @MainActor func workspaceSectionsAndNativeViewsConstructInertly() async throws {
@@ -953,6 +990,21 @@ private final class CommitProbe: @unchecked Sendable {
     #expect(try await coordinator.queue(stateRoot: storage.stateRoot).isEmpty)
 }
 
+@Test @MainActor func queueRowsResolveOriginalSiteForSavedAndLegacyItems() throws {
+    let model = AppModel(preview: true)
+    let entry = ReadingListEntry(id: "source", safariID: "source", url: URL(string: "https://origin.example/article?private=value")!, title: "Synthetic source", addedAt: nil)
+    model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0))
+    let saved = SpeechQueueItem(id: "00000000-0000-0000-0000-000000000001", title: "Saved", state: .failed,
+                               lastError: "Synthetic error", sourceHost: "saved.example")
+    let legacy = SpeechQueueItem(id: "00000000-0000-0000-0000-000000000002", title: "Legacy", sourceEntryID: entry.id)
+    let unknown = SpeechQueueItem(id: "00000000-0000-0000-0000-000000000003", title: "Unknown")
+    #expect(model.queueOriginHost(saved) == "saved.example" && model.queueOriginHost(legacy) == "origin.example")
+    #expect(model.queueOriginHost(unknown) == nil)
+    model.queueItems = [saved, legacy, unknown]; model.pendingAdds[entry.id] = entry.title
+    _ = QueueView(model: model).body
+    #expect(!model.running && !model.processingSpeech)
+}
+
 @Test @MainActor func selectionManagementControlSwitchesToBulkAboveOneSelection() throws {
     func control(_ count: Int) -> SelectionManagementControl {
         SelectionManagementControl(selectionCount: count, resetTitle: "Reset…", canReset: true, canRemove: true,
@@ -1112,11 +1164,12 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     let model = AppModel(storage: storage, backend: { _ in recorder })
     model.queueItems = [first, second]
     do {
+        // Holding the writer lock across runQueue() keeps the removal in flight without a
+        // wall-clock window: the drain cannot claim work before the mutation commits.
         let holder = try NativeStore(url: storage.profile.database)
         model.changeQueue(first.id, remove: true)
         #expect(model.queueMutationBusy)
         model.runQueue()
-        try await Task.sleep(for: .milliseconds(200))
         #expect(model.running && recorder.synthesized.isEmpty)
         _ = holder
     }
@@ -1159,7 +1212,6 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
         let holder = try NativeStore(url: storage.profile.database)
         model.changeQueue(first.id, remove: true)
         model.runQueue()
-        try await Task.sleep(for: .milliseconds(200))
         #expect(model.running && recorder.synthesized.isEmpty)
         model.stopQueue()
         _ = holder
@@ -1203,18 +1255,18 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
 
 @Test @MainActor func typographyAndSelectorConstantsMeetPresentationFloor() {
     #expect(AppTypography.minimumPointSize >= 12)
-    #expect(SettingsView.paneSelectorWidth == 196 && SettingsView.paneSelectorHeight == 46)
+    #expect(SettingsView.paneSelectorWidth == 292 && SettingsView.paneSelectorHeight == 46)
     #expect(SettingsView.paneSymbolSize == 16 && SettingsView.paneLabelSize >= 12)
-    #expect(SettingsView.windowWidth == 880 && SettingsView.windowHeight == 680)
+    #expect(SettingsView.windowWidth == 400 && SettingsView.windowHeight == 680)
 }
 
 @Test @MainActor func autoSyncWithoutChosenSourceNeverReadsPlist() async throws {
     let (root, _) = try sourceFixture(); defer { try? FileManager.default.removeItem(at: root) }
     let calls = SyncCounter()
-    let model = SourceReviewModel(preview: false, stateRoot: root.appendingPathComponent("state")) { url in
+    let model = SourceReviewModel(preview: false, stateRoot: root.appendingPathComponent("state"), snapshotReader: { url in
         calls.increment()
         return try ReadingList.read(url)
-    }
+    })
     model.startAutomaticSynchronization()
     try await waitForCatalog(model)
     #expect(await model.synchronizeOnce() && calls.value == 0)
@@ -1231,11 +1283,11 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     let calls = SyncCounter()
     let one = ReadingListEntry(id: "safari:one", safariID: "one", url: URL(string: "https://articles.example/one")!, title: "One", addedAt: nil)
     let two = ReadingListEntry(id: "safari:two", safariID: "two", url: URL(string: "https://articles.example/two")!, title: "Two", addedAt: nil)
-    let model = SourceReviewModel(preview: false, stateRoot: root.appendingPathComponent("state"), plist: plist) { url in
+    let model = SourceReviewModel(preview: false, stateRoot: root.appendingPathComponent("state"), plist: plist, snapshotReader: { url in
         #expect(url == plist)
         let index = calls.value; calls.increment()
         return ReadingListSnapshot(entries: index == 0 ? [one, two] : [two], skippedEntries: 0)
-    }
+    })
     try await waitForCatalog(model)
     #expect(await model.synchronizeOnce() && calls.value == 1)
     #expect(model.catalog.currentIDs == [one.id, two.id] && model.error == nil)
@@ -1251,10 +1303,10 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     let mode = SyncCounter()
     let entry = ReadingListEntry(id: "safari:one", safariID: "one", url: URL(string: "https://articles.example/one")!, title: "One", addedAt: nil)
     struct Failed: Error {}
-    let model = SourceReviewModel(preview: false, stateRoot: root.appendingPathComponent("state"), plist: plist) { _ in
+    let model = SourceReviewModel(preview: false, stateRoot: root.appendingPathComponent("state"), plist: plist, snapshotReader: { _ in
         if mode.value == 1 { throw Failed() }
         return ReadingListSnapshot(entries: [entry], skippedEntries: 0)
-    }
+    })
     try await waitForCatalog(model)
     #expect(await model.synchronizeOnce() && model.catalog.currentIDs == [entry.id] && model.error == nil)
     mode.increment()
@@ -1269,11 +1321,11 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
 @Test @MainActor func stopCancelsAndAwaitsOwnedSourceRead() async throws {
     let (root, plist) = try sourceFixture(); defer { try? FileManager.default.removeItem(at: root) }
     let started = SyncCounter()
-    let model = SourceReviewModel(preview: false, stateRoot: root.appendingPathComponent("state"), plist: plist) { _ in
+    let model = SourceReviewModel(preview: false, stateRoot: root.appendingPathComponent("state"), plist: plist, snapshotReader: { _ in
         started.increment()
         try await Task.sleep(for: .seconds(30))
         return ReadingListSnapshot(entries: [], skippedEntries: 0)
-    }
+    })
     try await waitForCatalog(model)
     model.requestSourceSync()
     try await waitUntil("owned reader started") { started.value == 1 }
@@ -1293,7 +1345,7 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     let oldReads = SyncCounter(), newReads = SyncCounter(), release = SyncCounter()
     let old = ReadingListEntry(id: "safari:old", safariID: "old", url: URL(string: "https://articles.example/old")!, title: "Old", addedAt: nil)
     let new = ReadingListEntry(id: "safari:new", safariID: "new", url: URL(string: "https://articles.example/new")!, title: "New", addedAt: nil)
-    let model = SourceReviewModel(preview: false, stateRoot: root.appendingPathComponent("state"), plist: oldPlist) { url in
+    let model = SourceReviewModel(preview: false, stateRoot: root.appendingPathComponent("state"), plist: oldPlist, snapshotReader: { url in
         if url == oldPlist {
             oldReads.increment()
             let deadline = Date().addingTimeInterval(5)
@@ -1305,7 +1357,7 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
         }
         newReads.increment()
         return ReadingListSnapshot(entries: [new], skippedEntries: 0)
-    }
+    })
     try await waitForCatalog(model)
     model.requestSourceSync()
     try await waitUntil("old source read started") { oldReads.value == 1 }
@@ -1322,14 +1374,14 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     let (root, plist) = try sourceFixture(); defer { try? FileManager.default.removeItem(at: root) }
     let calls = SyncCounter(), release = SyncCounter()
     let entry = ReadingListEntry(id: "safari:one", safariID: "one", url: URL(string: "https://articles.example/one")!, title: "One", addedAt: nil)
-    let model = SourceReviewModel(preview: false, stateRoot: root.appendingPathComponent("state"), plist: plist) { _ in
+    let model = SourceReviewModel(preview: false, stateRoot: root.appendingPathComponent("state"), plist: plist, snapshotReader: { _ in
         calls.increment()
         let deadline = Date().addingTimeInterval(5)
         while release.value == 0 && !Task.isCancelled && Date() < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
         return ReadingListSnapshot(entries: [entry], skippedEntries: 0)
-    }
+    })
     try await waitForCatalog(model)
     model.requestSourceSync()
     try await waitUntil("first read started") { calls.value == 1 }
@@ -1377,4 +1429,841 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     model.addSelectedToQueue()
     #expect(notices.isVisible(message: "A — failed", key: "enqueue"))
     await model.waitForEnqueue()
+}
+
+// MARK: - Stage 2: delivery settings, drains, connection test, automation
+
+private func isolatedDefaults() throws -> (UserDefaults, String) {
+    let name = "voicerelay-app-test-\(UUID().uuidString)"
+    return (try #require(UserDefaults(suiteName: name)), name)
+}
+
+private func appDeliverySettings(enabled: Bool = true) -> DeliverySettings {
+    var settings = DeliverySettings()
+    settings.enabled = enabled
+    settings.feedFolderURL = URL(string: "https://webdav.example/remote.php/dav/files/user/Podcast%20Feed/")
+    settings.username = "user@example.com"
+    settings.publicFolderURL = URL(string: "https://podcast.example/")
+    return settings
+}
+
+/// Records credential writes/deletes; serves a fixed password on read.
+private final class RecordingCredentials: DeliveryCredentialStore, @unchecked Sendable {
+    var password: String?
+    var writes: [(password: String, username: String, host: String)] = []
+    var deletes: [(username: String, host: String)] = []
+    var reads: [(username: String, host: String)] = []
+    var readError: (any Error)?
+    init(password: String? = nil) { self.password = password }
+    func hasPassword(username: String, host: String) throws -> Bool { password != nil }
+    func readPassword(username: String, host: String) throws -> String? {
+        reads.append((username, host))
+        if let readError { throw readError }
+        return password
+    }
+    func writePassword(_ password: String, username: String, host: String) throws {
+        writes.append((password, username, host)); self.password = password
+    }
+    func deletePassword(username: String, host: String) throws {
+        deletes.append((username, host)); password = nil
+    }
+}
+
+/// Minimal transport double: records calls, injects status/throw overrides, answers MKCOL.
+private final class StubDeliveryTransport: DeliveryTransport, @unchecked Sendable {
+    struct Call { let method: String; let path: String }
+    var calls: [Call] = []
+    var statusFor: ((String) -> Int?)?
+    var throwFor: ((String) -> (any Error)?)?
+    var statusForPath: ((String, String) -> Int?)?
+    var headLengths: [String: Int] = [:]
+    var stored: [String: Int] = [:]
+    var entered: (method: String, path: String)? { calls.first.map { ($0.method, $0.path) } }
+    func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String]) async throws -> DeliveryResponse {
+        try Task.checkCancellation()
+        let path = url.path
+        calls.append(Call(method: method, path: path))
+        if let failure = throwFor?(method) { throw failure }
+        if let injected = statusForPath?(method, path) ?? statusFor?(method) { return DeliveryResponse(status: injected) }
+        switch method {
+        case "PROPFIND":
+            let xml = "<d:multistatus xmlns:d=\"DAV:\"><d:response><d:href>\(path)</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"
+            return DeliveryResponse(status: 207, body: Data(xml.utf8))
+        case "MKCOL": return DeliveryResponse(status: 201)
+        case "PUT":
+            let bytes = try body?.count ?? file.map { try Data(contentsOf: $0).count } ?? 0
+            stored[path] = bytes
+            return DeliveryResponse(status: 201)
+        case "HEAD":
+            guard let size = headLengths[path] ?? stored[path] else { return DeliveryResponse(status: 404) }
+            return DeliveryResponse(status: 200, headers: ["Content-Length": String(size)])
+        case "DELETE": return DeliveryResponse(status: 204)
+        default: return DeliveryResponse(status: 405)
+        }
+    }
+}
+
+private final class MutableFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Bool
+    init(_ value: Bool) { self.value = value }
+    var on: Bool { lock.withLock { value } }
+    func set(_ new: Bool) { lock.withLock { value = new } }
+}
+
+@Test @MainActor func deliverySettingsPersistWithoutPasswordAndReload() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    var settings = appDeliverySettings()
+    settings.channelTitle = "My Private Feed"
+    let credentials = RecordingCredentials(password: nil)
+    let model = AppModel(storage: storage, defaults: defaults, credentialStore: credentials)
+    model.deliverySettings = settings
+    model.deliveryPassword = "app-secret-password"
+    model.saveDeliveryPassword(); await model.waitForCredentialMutation()
+    // The password reached only the credential store; no UserDefaults value contains it.
+    let write = try #require(credentials.writes.first)
+    #expect(credentials.writes.count == 1 && write.password == "app-secret-password"
+            && write.username == "user@example.com" && write.host == "webdav.example")
+    #expect(model.deliveryPassword.isEmpty && model.deliveryPasswordStored)
+    let encoded = try #require(defaults.data(forKey: "deliverySettings"))
+    #expect(!String(decoding: encoded, as: UTF8.self).contains("app-secret-password"))
+    for key in defaults.dictionaryRepresentation().keys {
+        let value = String(describing: defaults.object(forKey: key) ?? "")
+        #expect(!value.contains("app-secret-password"))
+    }
+    let reloaded = AppModel(storage: storage, defaults: defaults, credentialStore: credentials)
+    #expect(reloaded.deliverySettings == settings)
+    await model.shutdown(); await reloaded.shutdown()
+}
+
+@Test @MainActor func deliveryTestConnectionClassifiesOutcomes() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let transport = StubDeliveryTransport()
+    let credentials = RecordingCredentials(password: "pw")
+    let model = AppModel(storage: storage, defaults: defaults,
+                         deliveryTransport: { transport }, credentialStore: credentials)
+    model.deliverySettings = appDeliverySettings()
+    #expect(model.deliveryTestResult == .untested)
+    model.testDeliveryConnection()
+    await model.waitForDeliveryTest()
+    #expect(model.deliveryTestResult == .success && !model.deliveryTesting)
+    #expect(transport.calls.map(\.method) == ["PROPFIND", "PROPFIND"])
+    #expect(credentials.reads.count == 1)
+    // Missing credentials → credentials needed.
+    model.clearDeliveryPassword(); await model.waitForCredentialMutation()
+    model.deliveryTestResult = .untested
+    model.testDeliveryConnection()
+    await model.waitForDeliveryTest()
+    #expect(model.deliveryTestResult == .failure("No saved password for this host and username."))
+    model.deliveryPassword = "pw"
+    model.saveDeliveryPassword(); await model.waitForCredentialMutation()
+    // HTTP 401 → authentication failed.
+    transport.statusFor = { _ in 401 }
+    model.testDeliveryConnection()
+    await model.waitForDeliveryTest()
+    #expect(model.deliveryTestResult == .failure("Delivery credentials were rejected (HTTP 401)."))
+    transport.statusFor = nil
+    // Transport throw → server unreachable.
+    struct SyntheticDown: Error {}
+    transport.throwFor = { _ in SyntheticDown() }
+    model.testDeliveryConnection()
+    await model.waitForDeliveryTest()
+    #expect(model.deliveryTestResult == .failure("Server unreachable"))
+    transport.throwFor = nil
+    // Editing a field resets the result.
+    model.deliveryTestResult = .success
+    model.deliverySettings.channelTitle = "Renamed"
+    #expect(model.deliveryTestResult == .untested)
+    // Invalid configuration fails fast without a transport call.
+    let calls = transport.calls.count
+    model.deliverySettings.feedFolderURL = URL(string: "https://example.com/folder?bad=1")
+    model.testDeliveryConnection()
+    await model.waitForDeliveryTest()
+    if case .failure(let message) = model.deliveryTestResult {
+        #expect(message.contains("without a query"))
+    } else { Issue.record("Invalid folder path was accepted") }
+    #expect(transport.calls.count == calls)
+    await model.shutdown()
+}
+
+@Test @MainActor func publishMarksDeliveryPendingAndDrainUploadsMediaBeforeFeed() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let coordinator = FixtureCoordinator()
+    let item = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
+    let transport = StubDeliveryTransport()
+    let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, defaults: defaults,
+                         deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = appDeliverySettings()
+    model.queueItems = [item]
+    model.runQueue()
+    await model.waitForProcessing()
+    await model.waitForDelivery()
+    await model.waitForLibraryRefresh()
+    #expect(model.error == nil && model.result?.remoteDelivery == "pending")
+    let methods = transport.calls.map(\.method)
+    let mediaIndex = try #require(methods.indices.first { transport.calls[$0].path.hasSuffix("/audio/\(item.id).m4a") && transport.calls[$0].method == "PUT" })
+    let feedIndex = try #require(methods.indices.first { transport.calls[$0].path.hasSuffix("/feed.xml") && transport.calls[$0].method == "PUT" })
+    #expect(mediaIndex < feedIndex)
+    let summary = try await coordinator.deliverySummary(stateRoot: storage.stateRoot)
+    #expect(!summary.needsDrain && summary.uploadedMedia == 1 && model.deliveryPendingCount == 0)
+    #expect(model.deliveryStatus != nil && model.deliveryError == nil)
+    await model.shutdown()
+}
+
+@Test @MainActor func deliveryStartsAfterPublicationWhileLaterSpeechIsRunning() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let coordinator = FixtureCoordinator(), provider = GateProvider()
+    defer { provider.openGate() }
+    let first = try await coordinator.enqueue(article("first"), storage: storage, preferences: SpeechPreferences())
+    let second = try await coordinator.enqueue(article("second"), storage: storage, preferences: SpeechPreferences())
+    let transport = StubDeliveryTransport()
+    let model = AppModel(storage: storage, backend: { episode in
+        episode.id == first.id ? SyntheticProvider() as any TTSBackend : provider
+    }, defaults: defaults, deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = appDeliverySettings(); model.queueItems = [first, second]
+    model.runQueue()
+    try await waitUntil("first article uploads while later speech is blocked") {
+        provider.synthesizeEntered && transport.calls.contains { $0.method == "PUT" && $0.path.hasSuffix("/audio/\(first.id).m4a") }
+    }
+    #expect(model.running && !provider.finished)
+    provider.openGate()
+    await model.waitForProcessing(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    #expect(model.error == nil && model.deliveryError == nil)
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot).uploadedMedia == 2)
+    await model.shutdown()
+}
+
+/// Hold the first feed-size response after the drain has enumerated its media.
+/// Publishing during this hold requires another drain, not just another feed PUT.
+private actor FeedConfirmationGate: DeliveryTransport {
+    private let base = StubDeliveryTransport()
+    private var held = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String]) async throws -> DeliveryResponse {
+        if !held && method == "HEAD" && url.lastPathComponent == "feed.xml" {
+            held = true
+            let timeout = Task { try? await Task.sleep(for: .seconds(10)); self.release() }
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation = $0 }
+            } onCancel: { Task { await self.release() } }
+            timeout.cancel()
+            try Task.checkCancellation()
+        }
+        return try await base.request(method, url: url, body: body, file: file, headers: headers)
+    }
+    func waitUntilHeld() async throws {
+        let end = Date().addingTimeInterval(5)
+        while continuation == nil && Date() < end { try await Task.sleep(for: .milliseconds(10)) }
+        guard continuation != nil else { throw RelayError.tool("Synthetic feed confirmation did not start.") }
+    }
+    func release() { continuation?.resume(); continuation = nil }
+    func probeCount() -> Int { base.calls.filter { $0.method == "PROPFIND" }.count }
+}
+
+@Test(arguments: ["automatic", "backoff", "force"])
+@MainActor func deliveryCoalescesFollowUpsWithoutLosingForceOrBypassingBackoff(_ mode: String) async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let coordinator = FixtureCoordinator(), settings = appDeliverySettings(), transport = FeedConfirmationGate()
+    _ = try await coordinator.runReviewed(root: storage.stateRoot, review: article("first"),
+        backend: SyntheticProvider(), storage: storage, delivery: settings)
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport },
+        credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = settings
+    model.triggerDelivery()
+    try await transport.waitUntilHeld()
+    let second = try await coordinator.runReviewed(root: storage.stateRoot, review: article("second"),
+        backend: SyntheticProvider(), storage: storage, delivery: settings)
+    let store = try PipelineStore(databaseURL: storage.profile.database)
+    var episode = try #require(store.published().first { $0.id == second.episode.id })
+    let deadline = Date().addingTimeInterval(600)
+    if mode == "backoff" {
+        episode.delivery?.nextAttemptAt = deadline
+        episode.delivery?.attempts = 1
+    } else if mode == "force" {
+        episode.delivery?.status = .failed
+        episode.delivery?.lastError = DeliveryError.authNotice
+    }
+    try store.save(episode)
+    for _ in 0..<3 { model.triggerDelivery() }
+    if mode == "force" { model.triggerDelivery(force: true); model.triggerDelivery() }
+    await transport.release()
+    await model.waitForDelivery()
+    let current = try #require(store.published().first { $0.id == second.episode.id })
+    let probes = await transport.probeCount()
+    if mode == "backoff" {
+        #expect(current.delivery?.status == .pending && current.delivery?.nextAttemptAt == deadline)
+        #expect(current.delivery?.attempts == 1 && probes == 2)
+    } else {
+        #expect(current.delivery?.status == .uploaded)
+        #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot).uploadedMedia == 2)
+        #expect(probes == 4)
+        #expect(!model.deliveryBusy && model.deliveryError == nil)
+    }
+    await model.shutdown()
+}
+
+@Test @MainActor func deliveryShutdownCancelsHeldDrainWithoutStartingFollowUp() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    _ = try await FixtureCoordinator().enqueue(article(), storage: storage, preferences: SpeechPreferences())
+    let transport = FeedConfirmationGate()
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport },
+        credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = appDeliverySettings()
+    model.triggerDelivery()
+    try await transport.waitUntilHeld()
+    model.triggerDelivery(force: true); model.triggerDelivery()
+    await model.shutdown()
+    #expect(!model.deliveryBusy && model.stopping)
+    #expect(await transport.probeCount() == 2)
+}
+
+@Test @MainActor func savedAudioUploadControlHidesOnlyAfterFeedPublicationAndRetriesFailures() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let coordinator = FixtureCoordinator(), settings = appDeliverySettings()
+    let first = try await coordinator.runReviewed(root: storage.stateRoot, review: article("first"),
+        backend: SyntheticProvider(), storage: storage, delivery: settings)
+    let transport = StubDeliveryTransport()
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport },
+                         credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = settings
+    model.savedEpisodes = try await coordinator.savedAudio(storage: storage)
+    #expect(model.savedAudioDeliveryStatus(first.episode) == .awaitingUpload)
+    #expect(model.showsUploadNewItems && model.canUploadNewItems)
+    model.uploadNewItems()
+    #expect(model.deliveryBusy && model.showsUploadNewItems && !model.canUploadNewItems)
+    await model.waitForDelivery()
+    // The status updates at drain completion, without a library refresh or pane reopen.
+    #expect(model.savedAudioDeliveryStatus(first.episode) == .published)
+    #expect(!model.showsUploadNewItems && !model.canUploadNewItems)
+    var replacement = first.episode
+    replacement.audioHash = "replacement-audio"
+    #expect(model.savedAudioDeliveryStatus(replacement) == .awaitingUpload)
+    replacement.delivery?.status = .failed
+    #expect(model.savedAudioDeliveryStatus(replacement) == .failed)
+    let count = transport.calls.count
+    model.uploadNewItems(); #expect(transport.calls.count == count)
+    let second = try await coordinator.runReviewed(root: storage.stateRoot, review: article("second"),
+        backend: SyntheticProvider(), storage: storage, delivery: settings)
+    model.savedEpisodes = try await coordinator.savedAudio(storage: storage)
+    transport.statusForPath = { method, path in method == "PUT" && path.hasSuffix("/feed.xml") ? 503 : nil }
+    model.uploadNewItems(); await model.waitForDelivery()
+    #expect(model.savedAudioDeliveryStatus(first.episode) == .published)
+    #expect(model.savedAudioDeliveryStatus(second.episode) == .uploaded)
+    #expect(model.showsUploadNewItems && model.canUploadNewItems && model.deliveryError != nil)
+    transport.statusForPath = nil
+    model.uploadNewItems(); await model.waitForDelivery()
+    #expect(model.savedAudioDeliveryStatus(second.episode) == .published && !model.showsUploadNewItems)
+    #expect(model.deliveryError == nil)
+    model.deliverySettings.feedFolderURL = URL(string: "https://another.example/podcast/")
+    #expect(model.savedAudioDeliveryStatus(first.episode) == .notUploaded && model.showsUploadNewItems)
+    model.deliverySettings.enabled = false
+    #expect(!model.showsUploadNewItems && !model.canUploadNewItems)
+    let stopped = transport.calls.count
+    model.uploadNewItems(); #expect(transport.calls.count == stopped)
+    await model.shutdown()
+}
+
+@Test @MainActor func savedAudioUploadControlSkipsRemovalsAndIsInertInPreviews() throws {
+    let model = AppModel(preview: true), settings = appDeliverySettings()
+    model.deliverySettings = settings
+    let episode = Episode(id: UUID().uuidString, title: "Synthetic saved audio", stage: .published,
+        settings: PrototypeProfile.fixture(at: URL(fileURLWithPath: "/synthetic")))
+    model.savedEpisodes = [episode]
+    #expect(model.savedAudioDeliveryStatus(episode) == .notUploaded)
+    #expect(model.showsUploadNewItems && !model.canUploadNewItems)
+    model.uploadNewItems(); #expect(!model.deliveryBusy)
+    var removing = episode; removing.manualAudioDeletionRequested = true
+    model.savedEpisodes = [removing]
+    #expect(!model.hasNewItemsToUpload && !model.showsUploadNewItems)
+    model.savedEpisodes = []
+    #expect(!model.showsUploadNewItems)
+}
+
+@Test @MainActor func disabledDeliveryIsInertAndShutdownRefusesNewDrains() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    _ = try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: article(),
+                                                   backend: SyntheticProvider(), storage: storage,
+                                                   delivery: appDeliverySettings())
+    let transport = StubDeliveryTransport()
+    let model = AppModel(storage: storage, defaults: defaults,
+                         deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    // Disabled settings: trigger is a no-op.
+    model.deliverySettings = appDeliverySettings(enabled: false)
+    model.triggerDelivery()
+    await model.waitForDelivery()
+    #expect(transport.calls.isEmpty && !model.deliveryBusy)
+    // Invalid settings are also a no-op.
+    var broken = appDeliverySettings(); broken.feedFolderURL = URL(string: "https://example.com/folder?bad=1")
+    model.deliverySettings = broken
+    model.triggerDelivery()
+    #expect(transport.calls.isEmpty)
+    // Shutdown cancels and refuses new drains.
+    model.deliverySettings = appDeliverySettings()
+    await model.shutdown()
+    model.triggerDelivery()
+    model.testDeliveryConnection()
+    await model.waitForDelivery()
+    await model.waitForDeliveryTest()
+    #expect(transport.calls.isEmpty && !model.deliveryTesting)
+}
+
+@Test @MainActor func deliverySettingsChangeMarksRemoteFeedPending() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let settings = appDeliverySettings()
+    _ = try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: article(),
+                                                   backend: SyntheticProvider(), storage: storage, delivery: settings)
+    let transport = StubDeliveryTransport()
+    let model = AppModel(storage: storage, defaults: defaults,
+                         deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = settings
+    model.triggerDelivery()
+    await model.waitForDelivery()
+    var ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(!ledger.remoteFeedPending && ledger.settingsHash == (try? settings.settingsHash()))
+    // A settings edit changes the hash and marks the feed pending for the next drain.
+    model.deliverySettings.channelTitle = "Renamed Channel"
+    ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(ledger.remoteFeedPending)
+    model.triggerDelivery()
+    await model.waitForDelivery()
+    ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(!ledger.remoteFeedPending && transport.calls.contains { $0.method == "PUT" && $0.path.hasSuffix("/feed.xml") })
+    await model.shutdown()
+}
+
+private func fetchFixture(url: URL) throws -> FetchedPage {
+    let html = String(decoding: try FixtureResource.html(), as: UTF8.self)
+    return FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
+                       contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
+}
+
+@Test @MainActor func autoAdmitAddsCurrentEntriesAndSkipsRecordedOrAbsentOnes() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    let recordedReview = try article("recorded")
+    let recorded = ReadingListEntry(id: "recorded", safariID: nil, url: recordedReview.page.originalURL,
+                                    title: "Recorded", addedAt: nil)
+    let fresh = ReadingListEntry(id: "fresh", safariID: nil, url: URL(string: "https://synthetic.example/fresh")!,
+                                 title: "Fresh", addedAt: nil)
+    let absent = ReadingListEntry(id: "absent", safariID: nil, url: URL(string: "https://synthetic.example/absent")!,
+                                  title: "Absent", addedAt: nil)
+    // `recorded` already produced an episode whose queue entry was later removed; `absent` left the latest read.
+    _ = try await coordinator.reconcile(
+        ReadingListSnapshot(entries: [recorded, fresh, absent], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let recordedItem = try await coordinator.enqueue(recordedReview, storage: storage,
+                                                     preferences: SpeechPreferences(), sourceEntryID: recorded.id)
+    try await coordinator.removeFromQueue(recordedItem.id, stateRoot: storage.stateRoot)
+    var catalog = try await coordinator.catalog(stateRoot: storage.stateRoot)
+    catalog.reconcile(ReadingListSnapshot(entries: [recorded, fresh], skippedEntries: 0))
+    let fetches = SyncCounter()
+    let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, enqueueFetch: { url in
+        fetches.increment()
+        return try fetchFixture(url: url)
+    })
+    model.sourceReview.catalog = catalog
+    // Disabled auto-admit does nothing.
+    model.autoAdmitEnabled = false
+    await model.autoAdmitNewEntries()
+    #expect(model.pendingAdds.isEmpty && fetches.value == 0)
+    model.autoAdmitEnabled = true
+    await model.autoAdmitNewEntries()
+    await model.waitForEnqueue()
+    // Only the fresh current entry was admitted; recorded (prior snapshot) and absent (not current) are skipped.
+    #expect(model.queueItems.count == 1 && model.queueItems.first?.sourceEntryID == fresh.id)
+    #expect(fetches.value == 1 && model.enqueueIssues.isEmpty)
+    #expect(try await coordinator.queue(stateRoot: storage.stateRoot).map(\.sourceEntryID) == [fresh.id])
+    // A second pass finds nothing new to admit.
+    await model.autoAdmitNewEntries()
+    #expect(fetches.value == 1 && model.pendingAdds.isEmpty)
+    await model.shutdown()
+}
+
+@Test @MainActor func failedAutoAdmissionStaysRetriedOutForSessionButManualBypasses() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    let entry = ReadingListEntry(id: "flaky", safariID: nil, url: URL(string: "https://synthetic.example/flaky")!,
+                                 title: "Flaky", addedAt: nil)
+    let catalog = try await coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0),
+                                                  stateRoot: storage.stateRoot)
+    let calls = SyncCounter(), fail = MutableFlag(true)
+    let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, enqueueFetch: { url in
+        calls.increment()
+        if fail.on { throw SourceFetchError.network }
+        return try fetchFixture(url: url)
+    })
+    model.sourceReview.catalog = catalog
+    model.autoAdmitEnabled = true
+    await model.autoAdmitNewEntries()
+    await model.waitForEnqueue()
+    #expect(calls.value == 1 && model.queueItems.isEmpty && model.enqueueIssues.count == 1)
+    // Automatic admission does not retry the failed entry in this session.
+    await model.autoAdmitNewEntries()
+    #expect(calls.value == 1 && model.pendingAdds.isEmpty)
+    // Manual Add to Queue bypasses the attempt set.
+    fail.set(false)
+    model.articleSelection = [entry.id]
+    model.addSelectedToQueue()
+    await model.waitForEnqueue()
+    #expect(calls.value == 2 && model.queueItems.count == 1 && model.enqueueIssues.isEmpty)
+    await model.shutdown()
+}
+
+@Test @MainActor func autoProcessDrainsReadyQueueAndStopHaltsUntilNewWorkOrGenerate() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    let item = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
+    let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() })
+    // Disabled automation leaves ready items waiting for a manual Generate.
+    model.queueItems = [item]
+    model.maybeAutoProcess()
+    #expect(!model.running)
+    model.autoProcessEnabled = true
+    model.maybeAutoProcess()
+    #expect(model.running)
+    await model.waitForProcessing()
+    await model.waitForLibraryRefresh()
+    #expect(!model.running && model.queueItems.isEmpty && model.result?.episode.id == item.id)
+    // Explicit Stop suspends automation.
+    let second = try await coordinator.enqueue(article("second"), storage: storage, preferences: SpeechPreferences())
+    model.queueItems = [second]
+    model.autoHalted = true
+    model.maybeAutoProcess()
+    #expect(!model.running)
+    // Manual Generate clears the halt and resumes.
+    model.runQueue()
+    #expect(model.running && !model.autoHalted)
+    await model.waitForProcessing()
+    await model.waitForLibraryRefresh()
+    #expect(try await coordinator.queue(stateRoot: storage.stateRoot).isEmpty)
+    await model.shutdown()
+}
+
+@Test @MainActor func stopQueueSuspendsAutomationUntilAutoAdmissionArrives() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    let first = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
+    let provider = GateProvider()
+    let model = AppModel(storage: storage, backend: { _ in provider }, enqueueFetch: { url in try fetchFixture(url: url) })
+    model.autoProcessEnabled = true; model.autoAdmitEnabled = true
+    model.queueItems = [first]
+    model.runQueue()
+    #expect(try await awaitMainActor { provider.synthesizeEntered })
+    model.stopQueue()
+    provider.openGate()
+    await model.waitForProcessing()
+    await model.waitForLibraryRefresh()
+    #expect(model.autoHalted && !model.running)
+    // A newly discovered entry resumes automation: admission clears the halt.
+    let entry = ReadingListEntry(id: "new", safariID: nil, url: URL(string: "https://synthetic.example/new")!,
+                                 title: "New", addedAt: nil)
+    let catalog = try await coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0),
+                                                  stateRoot: storage.stateRoot)
+    model.sourceReview.catalog = catalog
+    await model.autoAdmitNewEntries()
+    await model.waitForEnqueue()
+    #expect(!model.autoHalted)
+    // The committed admission resumes processing; the stopped item and the new one drain.
+    provider.openGate()
+    await model.waitForProcessing()
+    await model.waitForLibraryRefresh()
+    #expect(try await coordinator.queue(stateRoot: storage.stateRoot).isEmpty)
+    #expect(model.savedEpisodes.count == 2)
+    await model.shutdown()
+}
+
+@Test @MainActor func launchRefreshRereadiesInterruptedItemsWhenAutomationEnabled() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    let item = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
+    var runningItem = item; runningItem.state = .running; runningItem.attempts = 1
+    try NativeStore(url: storage.profile.database).saveQueueItem(runningItem)
+    // A failed item stays manual-Retry even with automation on.
+    let failed = try await coordinator.enqueue(article("failed"), storage: storage, preferences: SpeechPreferences())
+    var failedItem = failed; failedItem.state = .failed; failedItem.lastError = "Synthetic failure"
+    try NativeStore(url: storage.profile.database).saveQueueItem(failedItem)
+    let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() })
+    model.autoProcessEnabled = true
+    model.refreshLibrary()
+    await model.waitForLibraryRefresh()
+    await model.waitForProcessing()
+    await model.waitForLibraryRefresh()
+    #expect(!model.running)
+    // The interrupted item was re-readied and processed; the failed one was untouched.
+    let queue = try await coordinator.queue(stateRoot: storage.stateRoot)
+    #expect(queue.map(\.id) == [failed.id] && queue.first?.state == .failed)
+    #expect(model.savedEpisodes.contains { $0.id == item.id })
+    await model.shutdown()
+}
+
+@Test @MainActor func savedAudioMetaFormatsDurationAndSize() throws {
+    let model = AppModel(preview: true)
+    func episode(duration: Double?, bytes: Int64) -> Episode {
+        var episode = Episode(id: "e", title: "T", stage: .published,
+                              settings: PrototypeProfile.fixture(at: URL(fileURLWithPath: "/tmp")))
+        if let duration {
+            episode.info = AudioInfo(duration: duration, byteLength: bytes, sampleRate: 24000, channels: 1, codec: "aac")
+        }
+        return episode
+    }
+    #expect(AppModel.durationString(0) == "0:00")
+    #expect(AppModel.durationString(59.6) == "1:00")
+    #expect(AppModel.durationString(272) == "4:32")
+    #expect(AppModel.durationString(3661) == "1:01:01")
+    #expect(AppModel.durationString(-5) == "0:00")
+    #expect(model.savedAudioMeta(episode(duration: nil, bytes: 0)) == nil)
+    #expect(model.savedAudioMeta(episode(duration: 0, bytes: 512)) == "Speech ready · 0:00 · 512 bytes")
+    let meta = try #require(model.savedAudioMeta(episode(duration: 3661, bytes: 3_250_000)))
+    #expect(meta.hasPrefix("Speech ready · 1:01:01 · ") && meta.contains("MB"))
+}
+
+@Test @MainActor func deliveryPaneAndAutomationControlsConstructInertly() throws {
+    let model = AppModel(preview: true)
+    _ = DeliveryPaneView(model: model)
+    _ = SettingsView(model: model, initialSection: .delivery)
+    #expect(!model.deliveryBusy && !model.deliveryTesting && model.deliveryTestResult == .untested)
+    #expect(!model.autoAdmitEnabled && !model.autoProcessEnabled && !model.autoHalted)
+}
+
+@Test @MainActor func deliveryCredentialIdentityAndKeychainErrorsAreConsistent() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    var settings = appDeliverySettings(enabled: false)
+    settings.username = "  user@example.com\n"
+    defaults.set(try JSONEncoder().encode(settings), forKey: "deliverySettings")
+    let credentials = RecordingCredentials()
+    let transport = StubDeliveryTransport()
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport }, credentialStore: credentials)
+    #expect(model.deliverySettings.username == "user@example.com")
+    // Programmatic values also use the same normalized identity for save/read/delete.
+    model.deliverySettings.username = " user@example.com\n"
+    model.deliveryPassword = "pw"
+    model.saveDeliveryPassword(); await model.waitForCredentialMutation()
+    #expect(credentials.writes.last?.username == "user@example.com")
+    model.testDeliveryConnection(); await model.waitForDeliveryTest()
+    #expect(credentials.reads.isEmpty) // successful save already populated the shared session
+    #expect(model.deliveryTestResult == .success)
+    model.deliveryPassword = "replacement"
+    #expect(model.deliveryTestResult == .untested)
+    credentials.readError = NSError(domain: "private endpoint and password", code: 1)
+    model.deliverySettings.feedFolderURL = URL(string: "https://fresh.example/files/")
+    let callsBefore = transport.calls.count
+    model.testDeliveryConnection(); await model.waitForDeliveryTest()
+    #expect(model.deliveryTestResult == .failure(DeliveryError.credentialNotice))
+    #expect(transport.calls.count == callsBefore)
+    credentials.readError = DeliveryError.credentialUnavailable("Keychain access was cancelled. Try again.")
+    model.testDeliveryConnection(); await model.waitForDeliveryTest()
+    #expect(model.deliveryTestResult == .failure("Keychain access was cancelled. Try again."))
+    credentials.readError = nil
+    transport.statusFor = { _ in 403 }
+    model.testDeliveryConnection(); await model.waitForDeliveryTest()
+    #expect(model.deliveryTestResult == .failure(DeliveryError.permissionNotice))
+    model.clearDeliveryPassword(); await model.waitForCredentialMutation()
+    #expect(credentials.deletes.last?.username == "user@example.com" && !model.deliveryPasswordStored)
+    await model.shutdown()
+}
+
+private actor HeldDeliveryTransport: DeliveryTransport {
+    private var continuation: CheckedContinuation<DeliveryResponse, Never>?
+    private var entered: CheckedContinuation<Void, Never>?
+    private var started = false
+    func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String]) async throws -> DeliveryResponse {
+        started = true; entered?.resume(); entered = nil
+        // Deliberately ignores cancellation to exercise stale-result guards.
+        return await withCheckedContinuation { continuation = $0 }
+    }
+    func waitUntilStarted() async {
+        if !started { await withCheckedContinuation { entered = $0 } }
+    }
+    func finish() {
+        continuation?.resume(returning: DeliveryResponse(status: 403)); continuation = nil
+    }
+}
+
+@Test @MainActor func deliverySettingsEditDiscardsInFlightTestResult() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let transport = HeldDeliveryTransport()
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport },
+                         credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = appDeliverySettings(enabled: false)
+    model.testDeliveryConnection()
+    await transport.waitUntilStarted()
+    model.deliverySettings.username = "new@example.com"
+    #expect(model.deliveryTestResult == .untested)
+    await transport.finish()
+    await model.waitForDeliveryTest()
+    #expect(model.deliveryTestResult == .untested && !model.deliveryTesting)
+    await model.shutdown()
+}
+
+@Test @MainActor func deliveryDebugLoggingPreferencePersistsAndPreviewsStayInert() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let credentials = RecordingCredentials(password: "secret")
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { StubDeliveryTransport() }, credentialStore: credentials)
+    #expect(!model.debugLoggingEnabled && model.deliveryDebugLog.text.isEmpty)
+    model.debugLoggingEnabled = true
+    model.deliverySettings = appDeliverySettings(enabled: false)
+    model.testDeliveryConnection(); await model.waitForDeliveryTest()
+    #expect(model.deliveryDebugLog.text.contains("PROPFIND HTTP 207"))
+    #expect(!model.deliveryDebugLog.text.contains("secret"))
+    let reloaded = AppModel(storage: storage, defaults: defaults, credentialStore: credentials)
+    #expect(reloaded.debugLoggingEnabled && reloaded.deliveryDebugLog.enabled)
+    let retained = model.deliveryDebugLog.text
+    model.debugLoggingEnabled = false
+    model.testDeliveryConnection(); await model.waitForDeliveryTest()
+    #expect(model.deliveryDebugLog.text == retained)
+    let preview = AppModel(preview: true, defaults: defaults)
+    preview.debugLoggingEnabled = true
+    #expect(!preview.deliveryDebugLog.enabled && !defaults.bool(forKey: "debugLoggingEnabled"))
+    _ = DeliveryDebugControls(model: preview).body
+    await model.shutdown(); await reloaded.shutdown(); await preview.shutdown()
+}
+
+@Test @MainActor func deliveryTestsAndDrainsShareOneCredentialSession() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let credentials = RecordingCredentials(password: "pw")
+    let transport = StubDeliveryTransport()
+    let item = try await FixtureCoordinator().enqueue(article("session"), storage: storage, preferences: SpeechPreferences())
+    let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, defaults: defaults,
+        deliveryTransport: { transport }, credentialStore: credentials)
+    model.deliverySettings = appDeliverySettings(enabled: false)
+    for _ in 0..<4 { model.refreshDeliveryCredentialState() }
+    #expect(credentials.reads.isEmpty && !model.deliveryPasswordChecked)
+    model.testDeliveryConnection(); await model.waitForDeliveryTest()
+    #expect(model.deliveryPasswordStored && model.deliveryPasswordChecked)
+    model.testDeliveryConnection(); await model.waitForDeliveryTest()
+    model.queueItems = [item]; model.runQueue(); await model.waitForProcessing()
+    model.deliverySettings.enabled = true
+    model.triggerDelivery(force: true); await model.waitForDelivery()
+    model.triggerDelivery(force: true); await model.waitForDelivery()
+    #expect(credentials.reads.count == 1 && transport.calls.contains { $0.method == "PUT" })
+    await model.shutdown()
+    #expect(!model.deliveryPasswordStored && !model.deliveryPasswordChecked)
+    let reloaded = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport }, credentialStore: credentials)
+    reloaded.testDeliveryConnection(); await reloaded.waitForDeliveryTest()
+    #expect(credentials.reads.count == 2)
+    await reloaded.shutdown()
+}
+
+@Test @MainActor func deliveryCollectionFailureDoesNotReportUpToDateWithNoPendingMedia() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    // Initialize an isolated library with no finalized/pending delivery media.
+    _ = try await FixtureCoordinator().enqueue(article(), storage: storage, preferences: SpeechPreferences())
+    let transport = StubDeliveryTransport()
+    transport.statusFor = { method in method == "PROPFIND" ? 403 : nil }
+    let model = AppModel(storage: storage, defaults: defaults,
+        deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = appDeliverySettings()
+    model.triggerDelivery(force: true); await model.waitForDelivery()
+    #expect(model.deliveryPendingCount == 0 && model.deliveryError != nil)
+    #expect(model.deliveryStatus == "Delivery needs attention")
+    transport.statusFor = nil
+    model.triggerDelivery(force: true); await model.waitForDelivery()
+    #expect(model.deliveryError == nil)
+    model.triggerDelivery(force: true); await model.waitForDelivery()
+    #expect(model.deliveryStatus == "Delivery up to date")
+    await model.shutdown()
+}
+
+@Test @MainActor func deliveryURLDraftsNormalizeAtomicallyAndExposeSubscriptionURL() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let transport = StubDeliveryTransport()
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport },
+                         credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = appDeliverySettings()
+    model.deliveryTestResult = .success
+    #expect(model.updateDeliveryURLs(feedFolder: "  webdav.example//old/../podcast  ",
+                                    publicFolder: "public.example/show/feed.xml#anchor"))
+    #expect(model.deliverySettings.feedFolderURL?.absoluteString == "https://webdav.example/podcast/")
+    #expect(model.deliverySettings.publicFolderURL?.absoluteString == "https://public.example/show/")
+    #expect(model.deliverySubscriptionURL?.absoluteString == "https://public.example/show/feed.xml")
+    #expect(model.deliveryTestResult == .untested)
+    let saved = model.deliverySettings
+    model.testDeliveryConnection()
+    // Blur/submit commits an equivalent URL after Test has started; it must not cancel.
+    #expect(model.updateDeliveryURLs(feedFolder: "webdav.example/podcast", publicFolder: "public.example/show/"))
+    await model.waitForDeliveryTest()
+    #expect(model.deliveryTestResult == .success)
+    let count = transport.calls.count
+    #expect(!model.updateDeliveryURLs(feedFolder: "https://other.example/show", publicFolder: "https://user:secret@public.example/show"))
+    #expect(model.deliverySettings == saved && transport.calls.count == count)
+    if case .failure(let message) = model.deliveryTestResult {
+        #expect(message.contains("separate fields") && !message.contains("secret"))
+    } else { Issue.record("Invalid input did not surface a friendly error") }
+    let bytes = try #require(defaults.data(forKey: "deliverySettings"))
+    #expect(try JSONDecoder().decode(DeliverySettings.self, from: bytes) == saved)
+    await model.shutdown()
+}
+
+@Test @MainActor func deliveryConnectionReportsMissingAudioWithoutCreatingIt() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let transport = StubDeliveryTransport()
+    transport.statusForPath = { method, path in method == "PROPFIND" && path.hasSuffix("/audio") ? 404 : nil }
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport },
+                         credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = appDeliverySettings()
+    model.testDeliveryConnection(); await model.waitForDeliveryTest()
+    #expect(model.deliveryTestResult == .foldersPending)
+    #expect(transport.calls.map(\.method) == ["PROPFIND", "PROPFIND"])
+    await model.shutdown()
+}
+
+@Test @MainActor func readingListChecksStartupFiveMinuteIntervalsAndPullRefresh() async throws {
+    let (root, plist) = try sourceFixture(); defer { try? FileManager.default.removeItem(at: root) }
+    let reads = SyncCounter(), waits = SyncCounter(), releases = SyncCounter()
+    let entries = (1...3).map { index in ReadingListEntry(id: "safari:new-\(index)", safariID: nil,
+        url: URL(string: "https://articles.example/\(index)")!, title: "New \(index)", addedAt: nil) }
+    let model = SourceReviewModel(stateRoot: root.appendingPathComponent("state"), plist: plist,
+        waitForNextSync: { interval in
+            #expect(interval == .seconds(300))
+            waits.increment(); let count = waits.value
+            while releases.value < count { try await Task.sleep(for: .milliseconds(10)) }
+        }, snapshotReader: { _ in
+            reads.increment()
+            return ReadingListSnapshot(entries: Array(entries.prefix(reads.value)), skippedEntries: 0)
+        })
+    model.startAutomaticSynchronization()
+    try await waitUntil("startup committed fresh entries") { model.catalog.entries.count == 1 && waits.value == 1 }
+    #expect(model.lastSyncedAt != nil && reads.value == 1)
+    model.startAutomaticSynchronization() // Starting again must not duplicate the timer.
+    releases.increment()
+    try await waitUntil("periodic read committed another entry") { model.catalog.entries.count == 2 && waits.value == 2 }
+    await model.refreshSource() // Same awaited action used by native refreshable.
+    #expect(model.catalog.entries.count == 3 && reads.value == 3 && model.error == nil)
+    #expect(try await FixtureCoordinator().catalog(stateRoot: root.appendingPathComponent("state")).entries.count == 3)
+    await model.stop()
+    await model.refreshSource()
+    #expect(reads.value == 3 && !model.synchronizing)
+}
+
+@Test @MainActor func pullRefreshRereadsReplacedSourceFileAndKeepsSafariInputReadOnly() async throws {
+    let (root, plist) = try sourceFixture(); defer { try? FileManager.default.removeItem(at: root) }
+    func bytes(_ count: Int) throws -> Data {
+        let children: [[String: Any]] = (1...count).map { ["URLString": "https://articles.example/new-\($0)",
+            "WebBookmarkUUID": "entry-\($0)", "URIDictionary": ["title": "New \($0)"]] }
+        return try PropertyListSerialization.data(fromPropertyList: ["Title": "com.apple.ReadingList", "Children": children], format: .binary, options: 0)
+    }
+    let first = try bytes(1); try first.write(to: plist, options: .atomic)
+    let model = SourceReviewModel(stateRoot: root.appendingPathComponent("state"), plist: plist)
+    await model.refreshSource()
+    #expect(model.catalog.entries.count == 1 && model.error == nil)
+    let next = try bytes(2); try next.write(to: plist, options: .atomic)
+    await model.refreshSource()
+    #expect(model.catalog.entries.count == 2 && model.catalog.currentIDs.count == 2)
+    #expect(try Data(contentsOf: plist) == next)
+    await model.stop()
 }

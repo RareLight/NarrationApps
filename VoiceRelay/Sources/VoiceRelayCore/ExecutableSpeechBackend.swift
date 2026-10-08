@@ -3,7 +3,7 @@ import Darwin
 
 // Synchronous contract calls serialize on requestLock; cancel uses stateLock only.
 // The helper establishes an owned process group before its hello response.
-final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
+final class ExecutableSpeechBackend: LookaheadTTSBackend, @unchecked Sendable {
     let identity: BackendIdentity
     private let executable: URL
     private let arguments: [String]
@@ -13,6 +13,7 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
     private let voice: String
     private let speed: Double
     private let temporaryRoot: URL?
+    private let diagnostics: SpeechDiagnostics
     private let requestLock = NSLock()
     private let stateLock = NSLock()
     private var session: Session?
@@ -25,6 +26,7 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
         let input: Pipe
         let output: Pipe
         let temporaryDirectory: URL?
+        let exited = DispatchSemaphore(value: 0)
         var buffer = Data()
         var isolated = false
         var stopped = false
@@ -35,10 +37,10 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
 
     init(identity: BackendIdentity, executable: URL, arguments: [String], environment: [String: String],
          voice: String, speed: Double, prepareTimeout: TimeInterval = 180, synthesisTimeout: TimeInterval = 600,
-         temporaryRoot: URL? = nil) {
+         temporaryRoot: URL? = nil, debugLog: DeliveryDebugLog? = nil) {
         self.identity = identity; self.executable = executable; self.arguments = arguments; self.environment = environment
         self.voice = voice; self.speed = speed; self.prepareTimeout = prepareTimeout; self.synthesisTimeout = synthesisTimeout
-        self.temporaryRoot = temporaryRoot
+        self.temporaryRoot = temporaryRoot; self.diagnostics = SpeechDiagnostics(log: debugLog)
     }
     deinit { cancel() }
 
@@ -59,6 +61,8 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
         p.executableURL = executable; p.arguments = arguments; p.environment = environment
         p.standardInput = input; p.standardOutput = output; p.standardError = FileHandle.nullDevice
         let owned = Session(process: p, input: input, output: output, temporaryDirectory: temporaryDirectory)
+        let exited = owned.exited
+        p.terminationHandler = { _ in exited.signal() }
         stateLock.lock()
         do { try p.run(); session = owned; stateLock.unlock() }
         catch {
@@ -87,6 +91,9 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
     }
 
     func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
+        try synthesize(request, directory: directory, next: nil)
+    }
+    func synthesize(_ request: SynthesisRequest, directory: URL, next: SynthesisRequest?) throws -> SynthesisResult {
         requestLock.lock(); defer { requestLock.unlock() }
         guard let owned = stateLock.withLock({ session }) else { throw RelayError.setup("Prepare the speech backend first.") }
         var selectedSpeed = speed
@@ -97,16 +104,26 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
         guard selectedSpeed.isFinite, (0.25...4).contains(selectedSpeed), !request.text.isEmpty,
               request.text.utf8.count <= 800_000 else { throw RelayError.setup("Speech request exceeds supported bounds.") }
         do {
-            let result = try exchange(["command": "synthesize", "text": request.text,
+            var body: [String: Any] = ["command": "synthesize", "text": request.text,
                 "voice": request.voice ?? voice, "speed": selectedSpeed, "language": request.language,
                 "article_id": request.articleID, "chunk_index": request.chunkIndex,
-                "block_indices": request.blockIndices, "directory": directory.path], owned: owned,
+                "block_indices": request.blockIndices, "directory": directory.path,
+                "diagnostics": diagnostics.log?.enabled == true]
+            if let next { body["lookahead"] = ["text": next.text, "voice": next.voice ?? voice, "language": next.language] }
+            let result = try exchange(body, owned: owned,
                 deadline: ProcessInfo.processInfo.systemUptime + synthesisTimeout, operation: .synthesis)
             guard result["kind"] as? String == "result", result["article_id"] as? String == request.articleID,
                   result["chunk_index"] as? Int == request.chunkIndex,
                   result["block_indices"] as? [Int] == request.blockIndices,
                   let values = result["artifacts"] as? [[String: Any]], !values.isEmpty else {
                 throw RelayError.artifact("Speech response provenance or ordering is invalid.")
+            }
+            if let timings = result["timings"] as? [String: Any] {
+                for stage in [SpeechTimingStage.pronunciation, .inference, .wavWrite] {
+                    if let value = timings[stage.rawValue] as? Double {
+                        diagnostics.record(stage, seconds: value, chunk: request.chunkIndex)
+                    }
+                }
             }
             let artifacts = try values.map { value -> LosslessArtifact in
                 guard let file = value["file"] as? String, file == URL(fileURLWithPath: file).lastPathComponent,
@@ -144,7 +161,7 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
             else if written < 0 && errno != EAGAIN && errno != EINTR {
                 let error = try connectionFailure(owned, deadline: deadline, operation: operation); throw error
             }
-            else { Thread.sleep(forTimeInterval: 0.01) }
+            else { waitForIO(owned.input.fileHandleForWriting.fileDescriptor, events: Int16(POLLOUT)) }
         }
         let value = try receive(owned, deadline: deadline, operation: operation)
         guard value["protocol"] as? Int == 1, value["id"] as? Int == id else { throw RelayError.artifact("Speech helper protocol response is incompatible.") }
@@ -188,8 +205,12 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
                 guard owned.buffer.count <= 1_048_576 else { throw RelayError.artifact("Speech helper response exceeds its inspection limit.") }
             } else if count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR) {
                 let error = try connectionFailure(owned, deadline: deadline, operation: operation); throw error
-            } else { Thread.sleep(forTimeInterval: 0.01) }
+            } else { waitForIO(owned.output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN)) }
         }
+    }
+    private func waitForIO(_ fd: Int32, events: Int16) {
+        var descriptor = pollfd(fd: fd, events: events, revents: 0)
+        _ = Darwin.poll(&descriptor, 1, 10)
     }
     private func connectionFailure(_ owned: Session, deadline: TimeInterval, operation: Operation) throws -> RelayError {
         // EOF can precede Foundation's termination notification. Allow a short,
@@ -203,7 +224,6 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
         guard !owned.process.isRunning else {
             return RelayError.tool("Speech helper closed its control connection during \(operation.rawValue).")
         }
-        owned.process.waitUntilExit()
         let status = owned.process.terminationStatus
         if owned.process.terminationReason == .uncaughtSignal {
             return RelayError.tool("Speech helper terminated by signal \(status) during \(operation.rawValue). Check macOS crash reports for the native failure.")
@@ -222,9 +242,14 @@ final class ExecutableSpeechBackend: TTSBackend, @unchecked Sendable {
         let grouped = stateLock.withLock { owned.isolated } || getpgid(pid) == pid
         if grouped { kill(-pid, SIGTERM) } else if owned.process.isRunning { kill(pid, SIGTERM) }
         let deadline = ProcessInfo.processInfo.systemUptime + 0.3
-        while owned.process.isRunning && ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval: 0.01) }
+        while owned.process.isRunning && ProcessInfo.processInfo.systemUptime < deadline {
+            _ = owned.exited.wait(timeout: .now() + 0.01)
+        }
         if grouped { kill(-pid, SIGKILL) } else if owned.process.isRunning { kill(pid, SIGKILL) }
-        owned.process.waitUntilExit()
+        // Foundation waitUntilExit can block in a thread-local run loop even
+        // after isRunning becomes false. The termination notification already
+        // owns reaping; await its state without entering another run loop.
+        while owned.process.isRunning { _ = owned.exited.wait(timeout: .now() + 0.01) }
         if let temporaryDirectory = owned.temporaryDirectory {
             try? FileManager.default.removeItem(at: temporaryDirectory)
         }

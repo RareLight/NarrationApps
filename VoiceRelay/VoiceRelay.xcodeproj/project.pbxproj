@@ -22,6 +22,7 @@
 		B1000000000000000000000C /* VoiceRelayAgent in Embed Agent */ = {isa = PBXBuildFile; fileRef = F20000000000000000000004 /* VoiceRelayAgent */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		B1000000000000000000000D /* Agent plist in Embed LaunchAgent */ = {isa = PBXBuildFile; fileRef = F10000000000000000000013 /* Agent plist */; };
 		B1000000000000000000000E /* AgentDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000015 /* AgentDiagnosticsView.swift */; };
+		B10000000000000000000010 /* DeliveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000016 /* DeliveryTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,7 +76,9 @@
 		900000000000000000000011 /* AgentContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentContract.swift; sourceTree = "<group>"; };
         900000000000000000000012 /* AudioRetention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRetention.swift; sourceTree = "<group>"; };
         900000000000000000000013 /* AgentClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentClient.swift; sourceTree = "<group>"; };
+		900000000000000000000014 /* Delivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Delivery.swift; sourceTree = "<group>"; };
         F10000000000000000000015 /* AgentDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AgentDiagnosticsView.swift; path = Sources/VoiceRelayApp/AgentDiagnosticsView.swift; sourceTree = "<group>"; };
+		F10000000000000000000016 /* DeliveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DeliveryTests.swift; path = Tests/VoiceRelayCoreTests/DeliveryTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -106,6 +109,7 @@
 			children = (
 				A10000000000000000000002 /* Sources */,
 				F10000000000000000000003 /* CoreTests.swift */,
+				F10000000000000000000016 /* DeliveryTests.swift */,
 				F10000000000000000000011 /* SourceReviewTests.swift */,
 				F10000000000000000000005 /* Info.plist */,
 				F10000000000000000000004 /* Acknowledgements */,
@@ -170,6 +174,7 @@
 				900000000000000000000011 /* AgentContract.swift */,
                 900000000000000000000012 /* AudioRetention.swift */,
                 900000000000000000000013 /* AgentClient.swift */,
+				900000000000000000000014 /* Delivery.swift */,
 				90000000000000000000000A /* Tools.swift */,
 			);
 			name = VoiceRelayCore;
@@ -307,6 +312,7 @@
 			isa = PBXSourcesBuildPhase;
 			files = (
 				B10000000000000000000003 /* CoreTests.swift in Sources */,
+				B10000000000000000000010 /* DeliveryTests.swift in Sources */,
 				B10000000000000000000009 /* SourceReviewTests.swift in Sources */,
 			);
 		};
@@ -320,8 +326,8 @@
 		C30000000000000000000001 /* Debug configuration for PBXNativeTarget "VoiceRelay" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Packaging/VoiceRelay.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_APP_SANDBOX = NO;
@@ -345,8 +351,8 @@
 		C30000000000000000000002 /* Release configuration for PBXNativeTarget "VoiceRelay" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Packaging/VoiceRelay.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_APP_SANDBOX = NO;

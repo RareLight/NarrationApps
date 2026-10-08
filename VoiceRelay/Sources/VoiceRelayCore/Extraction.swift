@@ -9,7 +9,7 @@ public struct ExtractedDocument: Sendable {
 }
 
 public enum ArticleExtractor {
-    public static let version = "SwiftReadability-0.3.3/semantic-2"
+    public static let version = "SwiftReadability-0.3.3/semantic-3"
     public static func extract(html: String, originalURL: URL, finalURL: URL) throws -> ExtractedDocument {
         // Readers and DOMs stay in this invocation; neither is shared across tasks.
         let original = try SwiftSoup.parse(html, finalURL.absoluteString)
@@ -36,8 +36,33 @@ public enum ArticleExtractor {
         return ExtractedDocument(article: SemanticArticle(
             title: normalize(result.title ?? "Untitled article"), originalURL: originalURL, finalURL: finalURL,
             canonicalURL: canonicalURL.flatMap { ["https", "http"].contains($0.scheme ?? "") && $0.user == nil && $0.password == nil ? $0 : nil },
-            author: result.byline, blocks: blocks, warnings: warnings, extractorVersion: version),
+            author: result.byline, blocks: blocks, warnings: warnings, extractorVersion: version,
+            sourceName: try metadata(original, key: "og:site_name").first.map { String(normalize($0).prefix(200)) },
+            previewImageURL: try previewImage(original, baseURL: finalURL)),
                                  cleanedHTML: "<!doctype html>\n" + (try cleaned.outerHtml()))
+    }
+
+    private static func metadata(_ document: Document, key: String) throws -> [String] {
+        try document.select("meta[property], meta[name]").compactMap { element in
+            let name = try (element.hasAttr("property") ? element.attr("property") : element.attr("name"))
+                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = try element.attr("content").trimmingCharacters(in: .whitespacesAndNewlines)
+            return name == key && !value.isEmpty ? value : nil
+        }
+    }
+    /// Reuse the fetched page's standardized social preview metadata. No secondary
+    /// image request is required, so absent or unusable art never blocks admission.
+    private static func previewImage(_ document: Document, baseURL: URL) throws -> URL? {
+        for key in ["og:image:secure_url", "og:image", "og:image:url", "twitter:image", "twitter:image:src"] {
+            for value in try metadata(document, key: key) where value.utf8.count <= 4096 {
+                guard let url = URL(string: value, relativeTo: baseURL)?.absoluteURL,
+                      url.scheme?.lowercased() == "https", (try? ArticleURL.validate(url)) != nil,
+                      var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { continue }
+                components.fragment = nil
+                return components.url
+            }
+        }
+        return nil
     }
 
     public static func semanticBlocks(html: String, baseURL: URL) throws -> [ContentBlock] {
@@ -221,9 +246,20 @@ public enum ArticleExtractor {
 }
 
 public enum Narration {
-    public static let version = "conservative-2/footnotes-1/sentence-chunks-1/decorative-quotes-1"
+    private static let previousVersion = "conservative-2/footnotes-1/sentence-chunks-1/decorative-quotes-1/article-boundaries-1"
+    public static let version = previousVersion + "/decorative-separators-1"
+    // This upgrade only omits nonverbal separators. Identical request text, index,
+    // provenance and engine still produce identical audio, so keep those checkpoints.
+    static func chunkFingerprintVersion(_ version: String) -> String {
+        version == Self.version ? previousVersion : version
+    }
     private static func isDecorativeQuotation(_ text: String) -> Bool {
         let marks = CharacterSet(charactersIn: "\"'\u{2018}\u{2019}\u{201C}\u{201D}\u{00AB}\u{00BB}\u{2039}\u{203A}\u{275D}\u{275E}")
+            .union(.whitespacesAndNewlines)
+        return !text.isEmpty && text.unicodeScalars.allSatisfy { marks.contains($0) }
+    }
+    private static func isDecorativeSeparator(_ text: String) -> Bool {
+        let marks = CharacterSet(charactersIn: "-–—―•·‧⋅●◦▪▫|¦*⁂…._=~")
             .union(.whitespacesAndNewlines)
         return !text.isEmpty && text.unicodeScalars.allSatisfy { marks.contains($0) }
     }
@@ -278,6 +314,8 @@ public enum Narration {
             }
             if isDecorativeQuotation(text) {
                 notices.append("Block \(index): decorative quotation retained in semantic artifact and omitted from narration.")
+            } else if isDecorativeSeparator(text) {
+                notices.append("Block \(index): decorative separator retained in semantic artifact and omitted from narration.")
             } else {
                 emit(text, indices: [index])
             }
@@ -295,6 +333,13 @@ public enum Narration {
             for note in notes { content(note) }
             emit("End Footnote", indices: provenance)
         }
+        let title = ArticleExtractor.normalize(article.title)
+        let host = article.finalURL.host ?? article.originalURL.host ?? "Unknown source"
+        let source = ArticleExtractor.normalize(article.sourceName ?? host)
+        let spokenTitle = title.isEmpty ? "Untitled article" : title
+        let punctuation = spokenTitle.last.map { ".!?".contains($0) } == true ? "" : "."
+        emit("\(spokenTitle)\(punctuation) Source: \(source.isEmpty ? host : source).", indices: [])
+        let headerChunks = chunks.count
         for (index, block) in article.blocks.enumerated() where block.footnoteID == nil {
             if block.kind == .footnote {
                 notices.append("Block \(index): standalone footnote read with spoken boundary cues.")
@@ -304,7 +349,8 @@ public enum Narration {
         for block in article.blocks {
             if let id = block.footnoteID, !emitted.contains(id) { footnote(id, referredBy: nil) }
         }
-        guard !chunks.isEmpty else { throw RelayError.extraction("No narration chunks were produced.") }
+        guard chunks.count > headerChunks else { throw RelayError.extraction("No narration chunks were produced.") }
+        emit("End of article.", indices: [])
         return NarrationPlan(version: version, chunks: chunks, notices: notices)
     }
 }

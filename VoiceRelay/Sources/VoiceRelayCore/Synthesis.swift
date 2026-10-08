@@ -32,7 +32,12 @@ public protocol TTSBackend: Sendable {
     func cancel()
 }
 
-struct ChunkCheckpoint: Codable {
+/// Optional CPU pronunciation lookahead; engines remain usable without it.
+public protocol LookaheadTTSBackend: TTSBackend {
+    func synthesize(_ request: SynthesisRequest, directory: URL, next: SynthesisRequest?) throws -> SynthesisResult
+}
+
+struct ChunkCheckpoint: Codable, Sendable {
     let request: SynthesisRequest
     let result: SynthesisResult
     let hashes: [String]

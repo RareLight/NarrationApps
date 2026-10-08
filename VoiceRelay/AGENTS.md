@@ -6,32 +6,65 @@ extending a slice. Keep the independently testable Swift core shared by the Xcod
 app, diagnostic CLI, and Swift package tests.
 
 Current user-confirmed lifecycle: processing and retention are owned by the
-running VoiceRelay app. Closing a panel or window does not stop work; Quit stops
-and awaits owned work. Relaunch restores durable state but starts no speech until
-an explicit user action. Persistent LaunchAgent/XPC ownership and SMAppService
+running VoiceRelay app, and the app's purpose is set-and-forget automation.
+Closing a panel or window does not stop work; Quit stops and awaits owned work.
+While running, the app automatically admits newly discovered Reading List
+articles, processes the ready queue, and drains pending delivery — relaunch
+resumes owned work automatically. Explicit Stop suspends auto-processing until
+new work arrives or Generate is pressed; failed items stay manual-Retry.
+Manual controls remain as overrides. Automatic admission never re-adds entries
+with recorded audio, retained snapshots or absent source entries, and a failed
+automatic admission is not retried until the next session. Automatic delivery
+drains run after publication, retirement/removal, launch and refresh, plus
+periodically while the app runs; interrupted queue items are re-readied on
+launch only when automation is enabled. Persistent LaunchAgent/XPC ownership and SMAppService
 enrollment are no longer required. Preserve the dormant agent prototype as
 inactive reference code; do not reintroduce it into active UI or enroll it.
 
+Delivery is configured in the Delivery settings pane: complete HTTPS Feed folder
+and Public folder URLs plus channel details persist in UserDefaults. feed.xml
+and lowercase audio/ are implicit under each folder; the subscription URL is
+read-only with Copy. URL drafts normalize when committed using Foundation
+URLComponents; no credentials enter URLs or diagnostics. The password lives
+only in Keychain ("VoiceRelay Podcast Upload" service). Test Connection is a
+manual read-only folder probe; a readable ancestor permits a missing-folder
+result saying upload will create it. It does not confirm write permission or
+public mapping. Editing inputs resets the test status. Changed destinations
+require fresh byte-confirmed copies; preserve old remote files and never apply
+old-host deletes to a new destination. Failures use sanitized status text.
+
 Current UX direction: a native MenuBarExtra menu and one sidebar library window
-(Articles, Queue, Saved Audio). Settings uses native pane navigation for General
-and Troubleshooting, with no global Cancel. Generate/Stop live with audio work.
+(Articles, Queue, Saved Audio). Settings uses native pane navigation for
+General, Delivery and Troubleshooting, with no global Cancel. Generate/Stop
+live with audio work.
 Keep voice, speed, audio folder, retention and source choice as user preferences;
-technical encoding/runtime/feed details stay internal or diagnostic. Use standard
-macOS controls, toolbars, sidebar and semantic typography/colors. Liquid Glass
+technical encoding/runtime/feed details stay internal or diagnostic.
+Audio encoding uses 96 kbps AAC-LC/M4A at mono 24 kHz, with floating-point
+intermediates and original levels/dynamics: no normalization, gain, limiter or
+DRC. The legacy loudness profile field is inert decoding/import metadata.
+Unfinished managed work adopts the current bitrate and encoding policy, reusing
+valid speech chunks; encoded scratch is versioned independently. Preserve
+published or integrity-confirmed already-placed final audio files.
+Use standard macOS controls, toolbars, sidebar and semantic typography/colors. Liquid Glass
 belongs to navigation/control chrome, not content backgrounds. Remove retired
 active UI, state, callbacks, scene wiring and previews; retain core fixture/CLI
 coverage and dormant agent references.
 
-Current storage/UI direction: General and Troubleshooting share one fixed
-880×680 Settings window switched by a centered compact icon-navigation strip
-(196×46 selector, 16pt SF symbols, 12pt labels, the selected tile using a real
+Current storage/UI direction: General, Delivery and Troubleshooting share one
+resizable
+400×680-ideal Settings window (360×540 minimum) switched by a centered compact icon-navigation strip
+(292×46 selector — three 92pt tiles plus spacing, 16pt SF symbols, 12pt labels,
+the selected tile using a real
 SwiftUI glassEffect); selection state is the glass tile, and keyboard focus is
 shown by a rounded keyboard-only focus cue, not a persistent tinted box. All visible app text
 is 12pt or larger (system tooltips excepted); explanatory prose lives behind
 ⓘ help controls on section headers, not inline footnotes. Keep macOS27
-minimum. There are no visible Refresh controls anywhere: the chosen Reading
-List source is re-read automatically (every ~30 seconds, on Articles appearance
-and on source selection) while the app runs, and saved-audio/library state
+minimum. There are no visible Refresh buttons: the chosen Reading
+List source is re-read automatically (at startup, every five minutes, on Articles
+appearance and on source selection), and through the Articles pull-down gesture,
+while the app runs. Articles show newest saved dates first, with stable discovery
+order for ties and undated entries last; manual selection enqueues in displayed
+order without reordering existing queue items. Saved-audio/library state
 rechecks internally. Older diagnostics that mention "refresh Saved Audio" refer
 to that automatic recheck / reopening the pane. Inline errors carry a
 hover-revealed ⓧ dismiss that is presentation-only: it never mutates stored
@@ -61,8 +94,19 @@ control — reset below two selections, Remove Selections at two or more — and
 row-removal button; per-row mutation state is tracked per entry so a removal never
 flips global running/progress or disables unrelated controls. Queue rows open the
 same Article preview window by double-click or context menu, resolving the URL
-from the saved snapshot; the preview window then fetches the page as for Articles. A per-library filesystem lease permits exactly one
-speech worker while background metadata writes proceed. Batched runs reuse one
+from the saved snapshot; the preview window then fetches the page as for Articles.
+Queue and Preparing rows show the original article host as Articles does. New
+queue records capture it; legacy rows recover it read-only from retained source
+inventory or the integrity-checked snapshot, without fetching a page. A per-library filesystem lease permits exactly one
+inference worker while background metadata writes proceed. The active drain
+pipelines at most one synthesizing article with one FIFO CPU finalizer and one
+pending chunk validation; it never starts a second inference. Explicit Stop lets
+already-started finalization finish while abandoning only interrupted speech;
+Quit cancels and joins both stages while retaining recovery checkpoints. Waiting
+rows remain Ready/removable until their speech turn starts. Debug logging includes
+sanitized stage timings. Kokoro pronunciation lookahead uses one CPU thread,
+retains authenticated voice tensors and bounds allocator reuse at 256 MiB; do not
+alter pinned model math or introduce a second inference worker without request. Batched runs reuse one
 prepared speech-helper session across identity-compatible items; helper failures
 surface privacy-safe, role-specific errors without paths or content. Safari
 Reading List plist and its entries are strictly read-only: never delete, rewrite
@@ -71,7 +115,14 @@ never blocks enqueue/retry and legacy excluded/paused rows are retryable. Reset
 Queue is explicit and confirmed, removes only native queue membership, and
 preserves source inventory, article snapshots, audio and preferences. Saved Audio
 shows only existing,
-accessible finalized native files; listening uses Show in Finder (Quick Look or
+accessible finalized native files with duration and byte size on each row;
+each row also shows delivery state, distinguishing a confirmed audio upload from
+confirmed publication in the server feed. A successful feed upload records the
+included audio hashes and feed identity. Saved Audio's Upload New Items button
+appears only when publishing is enabled and shown items still need upload or
+publication; it stays available after failure, disables during delivery, and hides
+after confirmation. Do not show it for remote deletes alone or pending removals.
+listening uses Show in Finder (Quick Look or
 Finder double-click), with no in-app play control. Its row × and Remove
 Selections delete the
 associated audio file and retire it from the local feed after hash/identity
@@ -85,6 +136,21 @@ open and read concurrently with writers; future backups must use the SQLite back
 API, never raw database copies.
 Processing and inference-helper scratch use app-owned macOS system temporary storage.
 Persistent runtime/model/cache assets and explicit installer scratch remain project-local.
+Narration opens with the article title and source (publisher name, falling back to
+host) and ends with a separate "End of article." paragraph; source blocks stay
+unchanged. Podcast episode dates and RSS ordering use the Reading List saved date
+when available, falling back to the audio publication timestamp. Keep that
+publication timestamp independent. Legacy records resolve saved dates read-only
+from the catalog using their original source identity; date-only feed changes
+republish through ordinary delivery without regenerating/re-uploading audio.
+Standalone decorative separators (such as --, bullet and vertical bar) are
+retained in semantic blocks but omitted from narration so Kokoro receives spoken
+content. Upgrade unfinished plans and recompute queue totals; unchanged requests
+retain compatible completed-chunk fingerprints. Published audio is preserved.
+Optional HTTPS Open Graph/Twitter preview images become per-episode
+RSS itunes:image artwork for current Overcast. Reuse the existing SwiftSoup
+parser; missing artwork never blocks speech or publishing. Images remain external
+publisher URLs, without a secondary image fetch, download or embedding step.
 Clean only newly owned helper-session scratch after its worker stops. The one-time
 user-approved backed-up native queue/generated-history reset was completed; do not
 repeat it or re-query its frozen result as part of validation. No audio files or Safari

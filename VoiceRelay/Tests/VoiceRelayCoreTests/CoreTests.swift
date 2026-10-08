@@ -173,6 +173,130 @@ private func config(at root: URL, suffix: String = "") throws -> URL {
     try text.write(to: file, atomically: true, encoding: .utf8); return file
 }
 
+@Test func audioEncodingDefaultsUse96kAndIgnoreLegacyLoudnessPolicy() throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let profile = PrototypeProfile.fixture(at: root)
+    #expect(profile.bitrate == "96k")
+    #expect(ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"),
+        stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch")).profile.bitrate == "96k")
+    let file = try config(at: root)
+    let text = try String(contentsOf: file, encoding: .utf8).replacingOccurrences(of: "aac_bitrate = \"48k\"", with: "")
+    try text.write(to: file, atomically: true, encoding: .utf8)
+    let imported = try PrototypeProfile.load(file)
+    #expect(imported.bitrate == "96k")
+    #expect(imported.compatibilityNotices.contains { $0.contains("without normalization") })
+    var historical = profile; historical.loudnessLUFS = -99
+    try historical.validate() // Historical loudness metadata cannot impose an active policy.
+}
+
+@Test func audioEncodingPreservesOriginalLevelsDynamicsFloatSamplesAndGaps() throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    var profile = PrototypeProfile.fixture(at: root)
+    profile.gapSeconds = 0.25; profile.loudnessLUFS = -10
+    let processor = AudioProcessor(settings: profile, toolDirectory: root)
+    var artifacts: [LosslessArtifact] = []
+    for (index, amplitude) in [0.020001, 0.20001].enumerated() {
+        let path = root.appendingPathComponent("input-\(index).wav")
+        _ = try ToolRunner.run(profile.ffmpeg,
+            ["-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i",
+             "aevalsrc=\(amplitude)*sin(2*PI*440*t):s=24000:d=2", "-c:a", "pcm_f32le", path.path],
+            timeout: 10, directory: root)
+        artifacts.append(LosslessArtifact(url: path, sampleRate: 24000, channels: 1, format: "wav"))
+    }
+    let (encoded, info) = try processor.encode(artifacts, in: root)
+    #expect(info.codec == "aac" && info.channels == 1 && info.sampleRate == 24000)
+    #expect(abs(info.duration - 4.25) < 0.02)
+    func floats(_ data: Data) -> [Double] {
+        data.withUnsafeBytes { bytes in
+            stride(from: 0, to: bytes.count, by: 4).map {
+                Double(Float(bitPattern: UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: $0, as: UInt32.self))))
+            }
+        }
+    }
+    let combined = floats(try Data(contentsOf: root.appendingPathComponent("combined.pcm")))
+    #expect(combined.count == 24000 * 4 + 6000)
+    #expect(combined[(24000 * 2)..<(24000 * 2 + 6000)].allSatisfy { $0 == 0 })
+    let source = try ToolRunner.run(profile.ffmpeg,
+        ["-nostdin", "-v", "error", "-i", artifacts[0].url.path, "-c:a", "pcm_f32le", "-f", "f32le", "-"],
+        timeout: 10, directory: root)
+    #expect(Array(combined.prefix(48000)) == floats(source))
+    let decoded = floats(try ToolRunner.run(profile.ffmpeg,
+        ["-nostdin", "-v", "error", "-xerror", "-i", encoded.path, "-c:a", "pcm_f32le", "-f", "f32le", "-"],
+        timeout: 10, directory: root))
+    func rms(_ seconds: Range<Double>) -> Double {
+        let samples = decoded[Int(seconds.lowerBound * 24000)..<Int(seconds.upperBound * 24000)]
+        return sqrt(samples.reduce(0) { $0 + $1 * $1 } / Double(samples.count))
+    }
+    let quiet = rms(0.5..<1.5), loud = rms(2.75..<3.75)
+    #expect(abs(20 * log10(quiet / (0.020001 / sqrt(2)))) < 0.5)
+    #expect(abs(20 * log10(loud / (0.20001 / sqrt(2)))) < 0.5)
+    #expect(abs(20 * log10(loud / quiet) - 20) < 0.5)
+}
+
+@Test(arguments: ["64k", "96k"], [FixtureBoundary.encoded, .audioPlaced])
+func audioPolicyUpgradeReencodesLegacyScratchRetainsSpeechAndPreservesPlacedAudio(_ oldBitrate: String, _ boundary: FixtureBoundary) async throws {
+    struct PreviousEncodingFingerprint: Encodable {
+        let backend: BackendIdentity
+        let profile: PrototypeProfile
+        let extraction: String
+        let narration: NarrationPlan
+    }
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    try Files.directory(root.appendingPathComponent("audio"))
+    let storage = ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"),
+        stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let coordinator = FixtureCoordinator(), backend = SyntheticSpeechContractBackend("audio-policy")
+    let review = try reviewedArticle()
+    let item = try await coordinator.enqueue(review, storage: storage,
+        preferences: SpeechPreferences(voice: .heart, speed: 1.25))
+    do {
+        _ = try await coordinator.runReviewed(root: storage.stateRoot, review: review, backend: backend,
+            voice: "af_heart", speed: 1.25, interruptAfter: .encoded, storage: storage)
+        Issue.record("Expected interruption")
+    } catch { #expect(error as? RelayError == .interrupted) }
+    var episode = try #require(await coordinator.library(storage: storage).first)
+    episode.settings.bitrate = oldBitrate
+    let directory = episode.settings.work.appendingPathComponent(item.id)
+    let encoded = directory.appendingPathComponent("episode.m4a")
+    // Authentic old encoded checkpoint: normalized signal and pre-policy fingerprint.
+    _ = try ToolRunner.run(episode.settings.ffmpeg,
+        ["-nostdin", "-v", "error", "-y", "-f", "f32le", "-ar", "24000", "-ac", "1", "-i",
+         directory.appendingPathComponent("combined.pcm").path, "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+         "-c:a", "aac", "-profile:a", "aac_low", "-b:a", oldBitrate, "-ac", "1", "-ar", "24000", encoded.path],
+        timeout: 10, directory: directory)
+    let oldHash = try Files.hash(encoded)
+    episode.encodedHash = oldHash
+    episode.info = try AudioProcessor(settings: episode.settings, toolDirectory: directory).probe(encoded, final: true)
+    episode.synthesisFingerprint = Files.hash(try Files.json(PreviousEncodingFingerprint(backend: backend.identity,
+        profile: episode.settings, extraction: #require(review.document).article.extractorVersion,
+        narration: #require(review.narration))))
+    let oldFingerprint = episode.synthesisFingerprint
+    let chunks: [[String]]
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        try store.save(episode)
+        chunks = try store.query("SELECT fingerprint,checkpoint FROM chunks ORDER BY chunk_index")
+    }
+    if boundary == .audioPlaced {
+        try FileManager.default.copyItem(at: encoded, to: episode.settings.audio.appendingPathComponent(item.id + ".m4a"))
+    }
+    let result = try await coordinator.resume(storage: storage, articleID: item.id, backend: backend)
+    #expect(result.synthesizedChunks == 0 && result.episode.id == item.id)
+    #expect(result.episode.settings.voice == "af_heart" && result.episode.settings.backendSettings["speed"]?.numericValue == 1.25)
+    #expect(try NativeStore(url: storage.profile.database, readOnly: true).query("SELECT fingerprint,checkpoint FROM chunks ORDER BY chunk_index") == chunks)
+    if boundary == .encoded {
+        #expect(result.episode.settings.bitrate == "96k")
+        #expect(result.episode.audioHash != oldHash && result.episode.synthesisFingerprint != oldFingerprint)
+    } else {
+        #expect(result.episode.settings.bitrate == oldBitrate)
+        #expect(try Files.hash(result.audioURL) == oldHash)
+    }
+    let publishedHash = try Files.hash(result.audioURL), feed = try Data(contentsOf: result.feedURL)
+    let again = try await coordinator.resume(storage: storage, articleID: item.id, backend: backend)
+    #expect(again.synthesizedChunks == 0 && again.episode.settings.bitrate == result.episode.settings.bitrate)
+    #expect(try Files.hash(again.audioURL) == publishedHash && Data(contentsOf: again.feedURL) == feed)
+}
+
 @Test func configurationPreservesCustomizedValuesWithoutWriting() throws {
     let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
     let file = try config(at: root); let before = try Data(contentsOf: file)
@@ -239,7 +363,7 @@ func unsafeDeliveryURLsRejected(_ value: String) {
     #expect(plan.notices.count >= 3)
     #expect(plan.chunks.map(\.text).joined().contains("Table omitted"))
     #expect(!plan.chunks.map(\.text).joined().contains("let x = 1"))
-    #expect(plan.chunks.allSatisfy { $0.text.count <= 50 && !$0.blockIndices.isEmpty })
+    #expect(plan.chunks.allSatisfy { $0.text.count <= 50 })
 }
 
 @Test func narrationHasBoundsUnicodeAndLosslessLongTokenFallback() throws {
@@ -248,7 +372,7 @@ func unsafeDeliveryURLsRejected(_ value: String) {
     let a = SemanticArticle(title: "Bounded", originalURL: URL(string: "https://example.com")!, finalURL: URL(string: "https://example.com")!, canonicalURL: nil, author: nil, blocks: [block], warnings: [], extractorVersion: "test")
     let plan = try Narration.prepare(a, limit: 30)
     #expect(a.blocks[0].text == text)
-    #expect(plan.chunks.allSatisfy { $0.text.count <= 30 && $0.blockIndices == [0] })
+    #expect(plan.chunks.allSatisfy { $0.text.count <= 30 && ($0.blockIndices == [0] || $0.blockIndices.isEmpty) })
     #expect(plan.chunks.map(\.text).joined().filter { $0 == "界" }.count == 137)
     #expect(plan.chunks.map(\.text).joined().contains("Café 2026 costs $42."))
 }
@@ -261,12 +385,103 @@ func unsafeDeliveryURLsRejected(_ value: String) {
                                   canonicalURL: nil, author: nil, blocks: blocks, warnings: [], extractorVersion: "test")
     let plan = try Narration.prepare(article, limit: 1800)
     #expect(article.blocks.map(\.text) == texts)
-    #expect(plan.chunks.map(\.text) == [texts[0], texts[2], texts[5], texts[6], texts[7]])
-    #expect(plan.chunks.map(\.blockIndices) == [[0], [2], [5], [6], [7]])
+    #expect(plan.chunks.filter { !$0.blockIndices.isEmpty }.map(\.text) == [texts[0], texts[2], texts[5], texts[6], texts[7]])
+    #expect(plan.chunks.filter { !$0.blockIndices.isEmpty }.map(\.blockIndices) == [[0], [2], [5], [6], [7]])
     #expect(plan.notices.filter { $0.contains("decorative quotation") }.count == 3)
     let decoration = SemanticArticle(title: "Synthetic decoration", originalURL: url, finalURL: url,
                                     canonicalURL: nil, author: nil, blocks: [blocks[1]], warnings: [], extractorVersion: "test")
     #expect(throws: RelayError.self) { try Narration.prepare(decoration, limit: 1800) }
+}
+
+@Test func narrationOmitsDecorativeSeparatorsAndPreservesMeaningfulSymbols() throws {
+    let url = URL(string: "https://articles.example/separators")!
+    let separators = ["--", "•", "|", "— — —", "* * *", "…", "___", "• | --"]
+    let content = ["Before the break.", "C++ costs $42.", "x | y", "42", "Café 日本語", "Words -- still belong here."]
+    let texts = separators + content
+    let article = SemanticArticle(title: "Synthetic separators", originalURL: url, finalURL: url, canonicalURL: nil,
+        author: nil, blocks: texts.map { ContentBlock(kind: .paragraph, text: $0) }, warnings: [], extractorVersion: "test")
+    let plan = try Narration.prepare(article, limit: 1800)
+    #expect(article.blocks.map(\.text) == texts)
+    #expect(plan.chunks.filter { !$0.blockIndices.isEmpty }.map(\.text) == content)
+    #expect(plan.notices.filter { $0.contains("decorative separator") }.count == separators.count)
+    #expect(plan.chunks.first?.text.contains("Source: articles.example.") == true && plan.chunks.last?.text == "End of article.")
+    let decoration = SemanticArticle(title: "Separators only", originalURL: url, finalURL: url, canonicalURL: nil,
+        author: nil, blocks: separators.map { ContentBlock(kind: .paragraph, text: $0) }, warnings: [], extractorVersion: "test")
+    #expect(throws: RelayError.self) { try Narration.prepare(decoration, limit: 1800) }
+}
+
+@Test func queueOriginCapturesOriginalSiteAndRecoversLegacyRowsReadOnly() async throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    try Files.directory(root.appendingPathComponent("audio"))
+    let storage = ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"), stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let coordinator = FixtureCoordinator(), review = try reviewedArticle(host: "origin.example")
+    let item = try await coordinator.enqueue(review, storage: storage, preferences: SpeechPreferences())
+    #expect(item.sourceHost == "origin.example")
+    let raw: String
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        var legacy = try #require(JSONSerialization.jsonObject(with: Files.json(item)) as? [String: Any])
+        legacy.removeValue(forKey: "sourceHost")
+        let bytes = try JSONSerialization.data(withJSONObject: legacy)
+        #expect(try JSONDecoder().decode(SpeechQueueItem.self, from: bytes).sourceHost == nil)
+        raw = String(decoding: bytes, as: UTF8.self)
+        try store.execute("UPDATE speech_queue SET record=? WHERE article_id=?", [raw, item.id])
+    }
+    let recovered = try #require(await coordinator.queue(stateRoot: storage.stateRoot).first)
+    #expect(recovered.sourceHost == "origin.example" && recovered.id == item.id)
+    do { #expect(try NativeStore(url: storage.profile.database, readOnly: true).query("SELECT record FROM speech_queue WHERE article_id=?", [item.id]).first?.first == raw) }
+}
+
+@Test func separatorNarrationUpgradeRetainsCompatibleCompletedChunk() async throws {
+    struct PreviousFingerprint: Encodable {
+        let request: SynthesisRequest
+        let backend: BackendIdentity
+        let extraction: String
+        let narration: String
+    }
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    try Files.directory(root.appendingPathComponent("audio"))
+    let storage = ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"), stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let url = URL(string: "https://articles.example/legacy-separator")!
+    let html = String(decoding: try FixtureResource.html(), as: UTF8.self).replacingOccurrences(of: "</article>", with: "<p>--</p></article>")
+    let review = try ReviewedSource.prepare(FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
+        contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast), chunkLimit: 1800)
+    let coordinator = FixtureCoordinator(), backend = SyntheticSpeechContractBackend("separator-upgrade")
+    let item = try await coordinator.enqueue(review, storage: storage, preferences: SpeechPreferences())
+    do {
+        _ = try await coordinator.runReviewed(root: storage.stateRoot, review: review, backend: backend,
+            interruptAfter: .chunkCommitted, storage: storage)
+        Issue.record("Expected interruption")
+    } catch { #expect(error as? RelayError == .interrupted) }
+    let episode = try #require(await coordinator.library(storage: storage).first)
+    let current = try #require(review.narration), article = try #require(review.document?.article)
+    let first = try #require(current.chunks.first)
+    let request = SynthesisRequest(text: first.text, language: episode.settings.language, voice: episode.settings.voice,
+        articleID: item.id, chunkIndex: first.index, blockIndices: first.blockIndices, settings: episode.settings.backendSettings)
+    let oldVersion = "conservative-2/footnotes-1/sentence-chunks-1/decorative-quotes-1/article-boundaries-1"
+    let expected = Files.hash(try Files.json(PreviousFingerprint(request: request, backend: backend.identity,
+        extraction: article.extractorVersion, narration: oldVersion)))
+    // Restore an authentic older plan containing a separator and the same completed request.
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        #expect(try store.query("SELECT fingerprint FROM chunks WHERE article_id=? AND chunk_index=0", [item.id]).first?.first == expected)
+        var files = try JSONDecoder().decode(StoredExtraction.self, from: #require(try store.snapshot(articleID: item.id))).files
+        let separatorIndex = try #require(article.blocks.firstIndex { $0.text == "--" })
+        let chunks = Array(current.chunks.dropLast()) + [NarrationChunk(index: current.chunks.count - 1, text: "--", blockIndices: [separatorIndex]),
+            NarrationChunk(index: current.chunks.count, text: "End of article.", blockIndices: [])]
+        files["narration.json"] = try Files.json(NarrationPlan(version: oldVersion, chunks: chunks, notices: []))
+        var checkpoint = try #require(JSONSerialization.jsonObject(with: files["extraction-checkpoint.json"]!) as? [String: Any])
+        checkpoint["narrationVersion"] = oldVersion
+        checkpoint["narrationHash"] = Files.hash(files["narration.json"]!)
+        files["extraction-checkpoint.json"] = try JSONSerialization.data(withJSONObject: checkpoint)
+        try store.saveSnapshot(articleID: item.id, data: Files.json(["files": files]))
+        let directory = episode.settings.work.appendingPathComponent(item.id)
+        for (name, data) in files { try Files.write(data, to: directory.appendingPathComponent(name)) }
+    }
+    let result = try await coordinator.resume(storage: storage, articleID: item.id, backend: backend)
+    #expect(result.narration.version == Narration.version && result.narration.chunks.allSatisfy { $0.text != "--" })
+    #expect(result.synthesizedChunks == result.narration.chunks.count - 1)
+    #expect(result.article.blocks.contains { $0.text == "--" })
 }
 
 @Test func sqliteRejectsForeignNewerAndCompetingWriters() throws {
@@ -1075,6 +1290,70 @@ private extension FixtureCoordinator {
     }
 }
 
+@Test func speechVoiceMenusAreRegionalBoundedAndOrderedByPublishedQuality() throws {
+    #expect(SpeechPreferences().languageRegion == .usEnglish)
+    #expect(SpeechLanguageRegion.usEnglish.voices.count == 10)
+    #expect(SpeechLanguageRegion.ukEnglish.voices.count == 8)
+    #expect(SpeechLanguageRegion.usEnglish.voices.prefix(3) == [.heart, .bella, .nicole])
+    #expect(SpeechLanguageRegion.ukEnglish.voices.first == .emma)
+    let grades = ["A": 0, "A−": 1, "B−": 2, "C+": 3, "C": 4, "D+": 5, "D": 6]
+    for region in SpeechLanguageRegion.allCases {
+        let voices = region.voices
+        #expect(Set(voices).count == voices.count)
+        #expect(voices.allSatisfy { $0.languageRegion == region })
+        for (first, second) in zip(voices, voices.dropFirst()) {
+            #expect(try #require(grades[first.qualityGrade]) <= #require(grades[second.qualityGrade]))
+            if first.qualityGrade == second.qualityGrade { #expect(first.label < second.label) }
+        }
+        for voice in voices {
+            let configuration = try KokoroConfiguration(projectRoot: URL(fileURLWithPath: "/synthetic/VoiceRelay"), voice: voice.rawValue)
+            #expect(configuration.voice == voice.rawValue)
+            #expect(try JSONDecoder().decode(SpeechPreferences.self, from: Files.json(SpeechPreferences(voice: voice))).voice == voice)
+        }
+    }
+    #expect(Set(SpeechVoice.allCases) == Set(SpeechLanguageRegion.allCases.flatMap(\.voices)))
+}
+
+@Test func speechRegionChangesKeepMatchingSelectionsAndRestoreLegacyPreferences() throws {
+    var preferences = SpeechPreferences(voice: .bella, speed: 1.25)
+    preferences.languageRegion = .usEnglish
+    #expect(preferences.voice == .bella)
+    preferences.languageRegion = .ukEnglish
+    #expect(preferences.voice == .emma && preferences.speed == 1.25)
+    preferences.voice = .george
+    preferences.languageRegion = .ukEnglish
+    #expect(preferences.voice == .george)
+    preferences.languageRegion = .usEnglish
+    #expect(preferences.voice == .heart && preferences.speed == 1.25)
+    for voice in [SpeechVoice.heart, .bella, .emma] {
+        let legacy = Data("{\"voice\":\"\(voice.rawValue)\",\"speed\":1.25}".utf8)
+        let restored = try JSONDecoder().decode(SpeechPreferences.self, from: legacy)
+        #expect(restored.voice == voice && restored.languageRegion == voice.languageRegion)
+        let object = try #require(JSONSerialization.jsonObject(with: Files.json(restored)) as? [String: Any])
+        #expect(Set(object.keys) == ["voice", "speed"])
+    }
+}
+
+@Test func queueCapturesRegionalVoiceAndKeepsEarlierChoicesOnReenqueue() async throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let audio = root.appendingPathComponent("audio"); try Files.directory(audio)
+    let storage = ManagedSpeechStorage(audioDirectory: audio, stateRoot: root.appendingPathComponent("state"),
+                                       temporaryRoot: root.appendingPathComponent("scratch"))
+    let coordinator = FixtureCoordinator()
+    let uk = try await coordinator.enqueue(reviewedArticle("british"), storage: storage,
+        preferences: SpeechPreferences(voice: .george, speed: 1.25))
+    let us = try await coordinator.enqueue(reviewedArticle("american"), storage: storage,
+        preferences: SpeechPreferences(voice: .puck))
+    let again = try await coordinator.enqueue(reviewedArticle("british"), storage: storage, preferences: SpeechPreferences())
+    #expect(again.id == uk.id)
+    let episodes = try await coordinator.library(storage: storage)
+    let capturedUK = try #require(episodes.first { $0.id == uk.id })
+    let capturedUS = try #require(episodes.first { $0.id == us.id })
+    #expect(capturedUK.settings.voice == "bm_george" && capturedUK.settings.language == "en-GB")
+    #expect(capturedUK.settings.backendSettings["speed"]?.numericValue == 1.25)
+    #expect(capturedUS.settings.voice == "am_puck" && capturedUS.settings.language == "en-US")
+}
+
 @Test func speechWorkspaceRejectsHistoricalToneDataWithoutWriting() throws {
     let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
     let marker = root.appendingPathComponent(".voicerelay-fixture")
@@ -1753,7 +2032,7 @@ private final class BatchBackendLog: @unchecked Sendable {
             })
             Issue.record("Unusable source queued")
         } catch {
-            if mode == 0 { #expect(error.localizedDescription.contains("Troubleshooting")) }
+            if mode == 0 { #expect(error.localizedDescription.contains("Articles")) }
             if mode == 1 { #expect(error as? SourceFetchError == .network) }
             if mode == 2 { #expect(error is CancellationError) }
         }
@@ -1913,6 +2192,41 @@ private final class BatchProgressRecorder: @unchecked Sendable {
     #expect(encodings.allSatisfy { $0.fractionCompleted < 1 })
     let empty = try await coordinator.runQueuedBatch(storage: storage, backend: { _ in Issue.record("Completed batch invoked inference"); return SyntheticSpeechContractBackend("unused") })
     #expect(empty.lastResult == nil && empty.progress.totalArticles == 0 && empty.progress.totalChunks == 0)
+}
+
+@Test func queueBatchUpgradesLegacyNarrationAndCountsArticleBoundaries() async throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    try Files.directory(root.appendingPathComponent("audio"))
+    let storage = ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"), stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let coordinator = FixtureCoordinator(), review = try reviewedArticle()
+    let item = try await coordinator.enqueue(review, storage: storage, preferences: SpeechPreferences())
+    let current = try #require(review.narration)
+    // Simulate a valid older snapshot with only source-body chunks and matching hashes.
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        let bytes = try #require(try store.snapshot(articleID: item.id))
+        let snapshot = try JSONDecoder().decode(StoredExtraction.self, from: bytes)
+        var files = snapshot.files
+        let legacy = NarrationPlan(version: "conservative-2/legacy", chunks: current.chunks.filter { !$0.blockIndices.isEmpty }.enumerated().map {
+            NarrationChunk(index: $0.offset, text: $0.element.text, blockIndices: $0.element.blockIndices)
+        }, notices: current.notices)
+        files["narration.json"] = try Files.json(legacy)
+        var checkpoint = try #require(try JSONSerialization.jsonObject(with: files["extraction-checkpoint.json"]!) as? [String: Any])
+        checkpoint["narrationVersion"] = legacy.version
+        checkpoint["narrationHash"] = Files.hash(files["narration.json"]!)
+        files["extraction-checkpoint.json"] = try JSONSerialization.data(withJSONObject: checkpoint)
+        try store.saveSnapshot(articleID: item.id, data: Files.json(["files": files]))
+    }
+    let recorder = BatchProgressRecorder()
+    let result = try await coordinator.runQueuedBatch(storage: storage, backend: { _ in SyntheticSpeechContractBackend("upgraded") }, onProgress: { recorder.append($0) })
+    #expect(result.progress.totalChunks == current.chunks.count)
+    #expect(result.progress.completedChunks == current.chunks.count && result.progress.fractionCompleted == 1)
+    #expect(recorder.values.allSatisfy { $0.totalChunks == current.chunks.count })
+    let bytes = try #require(try NativeStore(url: storage.profile.database, readOnly: true).snapshot(articleID: item.id))
+    let upgraded = try JSONDecoder().decode(StoredExtraction.self, from: bytes).review()
+    #expect(upgraded.narration?.version == Narration.version)
+    #expect(upgraded.narration?.chunks.first?.text.contains("Source:") == true)
+    #expect(upgraded.narration?.chunks.last?.text == "End of article.")
 }
 
 @Test func queueBatchCancellationPreservesEarlierGlobalProgressAndLaterWaitingItems() async throws {
@@ -2538,7 +2852,8 @@ private func awaitCondition(_ deadline: TimeInterval = 60, _ condition: () -> Bo
         }, control: control)
     }
     #expect(try await awaitCondition { gate.synthesizeEntered })
-    #expect(FileManager.default.fileExists(atPath: audio.appendingPathComponent(first.id + ".m4a").path))
+    // The next inference now starts while the first article is finalizing.
+    #expect(try await coordinator.library(storage: storage).first(where: { $0.id == first.id })?.stage != .synthesizing)
     control.requestStop()
     drain.cancel()
     do { _ = try await drain.value; Issue.record("Stopped drain completed") }
@@ -2856,8 +3171,11 @@ private final class ArtifactOnCancelBackend: TTSBackend, @unchecked Sendable {
         }, control: control)
     }
     #expect(try await awaitCondition { gate.blockedOnSecond })
-    #expect(try NativeStore(url: storage.profile.database, readOnly: true)
-        .query("SELECT COUNT(*) FROM chunks WHERE article_id=?", [second.id]).first?.first == "1")
+    // Validation/checkpoint of chunk 1 now overlaps synthesis of chunk 2.
+    #expect(try await awaitCondition {
+        (try? NativeStore(url: storage.profile.database, readOnly: true)
+            .query("SELECT COUNT(*) FROM chunks WHERE article_id=?", [second.id]).first?.first) == "1"
+    })
     let sibling = storage.profile.work.appendingPathComponent("unrelated.txt")
     try Files.write(Data("unrelated".utf8), to: sibling)
     control.requestStop()
@@ -3054,6 +3372,18 @@ private func seedLegacyDatabase(_ database: URL, version: Int, foreign: Bool = f
     }
     try #require(rawExec(raw, "PRAGMA application_id=\(NativeStore.applicationID)"))
     try #require(rawExec(raw, "PRAGMA user_version=\(version)"))
+}
+
+@Test func readOnlyNativeStoreReadsEmptyLibraryAfterInitializationCloses() throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let database = root.appendingPathComponent("library.sqlite")
+    do { _ = try NativeStore(url: database) }
+    #expect(FileManager.default.fileExists(atPath: database.path + "-wal"))
+    #expect(FileManager.default.fileExists(atPath: database.path + "-shm"))
+    let reader = try NativeStore(url: database, readOnly: true)
+    #expect(try reader.catalog().entries.isEmpty)
+    #expect(try reader.queue().isEmpty)
+    #expect(try reader.episodes().isEmpty)
 }
 
 @Test func readOnlyNativeStoreReadsAfterLastWriterClosed() async throws {

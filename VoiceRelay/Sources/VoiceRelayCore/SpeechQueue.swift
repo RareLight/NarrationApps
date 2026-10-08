@@ -20,14 +20,15 @@ public struct SpeechQueueItem: Codable, Sendable, Identifiable, Equatable {
     public let id: String
     public let title: String
     public let sourceEntryID: String?
+    public var sourceHost: String?
     public var admissionID: UUID?
     public var state: SpeechQueueState
     public var attempts: Int
     public var lastError: String?
     public init(id: String, title: String, sourceEntryID: String? = nil, admissionID: UUID? = nil,
-                state: SpeechQueueState = .queued, attempts: Int = 0, lastError: String? = nil) {
+                state: SpeechQueueState = .queued, attempts: Int = 0, lastError: String? = nil, sourceHost: String? = nil) {
         self.id = id; self.title = title; self.sourceEntryID = sourceEntryID; self.admissionID = admissionID
-        self.state = state; self.attempts = attempts; self.lastError = lastError
+        self.state = state; self.attempts = attempts; self.lastError = lastError; self.sourceHost = sourceHost
     }
 }
 
@@ -185,8 +186,9 @@ extension FixtureCoordinator {
         try ArticleURL.validate(review.page.originalURL); try ArticleURL.validate(review.page.finalURL)
         let store = try metadataWriter(storage.stateRoot)
         let catalog = try store.catalog()
-        if let sourceEntryID {
-            guard catalog.entries.contains(where: { $0.id == sourceEntryID && $0.url == review.page.originalURL }) else {
+        let sourceEntry = catalog.entries.first { $0.id == sourceEntryID && $0.url == review.page.originalURL }
+        if sourceEntryID != nil {
+            guard sourceEntry != nil else {
                 throw RelayError.setup("This Reading List article does not match the saved source.")
             }
         }
@@ -194,6 +196,7 @@ extension FixtureCoordinator {
         settings.backendSelector = "reviewed-article-speech"; settings.channelTitle = "VoiceRelay Articles"
         settings.channelDescription = "Private local speech; remote delivery disabled"
         settings.voice = preferences.voice.rawValue; settings.backendSettings = ["speed": .number(preferences.speed)]
+        settings.language = preferences.languageRegion.rawValue
         try settings.validate()
         if admissionControl?.isCancelled == true { throw CancellationError() }
         try store.execute("BEGIN IMMEDIATE")
@@ -209,16 +212,18 @@ extension FixtureCoordinator {
                 let snapshot = try StoredExtraction(review: review, chunkLimit: episode.settings.chunkMaxCharacters)
                 try store.saveSnapshot(articleID: episode.id, data: Files.json(snapshot))
                 episode.title = document.article.title; episode.stage = .extracted
-                try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
             }
+            if let saved = sourceEntry?.addedAt { episode.readingListSavedAt = saved }
+            try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
             var item = try store.queue().first(where: { $0.id == episode.id }) ?? SpeechQueueItem(
                 id: episode.id, title: episode.title, sourceEntryID: sourceEntryID,
-                admissionID: admissionControl?.id, state: .queued)
+                admissionID: admissionControl?.id, state: .queued, sourceHost: review.page.originalURL.host)
             if item.sourceEntryID == nil, let sourceEntryID {
                 item = SpeechQueueItem(id: item.id, title: item.title, sourceEntryID: sourceEntryID,
                                        admissionID: item.admissionID,
-                                       state: item.state, attempts: item.attempts, lastError: item.lastError)
+                                       state: item.state, attempts: item.attempts, lastError: item.lastError, sourceHost: item.sourceHost)
             }
+            if item.sourceHost == nil { item.sourceHost = review.page.originalURL.host }
             try store.saveQueueItem(item)
             beforeEnqueueCommit?()
             if admissionControl?.isCancelled == true { throw CancellationError() }
@@ -276,10 +281,10 @@ extension FixtureCoordinator {
         try Task.checkCancellation()
         try store.execute("DELETE FROM speech_queue")
     }
-    private func claimQueued(_ id: String, stateRoot: URL) throws -> Episode {
+    private func claimQueued(_ id: String, stateRoot: URL, allowingRunning: Bool = false) throws -> Episode {
         let store = try metadataWriter(stateRoot)
         let items = try store.queue()
-        guard !items.contains(where: { $0.state == .running }) else {
+        guard allowingRunning || !items.contains(where: { $0.state == .running }) else {
             throw RelayError.setup("A queue item was interrupted. Retry it explicitly before continuing.")
         }
         guard var item = items.first(where: { $0.id == id }), item.state.isReady, item.attempts < Int.max else { throw RelayError.setup("Retry this queue item before running it.") }
@@ -305,6 +310,7 @@ extension FixtureCoordinator {
     public func runQueued(_ id: String, storage: ManagedSpeechStorage,
                           backend: @Sendable (Episode) throws -> any TTSBackend,
                           control: QueueRunControl? = nil,
+                          delivery: DeliverySettings? = nil,
                           onQueueChange: @escaping @Sendable (SpeechQueueItem) -> Void = { _ in },
                           onProgress: @escaping @Sendable (PipelineProgress) -> Void = { _ in }) async throws -> FixtureResult {
         try Task.checkCancellation()
@@ -315,25 +321,30 @@ extension FixtureCoordinator {
         defer { provider?.cancel() }
         return try await runClaimed(episode, storage: storage, provider: {
             let made = try backend(episode); provider = made; return made
-        }, control: control, onQueueChange: onQueueChange, onProgress: onProgress)
+        }, control: control, delivery: delivery, onQueueChange: onQueueChange, onProgress: onProgress)
     }
     /// Claimed-item body shared by single-shot and batch runs; the caller owns the provider's lifetime.
     private func runClaimed(_ episode: Episode, storage: ManagedSpeechStorage,
                             provider makeProvider: () throws -> any TTSBackend,
                             control: QueueRunControl? = nil,
+                            delivery: DeliverySettings? = nil, context: SpeechArticleContext? = nil,
                             onQueueChange: @escaping @Sendable (SpeechQueueItem) -> Void,
                             onProgress: @escaping @Sendable (PipelineProgress) -> Void) async throws -> FixtureResult {
         if let item = try queue(stateRoot: storage.stateRoot).first(where: { $0.id == episode.id }) { onQueueChange(item) }
         do {
             let provider = try makeProvider()
-            let result = try await resume(storage: storage, articleID: episode.id, backend: provider, onProgress: onProgress)
-            onQueueChange(try finishQueued(episode.id, state: .completed, error: nil, stateRoot: storage.stateRoot))
+            let result = try await resumeWork(storage: storage, articleID: episode.id, backend: provider,
+                                          delivery: delivery, context: context, onProgress: onProgress)
+            if context?.finishAfterStop == true && Task.isCancelled {
+                let completion = Task { try self.finishQueued(episode.id, state: .completed, error: nil, stateRoot: storage.stateRoot) }
+                onQueueChange(try await completion.value)
+            } else { onQueueChange(try finishQueued(episode.id, state: .completed, error: nil, stateRoot: storage.stateRoot)) }
             return result
         } catch {
             let interrupted = error is CancellationError || error as? RelayError == .interrupted
             if control?.discardInterruptedWork == true, Task.isCancelled || interrupted {
                 let cleanup = Task {
-                    try self.abandonInterruptedWork(episodeID: episode.id, storage: storage)
+                    try self.abandonInterruptedWork(episodeID: episode.id, storage: storage, pipeline: context?.pipeline)
                     return try self.finishQueued(episode.id, state: .queued, error: nil, stateRoot: storage.stateRoot)
                 }
                 do {
@@ -362,14 +373,25 @@ extension FixtureCoordinator {
         guard let first = items.first(where: { $0.state.isReady }) else { return nil }
         return try await runQueued(first.id, storage: storage, backend: backend, onQueueChange: onQueueChange, onProgress: onProgress)
     }
-    private func waitingBatch(stateRoot: URL) throws -> [(id: String, chunks: Int)] {
+    private func waitingBatch(stateRoot: URL, allowingRunning: Bool = false) throws -> [(id: String, chunks: Int)] {
         let items = try queue(stateRoot: stateRoot)
-        guard !items.contains(where: { $0.state == .running }) else { throw RelayError.setup("A queue item was interrupted. Retry it explicitly before continuing.") }
+        guard allowingRunning || !items.contains(where: { $0.state == .running }) else { throw RelayError.setup("A queue item was interrupted. Retry it explicitly before continuing.") }
         guard let store = try metadataReader(stateRoot) else { return [] }
+        let episodes = Dictionary(uniqueKeysWithValues: try store.episodes().map { ($0.id, $0) })
         return try items.filter { $0.state.isReady }.map { item in
-            guard let data = try store.snapshot(articleID: item.id),
-                  let plan = try JSONDecoder().decode(StoredExtraction.self, from: data).review().narration,
-                  !plan.chunks.isEmpty else { throw RelayError.artifact("Queued article text is unavailable. Existing progress is preserved.") }
+            guard let data = try store.snapshot(articleID: item.id) else {
+                throw RelayError.artifact("Queued article text is unavailable. Existing progress is preserved.")
+            }
+            let review = try JSONDecoder().decode(StoredExtraction.self, from: data).review()
+            guard var plan = review.narration, !plan.chunks.isEmpty,
+                  let episode = episodes[item.id] else {
+                throw RelayError.artifact("Queued article text is unavailable. Existing progress is preserved.")
+            }
+            // Resume upgrades unfinished narration. Count that same plan before running
+            // so older queued snapshots cannot under-report the new boundary chunks.
+            if episode.stage != .published, plan.version != Narration.version, let article = review.document?.article {
+                plan = try Narration.prepare(article, limit: episode.settings.chunkMaxCharacters)
+            }
             return (item.id, plan.chunks.count)
         }
     }
@@ -423,8 +445,9 @@ extension FixtureCoordinator {
         return QueueBatchResult(lastResult: last, progress: final)
     }
     public func drainQueue(storage: ManagedSpeechStorage,
-                           backend: @Sendable (Episode) throws -> any TTSBackend,
+                           backend: @escaping @Sendable (Episode) throws -> any TTSBackend,
                            control: QueueRunControl = QueueRunControl(),
+                           delivery: DeliverySettings? = nil, debugLog: DeliveryDebugLog? = nil,
                            pendingPreparationCount: @escaping @Sendable () async -> Int = { 0 },
                            onQueueChange: @escaping @Sendable (SpeechQueueItem) -> Void = { _ in },
                            onArticleComplete: @escaping @Sendable (FixtureResult) -> Void = { _ in },
@@ -435,97 +458,99 @@ extension FixtureCoordinator {
             throw RelayError.setup("A queue drain is already processing this library.")
         }
         defer { activeDrainRoots.remove(root.path) }
-        var completedArticles = 0, attemptedArticles = 0, completedChunks = 0
+        // Refuse interrupted membership before allowing our own two in-flight stages.
+        _ = try waitingBatch(stateRoot: storage.stateRoot)
+        let pipeline = SingleWorkerSpeechPipeline(database: storage.profile.database, debugLog: debugLog)
+        let start = ProcessInfo.processInfo.systemUptime
+        defer { pipeline.close(); pipeline.diagnostics.record(.queue, seconds: ProcessInfo.processInfo.systemUptime - start) }
+        let progress = SpeechDrainProgress(callback: onProgress)
         var failed: [SpeechQueueItem] = []
         var last: FixtureResult?
-        var active: (any TTSBackend)?
-        defer { active?.cancel() }
-        while true {
+        var inFlight = Set<String>()
+        var previous: SpeechTurn?
+        var interrupted = false
+        return try await withThrowingTaskGroup(of: SpeechArticleOutcome.self) { group in
+            while true {
+                if Task.isCancelled || interrupted { group.cancelAll() }
+                let plans = Task.isCancelled || interrupted ? [] : try waitingBatch(stateRoot: storage.stateRoot, allowingRunning: true)
+                let pending = Task.isCancelled || interrupted ? 0 : await pendingPreparationCount()
+                progress.observe(plans, pending: pending)
+                if !Task.isCancelled && !interrupted {
+                    for item in plans where !inFlight.contains(item.id) {
+                        guard inFlight.count < 2 else { break }
+                        let context = SpeechArticleContext(pipeline: pipeline, previous: previous, control: control)
+                        previous = context.turn; inFlight.insert(item.id)
+                        group.addTask {
+                            await self.runPipelineArticle(item, storage: storage, backend: backend, context: context,
+                                delivery: delivery, progress: progress, onQueueChange: onQueueChange)
+                        }
+                    }
+                }
+                if inFlight.isEmpty {
+                    try Task.checkCancellation()
+                    if interrupted { throw CancellationError() }
+                    if pending > 0 {
+                        progress.idle()
+                        try await Task.sleep(for: .milliseconds(50))
+                        continue
+                    }
+                    break
+                }
+                guard let outcome = try await group.next() else { break }
+                inFlight.remove(outcome.id)
+                if let result = outcome.result {
+                    last = result
+                    progress.complete(outcome.id, chunks: result.narration.chunks.count)
+                    onArticleComplete(result)
+                }
+                if let failure = outcome.failure { failed.append(failure) }
+                if outcome.interrupted { interrupted = true; group.cancelAll() }
+            }
             try Task.checkCancellation()
-            var plans = try waitingBatch(stateRoot: storage.stateRoot)
-            var pending = await pendingPreparationCount()
-            if plans.isEmpty {
-                if pending > 0 {
-                    onProgress(QueueBatchProgress(stage: .extracted, completedChunks: completedChunks,
-                        totalChunks: completedChunks, completedArticles: completedArticles,
-                        totalArticles: attemptedArticles + pending, pendingPreparations: pending))
-                    try await Task.sleep(for: .milliseconds(50))
-                    continue
-                }
-                try Task.checkCancellation()
-                plans = try waitingBatch(stateRoot: storage.stateRoot)
-                if plans.isEmpty { break }
-            }
-            let item = plans[0]
-            let remaining = plans.dropFirst().reduce(0) { $0 + $1.chunks }
-            pending = await pendingPreparationCount()
-            let totalArticles = attemptedArticles + plans.count + pending
-            onProgress(QueueBatchProgress(stage: .extracted, completedChunks: completedChunks,
-                totalChunks: completedChunks + item.chunks + remaining,
-                completedArticles: completedArticles, totalArticles: totalArticles,
-                currentArticleIndex: attemptedArticles + 1, pendingPreparations: pending))
-            _ = try reconcileMissingAudio(storage: storage)
-            let episode: Episode
-            do {
-                episode = try claimQueued(item.id, stateRoot: storage.stateRoot)
-            } catch {
-                let refreshed = try queue(stateRoot: storage.stateRoot)
-                guard refreshed.contains(where: { $0.id == item.id }) else { continue }
-                let row = try finishQueued(item.id, state: .failed,
-                    error: (error as? RelayError)?.localizedDescription ?? "The queued article could not be started.",
-                    stateRoot: storage.stateRoot)
-                attemptedArticles += 1
-                onQueueChange(row); failed.append(row)
-                continue
-            }
-            let offset = completedChunks, observed = ObservedChunks()
-            let doneArticles = completedArticles, currentIndex = attemptedArticles + 1, pendingNow = pending
-            do {
-                let result = try await runClaimed(episode, storage: storage, provider: {
-                    let candidate = try backend(episode)
-                    if let current = active, current.identity.id == candidate.identity.id { return current }
-                    active?.cancel(); active = candidate
-                    return candidate
-                }, control: control, onQueueChange: onQueueChange) { update in
-                    let total = update.totalChunks > 0 ? update.totalChunks : item.chunks
-                    let done = min(total, max(0, update.completedChunks))
-                    observed.set(done)
-                    onProgress(QueueBatchProgress(stage: update.stage, completedChunks: offset + done,
-                        totalChunks: offset + total + remaining, completedArticles: doneArticles,
-                        totalArticles: totalArticles, currentArticleIndex: currentIndex,
-                        pendingPreparations: pendingNow))
-                }
-                last = result; completedArticles += 1; attemptedArticles += 1
-                completedChunks += result.narration.chunks.count
-                onProgress(QueueBatchProgress(stage: .published, completedChunks: completedChunks,
-                    totalChunks: completedChunks + remaining, completedArticles: completedArticles,
-                    totalArticles: totalArticles, currentArticleIndex: attemptedArticles,
-                    pendingPreparations: pending))
-                onArticleComplete(result)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch let error as RelayError where error == .interrupted {
-                throw error
-            } catch {
-                attemptedArticles += 1
-                completedChunks += min(observed.value, item.chunks)
-                active?.cancel(); active = nil
-                if let row = try queue(stateRoot: storage.stateRoot).first(where: { $0.id == item.id }) { failed.append(row) }
-                continue
-            }
+            if interrupted { throw CancellationError() }
+            return QueueBatchResult(lastResult: last, progress: progress.finish(), failedItems: failed)
         }
-        let final = QueueBatchProgress(stage: .published, completedChunks: completedChunks, totalChunks: completedChunks,
-                                       completedArticles: completedArticles, totalArticles: attemptedArticles)
-        onProgress(final)
-        return QueueBatchResult(lastResult: last, progress: final, failedItems: failed)
     }
-    func abandonInterruptedWork(episodeID: String, storage: ManagedSpeechStorage) throws {
+    private func runPipelineArticle(_ item: (id: String, chunks: Int), storage: ManagedSpeechStorage,
+                                    backend: @Sendable (Episode) throws -> any TTSBackend, context: SpeechArticleContext,
+                                    delivery: DeliverySettings?, progress: SpeechDrainProgress,
+                                    onQueueChange: @escaping @Sendable (SpeechQueueItem) -> Void) async -> SpeechArticleOutcome {
+        defer { context.finishSpeech() }
+        var claimed = false
+        do {
+            // Keep the next row removable/Ready until the current speech turn ends.
+            if let previous = context.previous { try await previous.wait() }
+            try Task.checkCancellation()
+            guard try queue(stateRoot: storage.stateRoot).contains(where: { $0.id == item.id && $0.state.isReady }) else {
+                return SpeechArticleOutcome(id: item.id)
+            }
+            _ = try reconcileMissingAudio(storage: storage)
+            let episode = try claimQueued(item.id, stateRoot: storage.stateRoot, allowingRunning: true)
+            claimed = true; progress.start(item.id, chunks: item.chunks)
+            let result = try await runClaimed(episode, storage: storage,
+                provider: { context.pipeline.provider(try backend(episode)) }, control: context.control,
+                delivery: delivery, context: context, onQueueChange: onQueueChange) { progress.update(item.id, $0) }
+            return SpeechArticleOutcome(id: item.id, result: result)
+        } catch {
+            let interrupted = error is CancellationError || error as? RelayError == .interrupted
+            if !claimed && !interrupted,
+               let row = try? finishQueued(item.id, state: .failed,
+                    error: (error as? RelayError)?.localizedDescription ?? "The queued article could not be started.", stateRoot: storage.stateRoot) {
+                progress.start(item.id, chunks: item.chunks); onQueueChange(row)
+            }
+            let failure = interrupted ? nil : try? queue(stateRoot: storage.stateRoot).first(where: { $0.id == item.id })
+            return SpeechArticleOutcome(id: item.id, failure: failure, interrupted: interrupted)
+        }
+    }
+    func abandonInterruptedWork(episodeID: String, storage: ManagedSpeechStorage, pipeline: SingleWorkerSpeechPipeline? = nil) throws {
         let root = storage.stateRoot
         try ManagedSpeechStorage.validateLibrary(stateRoot: root)
         guard UUID(uuidString: episodeID) != nil else { throw RelayError.setup("The interrupted episode is invalid.") }
         let p = storage.profile
-        let lease = try PipelineLease(database: p.database)
-        defer { lease.release() }
+        let lease: PipelineLease?
+        if let pipeline { try pipeline.ensureLease(p.database); lease = nil }
+        else { lease = try PipelineLease(database: p.database) }
+        defer { lease?.release() }
         let store = try metadataWriter(root)
         guard let episode = try store.episodes().first(where: { $0.id == episodeID }) else {
             throw RelayError.setup("The interrupted episode is unavailable.")

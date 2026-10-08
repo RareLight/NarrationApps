@@ -16,10 +16,10 @@ public struct KokoroConfiguration: Sendable {
     }
 }
 
-public final class KokoroMLXBackend: TTSBackend, Sendable {
+public final class KokoroMLXBackend: LookaheadTTSBackend, Sendable {
     private let helper: ExecutableSpeechBackend
     public var identity: BackendIdentity { helper.identity }
-    public init(configuration: KokoroConfiguration) throws {
+    public init(configuration: KokoroConfiguration, debugLog: DeliveryDebugLog? = nil) throws {
         let root = configuration.projectRoot
         func confined(_ relative: String) throws -> URL {
             let value = root.appendingPathComponent(relative)
@@ -61,9 +61,12 @@ public final class KokoroMLXBackend: TTSBackend, Sendable {
         helper = ExecutableSpeechBackend(identity: BackendIdentity(id: id, displayName: "Kokoro via mlx-audio — speech", isMock: false),
             executable: python, arguments: ["-I", "-B", source.path], environment: env, voice: configuration.voice, speed: configuration.speed,
             prepareTimeout: configuration.prepareTimeout, synthesisTimeout: configuration.synthesisTimeout,
-            temporaryRoot: helperTemporary)
+            temporaryRoot: helperTemporary, debugLog: debugLog)
     }
     public func prepare() throws { try helper.prepare() }
     public func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult { try helper.synthesize(request, directory: directory) }
+    public func synthesize(_ request: SynthesisRequest, directory: URL, next: SynthesisRequest?) throws -> SynthesisResult {
+        try helper.synthesize(request, directory: directory, next: next)
+    }
     public func cancel() { helper.cancel() }
 }

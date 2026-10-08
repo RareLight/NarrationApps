@@ -24,16 +24,21 @@ final class SourceReviewModel {
     @ObservationIgnored private var autoSyncTask: Task<Void, Never>?
     @ObservationIgnored private var immediateSyncTask: Task<Void, Never>?
     @ObservationIgnored private var sourceReadTask: Task<ReadingListSnapshot, Error>?
-    @ObservationIgnored private var autoReading = false
+    private var autoReading = false
     @ObservationIgnored private var syncRequested = false
     @ObservationIgnored private var sourceGeneration = 0
-    static let syncInterval: Duration = .seconds(30)
+    static let syncInterval: Duration = .seconds(300)
+    @ObservationIgnored private let waitForNextSync: @Sendable (Duration) async throws -> Void
+    var synchronizing: Bool { busy || autoReading }
+    var lastSyncedAt: Date?
     private var stateRoot: URL { stateRootOverride ?? AppStorage.managedLibrary }
 
     init(preview: Bool = false, coordinator: FixtureCoordinator = FixtureCoordinator(),
          stateRoot: URL? = nil, plist: URL? = nil,
+         waitForNextSync: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
          snapshotReader: (@Sendable (URL) async throws -> ReadingListSnapshot)? = nil) {
         self.coordinator = coordinator
+        self.waitForNextSync = waitForNextSync
         self.preview = preview
         stateRootOverride = stateRoot
         self.snapshotReader = snapshotReader ?? { url in
@@ -71,7 +76,7 @@ final class SourceReviewModel {
         guard url != plist else { onContextChange(); requestSourceSync(); return }
         sourceGeneration += 1
         sourceReadTask?.cancel()
-        plist = url; error = nil
+        plist = url; error = nil; lastSyncedAt = nil
         if stateRootOverride == nil { UserDefaults.standard.set(url.path, forKey: "readingListSource") }
         onContextChange()
         requestSourceSync()
@@ -82,10 +87,10 @@ final class SourceReviewModel {
             guard let self else { return }
             loadCatalog()
             while let read = task { await read.value }
-            _ = await synchronizeOnce()
+            await refreshSource()
             while !Task.isCancelled, !stopping {
-                do { try await Task.sleep(for: Self.syncInterval) } catch { break }
-                _ = await synchronizeOnce()
+                do { try await waitForNextSync(Self.syncInterval) } catch { break }
+                await refreshSource()
             }
         }
     }
@@ -99,11 +104,21 @@ final class SourceReviewModel {
             while syncRequested, !stopping {
                 syncRequested = false
                 while busy, let read = task { await read.value }
-                while autoReading, let read = sourceReadTask { _ = try? await read.value }
-                if stopping { break }
+                // The reader task finishes before catalog reconciliation. Awaiting its
+                // completed value in a tight loop can starve the main-actor commit.
+                while autoReading, !stopping, !Task.isCancelled {
+                    do { try await Task.sleep(for: .milliseconds(10)) } catch { break }
+                }
+                if stopping || Task.isCancelled { break }
                 _ = await synchronizeOnce()
             }
         }
+    }
+    /// Used by the native pull gesture: wait for the coalesced read and commit so
+    /// the system refresh indicator covers the entire operation.
+    func refreshSource() async {
+        requestSourceSync()
+        await immediateSyncTask?.value
     }
     @discardableResult
     func synchronizeOnce() async -> Bool {
@@ -132,7 +147,7 @@ final class SourceReviewModel {
                 // Once committed, inventory reflects the saved result even if article selection changed.
                 catalog = saved; onCatalogChange()
             } else { catalog = proposed }
-            catalogLoaded = true; error = nil
+            catalogLoaded = true; error = nil; lastSyncedAt = Date()
             status = "\(result.entries.count) current entries; \(result.skippedEntries) unsupported entries skipped."
             onContextChange()
         } catch is CancellationError {
@@ -262,6 +277,7 @@ struct SourceReviewView: View {
     @Bindable var model: SourceReviewModel
     var notices = NoticeDismissalState()
     var speechRunning = false
+    var debugModel: AppModel?
     var body: some View {
         Form {
             Section {
@@ -270,6 +286,7 @@ struct SourceReviewView: View {
                     .textSelection(.enabled)
                     .lineLimit(1).truncationMode(.middle)
                 Text(model.status).font(AppTypography.secondary)
+                LabeledContent("Last checked", value: model.lastSyncedAt?.formatted(date: .omitted, time: .standard) ?? "Not checked this session")
                 if let error = model.error, notices.isVisible(message: error, key: "source") {
                     InlineNotice(message: error) { notices.dismiss(message: error, key: "source") }
                 }
@@ -281,9 +298,26 @@ struct SourceReviewView: View {
                 }
             } header: {
                 SectionHelpHeader(title: "Reading List",
-                    explanation: "The chosen Reading List file is checked automatically while VoiceRelay runs; it is strictly read-only and nothing is written back. To preview a saved article, double-click it in Articles. Troubleshooting does not add to the queue or generate speech.")
+                    explanation: "The chosen Reading List file is checked at startup, every five minutes and when you pull down in Articles; it is strictly read-only and nothing is written back.\nTo preview a saved article, double-click it in Articles.\nTroubleshooting does not add to the queue or generate speech.")
             }
+            if let debugModel { DeliveryDebugControls(model: debugModel) }
         }.formStyle(.grouped).onAppear { model.loadCatalog() }
+    }
+}
+
+struct DeliveryDebugControls: View {
+    @Bindable var model: AppModel
+    var body: some View {
+        Section {
+            Toggle("Enable debug logging", isOn: $model.debugLoggingEnabled).disabled(model.preview)
+            HStack {
+                Button("Copy Debug Log") { model.copyDebugLog() }.disabled(model.preview)
+                Button("Clear Log") { model.deliveryDebugLog.clear() }.disabled(model.preview)
+            }
+        } header: {
+            SectionHelpHeader(title: "Debug logging",
+                explanation: "Records delivery, authentication and speech stage timings while enabled. The newest 200 events stay in memory for this app session; Copy Debug Log copies them for troubleshooting.\nPasswords, usernames, URLs, paths, article content and server response bodies are never recorded. Disabling stops recording; Clear Log removes captured events.")
+        }
     }
 }
 
@@ -303,10 +337,10 @@ struct ArticlesView: View {
     private var blocked: Bool { model.sourceReview.busy || model.sourceReview.persistenceBusy || model.queueMutationBusy || model.preview || model.stopping }
     var body: some View {
         VStack(spacing: 0) {
-            if model.sourceReview.busy {
+            if model.sourceReview.synchronizing {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(model.sourceReview.status)
+                    Text("Checking Reading List…")
                 }.padding([.horizontal, .top])
             }
             if let error = model.sourceReview.error,
@@ -320,26 +354,31 @@ struct ArticlesView: View {
                         .padding([.horizontal, .top])
                 }
             }
-            if model.sourceReview.catalog.entries.isEmpty {
-                ContentUnavailableView("No Articles", systemImage: "doc.text",
-                                       description: Text("Choose a Reading List source in Settings to load articles."))
-            } else {
-                List(selection: $model.articleSelection) {
-                    ForEach(model.sourceReview.catalog.entries) { entry in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(entry.title).font(.headline).lineLimit(2)
-                            HStack(spacing: 6) {
-                                Text(entry.url.host ?? "Article")
-                                if let added = entry.addedAt { Text("· Saved \(added.formatted(date: .abbreviated, time: .omitted))") }
-                            }.font(AppTypography.secondary).foregroundStyle(.secondary)
-                            if let item = model.queueItems.first(where: { $0.sourceEntryID == entry.id }) { Text(item.state.label).foregroundStyle(.secondary) }
-                            if !model.sourceReview.catalog.currentIDs.contains(entry.id) { Text("Absent in latest check; retained").foregroundStyle(.secondary) }
-                        }
-                        .tag(entry.id)
-                        .contentShape(Rectangle())
-                        .onTapGesture(count: 2) { openPreview(entry.url) }
-                        .contextMenu { Button("Preview Article") { openPreview(entry.url) } }
+            List(selection: $model.articleSelection) {
+                ForEach(model.sourceReview.catalog.newestFirstEntries) { entry in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.title).font(.headline).lineLimit(2)
+                        HStack(spacing: 6) {
+                            Text(entry.url.host ?? "Article")
+                            if let added = entry.addedAt { Text("· Saved \(added.formatted(date: .abbreviated, time: .omitted))") }
+                        }.font(AppTypography.secondary).foregroundStyle(.secondary)
+                        if let item = model.queueItems.first(where: { $0.sourceEntryID == entry.id }) { Text(item.state.label).foregroundStyle(.secondary) }
+                        if !model.sourceReview.catalog.currentIDs.contains(entry.id) { Text("Absent in latest check; retained").foregroundStyle(.secondary) }
                     }
+                    .tag(entry.id)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { openPreview(entry.url) }
+                    .contextMenu { Button("Preview Article") { openPreview(entry.url) } }
+                }
+            }
+            .refreshable { await model.sourceReview.refreshSource() }
+            .overlay {
+                if model.sourceReview.catalog.entries.isEmpty {
+                    ContentUnavailableView("No Articles", systemImage: "doc.text",
+                        description: Text(model.sourceReview.plist == nil
+                            ? "Choose a Reading List source in Settings to load articles."
+                            : "Pull down to check for new Reading List articles."))
+                        .allowsHitTesting(false)
                 }
             }
         }
@@ -383,6 +422,11 @@ private func syntheticReview(issue: SourceReviewIssue? = nil) -> ReviewedSource?
     return try? ReviewedSource.prepare(page, chunkLimit: 1800)
 }
 #Preview("Troubleshooting — source status") { SourceReviewView(model: sourcePreview()) }
+#Preview("Troubleshooting — delivery debug logging") {
+    let model = AppModel(preview: true)
+    model.debugLoggingEnabled = true
+    return SourceReviewView(model: sourcePreview(), debugModel: model)
+}
 #Preview("Troubleshooting — retained entries after permission failure") {
     let model = sourcePreview(); model.error = "Synthetic file-access failure; previous entries retained."
     return SourceReviewView(model: model)
@@ -395,7 +439,10 @@ private func syntheticReview(issue: SourceReviewIssue? = nil) -> ReviewedSource?
 }
 #Preview("Articles — inert multi-selection") {
     let model = AppModel(preview: true)
-    let entries = ["one", "two"].map { ReadingListEntry(id: $0, safariID: $0, url: URL(string: "https://articles.example/\($0)")!, title: "Synthetic article \($0)", addedAt: nil) }
+    let entries = ["one", "two"].enumerated().map { index, id in
+        ReadingListEntry(id: id, safariID: id, url: URL(string: "https://articles.example/\(id)")!,
+                         title: "Synthetic article \(id)", addedAt: Date(timeIntervalSinceReferenceDate: Double(index + 1) * 86_400))
+    }
     model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: entries, skippedEntries: 0))
     model.articleSelection = Set(entries.map(\.id))
     return ArticlesView(model: model)

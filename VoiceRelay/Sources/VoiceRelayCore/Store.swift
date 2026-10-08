@@ -78,6 +78,10 @@ final class NativeStore {
             }
             try execute("PRAGMA foreign_keys=ON")
             try execute("PRAGMA synchronous=FULL")
+            // Switching journal mode alone does not open the WAL sidecars. Start
+            // a read transaction while this writable connection can create them,
+            // including when initialization is the only work before it closes.
+            _ = try query("SELECT COUNT(*) FROM sqlite_master")
         } catch { release(); throw error }
     }
     deinit { release() }
@@ -139,7 +143,9 @@ final class NativeStore {
     }
     func existingEpisode(sourceKey: String) throws -> Episode? {
         guard let record = try query("SELECT record FROM episodes WHERE source_key=?", [sourceKey]).first?.first else { return nil }
-        return try JSONDecoder().decode(Episode.self, from: Data(record.utf8))
+        var episode = try JSONDecoder().decode(Episode.self, from: Data(record.utf8))
+        if episode.readingListSavedAt == nil { episode.readingListSavedAt = try readingListSavedDates()[sourceKey] }
+        return episode
     }
     func save(_ e: Episode, pendingFeed: Bool = false) throws {
         try execute("BEGIN IMMEDIATE")
@@ -162,9 +168,21 @@ final class NativeStore {
         try episodes().filter { $0.stage == .published }
     }
     func episodes() throws -> [Episode] {
-        try query("SELECT record FROM episodes ORDER BY rowid DESC").map {
-            try JSONDecoder().decode(Episode.self, from: Data($0[0].utf8))
+        let dates = try readingListSavedDates()
+        return try query("SELECT record,source_key FROM episodes ORDER BY rowid DESC").map {
+            var episode = try JSONDecoder().decode(Episode.self, from: Data($0[0].utf8))
+            if episode.readingListSavedAt == nil { episode.readingListSavedAt = dates[$0[1]] }
+            return episode
         }
+    }
+    /// Resolve legacy records read-only by original source identity, not a redirected
+    /// or canonical public link. No snapshot, audio or database migration is needed.
+    private func readingListSavedDates() throws -> [String: Date] {
+        let pairs = try catalog().entries.compactMap { entry -> (String, Date)? in
+            guard let date = entry.addedAt else { return nil }
+            return ("reviewed-url-v1-" + Files.hash(Data(entry.url.absoluteString.utf8)), date)
+        }
+        return Dictionary(pairs, uniquingKeysWith: { first, _ in first })
     }
     func markFeed(_ hash: String) throws { try execute("UPDATE feed_status SET pending=0,local_hash=? WHERE singleton=1", [hash]) }
     func saveSnapshot(articleID: String, data: Data) throws {
@@ -188,9 +206,17 @@ final class NativeStore {
     }
     func queue() throws -> [SpeechQueueItem] {
         guard try query("SELECT name FROM sqlite_master WHERE type='table' AND name='speech_queue'").first != nil else { return [] }
+        let entries = try catalog().entries
         return try query("SELECT article_id,record FROM speech_queue ORDER BY rowid").map {
-            let item = try JSONDecoder().decode(SpeechQueueItem.self, from: Data($0[1].utf8))
+            var item = try JSONDecoder().decode(SpeechQueueItem.self, from: Data($0[1].utf8))
             guard item.id == $0[0] else { throw RelayError.storage("The saved queue identity is invalid.") }
+            if item.sourceHost == nil {
+                item.sourceHost = entries.first { $0.id == item.sourceEntryID }?.url.host
+                if item.sourceHost == nil, let bytes = try? snapshot(articleID: item.id),
+                   let saved = try? JSONDecoder().decode(StoredExtraction.self, from: bytes).review() {
+                    item.sourceHost = saved.page.originalURL.host
+                }
+            }
             return item
         }
     }
@@ -241,6 +267,9 @@ final class PipelineStore: Sendable {
     }
     func published() throws -> [Episode] {
         try reading { try $0.published() }
+    }
+    func episodes() throws -> [Episode] {
+        try reading { try $0.episodes() }
     }
     func markFeed(_ hash: String) throws {
         try writing { try $0.markFeed(hash) }

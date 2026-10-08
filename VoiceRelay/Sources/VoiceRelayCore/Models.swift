@@ -43,6 +43,8 @@ public struct SemanticArticle: Codable, Sendable, Equatable {
     public let blocks: [ContentBlock]
     public let warnings: [String]
     public let extractorVersion: String
+    public var sourceName: String? = nil
+    public var previewImageURL: URL? = nil
 }
 
 public struct NarrationChunk: Codable, Sendable, Equatable {
@@ -65,17 +67,44 @@ public struct AudioInfo: Codable, Sendable, Equatable {
     public let codec: String
 }
 
+/// Recorded remote-delivery state for one episode; nil until delivery is configured or a drain claims it.
+public struct DeliveryState: Codable, Sendable, Equatable {
+    public enum Status: String, Codable, Sendable { case pending, uploaded, failed }
+    public var status: Status
+    public var remotePath: String
+    public var destinationURL: URL?
+    public var attempts = 0
+    public var lastError: String?
+    public var uploadedByteLength: Int64?
+    public var lastAttemptAt: Date?
+    public var nextAttemptAt: Date?
+    public init(status: Status, remotePath: String, attempts: Int = 0, lastError: String? = nil,
+                uploadedByteLength: Int64? = nil, lastAttemptAt: Date? = nil, nextAttemptAt: Date? = nil) {
+        self.status = status; self.remotePath = remotePath; self.attempts = attempts
+        self.lastError = lastError; self.uploadedByteLength = uploadedByteLength
+        self.lastAttemptAt = lastAttemptAt; self.nextAttemptAt = nextAttemptAt
+    }
+}
+
 public struct Episode: Codable, Sendable {
     public let id: String
     public var title: String
     public var stage: Stage
     public var publicationDate: Date?
+    /// Reading List save time, independent of the audio's generation/commit time.
+    public var readingListSavedAt: Date? = nil
+    public var podcastDate: Date? { readingListSavedAt ?? publicationDate }
     public var encodedHash: String?
     public var audioHash: String?
     public var info: AudioInfo?
     public var synthesisFingerprint: String?
     public var audioVolumeID: String? = nil
     public var manualAudioDeletionRequested: Bool? = nil
+    public var author: String? = nil
+    public var sourceHost: String? = nil
+    public var sourceURL: URL? = nil
+    public var artworkURL: URL? = nil
+    public var delivery: DeliveryState? = nil
     public var settings: PrototypeProfile
     public var guid: String { id }
 }

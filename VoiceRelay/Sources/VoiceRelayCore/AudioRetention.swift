@@ -102,7 +102,7 @@ extension FixtureCoordinator {
         }
         let pending = try store.query("SELECT pending FROM feed_status WHERE singleton=1").first?.first == "1"
         guard !changed.isEmpty || pending else { return [] }
-        if !changed.isEmpty { try retireEpisodes(changed, store: store) }
+        if !changed.isEmpty { try retireEpisodes(changed, store: store, stateRoot: storage.stateRoot) }
         let changedIDs = Set(changed.map(\.id))
         let remaining = episodes.filter { $0.stage == .published && !changedIDs.contains($0.id) }
         let settings = remaining.first?.settings ?? episodes[0].settings
@@ -158,7 +158,13 @@ extension FixtureCoordinator {
                 if episode.stage != .expired { episode.stage = .expired; changed.append(episode) }
             } else {
                 // A longer policy/Never, or newly queued work, can cancel an unfinished retirement.
-                episode.stage = .published; changed.append(episode)
+                episode.stage = .published
+                // Its remote copy may already be deleted; upload it again on the next drain.
+                if episode.delivery?.status == .uploaded {
+                    episode.delivery?.status = .pending
+                    episode.delivery?.nextAttemptAt = nil
+                }
+                changed.append(episode)
             }
             episodes[index] = episode
         }
@@ -168,7 +174,7 @@ extension FixtureCoordinator {
         let settings = episodes.first(where: { $0.stage == .published })?.settings ?? episodes[0].settings
         let feed = try RSS.render(episodes.filter { $0.stage == .published }, settings: settings)
         try Task.checkCancellation()
-        try retireEpisodes(changed, store: store)
+        try retireEpisodes(changed, store: store, stateRoot: storage.stateRoot)
         // Remove enclosures before deleting media. Durable EXPIRED intent permits safe retries.
         try writeLocalFeed(feed, to: settings.feed)
         var removed: [String] = []
@@ -187,7 +193,7 @@ extension FixtureCoordinator {
         try store.markFeed(Files.hash(feed))
         return removed
     }
-    private func retireEpisodes(_ episodes: [Episode], store: NativeStore) throws {
+    private func retireEpisodes(_ episodes: [Episode], store: NativeStore, stateRoot: URL) throws {
         try store.execute("BEGIN IMMEDIATE")
         do {
             for episode in episodes {
@@ -197,6 +203,35 @@ extension FixtureCoordinator {
             try store.execute("UPDATE feed_status SET pending=1 WHERE singleton=1")
             try store.execute("COMMIT")
         } catch { try? store.execute("ROLLBACK"); throw error }
+        recordRemoteRetirement(episodes, stateRoot: stateRoot, store: store)
+    }
+    /// Retire performs no network I/O: remote intent is only recorded in the durable
+    /// ledger. A ledger failure is recorded on the affected records without changing
+    /// the retire result.
+    private func recordRemoteRetirement(_ episodes: [Episode], stateRoot: URL, store: NativeStore) {
+        let touched = episodes.filter { $0.delivery?.remotePath.isEmpty == false }
+        guard !touched.isEmpty else { return }
+        do {
+            var ledger = try DeliveryLedger.load(stateRoot: stateRoot)
+            var dirty = false
+            for episode in touched {
+                guard let path = episode.delivery?.remotePath, !path.isEmpty else { continue }
+                if episode.stage == .expired {
+                    if !ledger.pendingRemoteDeletes.contains(path) { ledger.pendingRemoteDeletes.append(path) }
+                    ledger.remoteFeedPending = true
+                    dirty = true
+                } else if episode.stage == .published, ledger.pendingRemoteDeletes.contains(path) {
+                    ledger.pendingRemoteDeletes.removeAll { $0 == path }
+                    dirty = true
+                }
+            }
+            if dirty { try ledger.save(stateRoot: stateRoot) }
+        } catch {
+            for var episode in touched {
+                episode.delivery?.lastError = "Remote cleanup could not be recorded; it will be reconciled on a later drain."
+                try? store.save(episode)
+            }
+        }
     }
     private func writeLocalFeed(_ feed: Data, to destination: URL) throws {
         do {
@@ -276,7 +311,7 @@ extension FixtureCoordinator {
             intent[index].stage = .expired
             intent[index].manualAudioDeletionRequested = true
         }
-        try retireEpisodes(intent, store: store)
+        try retireEpisodes(intent, store: store, stateRoot: storage.stateRoot)
         let settings = episodes.first(where: { $0.stage == .published && !targetIDs.contains($0.id) })?.settings
             ?? episodes[0].settings
         let feed = try RSS.render(episodes.filter { $0.stage == .published && !targetIDs.contains($0.id) }, settings: settings)
@@ -321,6 +356,9 @@ extension FixtureCoordinator {
         let remaining = current.filter { $0.stage == .published }
         let feed = try RSS.render(remaining, settings: remaining.first?.settings ?? current[0].settings)
         try writeLocalFeed(feed, to: storage.profile.feed)
+        // These items already left the feed; queue their remote copies for deletion again
+        // so a crash before the ledger write cannot strand remote media.
+        recordRemoteRetirement(pending, stateRoot: storage.stateRoot, store: store)
         let fm = FileManager.default
         var finalized: [Episode] = [], firstError: (any Error)?
         for var episode in pending {

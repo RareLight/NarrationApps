@@ -138,6 +138,7 @@ enum FixtureWorkspace {
 public actor FixtureCoordinator {
     public init() {}
     var activeDrainRoots: Set<String> = []
+    var activeDeliveryRoots: Set<String> = []
     var beforeEnqueueCommit: (@Sendable () -> Void)?
     func setBeforeEnqueueCommit(_ hook: (@Sendable () -> Void)?) { beforeEnqueueCommit = hook }
     var beforeOwnedAudioUnlink: (@Sendable (URL) -> Void)?
@@ -174,7 +175,13 @@ public actor FixtureCoordinator {
         return url
     }
     public func resume(storage: ManagedSpeechStorage, articleID: String, backend: any TTSBackend,
+                       delivery: DeliverySettings? = nil,
                        onProgress: @escaping @Sendable (PipelineProgress) -> Void = { _ in }) async throws -> FixtureResult {
+        try await resumeWork(storage: storage, articleID: articleID, backend: backend, delivery: delivery, onProgress: onProgress)
+    }
+    func resumeWork(storage: ManagedSpeechStorage, articleID: String, backend: any TTSBackend,
+                    delivery: DeliverySettings? = nil, context: SpeechArticleContext? = nil,
+                    onProgress: @escaping @Sendable (PipelineProgress) -> Void) async throws -> FixtureResult {
         guard let e = try library(storage: storage).first(where: { $0.id == articleID }),
               let data = try NativeStore(url: storage.profile.database, readOnly: true).snapshot(articleID: e.id) else {
             throw RelayError.setup("The saved article text is unavailable. Select the article again before generating speech.")
@@ -183,12 +190,15 @@ public actor FixtureCoordinator {
         let captured = ManagedSpeechStorage(audioDirectory: e.settings.audio, stateRoot: storage.stateRoot,
                                             temporaryRoot: storage.temporaryRoot)
         let voice = e.settings.voice ?? "af_heart", speed = e.settings.backendSettings["speed"]?.numericValue ?? 1
-        if e.settings.backendSelector == "speech-fixture" {
-            return try await runSpeech(root: captured.stateRoot, backend: backend, voice: voice, speed: speed,
-                                       storage: captured, onProgress: onProgress)
+        guard !backend.identity.isMock, review.issue == nil, review.document != nil,
+              review.narration?.chunks.isEmpty == false else {
+            throw RelayError.setup("Review a readable article before requesting speech.")
         }
-        return try await runReviewed(root: captured.stateRoot, review: review, backend: backend, voice: voice, speed: speed,
-                                     storage: captured, onProgress: onProgress)
+        try ArticleURL.validate(review.page.originalURL); try ArticleURL.validate(review.page.finalURL)
+        return try await executeWork(root: captured.stateRoot, imported: nil, backend: backend,
+            review: e.settings.backendSelector == "speech-fixture" ? nil : review, storage: captured,
+            delivery: delivery, speechVoice: voice, speechSpeed: speed, context: context,
+            interruptAfter: nil, onBoundary: { _ in }, onProgress: onProgress)
     }
     public func library(root: URL) throws -> [Episode] {
         guard root.isFileURL else { throw RelayError.setup("Article storage must be local.") }
@@ -245,11 +255,12 @@ public actor FixtureCoordinator {
                           voice: String? = nil, speed: Double? = nil,
                           interruptAfter: FixtureBoundary? = nil,
                           storage: ManagedSpeechStorage? = nil,
+                          delivery: DeliverySettings? = nil,
                           onBoundary: @escaping @Sendable (FixtureBoundary) -> Void = { _ in },
                           onProgress: @escaping @Sendable (PipelineProgress) -> Void = { _ in }) async throws -> FixtureResult {
         guard !backend.identity.isMock else { throw RelayError.setup("Speech checks require an explicitly selected real-speech provider.") }
         return try await executeWork(root: root, imported: imported, backend: backend,
-                                     storage: storage,
+                                     storage: storage, delivery: delivery,
                                      speechVoice: voice, speechSpeed: speed,
                                      interruptAfter: interruptAfter, onBoundary: onBoundary, onProgress: onProgress)
     }
@@ -257,6 +268,7 @@ public actor FixtureCoordinator {
                             voice: String = "af_heart", speed: Double = 1,
                             interruptAfter: FixtureBoundary? = nil,
                             storage: ManagedSpeechStorage? = nil,
+                            delivery: DeliverySettings? = nil,
                             onProgress: @escaping @Sendable (PipelineProgress) -> Void = { _ in }) async throws -> FixtureResult {
         try Task.checkCancellation()
         guard !backend.identity.isMock, review.issue == nil, let document = review.document,
@@ -267,33 +279,34 @@ public actor FixtureCoordinator {
         }
         try ArticleURL.validate(review.page.originalURL); try ArticleURL.validate(review.page.finalURL)
         return try await executeWork(root: root, imported: nil, backend: backend, review: review,
-                                     storage: storage,
+                                     storage: storage, delivery: delivery,
                                      speechVoice: voice, speechSpeed: speed, interruptAfter: interruptAfter,
                                      onBoundary: { _ in }, onProgress: onProgress)
     }
     private func executeWork(root: URL, imported: PrototypeProfile?, backend: any TTSBackend, review: ReviewedSource? = nil,
-                             storage: ManagedSpeechStorage? = nil,
+                             storage: ManagedSpeechStorage? = nil, delivery: DeliverySettings? = nil,
                              speechVoice: String? = nil, speechSpeed: Double? = nil,
-                             interruptAfter: FixtureBoundary?, onBoundary: @escaping @Sendable (FixtureBoundary) -> Void,
+                             context: SpeechArticleContext? = nil, interruptAfter: FixtureBoundary?, onBoundary: @escaping @Sendable (FixtureBoundary) -> Void,
                              onProgress: @escaping @Sendable (PipelineProgress) -> Void) async throws -> FixtureResult {
         let child = Task.detached(priority: .userInitiated) {
-            try Self.execute(root: root, imported: imported, backend: backend, review: review,
-                             storage: storage, speechVoice: speechVoice, speechSpeed: speechSpeed,
-                             interruptAfter: interruptAfter, onBoundary: onBoundary, onProgress: onProgress)
+            try await Self.execute(root: root, imported: imported, backend: backend, review: review,
+                             storage: storage, delivery: delivery, speechVoice: speechVoice, speechSpeed: speechSpeed,
+                             context: context, interruptAfter: interruptAfter, onBoundary: onBoundary, onProgress: onProgress)
         }
         return try await withTaskCancellationHandler {
             try await child.value
         } onCancel: {
-            child.cancel()
+            if context?.finishAfterStop != true { child.cancel() }
         }
     }
     private nonisolated static func execute(root: URL, imported: PrototypeProfile?, backend: any TTSBackend, review: ReviewedSource? = nil,
-                                            storage: ManagedSpeechStorage? = nil,
+                                            storage: ManagedSpeechStorage? = nil, delivery: DeliverySettings? = nil,
                                             speechVoice: String? = nil, speechSpeed: Double? = nil,
-                                            interruptAfter: FixtureBoundary?, onBoundary: @Sendable (FixtureBoundary) -> Void,
-                                            onProgress: @Sendable (PipelineProgress) -> Void) throws -> FixtureResult {
+                                            context: SpeechArticleContext? = nil, interruptAfter: FixtureBoundary?, onBoundary: @Sendable (FixtureBoundary) -> Void,
+                                            onProgress: @Sendable (PipelineProgress) -> Void) async throws -> FixtureResult {
         try Task.checkCancellation()
         let root = root.resolvingSymlinksInPath().standardizedFileURL
+        if let delivery { try delivery.validate() }
         guard speechVoice == nil || speechVoice!.range(of: "^[ab][fm]_[a-z0-9_]+$", options: .regularExpression) != nil,
               speechSpeed == nil || (speechSpeed!.isFinite && (0.25...4).contains(speechSpeed!)) else {
             throw RelayError.setup("Speech voice or speed is unsupported.")
@@ -312,8 +325,24 @@ public actor FixtureCoordinator {
         guard ToolRunner.locate(selected.ffmpeg) != nil, ToolRunner.locate(selected.ffprobe) != nil else {
             throw RelayError.setup("Install ffmpeg/ffprobe or select their executable paths in the imported profile.")
         }
-        let lease = try PipelineLease(database: selected.database)
-        defer { lease.release() }
+        let lease: PipelineLease?
+        if let context { try context.pipeline.ensureLease(selected.database); lease = nil }
+        else { lease = try PipelineLease(database: selected.database) }
+        defer { lease?.release(); context?.finishSpeech() }
+        let diagnostics = context?.pipeline.diagnostics ?? SpeechDiagnostics(log: nil)
+        let articleStart = ProcessInfo.processInfo.systemUptime
+        defer { diagnostics.record(.article, seconds: ProcessInfo.processInfo.systemUptime - articleStart) }
+        var finalizer: SpeechFinalizationPermit?
+        defer { finalizer?.release() }
+        func handoffSpeech() async throws {
+            if let context, finalizer == nil {
+                let waitStart = diagnostics.beginFinalizerWait(database: selected.database)
+                finalizer = try await context.pipeline.finalization.acquire()
+                diagnostics.endFinalizerWait(waitStart, database: selected.database)
+                try Task.checkCancellation()
+                context.beginFinalization(); context.finishSpeech()
+            }
+        }
         let store = try PipelineStore(databaseURL: selected.database)
         let sourceKey = review.map { "reviewed-url-v1-" + Files.hash(Data($0.page.originalURL.absoluteString.utf8)) }
             ?? "bundled-synthetic-article-v1"
@@ -337,6 +366,11 @@ public actor FixtureCoordinator {
             }
             if e.audioVolumeID == nil { e.audioVolumeID = volumeID }
             e.settings.work = selected.work
+            // Encoding is an internal app policy, independent of captured voice/speed.
+            // Preserve any already placed final file, including interrupted publication.
+            if e.stage != .published && !FileManager.default.fileExists(atPath: e.settings.audio.appendingPathComponent(e.id + ".m4a").path) {
+                e.settings.bitrate = selected.bitrate
+            }
             selected.audio = e.settings.audio
             try store.save(e)
         }
@@ -352,7 +386,7 @@ public actor FixtureCoordinator {
             throw RelayError.setup("Episode work must remain inside its fixture without symlinks.")
         }
         try Files.directory(directory)
-        let processor = AudioProcessor(settings: p, toolDirectory: directory)
+        let processor = AudioProcessor(settings: p, toolDirectory: directory, diagnostics: diagnostics)
         func boundary(_ point: FixtureBoundary) throws {
             onBoundary(point)
             try Task.checkCancellation()
@@ -424,73 +458,151 @@ public actor FixtureCoordinator {
         guard !Files.hasSymlink(destination, below: p.audio) else { throw RelayError.setup("The saved audio path contains an unexpected link.") }
         var syntheses = 0
         let inputFingerprint = Files.hash(try Files.json(EncodingFingerprint(backend: backend.identity,
-            profile: p, extraction: article.extractorVersion, narration: plan)))
+            profile: p, extraction: article.extractorVersion, narration: plan, audioProcessing: AudioProcessor.encodingVersion)))
+        if let previous = context?.previous { try await previous.wait() }
         if e.stage != .published {
+            // Once an authenticated copy is in the final folder, finish its publication
+            // unchanged rather than replacing it because an encoding policy changed.
+            let placedAudioValid = e.stage == .encoded && e.encodedHash != nil
+                && (try? Files.hash(destination)) == e.encodedHash
+                && (try? processor.probe(destination, final: true)) != nil
             let encodedValid = e.encodedHash != nil && (try? Files.hash(encoded)) == e.encodedHash
-                && e.synthesisFingerprint == inputFingerprint
+                && (e.synthesisFingerprint == inputFingerprint || placedAudioValid)
                 && (try? processor.probe(encoded, final: true)) != nil
             if !encodedValid {
                 e.stage = .synthesizing; try store.save(e); progress(.synthesizing, 0, plan.chunks.count)
-                try backend.prepare()
+                var prepared = false
                 var artifacts: [LosslessArtifact] = []
-                for chunk in plan.chunks {
-                    try Task.checkCancellation()
-                    let chunkDirectory = directory.appendingPathComponent("chunk-\(chunk.index)")
-                    guard Files.contains(directory, chunkDirectory), !Files.hasSymlink(chunkDirectory, below: directory) else {
-                        throw RelayError.setup("Chunk work must remain inside its fixture without symlinks.")
-                    }
-                    try Files.directory(chunkDirectory)
-                    let request = SynthesisRequest(text: chunk.text, language: p.language, voice: p.voice, articleID: e.id,
-                                                   chunkIndex: chunk.index, blockIndices: chunk.blockIndices, settings: p.backendSettings)
-                    let fingerprint = Files.hash(try Files.json(Fingerprint(request: request, backend: backend.identity,
-                                                                         extraction: article.extractorVersion, narration: plan.version)))
-                    var checkpoint = try store.chunk(articleID: e.id, index: chunk.index, fingerprint: fingerprint)
-                    if let cp = checkpoint {
-                        let valid = cp.hashes.count == cp.result.artifacts.count && !cp.hashes.isEmpty
-                            && zip(cp.result.artifacts, cp.hashes).allSatisfy { (try? Files.hash($0.0.url)) == $0.1 }
-                        if !valid || (try? processor.validate(cp.result, within: chunkDirectory)) == nil { checkpoint = nil }
-                    }
-                    if checkpoint == nil {
+                var pending: Task<ChunkCheckpoint, any Error>?
+                var pendingIndex = 0
+                func commitPending() async throws {
+                    guard let task = pending else { return }
+                    let cp = try await task.value
+                    pending = nil
+                    artifacts += cp.result.artifacts
+                    try boundary(.chunkCommitted)
+                    progress(.synthesizing, pendingIndex + 1, plan.chunks.count)
+                }
+                do {
+                    for (position, chunk) in plan.chunks.enumerated() {
+                        try Task.checkCancellation()
+                        let chunkDirectory = directory.appendingPathComponent("chunk-\(chunk.index)")
+                        guard Files.contains(directory, chunkDirectory), !Files.hasSymlink(chunkDirectory, below: directory) else {
+                            throw RelayError.setup("Chunk work must remain inside its fixture without symlinks.")
+                        }
+                        try Files.directory(chunkDirectory)
+                        func requestFor(_ chunk: NarrationChunk) -> SynthesisRequest {
+                            SynthesisRequest(text: chunk.text, language: p.language, voice: p.voice, articleID: e.id,
+                                chunkIndex: chunk.index, blockIndices: chunk.blockIndices, settings: p.backendSettings)
+                        }
+                        let request = requestFor(chunk)
+                        let fingerprint = Files.hash(try Files.json(Fingerprint(request: request, backend: backend.identity,
+                            extraction: article.extractorVersion, narration: Narration.chunkFingerprintVersion(plan.version))))
+                        var checkpoint = try store.chunk(articleID: e.id, index: chunk.index, fingerprint: fingerprint)
+                        if let cp = checkpoint {
+                            let valid = cp.hashes.count == cp.result.artifacts.count && !cp.hashes.isEmpty
+                                && zip(cp.result.artifacts, cp.hashes).allSatisfy { (try? Files.hash($0.0.url)) == $0.1 }
+                            if !valid || (try? processor.validate(cp.result, within: chunkDirectory)) == nil { checkpoint = nil }
+                        }
+                        if let cp = checkpoint {
+                            try await commitPending()
+                            artifacts += cp.result.artifacts
+                            progress(.synthesizing, chunk.index + 1, plan.chunks.count)
+                            continue
+                        }
+                        if !prepared { try backend.prepare(); prepared = true }
                         let result: SynthesisResult
-                        do { result = try backend.synthesize(request, directory: chunkDirectory) }
-                        catch is CancellationError { throw CancellationError() }
+                        do {
+                            if let lookahead = backend as? any LookaheadTTSBackend {
+                                let next = position + 1 < plan.chunks.count ? requestFor(plan.chunks[position + 1]) : nil
+                                result = try lookahead.synthesize(request, directory: chunkDirectory, next: next)
+                            } else { result = try backend.synthesize(request, directory: chunkDirectory) }
+                        } catch is CancellationError { throw CancellationError() }
                         catch let error as RelayError { throw error }
                         catch { throw RelayError.artifact("Fixture backend failed; completed chunks are retained.") }
-                        try processor.validate(result, within: chunkDirectory)
-                        let cp = ChunkCheckpoint(request: request, result: result, hashes: try result.artifacts.map { try Files.hash($0.url, description: "generated speech chunk") })
-                        try store.saveChunk(articleID: e.id, index: chunk.index, fingerprint: fingerprint, checkpoint: cp)
-                        checkpoint = cp; syntheses += 1
-                        try boundary(.chunkCommitted)
+                        // One validation/checkpoint may overlap the next inference; it is
+                        // always joined before another validation or any cleanup starts.
+                        try await commitPending()
+                        let articleID = e.id
+                        pendingIndex = chunk.index
+                        pending = Task.detached(priority: .userInitiated) {
+                            try diagnostics.measure(.validation, chunk: chunk.index) { try processor.validate(result, within: chunkDirectory) }
+                            let cp = ChunkCheckpoint(request: request, result: result,
+                                hashes: try result.artifacts.map { try Files.hash($0.url, description: "generated speech chunk") })
+                            try diagnostics.measure(.checkpoint, chunk: chunk.index) {
+                                try store.saveChunk(articleID: articleID, index: chunk.index, fingerprint: fingerprint, checkpoint: cp)
+                            }
+                            return cp
+                        }
+                        syntheses += 1
+                        if context == nil { try await commitPending() }
                     }
-                    artifacts += checkpoint!.result.artifacts
-                    progress(.synthesizing, chunk.index + 1, plan.chunks.count)
+                    try await commitPending()
+                } catch {
+                    // Preserve a completed predecessor even when the next inference fails.
+                    if let task = pending {
+                        if error is CancellationError { task.cancel() }
+                        _ = await task.result
+                    }
+                    throw error
                 }
+                try await handoffSpeech()
                 e.stage = .encoding; try store.save(e); progress(.encoding, plan.chunks.count, plan.chunks.count)
                 let (_, info) = try processor.encode(artifacts, in: directory)
                 e.info = info; e.encodedHash = try Files.hash(encoded, description: "encoded audio")
                 e.synthesisFingerprint = inputFingerprint
             }
+            try await handoffSpeech()
             try processor.decode(encoded)
             e.stage = .encoded
             if e.publicationDate == nil { e.publicationDate = Date() }
             try store.save(e); try boundary(.encoded)
             guard let encodedHash = e.encodedHash else { throw RelayError.artifact("Encoded checkpoint has no integrity record.") }
-            try processor.publish(encoded, destination: destination, expectedHash: encodedHash, inMediaDirectory: storage != nil)
+            try diagnostics.measure(.publication) {
+                try processor.publish(encoded, destination: destination, expectedHash: encodedHash, inMediaDirectory: storage != nil)
+            }
             try boundary(.audioPlaced)
+            // Origin metadata is captured at the commit whether or not delivery is enabled.
             e.audioHash = encodedHash; e.stage = .published
+            e.author = article.author
+            e.sourceHost = article.finalURL.host ?? article.originalURL.host
+            e.sourceURL = article.canonicalURL ?? article.finalURL
+            e.artworkURL = article.previewImageURL
+            if let delivery {
+                e.delivery = DeliveryState(status: .pending, remotePath: delivery.remoteMediaPath(e.id))
+            }
             try store.save(e, pendingFeed: true); try boundary(.episodeCommitted)
         }
+        try await handoffSpeech()
         guard let committedHash = e.audioHash, try Files.hash(destination, description: "saved audio") == committedHash else {
             throw RelayError.artifact("Published media integrity failed; previous feed is preserved.")
         }
         _ = try processor.probe(destination, final: true); try processor.decode(destination)
+        if e.author == nil, e.sourceURL == nil {
+            e.author = article.author
+            e.sourceHost = article.finalURL.host ?? article.originalURL.host
+            e.sourceURL = article.canonicalURL ?? article.finalURL
+            e.artworkURL = article.previewImageURL
+            try store.save(e)
+        }
+        if let delivery, e.delivery == nil {
+            e.delivery = DeliveryState(status: .pending, remotePath: delivery.remoteMediaPath(e.id))
+            try store.save(e)
+        }
+        if let delivery, e.delivery?.status == .pending {
+            var ledger = try DeliveryLedger.load(stateRoot: root)
+            ledger.remoteFeedPending = true
+            ledger.settingsHash = Files.hash(try Files.json(delivery))
+            try ledger.save(stateRoot: root)
+        }
         let feed = try RSS.render(store.published(), settings: p)
         if (try? Data(contentsOf: p.feed)) != feed { try Files.write(feed, to: p.feed) }
         try boundary(.feedReplaced)
         try store.markFeed(Files.hash(feed)); progress(.published, plan.chunks.count, plan.chunks.count)
         if storage != nil { try? FileManager.default.removeItem(at: directory) }
         return FixtureResult(episode: e, audioURL: destination, feedURL: p.feed, article: article, narration: plan,
-                             synthesizedChunks: syntheses, localFeedCurrent: true, remoteDelivery: "disabled-fixture")
+                             synthesizedChunks: syntheses, localFeedCurrent: true,
+                             remoteDelivery: delivery == nil ? "disabled" : (e.delivery?.status.rawValue ?? "pending"))
     }
 }
 
@@ -505,4 +617,5 @@ private struct EncodingFingerprint: Codable {
     let profile: PrototypeProfile
     let extraction: String
     let narration: NarrationPlan
+    let audioProcessing: String
 }

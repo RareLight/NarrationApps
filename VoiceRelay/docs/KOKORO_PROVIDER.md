@@ -1,5 +1,123 @@
 # Kokoro speech provider: development slice and operator checks
 
+## October 7: regional voice menus
+
+General settings has Language & Region (US/UK English) followed by a filtered
+Voice menu. New preferences default to US English/Heart. Region changes select
+Heart or Emma; re-selecting the current region preserves its selected voice.
+The region derives from the persisted voice ID, so earlier Heart, Bella and Emma
+preferences remain compatible without a migration. New queue admissions capture
+the matching en-US/en-GB code; existing queued and recorded choices are preserved.
+
+The curated catalogue follows the upstream
+[Kokoro voice guide](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md),
+reviewed October 7, 2026: descending overall quality grade with alphabetical ties.
+Those grades estimate training-data quality/quantity, not measured listener scores.
+Upstream does not publish per-voice popularity counts; no popularity metric is
+invented, collected or fetched. US English shows ten voices: Heart, Bella, Nicole,
+Aoede, Fenrir, Kore, Michael, Puck, Sarah and Alloy. UK English has only eight:
+Emma, Fable, George, Isabella, Lewis, Alice, Daniel and Lily. All 18 voice packs
+already belong to the pinned snapshot and explicit setup's existing manifest.
+Other languages remain deferred by user choice; model/runtime/dependency pins,
+English pronunciation and original-level 96k AAC are unchanged.
+
+Manual acceptance: quit the old app and open the newly packaged Release bundle.
+In General, change US → UK, confirm the voice list changes and Emma is selected,
+choose George, close/reopen Settings and relaunch to confirm persistence. Change
+back to US and confirm Heart plus ten choices. Generate fresh articles with one
+US and one UK voice to check pronunciation/listening; an already queued article
+must retain its original voice. Source-only previews include inert default/UK
+settings; Canvas, live speech and listening remain operator checks.
+
+## October 7: bounded single-worker optimization
+
+The active app drain has one inference helper and one filesystem speech lease.
+It overlaps one chunk's validation/hash/checkpoint with the next inference, and
+one completed article's CPU encoding/publication with the next article's speech.
+At most two articles are in flight; finalization is FIFO and limited to one.
+Waiting rows remain Ready/removable until their speech turn starts. Late
+admissions still drain; failed rows still require Retry. Diagnostic fixed-batch
+and boundary-interruption fixtures retain deterministic sequential orchestration.
+
+Explicit Stop cancels/discards the interrupted speech item's owned scratch and
+returns it to Ready, while an article already handed to finalization finishes
+publication. Quit cancels and joins both stages, retaining recoverable checkpoints.
+Every child validation/tool task is joined before cleanup and the library lease
+is released only after all work ends. Compatible prepared helpers are reused;
+CPU failures cannot cancel a later article's active inference.
+
+Kokoro uses the pinned 0.5.7 English splitter/G2P and model inference with the same
+voice pack, weights, speed and float samples. One CPU thread prepares at most one
+next request's pronunciation. Voice tensors stay cached until their authenticated
+voice/manifest files change. Unused token timestamps and per-segment cache resets
+are omitted; MLX reusable allocator cache is capped at 256 MiB (active model memory
+is separate). Dependencies/model pins remain unchanged. Updating provider.py
+changes the existing backend fingerprint, so older unfinished Kokoro chunks may
+regenerate once; finalized audio remains intact.
+
+Kokoro float WAVs are validated and copied as native streaming float32, including
+finite-sample and RIFF bounds checks. Other lossless formats retain the FFmpeg
+fallback. Final mono AAC-LC/M4A remains 96k without normalization or DRC. One full
+AAC probe/decode per unique byte content is cached only within the article;
+staged/final copies require matching hashes before reuse. Process/pipe waits wake
+on completion/readiness while retaining bounded cancellation/deadline checks.
+
+Settings → Troubleshooting → Enable debug logging now records sanitized speech
+stage timings as well as delivery events. The session retains the newest 200
+entries; no text, identities, paths or URLs enter timing events. `speech timing:
+queue` is wall time including cold preparation and shutdown; pronunciation,
+inference, validation, encoding and article times overlap and must not be summed
+as elapsed queue time. Stage timings are diagnostic, not speech/listening evidence.
+Each successfully verified encode also logs audio duration, encoding wall time
+and seconds of encoding per audio minute. For example, 14.3 seconds encoding a
+600-second file is 1.43 seconds per audio minute. The duration comes from the
+existing final-file inspection; no extra tool or audio processing is introduced.
+Idle automatic delivery checks reconcile local feed/deletion intent first and
+skip credentials and WebDAV when no work is due, including during retry backoff.
+Manual Test Connection remains a server probe, and Upload Now keeps its override.
+Each locally published article requests delivery immediately, overlapping uploads
+with later speech. Requests during a drain coalesce into one follow-up; automatic
+requests respect backoff and a queued Upload Now preserves its force override.
+Debug logs also show `speech finalizer wait: started` and the measured wait on
+acquisition, each with a snapshot of ready queue items. Counts exclude running,
+failed/paused and still-preparing items; unavailable diagnostic metadata is
+reported as `unknown` and never blocks processing. These extra read-only metadata
+checks run only while logging is enabled. A wait with zero ready items near the
+end of a queue is ordinarily the remaining CPU finalization, not idle inference
+with more work to start. Streaming encoding and extra inference workers remain
+deferred.
+
+Isolated validation passed 300 Swift tests, 22 Python tests and the signed Release
+build. A synthetic 75-second float-WAV validation/assembly kernel measured 7.85 ms
+median versus 101.28 ms for three FFmpeg processes, with identical PCM bytes. This
+is a stage comparison, not an end-to-end Kokoro throughput or listening result;
+see [the validation record](VALIDATION.md#october-7-single-worker-pipeline-optimization).
+
+### Manual throughput and listening check
+
+1. Quit the old app, then open the signed Release bundle at `dist/VoiceRelay.app`
+   (build with `bash scripts/build-app.sh release`). Use Release for performance
+   comparisons; keep voice and speed the same between runs.
+2. Enable Troubleshooting debug logging and clear the log. Process 3–5 fresh
+   medium-length articles in one queue. Existing published audio is reused, so it
+   does not measure inference. Observe GPU History in Activity Monitor if useful.
+3. After completion, Copy Debug Log immediately. Preserve the final queue time,
+   preparation time, inference/validation and PCM assembly/encoding timings,
+   including the `speech encoding` duration and seconds per audio minute. The
+   first queue includes a model load; distinguish it from steady-state chunks.
+   Confirm delivery requests appear before the final queue timing when later
+   articles are still processing. Note finalizer wait times and ready counts.
+4. Confirm every completed article appears in Saved Audio and listen locally or
+   in Overcast for unchanged levels/dynamics. During a later batch try Stop: the
+   already-finalizing article may finish, while interrupted speech returns Ready.
+   Quit/relaunch should retain/resume unfinished work under the existing automation
+   policy. These are operator checks; the agent did not run GUI or real inference.
+
+No two-inference-worker implementation or performance test was added. Remaining
+idle time inside the pinned model's synchronous duration/alignment computation
+requires measured engine-level evidence before changing model math.
+
+
 October 2, 2026. This adds an explicitly selected speech fixture to the shared
 Swift pipeline. It does not ingest Safari, publish remotely, or enroll a worker.
 The app now uses Kokoro exclusively; synthetic audio is confined to tests. The Python helper is an
@@ -204,7 +322,10 @@ missing files, and invalid audio; shared ffprobe validates actual lossless metad
 Kokoro's own token/G2P/splitting logic stays inside the helper. Lazy arrays are
 materialized before conversion and completion. Internal chunks concatenate in
 order without extra gaps into one atomic mono 24 kHz float32 WAV per Swift request.
-Swift then applies the existing request gaps, loudness/resampling, AAC-LC/M4A,
+Swift then applies the existing request gaps through float32 intermediates,
+resampling only to the configured rate, and AAC-LC/M4A (96k app default),
+with no normalization, gain adjustment, limiter or DRC. It retains source levels
+and dynamics before lossy encoding. It also performs
 validation, opaque UUID filenames, and atomic local publication. Supported speech
 languages are English (`en`, `en-US`, `en-GB`), with local American/British voice
 IDs, finite speed 0.25–4.0. Defaults are `af_heart`, US English, speed 1.0.
