@@ -70,6 +70,9 @@ final class AppModel {
     var isQueueResetPending = false
     let notices = NoticeDismissalState()
     var preview = false
+    var useArchivedArticles = false {
+        didSet { if !preview { defaults.set(useArchivedArticles, forKey: "useArchivedArticles") } }
+    }
     var sourceReview = SourceReviewModel(preview: true)
     var runtimeProject = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Coding/VoiceRelay")
     @ObservationIgnored let coordinator = FixtureCoordinator()
@@ -106,6 +109,7 @@ final class AppModel {
     @ObservationIgnored private let storageOverride: ManagedSpeechStorage?
     @ObservationIgnored private let backendOverride: (@Sendable (Episode) throws -> any TTSBackend)?
     @ObservationIgnored private let enqueueFetchOverride: (@Sendable (URL) async throws -> FetchedPage)?
+    @ObservationIgnored private let archiveFetchOverride: ArticleSourceLoader.ArchiveFetch?
     @ObservationIgnored private let defaults: UserDefaults
     /// Delivery seams: production gets Keychain + URLSession; injected models get nil unless a
     /// test supplies fakes, so isolated models can never touch the network or Keychain.
@@ -115,10 +119,12 @@ final class AppModel {
     init(preview: Bool = false, storage: ManagedSpeechStorage? = nil,
          backend: (@Sendable (Episode) throws -> any TTSBackend)? = nil,
          enqueueFetch: (@Sendable (URL) async throws -> FetchedPage)? = nil,
+         archiveFetch: ArticleSourceLoader.ArchiveFetch? = nil,
          defaults: UserDefaults = .standard,
          deliveryTransport: (@Sendable () -> any DeliveryTransport)? = nil,
          credentialStore: (any DeliveryCredentialStore)? = nil) {
         storageOverride = storage; backendOverride = backend; enqueueFetchOverride = enqueueFetch
+        archiveFetchOverride = archiveFetch
         self.defaults = defaults
         var defaultTransport: (@Sendable () -> any DeliveryTransport)?
         if storage == nil { defaultTransport = { URLSessionDeliveryTransport() } }
@@ -146,6 +152,7 @@ final class AppModel {
         if let path = defaults.string(forKey: "runtimeProject") { runtimeProject = URL(fileURLWithPath: path) }
         autoAdmitEnabled = defaults.object(forKey: "autoAdmitArticles") as? Bool ?? true
         autoProcessEnabled = defaults.object(forKey: "autoProcessArticles") as? Bool ?? true
+        useArchivedArticles = defaults.bool(forKey: "useArchivedArticles")
         refreshLibrary()
         startAutomationLoop()
         sourceReview.startAutomaticSynchronization()
@@ -669,7 +676,8 @@ final class AppModel {
                 if !processingSpeech && !running { status = "Adding \(saved + issues.count + 1): \(entry.title)" }
                 do {
                     let item = try await coordinator.enqueueReadingList(entry.id, storage: next.storage, preferences: next.preferences,
-                        fetch: fetch, shouldCommit: { [weak self] in
+                        fetch: fetch, useArchives: useArchivedArticles && (storageOverride == nil || archiveFetchOverride != nil),
+                        archiveFetch: archiveFetchOverride, debugLog: deliveryDebugLog, shouldCommit: { [weak self] in
                             await MainActor.run { self != nil && !self!.stopping && self!.pendingTokens[entry.id] == next.token }
                         }, admissionControl: next.control)
                     admissionQueue.removeAll { $0.token == next.token }
@@ -713,6 +721,7 @@ final class AppModel {
     }
     private static func enqueueIssueMessage(_ error: any Error) -> String {
         (error as? RelayError)?.localizedDescription ?? (error as? SourceFetchError)?.localizedDescription
+        ?? (error as? ArticleRecoveryError)?.localizedDescription
             ?? "The article could not be queued. Double-click it in Articles to preview it."
     }
     private func enqueueQueueMutation(targets: Set<QueueSelectionID>, work: @escaping @MainActor () async -> Void) {
@@ -1320,9 +1329,11 @@ struct ConfigurationView: View {
                     .disabled(model.preview || model.stopping)
                 Toggle("Process queued articles automatically", isOn: $model.autoProcessEnabled)
                     .disabled(model.preview || model.stopping)
+                Toggle("Try archived copies when articles fail", isOn: $model.useArchivedArticles)
+                    .disabled(model.preview || model.stopping)
             } header: {
                 SectionHelpHeader(title: "Reading List",
-                    explanation: "VoiceRelay checks the chosen Reading List file automatically while it runs.\nThe file is strictly read-only — nothing is written back.\nWith automatic processing on, newly discovered articles are added to the queue and processed without a click.\nStop suspends this until new work arrives or Generate is pressed.")
+                    explanation: "VoiceRelay checks the chosen Reading List file automatically while it runs.\nThe file is strictly read-only — nothing is written back.\nWith automatic processing on, newly discovered articles are added to the queue and processed without a click.\nStop suspends this until new work arrives or Generate is pressed.\nArchived copies are optional and off by default. After a fetch or article-validation failure, lookup sends the public article URL to Archive.ph and, if needed, the Wayback Machine. Only existing snapshots are read; nothing is submitted for archiving. Known tracking parameters are removed; other queries and local/private hosts are skipped. Cached text can be older or incomplete.")
             }
         }.formStyle(.grouped)
     }

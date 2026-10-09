@@ -45,6 +45,7 @@ public struct SemanticArticle: Codable, Sendable, Equatable {
     public let extractorVersion: String
     public var sourceName: String? = nil
     public var previewImageURL: URL? = nil
+    public var archivedCopy: ArchivedArticleCopy? = nil
 }
 
 public struct NarrationChunk: Codable, Sendable, Equatable {

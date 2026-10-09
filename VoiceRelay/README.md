@@ -35,13 +35,13 @@ Stop/Quit and listening checks, see the [pipeline guide](docs/KOKORO_PROVIDER.md
 ## Xcode and app use
 
 Requires macOS 27.0+, Xcode with the macOS 27 SDK (Swift 6.2+), ffmpeg/ffprobe and
-the explicitly installed project-local Kokoro runtime. Open `VoiceRelay.xcodeproj`,
-select your own development team in Signing & Capabilities,
-choose **VoiceRelay → My Mac**, build (⌘B) and run (⌘R).
-For `scripts/build-app.sh`, copy `Packaging/Signing.example.xcconfig` to
-`Signing.local.xcconfig` at the project root and set your own team there.
-That local file is ignored; the script passes it to Xcode without putting
-signing identifiers in the shared project. Use an Apple Development identity
+the explicitly installed project-local Kokoro runtime. Copy
+`Packaging/Signing.example.xcconfig` to `Signing.local.xcconfig` at the project
+root and set your own team there. Both Debug and Release load this ignored local
+file automatically in Xcode and `scripts/build-app.sh`, keeping signing
+identifiers out of the shared project. Alternatively, select your own team in
+Xcode's Signing & Capabilities. Open `VoiceRelay.xcodeproj`, choose
+**VoiceRelay → My Mac**, build (⌘B) and run (⌘R). Use an Apple Development identity
 and a matching provisioning profile for the Data Protection Keychain entitlement.
 
 The waveform menu-bar icon
@@ -65,6 +65,11 @@ Closing the last standalone window returns to menu-bar-only operation.
    URL into Overcast. New audio is temporary until upload and publication are both
    confirmed; **Server Audio** retains history and manages server deletion. Existing VoiceRelay local
    audio follows the same cleanup policy after confirmed delivery. Starting the app never downloads models automatically.
+   Optional archived-article recovery lives under **General → Reading List →
+   Try archived copies when articles fail** (off by default). It checks existing
+   Archive.ph/Wayback captures after a fetch or validation failure, preserving the
+   original source and Reading List date. See the [recovery guide](docs/SOURCE_REVIEW.md#optional-archived-article-recovery)
+   for URL disclosure, limits, unavailable services and retry steps.
 3. Choose **Articles** in the status menu. Pick the source once under
    **Settings → General → Reading List**; VoiceRelay then re-reads it
    at startup and every five minutes while the app runs. Pull down in Articles

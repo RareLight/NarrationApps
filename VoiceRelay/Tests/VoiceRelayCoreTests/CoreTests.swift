@@ -2535,6 +2535,37 @@ private final class FakeAgentTransport: AgentTransport {
     #expect(Set(sourcePaths) == Set(appSources))
 }
 
+@Test func xcodeProjectLoadsOptionalPrivateSigningForBothConfigurations() throws {
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let projectData = try Data(contentsOf: root.appendingPathComponent("VoiceRelay.xcodeproj/project.pbxproj"))
+    let plist = try #require(PropertyListSerialization.propertyList(
+        from: projectData, options: [], format: nil) as? [String: Any])
+    let objects = try #require(plist["objects"] as? [String: [String: Any]])
+    let projectID = try #require(plist["rootObject"] as? String)
+    let project = try #require(objects[projectID])
+    let listID = try #require(project["buildConfigurationList"] as? String)
+    let list = try #require(objects[listID])
+    let configurations = try #require(list["buildConfigurations"] as? [String])
+    var names: Set<String> = []
+    for configurationID in configurations {
+        let configuration = try #require(objects[configurationID])
+        names.insert(try #require(configuration["name"] as? String))
+        let referenceID = try #require(configuration["baseConfigurationReference"] as? String)
+        let reference = try #require(objects[referenceID])
+        #expect(reference["path"] as? String == "Packaging/Signing.xcconfig")
+    }
+    #expect(names == ["Debug", "Release"])
+    let signing = try String(contentsOf: root.appendingPathComponent("Packaging/Signing.xcconfig"), encoding: .utf8)
+    #expect(signing.split(separator: "\n").filter { !$0.hasPrefix("//") } == ["#include? \"../Signing.local.xcconfig\""])
+    // Shared build settings must not acquire a developer's private team identifier.
+    for object in objects.values {
+        if let settings = object["buildSettings"] as? [String: Any] {
+            #expect(settings["DEVELOPMENT_TEAM"] == nil)
+        }
+    }
+}
+
 private final class GateSpeechBackend: TTSBackend, @unchecked Sendable {
     let identity = BackendIdentity(id: "gated-queue-test", displayName: "Gated synthetic speech", isMock: false)
     private let lock = NSLock()

@@ -167,7 +167,7 @@ final class SourceReviewModel {
         _ = try? await read?.value
     }
     private func safe(_ error: any Error) -> String {
-        if error is SourceFetchError || error is RelayError { return error.localizedDescription }
+        if error is SourceFetchError || error is RelayError || error is ArticleRecoveryError { return error.localizedDescription }
         return "Source review failed; inspect the selected source and retry."
     }
 }
@@ -194,20 +194,20 @@ final class ArticlePreviewModel {
             do {
                 let limits = try FetchLimits(maximumBytes: profile?.maxArticleBytes ?? 10_000_000,
                                             timeout: Double(profile?.httpTimeoutSeconds ?? 30))
-                let page = try await PageFetcher(limits: limits).fetch(url)
                 let limit = profile?.chunkMaxCharacters ?? 1800
-                let extraction = Task.detached { try Task.checkCancellation(); return try ReviewedSource.prepare(page, chunkLimit: limit) }
-                let result = try await withTaskCancellationHandler { try await extraction.value } onCancel: { extraction.cancel() }
+                let result = try await ArticleSourceLoader(limits: limits,
+                    useArchives: UserDefaults.standard.bool(forKey: "useArchivedArticles"))
+                    .load(url, chunkLimit: limit)
                 try Task.checkCancellation()
                 review = result
-                status = result.issue == nil ? "Article ready." : "Source needs inspection."
+                status = result.issue == nil ? (result.page.archivedCopy == nil ? "Article ready." : "Archived article ready.") : "Source needs inspection."
             } catch is CancellationError { status = "Loading cancelled." }
             catch { self.error = safe(error); status = "Article needs attention." }
         }
     }
     func cancel() { task?.cancel() }
     private func safe(_ error: any Error) -> String {
-        if error is SourceFetchError || error is RelayError { return error.localizedDescription }
+        if error is SourceFetchError || error is RelayError || error is ArticleRecoveryError { return error.localizedDescription }
         return "Article preview failed; inspect the source and retry."
     }
 }
@@ -222,8 +222,12 @@ struct ArticlePreviewContent: View {
             if let review {
                 Text(review.document?.article.title ?? "Source inspection").font(.title2)
                 Text("Original: \(review.page.originalURL.absoluteString)\nFinal: \(review.page.finalURL.absoluteString)").font(AppTypography.secondary).textSelection(.enabled)
-                if let issue = review.issue, dismissedIssue != issue.message {
-                    InlineNotice(message: issue.message) { dismissedIssue = issue.message }
+                if let copy = review.page.archivedCopy {
+                    Text("Archived copy · \(copy.provider.label) · \(copy.capturedAt.formatted(date: .abbreviated, time: .omitted))")
+                        .font(AppTypography.secondary).foregroundStyle(.secondary)
+                }
+                if let message = review.issueMessage, dismissedIssue != message {
+                    InlineNotice(message: message) { dismissedIssue = message }
                 }
                 if let document = review.document {
                     Text("Semantic blocks").font(.headline)

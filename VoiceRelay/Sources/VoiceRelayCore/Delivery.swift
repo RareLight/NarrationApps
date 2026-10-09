@@ -382,6 +382,7 @@ public final class DeliveryDebugLog: @unchecked Sendable {
     public enum Folder: String, Sendable { case root, feed, audio }
     public enum SizeResult: String, Sendable { case matched, unavailable, mismatch, unsupported }
     public enum Failure: String, Sendable { case credentials, keychain, permissions, transport, configuration, cancelled }
+    public enum ArchiveResult: String, Sendable { case lookup, recovered, unavailable }
     public enum Event: Sendable {
         case credentialPresence(Bool), credentialRead, credentialCacheHit, credentialSaved, credentialRemoved
         case connectionStarted, connectionVerified, connectionFoldersPending, deliveryStarted, deliveryFinished
@@ -391,8 +392,11 @@ public final class DeliveryDebugLog: @unchecked Sendable {
         case speechTiming(SpeechTimingStage, Double, Int?)
         case speechEncoding(Double, Double)
         case speechFinalizerWaiting(Int?), speechFinalizerAcquired(Double, Int?)
+        case articleArchive(ArticleArchive, ArchiveResult), articleArchiveSkipped
         var message: String {
             switch self {
+            case .articleArchive(let provider, let result): "article archive: \(provider.rawValue) \(result.rawValue)"
+            case .articleArchiveSkipped: "article archive: skipped (URL not eligible)"
             case .credentialPresence(let present): "credential presence: \(present ? "stored" : "missing")"
             case .credentialRead: "credential read: succeeded"
             case .credentialCacheHit: "credential session: reused (no Keychain query)"

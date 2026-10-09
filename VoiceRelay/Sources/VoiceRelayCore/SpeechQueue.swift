@@ -139,6 +139,8 @@ extension FixtureCoordinator {
     /// Fetch injection keeps this command independently testable without network or inference.
     public func enqueueReadingList(_ entryID: String, storage: ManagedSpeechStorage, preferences: SpeechPreferences,
                                    fetch: (@Sendable (URL) async throws -> FetchedPage)? = nil,
+                                   useArchives: Bool = false, archiveFetch: ArticleSourceLoader.ArchiveFetch? = nil,
+                                   debugLog: DeliveryDebugLog? = nil,
                                    shouldCommit: @Sendable () async -> Bool = { true },
                                    admissionControl: QueueAdmissionControl? = nil) async throws -> SpeechQueueItem {
         try Task.checkCancellation(); try preferences.validate(); try storage.validate()
@@ -155,22 +157,17 @@ extension FixtureCoordinator {
             return try enqueue(saved, storage: storage, preferences: preferences, sourceEntryID: entryID,
                                admissionControl: admissionControl)
         }
-        let page: FetchedPage
-        if let fetch { page = try await fetch(entry.url) }
-        else {
-            let limits = try FetchLimits(maximumBytes: storage.profile.maxArticleBytes,
-                                         timeout: Double(storage.profile.httpTimeoutSeconds))
-            page = try await PageFetcher(limits: limits).fetch(entry.url)
-        }
+        let limits = try FetchLimits(maximumBytes: storage.profile.maxArticleBytes,
+                                     timeout: Double(storage.profile.httpTimeoutSeconds))
+        let review = try await ArticleSourceLoader(limits: limits, useArchives: useArchives, fetch: fetch, archiveFetch: archiveFetch, debugLog: debugLog)
+            .load(entry.url, savedAt: entry.addedAt, chunkLimit: storage.profile.chunkMaxCharacters)
+        let page = review.page
         try Task.checkCancellation()
         guard page.originalURL == entry.url, page.bytes.count <= storage.profile.maxArticleBytes else {
             throw RelayError.setup("The fetched article does not match the selected Reading List entry or exceeds its size limit.")
         }
-        let limit = storage.profile.chunkMaxCharacters
-        let extraction = Task.detached { try Task.checkCancellation(); return try ReviewedSource.prepare(page, chunkLimit: limit) }
-        let review = try await withTaskCancellationHandler { try await extraction.value } onCancel: { extraction.cancel() }
         try Task.checkCancellation()
-        if let issue = review.issue { throw RelayError.setup(issue.message + " Double-click the article in Articles to preview it.") }
+        if let message = review.issueMessage { throw RelayError.setup(message + " Double-click the article in Articles to preview it.") }
         guard await shouldCommit() else { throw CancellationError() }
         // enqueue rechecks persisted membership after the asynchronous fetch.
         return try enqueue(review, storage: storage, preferences: preferences, sourceEntryID: entryID,

@@ -54,9 +54,12 @@ public struct FetchedPage: Sendable {
     public let contentType: String
     public let encoding: String
     public let fetchedAt: Date
-    public init(originalURL: URL, finalURL: URL, bytes: Data, html: String, contentType: String, encoding: String, fetchedAt: Date) {
+    public let archivedCopy: ArchivedArticleCopy?
+    public init(originalURL: URL, finalURL: URL, bytes: Data, html: String, contentType: String, encoding: String, fetchedAt: Date,
+                archivedCopy: ArchivedArticleCopy? = nil) {
         self.originalURL = originalURL; self.finalURL = finalURL; self.bytes = bytes; self.html = html
         self.contentType = contentType; self.encoding = encoding; self.fetchedAt = fetchedAt
+        self.archivedCopy = archivedCopy
     }
 }
 
@@ -67,13 +70,18 @@ public struct PageFetcher: Sendable {
     public func fetch(_ url: URL) async throws -> FetchedPage {
         try await fetch(url, configuration: .ephemeral)
     }
-    func fetch(_ url: URL, configuration: URLSessionConfiguration) async throws -> FetchedPage {
+    func fetch(_ url: URL, configuration: URLSessionConfiguration,
+               acceptedTypes: Set<String> = ["text/html", "application/xhtml+xml"],
+               allowedHosts: Set<String>? = nil) async throws -> FetchedPage {
         try ArticleURL.validate(url); try Task.checkCancellation()
+        if let allowedHosts, !allowedHosts.contains(url.host?.lowercased() ?? "") || url.scheme != "https" || (url.port != nil && url.port != 443) {
+            throw SourceFetchError.invalidURL
+        }
         configuration.urlCache = nil; configuration.httpCookieStorage = nil
         configuration.urlCredentialStorage = nil; configuration.httpShouldSetCookies = false
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = limits.timeout; configuration.timeoutIntervalForResource = limits.timeout
-        let redirects = FetchRedirects(maximum: limits.maximumRedirects)
+        let redirects = FetchRedirects(maximum: limits.maximumRedirects, allowedHosts: allowedHosts)
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         do {
@@ -81,15 +89,16 @@ public struct PageFetcher: Sendable {
                 try await withThrowingTaskGroup(of: FetchedPage.self) { group in
                     group.addTask {
                         var request = URLRequest(url: url)
-                        request.setValue("text/html, application/xhtml+xml", forHTTPHeaderField: "Accept")
+                        request.setValue(acceptedTypes.sorted().joined(separator: ", "), forHTTPHeaderField: "Accept")
                         request.setValue("VoiceRelayPrototype/1.0", forHTTPHeaderField: "User-Agent")
                         let (stream, response) = try await session.bytes(for: request, delegate: redirects)
                         if let failure = redirects.failure { throw failure }
                         guard let response = response as? HTTPURLResponse, let final = response.url else { throw SourceFetchError.network }
                         try ArticleURL.validate(final)
+                        if let allowedHosts, !allowedHosts.contains(final.host?.lowercased() ?? "") { throw SourceFetchError.invalidURL }
                         guard (200...299).contains(response.statusCode) else { throw SourceFetchError.status(response.statusCode) }
                         let type = response.mimeType?.lowercased() ?? ""
-                        guard ["text/html", "application/xhtml+xml"].contains(type) else { throw SourceFetchError.unsupportedType }
+                        guard acceptedTypes.contains(type) else { throw SourceFetchError.unsupportedType }
                         guard response.expectedContentLength <= Int64(limits.maximumBytes) else { throw SourceFetchError.tooLarge }
                         var bytes = Data(); bytes.reserveCapacity(min(limits.maximumBytes, 65_536))
                         for try await byte in stream {
@@ -151,16 +160,18 @@ public struct PageFetcher: Sendable {
 final class FetchRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let lock = NSLock()
     private let maximum: Int
+    private let allowedHosts: Set<String>?
     private var count = 0
     private var storedFailure: SourceFetchError?
     var failure: SourceFetchError? { lock.withLock { storedFailure } }
-    init(maximum: Int) { self.maximum = maximum }
+    init(maximum: Int, allowedHosts: Set<String>? = nil) { self.maximum = maximum; self.allowedHosts = allowedHosts }
     func recordFailure(_ error: SourceFetchError) { lock.withLock { storedFailure = error } }
     func redirected(from: URL, to: URL) -> SourceFetchError? {
         lock.withLock {
             count += 1
             let error: SourceFetchError?
             if (try? ArticleURL.validate(to)) == nil { error = .invalidURL }
+            else if let allowedHosts, !allowedHosts.contains(to.host?.lowercased() ?? "") || to.scheme != "https" || (to.port != nil && to.port != 443) { error = .invalidURL }
             else if from.scheme?.lowercased() == "https", to.scheme?.lowercased() == "http" { error = .insecureRedirect }
             else if count > maximum { error = .redirectLimit }
             else { error = nil }

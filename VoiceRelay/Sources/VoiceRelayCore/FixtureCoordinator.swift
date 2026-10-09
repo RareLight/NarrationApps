@@ -64,7 +64,8 @@ struct StoredExtraction: Codable {
         let article = try JSONDecoder().decode(SemanticArticle.self, from: articleData)
         let narration = try JSONDecoder().decode(NarrationPlan.self, from: narrationData)
         let page = FetchedPage(originalURL: article.originalURL, finalURL: article.finalURL, bytes: source,
-                               html: "", contentType: "text/html", encoding: "saved-response", fetchedAt: .distantPast)
+                               html: "", contentType: "text/html", encoding: "saved-response", fetchedAt: .distantPast,
+                               archivedCopy: article.archivedCopy)
         return ReviewedSource(page: page, document: ExtractedDocument(article: article, cleanedHTML: html), narration: narration, issue: nil)
     }
     func restore(to directory: URL) throws {

@@ -8,6 +8,54 @@ an entry or use its **Preview Article** menu in Articles. Reading List source
 selection is
 **Settings → General → Reading List**.
 
+## Optional archived-article recovery
+
+Under **Settings → General → Reading List**, enable **Try archived copies when
+articles fail**. This preference defaults off. A new admission or Article Preview
+first tries the original site. Recoverable HTTP/network errors and rejected
+login, subscription, missing-page, browser-check or extraction results can then
+try Archive.ph, followed by the Wayback Machine. Re-select previously unsuccessful
+Articles and use **Add to Queue** after enabling it; automatic admission does not
+retry a failed entry again in the same session. Already saved text remains offline.
+
+Lookup discloses the public article URL to the archive provider. Known tracking
+parameters and fragments are removed; other queries, embedded credentials,
+local/private host names, IP literals and nonstandard ports are excluded. This
+reads existing captures only. There are no archive submissions, browser cookies,
+JavaScript execution, authentication tricks or CAPTCHA solving. A provider error
+or unusable snapshot falls through once; failed recovery keeps the original issue
+and adds a safe unavailable message. Unsupported document types/size-limit failures
+remain failures. Each provider has at most one index and one HTML request, bounded
+by ten seconds per request and the existing byte limits. Archive requests and
+redirects stay on the provider's HTTPS hosts with standard certificate validation.
+
+When available, captures closest to the Reading List saved date are preferred;
+otherwise the latest listed capture is used. Original URL, queue identity, saved
+date and publisher narration are retained. Snapshot URL, provider and capture date
+stay in the private integrity-checked article snapshot; Article Preview displays
+that provenance. Archive chrome is omitted from extraction where identifiable.
+Publisher-hosted HTTPS artwork can remain; archive-hosted replacements are omitted.
+Nothing about archive provenance is added to RSS. Debug logging records only fixed
+provider/outcome events, never lookup URLs or article contents. Cached text can be
+older, incomplete, or unavailable; live acceptance remains an operator check.
+
+Research before implementation:
+
+- [archivetoday](https://github.com/HRDepartment/archivetoday) is an unofficial
+  JavaScript client exposing TimeMap lookup and capture creation separately.
+- [@agntn/archives](https://github.com/agntn/archives), formerly omnichron, is a
+  TypeScript adapter over multiple archives and requires Node.js.
+- [Memento RFC 7089](https://www.rfc-editor.org/rfc/rfc7089.html) describes TimeMap
+  link serialization; Archive.ph's public example.com response confirmed its
+  timestamped replay links and `application/link-format` MIME type.
+- [Wayback Availability API](https://archive.org/help/wayback_api.php) documents
+  read-only lookup, timestamp selection and available snapshot results.
+- The supplied RemovePaywall search page could not be retrieved during research;
+  no supported automation API was verified, so it is not an automatic provider.
+
+VoiceRelay uses these existing protocols with its bounded Foundation client and
+SwiftSoup, without adding a JavaScript runtime or copying third-party library code.
+
 ## Queue-first article selection
 
 - A chosen Reading List source is re-read automatically — on Articles

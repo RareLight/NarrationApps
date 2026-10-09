@@ -135,6 +135,16 @@ open and read concurrently with writers; future backups must use the SQLite back
 API, never raw database copies.
 Processing and inference-helper scratch use app-owned macOS system temporary storage.
 Persistent runtime/model/cache assets and explicit installer scratch remain project-local.
+Archived-article recovery is optional and off by default. Original fetching and
+validation run first; eligible failures can query existing Archive.ph Memento
+TimeMaps then Wayback Availability. Never submit captures, solve CAPTCHAs, execute
+remote JavaScript or reuse browser credentials. Strip known tracking parameters;
+skip other queries and local/private hosts. Restrict archive redirects to known
+HTTPS provider hosts with normal TLS validation, bounded bytes and deadlines.
+Preserve the original source identity and Reading List save date, record private
+capture provenance, reject archive/challenge pages and keep saved text offline.
+Archive-origin diagnostics carry fixed outcomes, not URLs or contents. Inert or
+injected app models never contact archives without an explicit fake transport.
 Narration opens with the article title and source (publisher name, falling back to
 host) and ends with a separate "End of article." paragraph; source blocks stay
 unchanged. Podcast episode dates and RSS ordering use the Reading List saved date

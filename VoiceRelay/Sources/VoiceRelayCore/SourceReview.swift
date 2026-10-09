@@ -2,13 +2,15 @@ import Foundation
 import SwiftSoup
 
 public enum SourceReviewIssue: String, Codable, Sendable {
-    case login, consent, accessBlocked, extraction
+    case login, consent, accessBlocked, subscription, unavailable, extraction
     public var message: String {
         switch self {
         case .login: "This looks like a login page. Review it in your browser; authenticated fetching is deferred."
         case .consent: "This looks like a consent page. Review it in your browser before trying again."
         case .accessBlocked: "This looks like an access or browser-check page. Automated bypass is not supported."
         case .extraction: "No readable article was extracted. Inspect the saved source before retrying."
+        case .subscription: "This looks like a subscription prompt rather than a complete article."
+        case .unavailable: "This looks like a missing or removed article page."
         }
     }
 }
@@ -18,21 +20,47 @@ public struct ReviewedSource: Sendable {
     public let document: ExtractedDocument?
     public let narration: NarrationPlan?
     public let issue: SourceReviewIssue?
-    public init(page: FetchedPage, document: ExtractedDocument?, narration: NarrationPlan?, issue: SourceReviewIssue?) {
+    public let archiveRecoveryFailed: Bool
+    public var issueMessage: String? {
+        issue.map { $0.message + (archiveRecoveryFailed ? " No readable archived copy was found." : "") }
+    }
+    public init(page: FetchedPage, document: ExtractedDocument?, narration: NarrationPlan?, issue: SourceReviewIssue?, archiveRecoveryFailed: Bool = false) {
         self.page = page; self.document = document; self.narration = narration; self.issue = issue
+        self.archiveRecoveryFailed = archiveRecoveryFailed
     }
     public static func prepare(_ page: FetchedPage, chunkLimit: Int) throws -> ReviewedSource {
         let dom = try SwiftSoup.parse(page.html, page.finalURL.absoluteString)
         let title = try dom.title().trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasCaptcha = try dom.select("form[action*=captcha], #captcha, .g-recaptcha, .h-captcha").first() != nil
         let issue: SourceReviewIssue?
-        if ["sign in", "log in", "login"].contains(where: { title == $0 || title.hasPrefix($0 + " |") }) { issue = .login }
+        if page.archivedCopy != nil && (["archive.today", "archive.ph", "webpage archive", "wayback machine"].contains(title) || hasCaptcha) { issue = .accessBlocked }
+        else if ["sign in", "log in", "login"].contains(where: { title == $0 || title.hasPrefix($0 + " |") }) { issue = .login }
         else if ["consent required", "cookie consent", "privacy consent"].contains(where: { title.contains($0) }) { issue = .consent }
-        else if ["access denied", "just a moment", "attention required", "enable javascript"].contains(where: { title.contains($0) }) { issue = .accessBlocked }
+        else if ["access denied", "just a moment", "attention required", "enable javascript", "captcha", "verify you are human"].contains(where: { title.contains($0) }) { issue = .accessBlocked }
+        else if ["page not found", "article not found", "404 not found", "content unavailable"].contains(where: { title.contains($0) }) { issue = .unavailable }
+        else if title == "subscribe" || title.hasPrefix("subscribe |") { issue = .subscription }
         else { issue = nil }
         if let issue { return ReviewedSource(page: page, document: nil, narration: nil, issue: issue) }
-        let document: ExtractedDocument
+        var document: ExtractedDocument
         do { document = try ArticleExtractor.extract(html: page.html, originalURL: page.originalURL, finalURL: page.finalURL) }
         catch { return ReviewedSource(page: page, document: nil, narration: nil, issue: .extraction) }
+        let text = document.article.blocks.map(\.text).joined(separator: " ").lowercased()
+        if text.count < 1200 && ["subscribe to continue reading", "subscribe to read the full", "this article is for subscribers", "subscription required"].contains(where: text.contains) {
+            return ReviewedSource(page: page, document: nil, narration: nil, issue: .subscription)
+        }
+        if let copy = page.archivedCopy {
+            var article = document.article
+            article.archivedCopy = copy
+            // Keep publisher attribution when archive HTML lacks social metadata.
+            let name = article.sourceName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if name == nil || ArticleArchive.allCases.contains(where: { $0.hosts.contains(name ?? "") || $0.label.lowercased() == name }) {
+                article.sourceName = page.originalURL.host
+            }
+            if let image = article.previewImageURL, ArticleArchive.allCases.contains(where: { $0.hosts.contains(image.host?.lowercased() ?? "") }) {
+                article.previewImageURL = nil
+            }
+            document = ExtractedDocument(article: article, cleanedHTML: document.cleanedHTML)
+        }
         let narration = try Narration.prepare(document.article, limit: chunkLimit)
         return ReviewedSource(page: page, document: document, narration: narration, issue: nil)
     }

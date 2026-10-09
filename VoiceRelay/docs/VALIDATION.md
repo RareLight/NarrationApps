@@ -1,5 +1,71 @@
 # Validation evidence
 
+## October 8: direct Xcode signing repair
+
+Reproduced a direct Debug build failure: VoiceRelay and VoiceRelayCLI required a
+development team. Publication cleanup had moved the private team setting into
+ignored `Signing.local.xcconfig`, but only the packaging script loaded it.
+Both project configurations now use `Packaging/Signing.xcconfig`, which optionally
+includes that local file. Targets inherit the setting; no concrete signing
+identifier enters shared source. The script uses the same project configuration.
+
+Validation: direct `xcodebuild -project VoiceRelay.xcodeproj -scheme VoiceRelay
+-configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath
+"$PWD/DerivedData" -onlyUsePackageVersionsFromResolvedFile build` passed without
+a command-line xcconfig override. Deep/strict signature verification of the Debug
+app passed. Both focused Swift project tests passed: unique app-source references
+and private-signing configuration for Debug/Release. Project plist lint, shell
+syntax and whitespace checks passed; the local signing file and validation logs
+remain ignored, and the local signing file retains owner-only permissions.
+Logs: `var/validation/2026-10-08-xcode-build/`. No app launch, GUI/Canvas, live
+article or feed activity was performed. Release was not rebuilt for this repair.
+
+Operator check: reopen VoiceRelay.xcodeproj if Xcode has not picked up the project
+change, select VoiceRelay → My Mac and build with ⌘B, then run with ⌘R.
+
+## October 8: optional archived-article recovery
+
+Added opt-in Archive.ph/Wayback recovery for new queue admissions and Article
+Preview after an original fetch or validation failure. Recovery reads existing
+captures only; no submissions, browser sessions, JavaScript or CAPTCHA bypass.
+It retains the original source identity, saved-date RSS semantics and publisher
+narration, while capture provenance is kept in private snapshots and shown in
+Preview. Saved text is reused offline. Settings defaults off and documents URL
+disclosure, tracking removal and exclusion of other queries/local hosts.
+Provider requests have host-restricted HTTPS redirects, byte/deadline limits and
+no retry loop. Failure retains the original issue with a safe unavailable notice.
+New generic validation catches short subscription prompts and missing-page titles.
+
+Research: JavaScript `archivetoday`, TypeScript `@agntn/archives`, Memento RFC 7089
+and the official Wayback Availability API were reviewed before implementation;
+see SOURCE_REVIEW.md for links and the dependency decision. No third-party code
+or runtime dependency was added. The supplied RemovePaywall page was unavailable
+to research fetches and no supported API was verified, so it is not integrated.
+Public example.com protocol probes returned Archive.ph **200; application/link-format**
+and Wayback **429**. Archive.ph's real TimeMap uses timestamped replay URLs;
+fixtures cover those as well as short links. These probes verify protocol shape
+and current endpoint availability, not recovery of the user's articles.
+
+Validation: **40 core + 2 app tests passed (42 total)**. Coverage includes original-
+first/opt-out behavior, status/login/subscription recovery, nearest-date capture,
+raw Wayback replay, malformed/foreign metadata, timestamp and root normalization,
+restricted redirects, privacy exclusions/tracking removal, CAPTCHA/size rejection,
+cancellation, sanitized logging, saved-date/identity preservation, durable offline
+reuse, publisher artwork/attribution and inert preview/settings integration.
+Signed **Release build/package passed**, followed by deep/strict signature
+verification; `git diff --check` passed. Logs and public protocol fixtures are
+ignored under `var/validation/2026-10-08-archive-recovery/`. No GUI/Canvas, Reading
+List read, user-article network request, live state migration, speech/listening or
+feed upload was performed. The full Swift suite was not repeated.
+
+Operator check: quit the old app and open dist/VoiceRelay.app; enable General →
+Reading List → Try archived copies when articles fail. Re-select a previously
+failed Article and Add to Queue. Confirm Ready, original source host, then speech
+and publication normally. Preview the source to see provider/capture provenance.
+Use opt-in debug logging to inspect fixed archive lookup/recovered/unavailable
+outcomes. Also test an uncached or CAPTCHA-blocked article and Stop during fetch;
+it must stay unqueued, with a safe issue or cancellation rather than cache chrome.
+
 ## October 8: repository publication preparation
 
 Reviewed the tracked tree and all five original local commits before any GitHub

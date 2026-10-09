@@ -33,6 +33,7 @@
 		E40000000000000000000002 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = "Contents/Library/LaunchAgents"; dstSubfolderSpec = 1; files = (B1000000000000000000000D, ); name = "Embed LaunchAgent"; runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXCopyFilesBuildPhase section */
 /* Begin PBXFileReference section */
+		F10000000000000000000017 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Signing.xcconfig; path = Packaging/Signing.xcconfig; sourceTree = "<group>"; };
         F10000000000000000000014 /* WindowPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WindowPresence.swift; path = Sources/VoiceRelayApp/WindowPresence.swift; sourceTree = "<group>"; };
 		900000000000000000000001 /* Audio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Audio.swift; sourceTree = "<group>"; };
 		900000000000000000000002 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
@@ -112,6 +113,7 @@
 				F10000000000000000000016 /* DeliveryTests.swift */,
 				F10000000000000000000011 /* SourceReviewTests.swift */,
 				F10000000000000000000005 /* Info.plist */,
+				F10000000000000000000017 /* Signing.xcconfig */,
 				F10000000000000000000004 /* Acknowledgements */,
 				F10000000000000000000006 /* Package.swift */,
 				F10000000000000000000007 /* Package.resolved */,
@@ -427,6 +429,7 @@
 		};
 		C30000000000000000000007 /* Debug configuration for PBXProject "VoiceRelay" */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = F10000000000000000000017 /* Signing.xcconfig */;
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				ENABLE_TESTABILITY = YES;
@@ -443,6 +446,7 @@
 		};
 		C30000000000000000000008 /* Release configuration for PBXProject "VoiceRelay" */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = F10000000000000000000017 /* Signing.xcconfig */;
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;

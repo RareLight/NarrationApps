@@ -464,3 +464,211 @@ private final class SourceReviewProtocol: URLProtocol, @unchecked Sendable {
     #expect(bounded.chunks.allSatisfy { $0.text.count <= 8 })
     #expect(article.blocks.map(\.text) == ["Original first paragraph.", "Original final paragraph."])
 }
+
+private actor ArchiveFixture {
+    let original: URL
+    let outcome: String
+    var calls: [URL] = []
+    init(_ original: URL, outcome: String = "archive") { self.original = original; self.outcome = outcome }
+    func fetch(_ url: URL, limits: FetchLimits, types: Set<String>, hosts: Set<String>) throws -> FetchedPage {
+        calls.append(url)
+        #expect(limits.timeout <= 10 && limits.maximumRedirects == 3)
+        #expect(hosts.contains(url.host!))
+        var body: String, type: String
+        if url.host == "archive.ph" && url.path.hasPrefix("/timemap/") {
+            if outcome == "cancel" { throw CancellationError() }
+            if outcome == "wayback" || outcome == "missing" { throw SourceFetchError.status(503) }
+            body = """
+            <\(original.absoluteString)>; rel="original",
+            <https://archive.ph/Older>; rel="first memento"; datetime="Thu, 01 Jan 2026 00:00:00 GMT",
+            <https://archive.ph/Newer>; datetime="Sun, 01 Feb 2026 00:00:00 GMT"; rel="last memento"
+            """
+            type = "application/link-format"
+        } else if url.host == "archive.org" {
+            type = "application/json"
+            body = outcome == "missing" || outcome == "challenge" || outcome == "oversize" ? "{\"archived_snapshots\":{}}" : """
+            {"archived_snapshots":{"closest":{"available":true,"status":"200","timestamp":"20260101000000","url":"http://web.archive.org/web/20260101000000/\(original.absoluteString)"}}}
+            """
+        } else {
+            type = "text/html"
+            body = String(decoding: try FixtureResource.html(), as: UTF8.self)
+            if outcome == "challenge" { body = "<html><title>Article</title><body><form action='/captcha/'></form>\(body)</body></html>" }
+            if outcome == "oversize" { body = String(repeating: "x", count: limits.maximumBytes + 1) }
+        }
+        #expect(types.contains(type))
+        return FetchedPage(originalURL: url, finalURL: url, bytes: Data(body.utf8), html: body,
+                           contentType: type, encoding: "utf-8", fetchedAt: .distantPast)
+    }
+}
+
+@Test func archiveRecoveryKeepsOriginalIdentitySourceAndDurableProvenance() async throws {
+    let url = URL(string: "https://articles.example/story")!, fixture = ArchiveFixture(URL(string: "https://articles.example/story")!)
+    let saved = Date(timeIntervalSince1970: 1_767_225_600) // January 1, 2026 UTC
+    let log = DeliveryDebugLog(); log.enabled = true
+    let loader = ArticleSourceLoader(limits: try FetchLimits(), useArchives: true, fetch: { _ in throw SourceFetchError.status(404) },
+        archiveFetch: { try await fixture.fetch($0, limits: $1, types: $2, hosts: $3) }, debugLog: log)
+    let review = try await loader.load(url, savedAt: saved, chunkLimit: 1800)
+    let article = try #require(review.document?.article)
+    #expect(review.issue == nil && review.page.originalURL == url && article.originalURL == url)
+    #expect(review.page.finalURL.absoluteString == "https://archive.ph/Older")
+    #expect(article.archivedCopy?.capturedAt == saved && article.archivedCopy?.provider == .archiveToday)
+    #expect(review.narration?.chunks.first?.text.contains("Source: articles.example") == true)
+    let restored = try StoredExtraction(review: review, chunkLimit: 1800).review()
+    #expect(restored.document?.article == article && restored.page.archivedCopy == review.page.archivedCopy)
+    #expect(await fixture.calls.count == 2)
+    #expect(log.text.contains("archiveToday recovered"))
+    #expect(!log.text.contains("articles.example") && !log.text.contains("Older"))
+}
+
+@Test func archiveRecoveryUsesWaybackRawReplayAfterArchiveTodayFailure() async throws {
+    let url = URL(string: "https://articles.example/story")!, fixture = ArchiveFixture(URL(string: "https://articles.example/story")!, outcome: "wayback")
+    let loader = ArticleSourceLoader(limits: try FetchLimits(), useArchives: true, fetch: { _ in throw SourceFetchError.authentication },
+        archiveFetch: { try await fixture.fetch($0, limits: $1, types: $2, hosts: $3) })
+    let review = try await loader.load(url, savedAt: Date(timeIntervalSince1970: 1_767_225_600), chunkLimit: 1800)
+    #expect(review.page.archivedCopy?.provider == .wayback)
+    #expect(review.page.finalURL.absoluteString == "https://web.archive.org/web/20260101000000id_/https://articles.example/story")
+    let calls = await fixture.calls
+    #expect(calls.count == 3)
+    #expect(URLComponents(url: calls[1], resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "timestamp" })?.value == "20260101000000")
+}
+
+@Test(arguments: ["missing", "challenge", "oversize"])
+func archiveRecoveryNeverQueuesUnavailableChallengeOrOversizedCopies(_ outcome: String) async throws {
+    let url = URL(string: "https://articles.example/story")!, fixture = ArchiveFixture(URL(string: "https://articles.example/story")!, outcome: outcome)
+    let loader = ArticleSourceLoader(limits: try FetchLimits(maximumBytes: 100_000), useArchives: true,
+        fetch: { _ in throw SourceFetchError.status(403) }, archiveFetch: { try await fixture.fetch($0, limits: $1, types: $2, hosts: $3) })
+    do { _ = try await loader.load(url, chunkLimit: 1800); Issue.record("Unreadable cached copy accepted") }
+    catch { #expect(error is ArticleRecoveryError); #expect(!error.localizedDescription.contains(url.absoluteString)) }
+    #expect(await fixture.calls.count <= 3)
+}
+
+@Test func archiveRecoveryOptOutGoodOriginalAndCancellationMakeNoAdditionalRequests() async throws {
+    let url = URL(string: "https://articles.example/story")!, fixture = ArchiveFixture(URL(string: "https://articles.example/story")!, outcome: "cancel")
+    let fetch: ArticleSourceLoader.ArchiveFetch = { try await fixture.fetch($0, limits: $1, types: $2, hosts: $3) }
+    let original: ArticleSourceLoader.Fetch = { url in
+        let html = String(decoding: try FixtureResource.html(), as: UTF8.self)
+        return FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html, contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
+    }
+    let good = try await ArticleSourceLoader(limits: FetchLimits(), useArchives: true, fetch: original, archiveFetch: fetch).load(url, chunkLimit: 1800)
+    #expect(good.page.archivedCopy == nil && good.issue == nil)
+    #expect(await fixture.calls.isEmpty)
+    do { _ = try await ArticleSourceLoader(limits: FetchLimits(), fetch: { _ in throw SourceFetchError.status(404) }, archiveFetch: fetch).load(url, chunkLimit: 1800); Issue.record("Disabled recovery fetched") }
+    catch { #expect(error as? SourceFetchError == .status(404)) }
+    #expect(await fixture.calls.isEmpty)
+    do { _ = try await ArticleSourceLoader(limits: FetchLimits(), useArchives: true, fetch: { _ in throw SourceFetchError.status(404) }, archiveFetch: fetch).load(url, chunkLimit: 1800); Issue.record("Cancelled recovery succeeded") }
+    catch { #expect(error is CancellationError) }
+    #expect(await fixture.calls.count == 1)
+}
+
+@Test func archiveRecoveryRejectsPrivateURLsWrongArticleAndForeignSnapshotHosts() throws {
+    for raw in ["https://localhost/story", "https://localhost./story", "https://device.local/story", "https://host.lan/story", "https://device.ts.net/story", "https://127.0.0.1/story", "https://[::1]/story", "https://user:secret@articles.example/story", "https://articles.example/story?token=PRIVATE", "https://articles.example:8443/story"] {
+        #expect(ArticleSourceLoader.lookupURL(URL(string: raw)!) == nil)
+    }
+    let original = URL(string: "https://articles.example/story")!
+    #expect(ArticleSourceLoader.lookupURL(URL(string: "https://articles.example/story#section")!) == original)
+    for raw in ["https://evil.example/Abc12", "https://archive.ph/submit/", "https://archive.ph/wip/Abc12", "https://archive.ph/Abc12?secret=x", "https://archive.ph:8443/Abc12"] {
+        #expect(ArticleSourceLoader.snapshotURL(URL(string: raw)!, provider: .archiveToday, original: original) == nil)
+    }
+    #expect(ArticleSourceLoader.snapshotURL(URL(string: "https://web.archive.org/web/20260101000000/https://elsewhere.example/story")!, provider: .wayback, original: original) == nil)
+    let map = "<https://elsewhere.example/story>; rel=\"original\", <https://archive.ph/Abc12>; rel=\"memento\"; datetime=\"Thu, 01 Jan 2026 00:00:00 GMT\""
+    #expect(try ArticleSourceLoader.capture(map, provider: .archiveToday, original: original, savedAt: nil) == nil)
+    let redirects = FetchRedirects(maximum: 3, allowedHosts: ArticleArchive.archiveToday.hosts)
+    let from = URL(string: "https://archive.ph/Abc12")!
+    #expect(redirects.redirected(from: from, to: URL(string: "https://archive.is/Abc12")!) == nil)
+    #expect(redirects.redirected(from: from, to: original) == .invalidURL)
+    #expect(FetchRedirects(maximum: 3, allowedHosts: ArticleArchive.archiveToday.hosts).redirected(from: from, to: URL(string: "https://archive.ph:8443/Abc12")!) == .invalidURL)
+}
+
+@Test func archiveRecoveryAlsoHandlesValidatedLoginAndSubscriptionPages() async throws {
+    let url = URL(string: "https://articles.example/story")!, fixture = ArchiveFixture(URL(string: "https://articles.example/story")!)
+    let loader = ArticleSourceLoader(limits: try FetchLimits(), useArchives: true, fetch: { url in
+        let html = "<html><title>Sign in | Publisher</title><body>Please log in.</body></html>"
+        return FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html, contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
+    }, archiveFetch: { try await fixture.fetch($0, limits: $1, types: $2, hosts: $3) })
+    #expect(try await loader.load(url, chunkLimit: 1800).page.archivedCopy != nil)
+    let html = "<html><title>Publisher article</title><body><article><h1>Publisher article</h1><p>\(String(repeating: "Some introductory article text. ", count: 6)) Subscribe to continue reading.</p></article></body></html>"
+    let page = FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html, contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
+    #expect(try ReviewedSource.prepare(page, chunkLimit: 1800).issue == .subscription)
+}
+
+@Test func archiveRecoveryRemovesTrackingButPreservesQueueIdentitySavedDateAndOfflineReuse() async throws {
+    let url = URL(string: "https://articles.example/story?utm_source=PRIVATE&mc_eid=PRIVATE#section")!
+    let lookup = URL(string: "https://articles.example/story")!
+    #expect(ArticleSourceLoader.lookupURL(url) == lookup)
+    let fixture = ArchiveFixture(lookup)
+    let root = try reviewTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"), stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let entry = ReadingListEntry(id: "archive-entry", safariID: nil, url: url, title: "Original entry", addedAt: Date(timeIntervalSince1970: 1_767_225_600))
+    let coordinator = FixtureCoordinator()
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let item = try await coordinator.enqueueReadingList(entry.id, storage: storage, preferences: SpeechPreferences(),
+        fetch: { _ in throw SourceFetchError.status(410) }, useArchives: true,
+        archiveFetch: { try await fixture.fetch($0, limits: $1, types: $2, hosts: $3) })
+    #expect(item.sourceHost == "articles.example" && item.state == .queued)
+    let episode = try #require(try await coordinator.library(storage: storage).first)
+    #expect(episode.readingListSavedAt == entry.addedAt)
+    let store = try NativeStore(url: storage.profile.database, readOnly: true)
+    #expect(try store.existingEpisode(sourceKey: "reviewed-url-v1-" + Files.hash(Data(url.absoluteString.utf8)))?.id == episode.id)
+    let readded = try await coordinator.enqueueReadingList(entry.id, storage: storage, preferences: SpeechPreferences(), fetch: { _ in
+        Issue.record("Saved archived text refetched"); throw SourceFetchError.network
+    }, useArchives: true, archiveFetch: { _, _, _, _ in
+        Issue.record("Saved archived text queried an archive"); throw SourceFetchError.network
+    })
+    #expect(readded.id == item.id && readded.sourceHost == "articles.example")
+    let calls = await fixture.calls
+    #expect(calls.count == 2 && calls.allSatisfy { !$0.absoluteString.contains("PRIVATE") })
+}
+
+@Test func archiveRecoveryUnavailableReviewAndUnsafeFetchFailurePreserveOriginalOutcome() async throws {
+    let url = URL(string: "https://articles.example/story")!, fixture = ArchiveFixture(URL(string: "https://articles.example/story")!, outcome: "missing")
+    let html = "<html><title>Sign in</title><body>Login required.</body></html>"
+    let original = FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html, contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
+    let review = try await ArticleSourceLoader(limits: FetchLimits(), useArchives: true, fetch: { _ in original },
+        archiveFetch: { try await fixture.fetch($0, limits: $1, types: $2, hosts: $3) }).load(url, chunkLimit: 1800)
+    #expect(review.issue == .login && review.page.finalURL == url && review.page.archivedCopy == nil)
+    #expect(review.issueMessage?.contains("No readable archived copy was found") == true)
+    let previousCalls = await fixture.calls.count
+    for failure in [SourceFetchError.tooLarge, .unsupportedType, .invalidURL] {
+        do { _ = try await ArticleSourceLoader(limits: FetchLimits(), useArchives: true, fetch: { _ in throw failure },
+            archiveFetch: { try await fixture.fetch($0, limits: $1, types: $2, hosts: $3) }).load(url, chunkLimit: 1800)
+            Issue.record("Unsafe original fetch was recovered")
+        } catch { #expect(error as? SourceFetchError == failure) }
+    }
+    #expect(await fixture.calls.count == previousCalls)
+}
+
+@Test func archiveRecoveryParsesTimestampReplayLinksAndNormalizesRootURLs() throws {
+    // Shape verified against the service's public example.com TimeMap.
+    let original = URL(string: "https://example.com")!
+    let map = """
+    <https://example.com/>; rel="original",
+    <http://archive.md/timegate/https://example.com/>; rel="timegate",
+    <http://archive.md/20260101000000/http://example.com/>; rel="first memento"; datetime="Thu, 01 Jan 2026 00:00:00 GMT"
+    """
+    let capture = try #require(try ArticleSourceLoader.capture(map, provider: .archiveToday, original: original, savedAt: nil))
+    #expect(capture.snapshotURL.absoluteString == "https://archive.md/20260101000000/http://example.com/")
+    #expect(ArticleSourceLoader.snapshotURL(URL(string: "https://archive.md/20260101000000/https://elsewhere.example/")!, provider: .archiveToday, original: original) == nil)
+    let ambiguous = map + ", <https://elsewhere.example/>; rel=\"original\""
+    #expect(try ArticleSourceLoader.capture(ambiguous, provider: .archiveToday, original: original, savedAt: nil) == nil)
+    let wrongDate = """
+    {"archived_snapshots":{"closest":{"available":true,"status":"200","timestamp":"20260101000000","url":"https://web.archive.org/web/20260201000000/https://example.com/"}}}
+    """
+    #expect(try ArticleSourceLoader.capture(wrongDate, provider: .wayback, original: original, savedAt: nil) == nil)
+}
+
+@Test func archiveRecoveryRetainsPublisherAttributionAndOmitsArchiveArtwork() throws {
+    let original = URL(string: "https://articles.example/story")!, snapshot = URL(string: "https://archive.ph/Abc12")!
+    let copy = ArchivedArticleCopy(provider: .archiveToday, snapshotURL: snapshot, capturedAt: .distantPast)
+    for (name, image, expectedSource, expectedImage) in [
+        ("archive.ph", "https://archive.ph/Abc12/image.jpg", "articles.example", nil as String?),
+        ("Original Publisher", "https://images.example/art.jpg", "Original Publisher", "https://images.example/art.jpg")
+    ] {
+        let html = String(decoding: try FixtureResource.html(), as: UTF8.self)
+            .replacingOccurrences(of: "</head>", with: "<meta property='og:site_name' content='\(name)'><meta property='og:image' content='\(image)'></head>")
+        let page = FetchedPage(originalURL: original, finalURL: snapshot, bytes: Data(html.utf8), html: html,
+            contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast, archivedCopy: copy)
+        let review = try ReviewedSource.prepare(page, chunkLimit: 1800)
+        #expect(review.document?.article.sourceName == expectedSource)
+        #expect(review.document?.article.previewImageURL?.absoluteString == expectedImage)
+    }
+}

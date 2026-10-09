@@ -2396,3 +2396,33 @@ private actor ServerDeletionGate: DeliveryTransport {
     #expect(model.error == nil && !model.audioMutationBusy)
     await model.shutdown()
 }
+
+@Test @MainActor func archivedArticleSettingPersistsAndQueueAdmissionUsesInjectedRecovery() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let source = URL(string: "https://synthetic.example/archived")!
+    let entry = ReadingListEntry(id: "cached", safariID: nil, url: source, title: "Cached article", addedAt: nil)
+    let model = AppModel(storage: storage, enqueueFetch: { _ in throw SourceFetchError.status(404) },
+        archiveFetch: { url, _, _, _ in
+            let html: String, type: String
+            if url.path.hasPrefix("/timemap/") {
+                html = "<https://synthetic.example/archived>; rel=\"original\", <https://archive.ph/Abc12>; rel=\"memento\"; datetime=\"Thu, 01 Jan 2026 00:00:00 GMT\""
+                type = "application/link-format"
+            } else { html = String(decoding: try FixtureResource.html(), as: UTF8.self); type = "text/html" }
+            return FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html, contentType: type, encoding: "utf-8", fetchedAt: .distantPast)
+        }, defaults: defaults)
+    #expect(!model.useArchivedArticles)
+    model.useArchivedArticles = true
+    #expect(defaults.bool(forKey: "useArchivedArticles"))
+    model.autoAdmitEnabled = false; model.autoProcessEnabled = false
+    model.sourceReview.catalog = try await model.coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    model.articleSelection = [entry.id]
+    model.addSelectedToQueue()
+    try await waitUntil("Archived article queued") { model.pendingAdds.isEmpty && model.queueItems.count == 1 }
+    #expect(model.queueItems.first?.sourceHost == "synthetic.example" && model.enqueueIssues.isEmpty)
+    _ = ConfigurationView(model: model).body
+    let preview = AppModel(preview: true, defaults: defaults)
+    preview.useArchivedArticles = false
+    #expect(defaults.bool(forKey: "useArchivedArticles"))
+    await model.shutdown()
+}
