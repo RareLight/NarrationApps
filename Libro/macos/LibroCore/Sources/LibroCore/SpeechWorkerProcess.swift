@@ -9,14 +9,16 @@ public struct WorkerConfiguration: Sendable {
     public var shutdownGrace: TimeInterval
     public var terminationGrace: TimeInterval
     public var debugLog: DebugLog?
+    public var mp3Library: URL?
 
     public init(executable: URL, arguments: [String] = ["--serve"],
                 environment: [String: String] = [:], requestTimeout: Duration = .seconds(180),
-                shutdownGrace: TimeInterval = 0.5, terminationGrace: TimeInterval = 1, debugLog: DebugLog? = nil) {
+                shutdownGrace: TimeInterval = 0.5, terminationGrace: TimeInterval = 1, debugLog: DebugLog? = nil, mp3Library: URL? = nil) {
         self.executable = executable; self.arguments = arguments; self.environment = environment
         self.requestTimeout = requestTimeout; self.shutdownGrace = shutdownGrace
         self.terminationGrace = terminationGrace
         self.debugLog = debugLog
+        self.mp3Library = mp3Library
     }
 }
 

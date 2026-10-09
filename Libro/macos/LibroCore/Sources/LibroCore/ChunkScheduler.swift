@@ -19,6 +19,7 @@ public struct ChunkScheduler: Sendable {
     /// preflight. No reread/rechunking occurs when the entire attempt is retried.
     public func render(chunks: [String], batchID: UUID, jobID: UUID, workspace: URL,
                        settings: SpeechSettings, serial: Bool, destination: URL,
+                       outputFormat: AudioOutputFormat = .wav,
                        beforePublication: @Sendable () throws -> Void = {},
                        progress: @Sendable (SpeechProgress) -> Void = { _ in }) async throws {
         try Task.checkCancellation()
@@ -30,18 +31,19 @@ public struct ChunkScheduler: Sendable {
         do {
             try await attempt(chunks: chunks, identity: .init(batch: batchID, job: jobID), number: 1,
                               workerCount: parallel ? SchedulingPolicy.workerCount : 1, workspace: store,
-                              settings: settings, destination: destination,
+                              settings: settings, destination: destination, outputFormat: outputFormat,
                               beforePublication: beforePublication, progress: progress)
         } catch let failure as SpeechFailure where parallel && failure.code.permitsSerialRetry {
             try Task.checkCancellation()
             try await attempt(chunks: chunks, identity: .init(batch: batchID, job: jobID), number: 2,
-                              workerCount: 1, workspace: store, settings: settings, destination: destination,
+                              workerCount: 1, workspace: store, settings: settings, destination: destination, outputFormat: outputFormat,
                               beforePublication: beforePublication, progress: progress)
         }
     }
 
     private func attempt(chunks: [String], identity: AttemptIdentity, number: Int, workerCount: Int,
                          workspace: NativeWorkspace, settings: SpeechSettings, destination: URL,
+                         outputFormat: AudioOutputFormat,
                          beforePublication: @Sendable () throws -> Void,
                          progress: @Sendable (SpeechProgress) -> Void) async throws {
         try Task.checkCancellation()
@@ -54,8 +56,8 @@ public struct ChunkScheduler: Sendable {
         // are reaped before cleanup; no shared models/cache/staging is removed.
         defer { try? FileManager.default.removeItem(at: spool) }
         let resolvedDestination = try OutputPaths.resolved(destination)
-        let writer: AtomicWavWriter
-        do { writer = try AtomicWavWriter(destination: resolvedDestination) }
+        let writer: AtomicAudioWriter
+        do { writer = try AtomicAudioWriter(destination: resolvedDestination, format: outputFormat, mp3Library: configuration.mp3Library) }
         catch { throw SpeechFailure(.storage) }
         defer { writer.abort() }
         var workers: [SpeechWorkerProcess] = []
@@ -106,6 +108,7 @@ public struct ChunkScheduler: Sendable {
                             try Task.checkCancellation()
                             do { try writer.append(samples: samples, sampleRate: settings.model.capabilities.sampleRate) }
                             catch let error as AudioOutputError {
+                                if error == .encoding || error == .encoderUnavailable { throw error }
                                 throw SpeechFailure(error == .riffLimit ? .invalidInput : .storage)
                             }
                             do { try FileManager.default.removeItem(at: SpeechIPC.chunkFile(in: spool, index: nextWrite)) }
@@ -132,6 +135,7 @@ public struct ChunkScheduler: Sendable {
                 }
             } catch is CancellationError { throw CancellationError() }
             catch AudioOutputError.riffLimit { throw SpeechFailure(.invalidInput) }
+            catch AudioOutputError.encoding { throw AudioOutputError.encoding }
             catch { throw SpeechFailure(.storage) }
         } catch {
             await stop(workers)

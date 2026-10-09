@@ -82,6 +82,7 @@ public actor QueueCoordinator {
                 try await scheduler.render(chunks: chunks, batchID: request.id, jobID: document.id,
                                            workspace: request.workspace, settings: request.settings,
                                            serial: request.serial, destination: document.destination,
+                                           outputFormat: request.outputFormat,
                                            beforePublication: { _ = try Self.revalidate(request, bindings: bindings, publicationJob: document.id) },
                                            progress: { events(.speech($0)) })
                 outcome = .init(id: document.id, state: .published, destination: document.destination, message: nil)
@@ -111,7 +112,7 @@ public actor QueueCoordinator {
     private static func revalidate(_ request: BatchRequest, bindings: [UUID: URL]? = nil,
                                    publicationJob: UUID? = nil) throws -> [PlannedDocument] {
         let names = Dictionary(uniqueKeysWithValues: request.documents.map { ($0.id, $0.relativeOutput) })
-        let plans = try BatchPlanner.plan(request.documents.map(\.input), output: request.outputDirectory, names: names)
+        let plans = try BatchPlanner.plan(request.documents.map(\.input), output: request.outputDirectory, names: names, format: request.outputFormat)
         for (current, original) in zip(plans, request.documents) {
             if publicationJob == nil || publicationJob == current.id {
                 guard !current.replacesExisting || request.approvedReplacements.contains(current.id) else {

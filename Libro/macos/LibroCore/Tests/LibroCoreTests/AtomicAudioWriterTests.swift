@@ -3,7 +3,7 @@ import AVFoundation
 import Darwin
 @testable import LibroCore
 
-final class AtomicWavWriterTests: XCTestCase {
+final class AtomicAudioWriterTests: XCTestCase {
     private func fixture(_ body: (URL) throws -> Void) throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -11,19 +11,20 @@ final class AtomicWavWriterTests: XCTestCase {
         try body(root.appendingPathComponent("audio.wav"))
     }
 
-    func testIncrementalOrderAndExactCLIConversion() throws {
+    func testIncrementalOrderAndExactFloatSamplesWithoutClippingOrGain() throws {
         try fixture { destination in
-            let writer = try AtomicWavWriter(destination: destination)
+            let writer = try AtomicAudioWriter(destination: destination)
             try writer.append(samples: [-2, -1, -0.5], sampleRate: 24_000)
             try writer.append(samples: [0, 0.5, 1, 2], sampleRate: 24_000)
             try writer.publish()
-            let file = try AVAudioFile(forReading: destination, commonFormat: .pcmFormatInt16, interleaved: true)
+            let file = try AVAudioFile(forReading: destination, commonFormat: .pcmFormatFloat32, interleaved: true)
             XCTAssertEqual(file.length, 7)
             XCTAssertEqual(file.fileFormat.sampleRate, 24_000)
             let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 7))
             try file.read(into: buffer)
-            let channel = try XCTUnwrap(buffer.int16ChannelData?[0])
-            XCTAssertEqual(Array(UnsafeBufferPointer(start: channel, count: 7)), [-32767, -32767, -16383, 0, 16383, 32767, 32767])
+            let channel = try XCTUnwrap(buffer.floatChannelData?[0])
+            XCTAssertEqual(file.fileFormat.commonFormat, .pcmFormatFloat32)
+            XCTAssertEqual(Array(UnsafeBufferPointer(start: channel, count: 7)), [-2, -1, -0.5, 0, 0.5, 1, 2])
             XCTAssertFalse(FileManager.default.fileExists(atPath: writer.temporary.path))
         }
     }
@@ -32,7 +33,7 @@ final class AtomicWavWriterTests: XCTestCase {
         try fixture { destination in
             let original = Data("prior complete output".utf8)
             try original.write(to: destination)
-            let writer = try AtomicWavWriter(destination: destination)
+            let writer = try AtomicAudioWriter(destination: destination)
             XCTAssertThrowsError(try writer.append(samples: [.nan], sampleRate: 24_000))
             try writer.append(samples: [0.5], sampleRate: 24_000)
             XCTAssertThrowsError(try writer.append(samples: [0.5], sampleRate: 32_000))
@@ -47,13 +48,13 @@ final class AtomicWavWriterTests: XCTestCase {
         try fixture { destination in
             try Data("previous complete audio".utf8).write(to: destination)
             XCTAssertEqual(chmod(destination.path, 0o640), 0)
-            let writer = try AtomicWavWriter(destination: destination)
+            let writer = try AtomicAudioWriter(destination: destination)
             try writer.append(samples: [0.25], sampleRate: 24_000)
             try writer.publish()
             var info = stat()
             XCTAssertEqual(stat(destination.path, &info), 0)
             XCTAssertEqual(info.st_mode & 0o7777, 0o640)
-            let aborted = try AtomicWavWriter(destination: destination)
+            let aborted = try AtomicAudioWriter(destination: destination)
             aborted.abort(); aborted.abort()
             XCTAssertFalse(FileManager.default.fileExists(atPath: aborted.temporary.path))
             XCTAssertThrowsError(try aborted.append(samples: [0.5], sampleRate: 24_000))
@@ -67,7 +68,7 @@ final class AtomicWavWriterTests: XCTestCase {
         try fixture { destination in
             let previous = Data("prior complete output".utf8)
             try previous.write(to: destination)
-            let writer = try AtomicWavWriter(destination: destination)
+            let writer = try AtomicAudioWriter(destination: destination)
             try writer.append(samples: [0.25], sampleRate: 24_000)
             XCTAssertThrowsError(try writer.publish {
                 // A sparse temporary fixture exercises the real file-size

@@ -71,6 +71,7 @@ struct NativeCheck {
         let arguments = Array(CommandLine.arguments.dropFirst())
         guard arguments.count == 4 || (arguments.count == 5 && arguments[4] == "--offline") else { exit(2) }
         let worker = URL(fileURLWithPath: arguments[0]).standardizedFileURL
+        let outputFormat = AudioOutputFormat(rawValue: ProcessInfo.processInfo.environment["LIBRO_CHECK_OUTPUT_FORMAT"] ?? "wav") ?? .wav
         let workspace = try NativeWorkspace(root: URL(fileURLWithPath: arguments[1], isDirectory: true))
         let output = URL(fileURLWithPath: arguments[2], isDirectory: true).standardizedFileURL
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
@@ -98,14 +99,15 @@ struct NativeCheck {
             configuration = WorkerConfiguration(executable: URL(fileURLWithPath: "/usr/bin/sandbox-exec"),
                 arguments: ["-p", offlineProfile(workspace), worker.path, "--serve"])
         }
+        configuration.mp3Library = worker.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Frameworks/libmp3lame.0.dylib")
         let coordinator = QueueCoordinator(configuration: configuration)
         let debugLog = ProcessInfo.processInfo.environment["LIBRO_CHECK_DEBUG_LOG"] == "1" ? try DebugLog(workspace: workspace.root) : nil
         var results: [[String: Any]] = []
         for model in SpeechModel.allCases {
             let settings = SpeechSettings(model: model)
-            let plan = try BatchPlanner.plan([input], output: output, names: [input.id: "\(model.rawValue).wav"])
+            let plan = try BatchPlanner.plan([input], output: output, names: [input.id: "\(model.rawValue).\(outputFormat.rawValue)"], format: outputFormat)
             let request = BatchRequest(documents: plan, outputDirectory: output, workspace: workspace.root,
-                                       settings: settings, serial: false, replaceExisting: true)
+                                       settings: settings, serial: false, replaceExisting: true, outputFormat: outputFormat)
             let progress = CheckProgress()
             let started = ContinuousClock.now
             let summary = try await coordinator.run(request, debugLog: debugLog) { event in
@@ -121,20 +123,27 @@ struct NativeCheck {
             let decoded = try AVAudioFile(forReading: plan[0].destination, commonFormat: .pcmFormatFloat32, interleaved: true)
             guard decoded.length > 0, decoded.fileFormat.sampleRate == Double(model.capabilities.sampleRate),
                   decoded.fileFormat.channelCount == 1,
-                  let buffer = AVAudioPCMBuffer(pcmFormat: decoded.processingFormat, frameCapacity: AVAudioFrameCount(decoded.length)) else {
+                  let buffer = AVAudioPCMBuffer(pcmFormat: decoded.processingFormat, frameCapacity: 16_384) else {
                 throw CheckError.decodedFormat
             }
-            try decoded.read(into: buffer)
-            guard let channel = buffer.floatChannelData?[0] else { throw CheckError.decodedFormat }
-            let samples = UnsafeBufferPointer(start: channel, count: Int(decoded.length))
-            guard samples.allSatisfy(\.isFinite), samples.contains(where: { abs($0) > 0.0001 }) else { throw CheckError.nonFiniteOrSilent }
+            var decodedFrames: Int64 = 0
+            var nonzero = false
+            while decoded.framePosition < decoded.length {
+                try decoded.read(into: buffer)
+                guard buffer.frameLength > 0, let channel = buffer.floatChannelData?[0] else { throw CheckError.decodedFormat }
+                let samples = UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength))
+                guard samples.allSatisfy(\.isFinite) else { throw CheckError.nonFiniteOrSilent }
+                nonzero = nonzero || samples.contains(where: { abs($0) > 0.0001 })
+                decodedFrames += Int64(buffer.frameLength)
+            }
+            guard decodedFrames == decoded.length, nonzero else { throw CheckError.nonFiniteOrSilent }
             let duration = started.duration(to: .now).components
             let result: [String: Any] = ["model": model.rawValue, "sampleRate": model.capabilities.sampleRate,
                 "frames": decoded.length, "chunks": attempts[0].totalChunks, "workers": attempts[0].workerCount,
                 "attempts": attempts.count, "elapsedSeconds": Double(duration.seconds) + Double(duration.attoseconds) / 1e18,
-                "wav": plan[0].destination.lastPathComponent, "offline": arguments.last == "--offline"]
+                "file": plan[0].destination.lastPathComponent, "format": outputFormat.rawValue, "offline": arguments.last == "--offline"]
             results.append(result)
-            print("\(model.rawValue): automatic two-worker batch, \(attempts[0].totalChunks) ordered chunks, \(decoded.length) finite nonzero WAV frames.")
+            print("\(model.rawValue): automatic two-worker batch, \(attempts[0].totalChunks) ordered chunks, \(decoded.length) finite nonzero \(outputFormat.rawValue.uppercased()) frames.")
         }
         try JSONSerialization.data(withJSONObject: ["version": 1, "text": text, "results": results], options: [.prettyPrinted, .sortedKeys])
             .write(to: output.appendingPathComponent("results.json"), options: [.atomic])
@@ -199,23 +208,35 @@ struct NativeCheck {
             let pcm = try Data(contentsOf: pcmURL)
             guard pcm.count == frames * 4 else { throw CheckError.invalidSpoolLength }
             let samples = pcm.withUnsafeBytes { $0.bindMemory(to: Float.self).map { $0 } }
+            // Public acceptance text only: retain the worker's raw output as the
+            // golden sample stream so failures can be diagnosed without inference.
+            try pcm.write(to: output.appendingPathComponent("\(model.rawValue).f32"), options: [.atomic])
             guard samples.allSatisfy(\.isFinite), samples.contains(where: { abs($0) > 0.0001 }) else {
                 throw CheckError.nonFiniteOrSilent
             }
             let destination = output.appendingPathComponent("\(model.rawValue).wav")
-            let writer = try AtomicWavWriter(destination: destination)
+            let writer = try AtomicAudioWriter(destination: destination)
             try writer.append(samples: samples, sampleRate: rate)
             try writer.publish()
-            let decoded = try AVAudioFile(forReading: destination)
+            let decoded = try AVAudioFile(forReading: destination, commonFormat: .pcmFormatFloat32, interleaved: true)
             guard decoded.length == frames, decoded.fileFormat.sampleRate == Double(rate),
                   decoded.fileFormat.channelCount == 1 else { throw CheckError.decodedFormat }
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: decoded.processingFormat, frameCapacity: 16_384) else { throw CheckError.decodedFormat }
+            var decodedSamples: [Float] = []
+            while decoded.framePosition < decoded.length {
+                try decoded.read(into: buffer)
+                guard buffer.frameLength > 0, let channel = buffer.floatChannelData?[0] else { throw CheckError.decodedFormat }
+                decodedSamples.append(contentsOf: UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
+            }
+            guard decodedSamples.map(\.bitPattern) == samples.map(\.bitPattern) else { throw CheckError.decodedFormat }
             var result = record
             result.removeValue(forKey: "pcmFile")
             result["wav"] = destination.lastPathComponent
             result["peak"] = samples.map { abs($0) }.max()
+            result["exactModelSamples"] = true
             result["offline"] = arguments.last == "--offline"
             results.append(result)
-            print("\(model.rawValue): \(rate) Hz, \(frames) frames, finite nonzero PCM; WAV published.")
+            print("\(model.rawValue): \(rate) Hz, \(frames) frames, finite nonzero PCM; WAV published with bit-identical model samples.")
         }
         let record: [String: Any] = ["version": 1, "text": text, "results": results]
         try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])

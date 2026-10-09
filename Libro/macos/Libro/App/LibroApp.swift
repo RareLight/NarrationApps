@@ -141,6 +141,7 @@ private final class IntakeModel {
     var scanCount = 0
     var busy = false
     var settings = SpeechSettings()
+    var outputFormat = OutputFormatPreference().load()
     var serial = false
     var readiness = "Checking prepared model assets…"
     var assetsReady = false
@@ -341,12 +342,13 @@ private final class IntakeModel {
         guard let url = output?.url else { planningError = output?.error ?? "Choose an output folder to preview destinations."; return }
         let inputs = candidates
         let overrides = names
+        let format = outputFormat
         planningError = nil
         let task = Task.detached(priority: .userInitiated) {
             try await Task.sleep(for: .milliseconds(150))
             let scope = DirectoryAccess(url)
             defer { withExtendedLifetime(scope) {} }
-            return try BatchPlanner.plan(inputs, output: url, names: overrides)
+            return try BatchPlanner.plan(inputs, output: url, names: overrides, format: format)
         }
         planner = task
         Task {
@@ -537,7 +539,7 @@ private final class IntakeModel {
         var approved = false
         if !replacements.isEmpty {
             let alert = NSAlert()
-            alert.messageText = "Replace \(replacements.count) existing WAV outputs?"
+            alert.messageText = "Replace \(replacements.count) existing audio outputs?"
             alert.informativeText = "These destinations already contain audio. Libro will replace them only after complete recordings are ready. Failed or cancelled documents preserve their previous outputs."
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Replace and Generate")
@@ -545,9 +547,9 @@ private final class IntakeModel {
             approved = true
         }
         let request = BatchRequest(documents: plans, outputDirectory: destination, workspace: root,
-                                   settings: settings, serial: serial, replaceExisting: approved)
+                                   settings: settings, serial: serial, replaceExisting: approved, outputFormat: outputFormat)
         let log = makeDebugLog(root)
-        log?.record("batch=\(request.id) started documents=\(plans.count) model=\(settings.model.rawValue) voice=\(settings.voice) speed=\(settings.speed) serial=\(serial) app=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown") os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
+        log?.record("batch=\(request.id) started documents=\(plans.count) model=\(settings.model.rawValue) voice=\(settings.voice) speed=\(settings.speed) format=\(request.outputFormat.rawValue) serial=\(serial) app=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown") os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
         activeBatch = request; speechProgress = nil; batchSummary = nil; notificationSummary = nil
         retryQueued.subtract(request.documents.map(\.id))
         for document in request.documents { outcomes[document.id] = nil; states[document.id] = "Waiting" }
@@ -677,7 +679,7 @@ private final class IntakeModel {
 
     func outputName(_ document: InputDocument) -> String {
         if outcomes[document.id]?.state == .published, !retryQueued.contains(document.id), let name = savedNames[document.id] { return name }
-        return activeBatch?.documents.first { $0.id == document.id }?.relativeOutput ?? names[document.id] ?? BatchPlanner.defaultOutput(document)
+        return activeBatch?.documents.first { $0.id == document.id }?.relativeOutput ?? names[document.id] ?? BatchPlanner.defaultOutput(document, format: outputFormat)
     }
 
     func outputDestinationHint(_ document: InputDocument) -> String {
@@ -813,6 +815,13 @@ private struct IntakeView: View {
                 }.frame(maxWidth: 180)
             }.disabled(model.isPreparingModel)
             HStack {
+                Picker("Output format", selection: $model.outputFormat) {
+                    ForEach(AudioOutputFormat.allCases, id: \.self) { format in Text(format.label).tag(format) }
+                }.frame(maxWidth: 320)
+                Text("WAV preserves model samples. AAC and MP3 are lossy. No volume processing.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
                 Button("Prepare Model") { model.prepareModel() }.disabled(!model.canPrepareModel)
                     .help("Explicitly verify/reuse or download the selected model and required pronunciation assets into this Libro workspace")
                 if model.isPreparingModel { Button("Cancel Preparation") { model.cancel() } }
@@ -831,7 +840,7 @@ private struct IntakeView: View {
             if let batch = model.activeBatch {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Current batch saves to: \(batch.outputDirectory.path)").textSelection(.enabled)
-                    Text("\(batch.settings.model.rawValue.capitalized) · \(batch.serial ? "Serial" : "Automatic") · \(batch.documents.count) documents. Closing this window keeps processing.")
+                    Text("\(batch.settings.model.rawValue.capitalized) · \(batch.outputFormat.rawValue.uppercased()) · \(batch.serial ? "Serial" : "Automatic") · \(batch.documents.count) documents. Closing this window keeps processing.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -853,7 +862,7 @@ private struct IntakeView: View {
                     }
                     TableColumn("Type") { Text($0.kind.rawValue.uppercased()) }.width(70)
                     TableColumn("Output name") { document in
-                        TextField("Relative WAV name", text: Binding(get: { model.outputName(document) }, set: { model.names[document.id] = $0; model.replan() }))
+                        TextField("Relative audio name", text: Binding(get: { model.outputName(document) }, set: { model.names[document.id] = $0; model.replan() }))
                             .accessibilityLabel("Output name for \(document.source.lastPathComponent)")
                             .disabled(model.activeIDs.contains(document.id) || (model.outcomes[document.id]?.state == .published && !model.retryQueued.contains(document.id)))
                             .help(model.outputDestinationHint(document))
@@ -890,7 +899,7 @@ private struct IntakeView: View {
             if let message = model.debugLogStatus { Label(message, systemImage: "exclamationmark.triangle").textSelection(.enabled) }
             if model.planning { ProgressView("Checking output destinations…").controlSize(.small) }
             if model.planned.contains(where: \.replacesExisting) {
-                Label("\(model.planned.filter(\.replacesExisting).count) existing WAVs share these destinations. Replacement confirmation will be required before generation.", systemImage: "doc.on.doc")
+                Label("\(model.planned.filter(\.replacesExisting).count) existing audio files share these destinations. Replacement confirmation will be required before generation.", systemImage: "doc.on.doc")
             }
             if !model.issues.isEmpty {
                 DisclosureGroup("Input errors (\(model.issues.count))") {
@@ -943,6 +952,11 @@ private struct IntakeView: View {
         .onAppear { model.reopenWindow = { openWindow(id: "main") }; model.replan() }
         .onChange(of: model.settings.model) { model.refreshReadiness() }
         .onChange(of: model.settings.voice) { model.refreshReadiness() }
+        .onChange(of: model.outputFormat) {
+            OutputFormatPreference().save(model.outputFormat)
+            model.names = model.names.mapValues { model.outputFormat.replacingExtension($0) }
+            model.replan()
+        }
         .sheet(item: $model.failureDetails) { details in
             VStack(alignment: .leading, spacing: 16) {
                 Text("Generation failed: \(details.name)").font(.headline)

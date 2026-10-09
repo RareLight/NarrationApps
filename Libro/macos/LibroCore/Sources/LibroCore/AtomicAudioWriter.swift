@@ -3,7 +3,7 @@ import AVFoundation
 import Darwin
 
 public enum AudioOutputError: Error, LocalizedError {
-    case invalidPCM, inconsistentFormat, riffLimit, storage, empty
+    case invalidPCM, inconsistentFormat, riffLimit, storage, empty, encoding, encoderUnavailable
 
     public var errorDescription: String? {
         switch self {
@@ -12,27 +12,34 @@ public enum AudioOutputError: Error, LocalizedError {
         case .riffLimit: "Audio exceeds the WAV size limit. Split the document."
         case .storage: "Could not write or publish audio in the selected destination."
         case .empty: "The speech engine returned no audio."
+        case .encoding: "The selected audio encoder could not finish this recording."
+        case .encoderUnavailable: "The bundled MP3 encoder is unavailable. Prepare native dependencies and rebuild Libro."
         }
     }
 }
 
 /// Synchronous, single-owner writer. Call from the coordinator's executor.
-/// WAV PCM16 matches the CLI: clip, multiply by 32767, truncate toward zero.
-public final class AtomicWavWriter {
+/// WAV stores the model's Float32 samples exactly. Lossy encoders receive those
+/// same samples without gain, clipping, normalization or integer quantization.
+public final class AtomicAudioWriter {
     public let destination: URL
     public let temporary: URL
+    public let format: AudioOutputFormat
     public private(set) var frames: UInt64 = 0
     private var sampleRate: Int?
     private var audioFile: AVAudioFile?
+    private var mp3: MP3Encoder?
+    private let mp3Library: URL?
     private var published = false
     private var aborted = false
     private let previousMode: mode_t?
 
-    public init(destination: URL) throws {
+    public init(destination: URL, format: AudioOutputFormat = .wav, mp3Library: URL? = nil) throws {
+        self.format = format; self.mp3Library = mp3Library
         self.destination = destination.standardizedFileURL.resolvingSymlinksInPath()
         let parent = self.destination.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-        temporary = parent.appendingPathComponent(".libro-audio-\(UUID().uuidString).wav")
+        temporary = parent.appendingPathComponent(".libro-audio-\(UUID().uuidString).\(format.rawValue)")
         var information = stat()
         previousMode = stat(self.destination.path, &information) == 0 ? information.st_mode & 0o7777 : nil
         let descriptor = open(temporary.path, O_CREAT | O_EXCL | O_RDWR, 0o666)
@@ -48,37 +55,52 @@ public final class AtomicWavWriter {
         // AVFoundation includes padding (4 KiB on the acceptance machine),
         // unlike the CLI's minimal header. Reserve room and verify the actual
         // closed-file size at publication rather than assuming a 44-byte WAV.
-        guard (frames + UInt64(samples.count)) * 2 <= UInt64(UInt32.max) - 65_536 else { throw AudioOutputError.riffLimit }
+        if format == .wav {
+            guard (frames + UInt64(samples.count)) * 4 <= UInt64(UInt32.max) - 65_536 else { throw AudioOutputError.riffLimit }
+        }
         if let expected = self.sampleRate, expected != sampleRate { throw AudioOutputError.inconsistentFormat }
         guard !published, !aborted else { throw AudioOutputError.storage }
         do {
+            if format == .mp3 {
+                if mp3 == nil { mp3 = try MP3Encoder(libraryURL: mp3Library, output: temporary, sampleRate: sampleRate); self.sampleRate = sampleRate }
+                try mp3!.append(samples)
+                frames += UInt64(samples.count)
+                return
+            }
             if audioFile == nil {
-                let settings: [String: Any] = [
-                    AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: sampleRate,
-                    AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
-                    AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false,
-                    AVLinearPCMIsNonInterleaved: false
-                ]
+                var settings: [String: Any] = [AVFormatIDKey: format == .wav ? kAudioFormatLinearPCM : kAudioFormatMPEG4AAC,
+                                              AVSampleRateKey: sampleRate, AVNumberOfChannelsKey: 1]
+                if format == .wav {
+                    settings[AVLinearPCMBitDepthKey] = 32
+                    settings[AVLinearPCMIsFloatKey] = true
+                    settings[AVLinearPCMIsBigEndianKey] = false
+                    settings[AVLinearPCMIsNonInterleaved] = false
+                } else {
+                    settings[AVEncoderBitRateKey] = 64_000
+                }
                 audioFile = try AVAudioFile(forWriting: temporary, settings: settings,
-                                           commonFormat: .pcmFormatInt16, interleaved: true)
+                                           commonFormat: .pcmFormatFloat32, interleaved: true)
                 self.sampleRate = sampleRate
             }
             guard let file = audioFile,
                   let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(samples.count)),
-                  let channel = buffer.int16ChannelData?[0] else { throw AudioOutputError.storage }
+                  let channel = buffer.floatChannelData?[0] else { throw AudioOutputError.storage }
             buffer.frameLength = AVAudioFrameCount(samples.count)
-            for (index, sample) in samples.enumerated() { channel[index] = Int16(min(max(sample, -1), 1) * 32767) }
+            samples.withUnsafeBufferPointer { channel.update(from: $0.baseAddress!, count: samples.count) }
             try file.write(from: buffer)
             frames += UInt64(samples.count)
         } catch let error as AudioOutputError { throw error }
+        catch is CancellationError { throw CancellationError() }
         catch { throw AudioOutputError.storage }
     }
 
     /// The caller revalidates destinations and cancellation at this boundary.
     public func publish(beforePublication: () throws -> Void = {}) throws {
         guard frames > 0, !published, !aborted else { throw AudioOutputError.empty }
-        audioFile = nil // Close AVAudioFile and finalize its header before fsync.
         do {
+            try Task.checkCancellation()
+            try mp3?.finish(); mp3 = nil
+            audioFile = nil // Finalize the native container/encoder before fsync.
             let handle = try FileHandle(forWritingTo: temporary)
             defer { try? handle.close() }
             if let mode = previousMode, fchmod(handle.fileDescriptor, mode) != 0 { throw AudioOutputError.storage }
@@ -86,7 +108,10 @@ public final class AtomicWavWriter {
             try beforePublication()
             var info = stat()
             guard fstat(handle.fileDescriptor, &info) == 0 else { throw AudioOutputError.storage }
-            guard info.st_size >= 44, UInt64(info.st_size) - 8 <= UInt64(UInt32.max) else { throw AudioOutputError.riffLimit }
+            guard info.st_size > 0 else { throw AudioOutputError.empty }
+            if format == .wav {
+                guard info.st_size >= 44, UInt64(info.st_size) - 8 <= UInt64(UInt32.max) else { throw AudioOutputError.riffLimit }
+            }
             guard rename(temporary.path, destination.path) == 0 else { throw AudioOutputError.storage }
             published = true
         } catch let error as AudioOutputError { throw error }
@@ -97,6 +122,7 @@ public final class AtomicWavWriter {
     public func abort() {
         guard !published, !aborted else { return }
         aborted = true
+        mp3 = nil
         audioFile = nil
         try? FileManager.default.removeItem(at: temporary)
     }

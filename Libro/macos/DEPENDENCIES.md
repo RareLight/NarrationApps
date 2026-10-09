@@ -23,6 +23,16 @@ Update procedure: change the engine pin deliberately, inspect local loader/G2P c
 
 Preparation verifies the parent and submodule revisions and the exact recorded diffs, refuses unexpected edits/untracked files, and is idempotent. Keep the checked-in backport and local root package reference together. A fresh checkout must run preparation before opening Xcode. When deliberately updating MLX, inspect whether the new core already contains the guard, remove/rebase the patch accordingly, and repeat real K/S generation with `MTL_DEBUG_LAYER=1` in both configurations. The worker probe includes arithmetic and non-leading scalar gather; a passing probe alone does not establish speech acceptance.
 
+## Native MP3 codec
+
+AAC-LC uses Apple's system encoder through AVFoundation. The local `AudioFormatGetProperty(kAudioFormatProperty_EncodeFormatIDs)` probe confirmed that macOS supplies no MP3 encoder, so MP3 uses [LAME 3.100](https://lame.sourceforge.io/download.php) as an arm64 dynamic library. This is a native C dependency, with no Python or external encoder process.
+
+`scripts/prepare-codecs.sh` acquires the official `lame-3.100.tar.gz` release from SourceForge and verifies SHA-256 `ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e`. It builds under `macos/.build/codecs/` with the selected Xcode compiler and macOS 15 deployment target. `Patches/lame-export-symbols.patch` removes only the obsolete `lame_init_old` export that prevents the release's shared library from linking; no codec implementation is changed. Decoder symbols remain enabled to satisfy the upstream export list; Libro disables on-the-fly decoding and ReplayGain. The frontend and static library are disabled.
+
+Preparation stamps the compiler/script/patch identity and verifies the cached library's digest. Xcode's standard Copy Files phase embeds and signs `libmp3lame.0.dylib` under `Contents/Frameworks/`. Libro opens that exact path lazily for MP3; there is no global-library search. Each output owns its codec state. Unity scale, the IEEE Float32 API, original sample rate, mono 128 kbps and disabled ReplayGain preserve the submitted levels without an integer intermediate. MP3 itself is lossy.
+
+LAME is LGPL-licensed. Its `COPYING` and `README` are retained under `macos/.build/notices/lame/`, alongside the verified source archive and patched source build directory. Public distribution must include the applicable notices and corresponding-source/relinking arrangements; the existing distribution gate remains open. When updating, deliberately change the release/digest, review or remove the export patch, rebuild, then repeat codec level/metadata/cancellation fixtures, Debug/Release signing and actual speech exports. The Swift graph is unchanged by this codec addition.
+
 ## Native assets
 
 Kokoro primary: existing `mlx-community/Kokoro-82M-bf16`, default `af_aoede`, speed 1.1. Soprano primary: existing `mlx-community/Soprano-1.1-80M-bf16`; retain that exact repository hint in its local loader. Existing primary directories and Python manifests are read-only.

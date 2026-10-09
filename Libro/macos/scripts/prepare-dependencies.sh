@@ -9,6 +9,7 @@ if [[ ! -d "$dependency_dir/.git" ]]; then
     git clone --no-checkout https://github.com/Blaizzy/mlx-audio-swift.git "$dependency_dir"
     git -C "$dependency_dir" checkout --detach "$revision"
 fi
+bash "$native_root/scripts/prepare-codecs.sh"
 
 # Root-local MLX overrides the same package identity throughout the graph.
 # Keep its upstream version/submodule pins; backport only the empty-vector fix.

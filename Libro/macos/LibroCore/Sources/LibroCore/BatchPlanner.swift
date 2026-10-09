@@ -29,12 +29,14 @@ public struct BatchRequest: Sendable {
     public let workspace: URL
     public let settings: SpeechSettings
     public let serial: Bool
+    public let outputFormat: AudioOutputFormat
     public let approvedReplacements: Set<UUID>
 
     public init(documents: [PlannedDocument], outputDirectory: URL, workspace: URL, settings: SpeechSettings,
-                serial: Bool, replaceExisting: Bool = false) {
+                serial: Bool, replaceExisting: Bool = false, outputFormat: AudioOutputFormat = .wav) {
         id = UUID(); self.documents = documents; self.outputDirectory = outputDirectory
         self.workspace = workspace; self.settings = settings; self.serial = serial
+        self.outputFormat = outputFormat
         approvedReplacements = replaceExisting ? Set(documents.filter(\.replacesExisting).map(\.id)) : []
     }
 }
@@ -61,20 +63,20 @@ public enum OutputPaths {
 }
 
 public enum BatchPlanner {
-    public static func defaultOutput(_ input: InputDocument) -> String {
+    public static func defaultOutput(_ input: InputDocument, format: AudioOutputFormat = .wav) -> String {
         let path = input.relativePath as NSString
         var stem = (path.lastPathComponent as NSString).deletingPathExtension
-        for suffix in [".wav", ".mp3", ".flac", ".aac", ".m4a", ".ogg", ".opus"] where stem.lowercased().hasSuffix(suffix) {
+        for suffix in [".wav", ".mp3", ".flac", ".aac", ".m4a", ".m4b", ".ogg", ".opus"] where stem.lowercased().hasSuffix(suffix) {
             stem = String(stem.dropLast(suffix.count)); break
         }
         stem = String(stem.drop(while: { $0 == "." }))
         if stem.isEmpty { stem = "untitled" }
         let parent = path.deletingLastPathComponent
-        return parent.isEmpty ? stem + ".wav" : parent + "/" + stem + ".wav"
+        return parent.isEmpty ? stem + "." + format.rawValue : parent + "/" + stem + "." + format.rawValue
     }
 
     public static func plan(_ inputs: [InputDocument], output: URL,
-                            names: [UUID: String] = [:]) throws -> [PlannedDocument] {
+                            names: [UUID: String] = [:], format: AudioOutputFormat = .wav) throws -> [PlannedDocument] {
         try Task.checkCancellation()
         let root = try OutputPaths.resolved(output)
         guard (try? root.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true,
@@ -88,10 +90,10 @@ public enum BatchPlanner {
         var existingIdentities = Set<String>()
         return try inputs.map { input in
             try Task.checkCancellation()
-            let relative = names[input.id] ?? defaultOutput(input)
+            let relative = names[input.id] ?? defaultOutput(input, format: format)
             guard !relative.hasPrefix("/"), !relative.isEmpty,
                   !relative.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }),
-                  !relative.contains("\0"), (relative as NSString).pathExtension.lowercased() == "wav" else { throw PlanningError.invalidName }
+                  !relative.contains("\0"), (relative as NSString).pathExtension.lowercased() == format.rawValue else { throw PlanningError.invalidName }
             let destination = root.appendingPathComponent(relative)
             let resolved = try OutputPaths.resolved(destination)
             // A symlink may never redirect an output outside the chosen folder.

@@ -64,11 +64,11 @@ private struct ProcessFixture {
         .init(documents: try BatchPlanner.plan(inputs, output: output), outputDirectory: output,
               workspace: root, settings: .init(), serial: serial, replaceExisting: replaceExisting)
     }
-    func samples(_ destination: URL? = nil) throws -> [Int16] {
-        let file = try AVAudioFile(forReading: destination ?? self.destination, commonFormat: .pcmFormatInt16, interleaved: true)
+    func samples(_ destination: URL? = nil) throws -> [Float] {
+        let file = try AVAudioFile(forReading: destination ?? self.destination, commonFormat: .pcmFormatFloat32, interleaved: true)
         let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)))
         try file.read(into: buffer)
-        return Array(UnsafeBufferPointer(start: try XCTUnwrap(buffer.int16ChannelData?[0]), count: Int(file.length)))
+        return Array(UnsafeBufferPointer(start: try XCTUnwrap(buffer.floatChannelData?[0]), count: Int(file.length)))
     }
     func assertClean(file: StaticString = #filePath, line: UInt = #line) throws {
         let entries = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("models/.native/staging").path)
@@ -85,6 +85,39 @@ private struct ProcessFixture {
 
 @MainActor
 final class SchedulingTests: XCTestCase {
+    func testCoordinatorPublishesSelectedFormatsAndDoesNotRetryEncoderFailure() async throws {
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let input = try fixture.input("formats.txt")
+        var configuration = fixture.configuration()
+        if let path = ProcessInfo.processInfo.environment["LIBRO_TEST_MP3_LIBRARY"] {
+            configuration.mp3Library = URL(fileURLWithPath: path)
+        }
+        let coordinator = QueueCoordinator(configuration: configuration)
+        for format in AudioOutputFormat.allCases where format != .mp3 || configuration.mp3Library != nil {
+            let plans = try BatchPlanner.plan([input], output: fixture.output, format: format)
+            let request = BatchRequest(documents: plans, outputDirectory: fixture.output, workspace: fixture.root,
+                                       settings: .init(), serial: false, outputFormat: format)
+            let summary = try await coordinator.run(request)
+            XCTAssertEqual(summary.successfulCount, 1)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: plans[0].destination.path))
+            XCTAssertGreaterThan(try AVAudioFile(forReading: plans[0].destination).length, 0)
+        }
+        let broken = WorkerConfiguration(executable: fixture.worker, environment: ["LIBRO_FIXTURE_TRACE": fixture.trace.path],
+                                         mp3Library: fixture.root.appendingPathComponent("missing.dylib"))
+        let log = ProgressLog()
+        let destination = fixture.output.appendingPathComponent("broken.mp3")
+        let prior = Data("prior complete output".utf8)
+        try prior.write(to: destination)
+        do {
+            try await ChunkScheduler(configuration: broken).render(chunks: ["One.", "Two.", "Three."],
+                batchID: UUID(), jobID: UUID(), workspace: fixture.root, settings: .init(), serial: false,
+                destination: destination, outputFormat: .mp3, progress: { log.append($0) })
+            XCTFail("Missing encoder must fail")
+        } catch AudioOutputError.encoderUnavailable { }
+        XCTAssertEqual(log.snapshot.filter { $0.phase == .attemptStarted }.count, 1)
+        XCTAssertEqual(try Data(contentsOf: destination), prior)
+        try fixture.assertClean()
+    }
     private func render(_ fixture: ProcessFixture, count: Int, mode: String = "success", serial: Bool = false,
                         log: ProgressLog = ProgressLog(), beforePublication: @escaping @Sendable () throws -> Void = {}) async throws {
         try await ChunkScheduler(configuration: fixture.configuration(mode)).render(
@@ -115,7 +148,7 @@ final class SchedulingTests: XCTestCase {
         let fixture = try ProcessFixture(); defer { fixture.remove() }
         let log = ProgressLog()
         try await render(fixture, count: 25, mode: "slowFirst", log: log)
-        let expected = (0..<25).flatMap { index in Array(repeating: Int16(Float(index + 1) / 100 * 32767), count: 4) }
+        let expected = (0..<25).flatMap { index in Array(repeating: Float(index + 1) / 100, count: 4) }
         XCTAssertEqual(try fixture.samples(), expected)
         let records = try fixture.records()
         let starts = records.filter { $0["event"] as? String == "generate" }
@@ -146,7 +179,7 @@ final class SchedulingTests: XCTestCase {
         XCTAssertEqual(initializations.count, 3)
         let retryChunks = try fixture.records().filter { $0["event"] as? String == "generate" && $0["attempt"] as? String == attempts[1].identity.attempt.uuidString }
         XCTAssertEqual(retryChunks.compactMap { $0["chunk"] as? Int }, Array(0..<7))
-        XCTAssertEqual(try fixture.samples(), (0..<7).flatMap { Array(repeating: Int16(Float($0 + 1) / 100 * 32767), count: 4) })
+        XCTAssertEqual(try fixture.samples(), (0..<7).flatMap { Array(repeating: Float($0 + 1) / 100, count: 4) })
         try fixture.assertClean()
     }
 
