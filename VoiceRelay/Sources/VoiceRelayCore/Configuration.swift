@@ -410,9 +410,9 @@ public enum Diagnostics {
             SetupDiagnostic(id: "configuration", ready: true, message: "Profile imported read-only. Live state adoption is deferred."),
             SetupDiagnostic(id: "storage", ready: fm.fileExists(atPath: p.audio.path), message: fm.fileExists(atPath: p.audio.path) ? "Configured media destination exists; write and mount acceptance remain outstanding." : "Media storage is unavailable. Mount the configured volume; native setup does not create it."),
             SetupDiagnostic(id: "tools", ready: ToolRunner.locate(p.ffmpeg) != nil && ToolRunner.locate(p.ffprobe) != nil, message: "ffmpeg and ffprobe must be available to the app's process."),
-            SetupDiagnostic(id: "safari", ready: false, message: "Safari access from the future agent is unverified. Full Disk Access may be required."),
-            SetupDiagnostic(id: "backend", ready: false, message: "Native speech uses the project-local Kokoro runtime. Installation, listening and final-agent acceptance are separate checks."),
-            SetupDiagnostic(id: "delivery", ready: false, message: "Remote delivery and background processing are disabled in Slices 1–2.")
+            SetupDiagnostic(id: "safari", ready: false, message: "Safari access depends on the running app. Full Disk Access may be required."),
+            SetupDiagnostic(id: "backend", ready: false, message: "Native speech uses the project-local Kokoro runtime. Installation and listening acceptance are separate checks."),
+            SetupDiagnostic(id: "delivery", ready: false, message: "This read-only configuration diagnostic does not probe remote publishing or processing.")
         ]
     }
 }

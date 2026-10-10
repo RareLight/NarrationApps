@@ -63,30 +63,53 @@ extension FixtureCoordinator {
     /// Diagnostic local-output profiles retain their files; the running app opts into cleanup.
     /// A crash between intent and unlink is retried locally on the next drain.
     public func releaseConfirmedTemporaryAudio(storage: ManagedSpeechStorage, settings: DeliverySettings) throws {
+        try releaseTemporaryAudio(storage: storage, settings: settings, continueOnFailure: false)
+    }
+    /// Publishing isolates cleanup failures per item, retaining diagnostics without blocking the drain.
+    func releaseTemporaryAudio(storage: ManagedSpeechStorage, settings: DeliverySettings, continueOnFailure: Bool,
+                               debugLog: DeliveryDebugLog? = nil) throws {
         guard storage.temporaryAudio, FileManager.default.fileExists(atPath: storage.profile.database.path) else { return }
         let episodes = try library(storage: storage)
         let settings = try settings.normalized()
         let summary = try deliverySummary(stateRoot: storage.stateRoot, settings: settings)
         let store = try NativeStore(url: storage.profile.database)
         for var episode in episodes where episode.stage == .published {
+            guard episode.localAudioDiscarded != true else { continue }
             guard episode.audioFinalizationComplete != false,
                   episode.settings.temporaryAudio != true || episode.audioFinalizationComplete == true,
                   summary.publicationStates[episode.id] == .published else { continue }
             // A temporary output folder from another session is never silently adopted.
             if episode.settings.temporaryAudio == true && !Files.samePath(episode.settings.audio, storage.audioDirectory) { continue }
             try Task.checkCancellation()
-            let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
-            if temporaryAudioIsMissing(episode) || audioAvailability(episode) == .missing {
-                if episode.localAudioReleased != true { episode.localAudioReleased = true; try store.save(episode) }
-                continue
+            do {
+                let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
+                if temporaryAudioIsMissing(episode) || audioAvailability(episode) == .missing {
+                    if episode.localAudioReleased != true || episode.localCleanupNotice != nil {
+                        episode.localAudioReleased = true; episode.localCleanupNotice = nil; try store.save(episode)
+                    }
+                    continue
+                }
+                guard audioAvailability(episode) == .available else {
+                    throw RelayError.storage("Published audio could not be cleaned up; its server copy and history are preserved.")
+                }
+                // A server winner may release a replaced/altered local artifact without
+                // authorizing its deletion. Retain it; crash cleanup still retries matching bytes.
+                if episode.localAudioReleased == true, (try? Files.hash(file)) != episode.audioHash {
+                    if !continueOnFailure { continue }
+                    throw RelayError.artifact("The server copy is verified, but the local file differs. The local file was retained.")
+                }
+                let identity = try verifiedAudioIdentity(file: file, episode: episode)
+                episode.localAudioReleased = true
+                try store.save(episode)
+                try deleteOwnedAudio(episode, known: (file, identity), fm: .default)
+                if episode.localCleanupNotice != nil { episode.localCleanupNotice = nil; try store.save(episode) }
+            } catch is CancellationError { throw CancellationError() }
+            catch {
+                if !continueOnFailure { throw error }
+                episode.localCleanupNotice = "The server copy is confirmed, but the local file could not be safely verified for cleanup. Nothing was deleted; review this item in Uploads."
+                try store.save(episode)
+                debugLog?.record(.localCleanupFailed)
             }
-            guard audioAvailability(episode) == .available else {
-                throw RelayError.storage("Published audio could not be cleaned up; its server copy and history are preserved.")
-            }
-            let identity = try verifiedAudioIdentity(file: file, episode: episode)
-            episode.localAudioReleased = true
-            try store.save(episode)
-            try deleteOwnedAudio(episode, known: (file, identity), fm: .default)
         }
     }
     public func reconcileMissingAudio(storage: ManagedSpeechStorage) throws -> [String] {
@@ -204,6 +227,63 @@ extension FixtureCoordinator {
             throw RelayError.artifact("The audio file could not be deleted. Restore write access to the audio folder and retry the removal.")
         }
     }
+    /// Explicitly discard one tracked local upload, leaving server membership and text intact.
+    /// Unlike automatic cleanup, this authorizes changed bytes in this library's temporary folder.
+    public func discardLocalUpload(id: String, storage: ManagedSpeechStorage) throws {
+        try Task.checkCancellation()
+        try storage.validateState()
+        let lease = try PipelineLease(database: storage.profile.database)
+        defer { lease.release() }
+        guard var episode = try library(storage: storage).first(where: { $0.id == id }),
+              episode.stage == .published, episode.manualAudioDeletionRequested != true,
+              episode.info != nil, episode.audioHash != nil else {
+            throw RelayError.setup("This local upload is no longer available. Reopen Uploads and try again.")
+        }
+        let store = try NativeStore(url: storage.profile.database)
+        let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
+        episode.localAudioDiscarded = true
+        episode.localCleanupNotice = "Local removal could not finish safely. Nothing else was removed; retry this item's × in Uploads."
+        try store.execute("BEGIN IMMEDIATE")
+        do {
+            try store.execute("UPDATE episodes SET record=? WHERE id=?",
+                [String(decoding: try Files.json(episode), as: UTF8.self), id])
+            // A preexisting interrupted/ready job must not recreate explicitly discarded bytes.
+            try store.execute("DELETE FROM speech_queue WHERE article_id=?", [id])
+            try store.execute("COMMIT")
+        } catch { try? store.execute("ROLLBACK"); throw error }
+        do {
+            if !temporaryAudioIsMissing(episode) {
+                guard !Files.hasSymlink(file, below: episode.settings.audio.deletingLastPathComponent()),
+                      audioAvailability(episode) != .unavailable else {
+                    throw RelayError.artifact("Local storage changed or is unavailable. The file was left in place; retry its × in Uploads.")
+                }
+                if audioAvailability(episode) == .available {
+                    var removal = episode
+                    if storage.temporaryAudio && episode.settings.temporaryAudio == true
+                        && Files.samePath(episode.settings.audio, storage.audioDirectory) {
+                        var captured = stat()
+                        guard lstat(file.path, &captured) == 0, (captured.st_mode & S_IFMT) == S_IFREG else {
+                            throw RelayError.artifact("The local file changed; nothing was deleted.")
+                        }
+                        // Only the removal snapshot uses these bytes; never rewrite the server proof.
+                        removal.audioHash = try Files.hash(file, description: "local upload awaiting removal")
+                        let info = episode.info!
+                        removal.info = AudioInfo(duration: info.duration, byteLength: Int64(captured.st_size),
+                            sampleRate: info.sampleRate, channels: info.channels, codec: info.codec)
+                        try Task.checkCancellation()
+                        try deleteOwnedAudio(removal, known: (file, captured), fm: .default)
+                    } else {
+                        // Legacy storage retains its stricter original-byte ownership check.
+                        try Task.checkCancellation()
+                        try deleteOwnedAudio(removal, known: nil, fm: .default)
+                    }
+                }
+            }
+            episode.localAudioReleased = true; episode.localCleanupNotice = nil
+            try store.save(episode)
+        } catch is CancellationError { throw CancellationError() }
+        catch { throw error } // Persisted item notice remains; unrelated work can continue.
+    }
     public func removeSavedAudio(ids: [String], storage: ManagedSpeechStorage) throws -> [String] {
         guard !ids.isEmpty else { return [] }
         try Task.checkCancellation()
@@ -304,8 +384,14 @@ extension FixtureCoordinator {
                 try Task.checkCancellation()
                 try deleteOwnedAudio(episode, known: nil, fm: fm)
                 episode.manualAudioDeletionRequested = false
+                episode.localCleanupNotice = nil
                 finalized.append(episode)
-            } catch { if firstError == nil { firstError = error } }
+            } catch is CancellationError { throw CancellationError() }
+            catch {
+                episode.localCleanupNotice = "The local file could not be safely removed. Nothing was deleted; other removals continue."
+                try store.save(episode)
+                if firstError == nil { firstError = error }
+            }
         }
         if !finalized.isEmpty {
             try store.execute("BEGIN IMMEDIATE")

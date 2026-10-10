@@ -211,6 +211,7 @@ extension FixtureCoordinator {
                 episode.title = document.article.title; episode.stage = .extracted
             }
             if let saved = sourceEntry?.addedAt { episode.readingListSavedAt = saved }
+            episode.originalSourceHost = review.page.originalURL.host
             try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
             var item = try store.queue().first(where: { $0.id == episode.id }) ?? SpeechQueueItem(
                 id: episode.id, title: episode.title, sourceEntryID: sourceEntryID,
@@ -240,7 +241,7 @@ extension FixtureCoordinator {
         do {
             let existing = Set(try store.queue().map(\.id))
             for episode in try store.published() where episode.settings.temporaryAudio == true || episode.localAudioReleased == true {
-                guard !existing.contains(episode.id), temporaryAudioIsMissing(episode) else { continue }
+                guard episode.localAudioDiscarded != true, !existing.contains(episode.id), temporaryAudioIsMissing(episode) else { continue }
                 if let settings, DeliveryPublicationStatus.unconfirmed(episode, settings: settings) == .uploaded { continue }
                 // Disabled delivery retains confirmed history, without repeatedly regenerating it.
                 if settings == nil, episode.delivery?.status == .uploaded { continue }
@@ -248,7 +249,7 @@ extension FixtureCoordinator {
                     throw RelayError.storage("Temporary audio is missing and its saved article text is unavailable.")
                 }
                 try store.saveQueueItem(SpeechQueueItem(id: episode.id, title: episode.title,
-                    sourceEntryID: nil, state: .queued, sourceHost: episode.sourceHost))
+                    sourceEntryID: nil, state: .queued, sourceHost: episode.originalSourceHost ?? episode.sourceHost))
             }
             try store.execute("COMMIT")
         } catch { try? store.execute("ROLLBACK"); throw error }

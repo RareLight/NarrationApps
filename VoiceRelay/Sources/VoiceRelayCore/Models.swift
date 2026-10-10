@@ -76,6 +76,7 @@ public struct DeliveryState: Codable, Sendable, Equatable {
     public var destinationURL: URL?
     public var attempts = 0
     public var lastError: String?
+    public var verificationFailed: Bool? = nil
     public var uploadedByteLength: Int64?
     public var lastAttemptAt: Date?
     public var nextAttemptAt: Date?
@@ -102,11 +103,19 @@ public struct Episode: Codable, Sendable {
     public var audioVolumeID: String? = nil
     /// Durable cleanup intent, committed before unlink; remote episode membership is retained.
     public var localAudioReleased: Bool? = nil
+    /// Explicit local-only removal; automatic recovery must not recreate this copy.
+    public var localAudioDiscarded: Bool? = nil
+    /// Local cleanup verification failed; the confirmed remote copy remains intact.
+    public var localCleanupNotice: String? = nil
     /// Cleanup cannot race final publication validation, even if a periodic delivery starts.
     public var audioFinalizationComplete: Bool? = nil
     public var manualAudioDeletionRequested: Bool? = nil
     public var author: String? = nil
     public var sourceHost: String? = nil
+    /// Original article website for library presentation, independent of redirects/canonical RSS links.
+    public var originalSourceHost: String? = nil
+    /// Hashed original source identity, exported for future server recovery without private paths.
+    public var originalSourceIdentity: String? = nil
     public var sourceURL: URL? = nil
     public var artworkURL: URL? = nil
     public var delivery: DeliveryState? = nil

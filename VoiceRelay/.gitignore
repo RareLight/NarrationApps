@@ -75,6 +75,7 @@ models/
 *.xcuserstate
 *.xcresult
 __pycache__/
+*.voicerelaybackup/
 *.py[cod]
 
 # Private configuration and signing material. Commit only synthetic examples.

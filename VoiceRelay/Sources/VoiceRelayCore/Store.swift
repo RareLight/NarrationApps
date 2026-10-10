@@ -85,6 +85,59 @@ final class NativeStore {
         } catch { release(); throw error }
     }
     deinit { release() }
+    /// Close SQLite before a directory exchange, while retaining the writer lease.
+    func closeDatabaseForReplacement() throws {
+        if let db {
+            guard sqlite3_close(db) == SQLITE_OK else { throw RelayError.storage("Cannot close the current library for restore.") }
+            self.db = nil
+        }
+    }
+    /// SQLite copies committed WAL contents; copying the database file alone loses them.
+    func backup(to destination: URL) throws {
+        let fd = Darwin.open(destination.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { throw RelayError.storage("Cannot create the library backup database.") }
+        close(fd)
+        var target: OpaquePointer?
+        guard sqlite3_open_v2(destination.path, &target, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+            if let target { sqlite3_close(target) }
+            throw RelayError.storage("Cannot open the library backup database.")
+        }
+        var targetClosed = false
+        defer { if !targetClosed { sqlite3_close(target) } }
+        guard let backup = sqlite3_backup_init(target, "main", db, "main") else {
+            throw RelayError.storage("Cannot start the library backup.")
+        }
+        var finished = false
+        defer { if !finished { sqlite3_backup_finish(backup) } }
+        let deadline = ProcessInfo.processInfo.systemUptime + 30
+        while true {
+            try Task.checkCancellation()
+            let status = sqlite3_backup_step(backup, 128)
+            if status == SQLITE_DONE { break }
+            guard [SQLITE_OK, SQLITE_BUSY, SQLITE_LOCKED].contains(status),
+                  ProcessInfo.processInfo.systemUptime < deadline else {
+                throw RelayError.storage("The library backup could not finish. Existing state is unchanged.")
+            }
+            if status != SQLITE_OK { Thread.sleep(forTimeInterval: 0.02) }
+        }
+        let status = sqlite3_backup_finish(backup); finished = true
+        guard status == SQLITE_OK else { throw RelayError.storage("The library backup could not be committed.") }
+        // backup_step copies WAL-format header bytes without refreshing the target's
+        // cached journal mode. Switch through WAL to force a standalone DELETE header.
+        guard sqlite3_exec(target, "PRAGMA journal_mode=WAL; PRAGMA journal_mode=DELETE", nil, nil, nil) == SQLITE_OK else {
+            throw RelayError.storage("The library backup could not finalize its standalone database.")
+        }
+        guard sqlite3_close(target) == SQLITE_OK else { throw RelayError.storage("Cannot close the library backup.") }
+        targetClosed = true
+        // Apple's SQLite can retain an unused -shm after switching to DELETE.
+        // These belong to the exclusively created destination, never the source.
+        for suffix in ["-wal", "-shm"] {
+            let sidecar = URL(fileURLWithPath: destination.path + suffix)
+            if FileManager.default.fileExists(atPath: sidecar.path) {
+                try FileManager.default.removeItem(at: sidecar)
+            }
+        }
+    }
     private func createSourceTables() throws {
         try execute("CREATE TABLE IF NOT EXISTS reading_list_inventory(singleton INTEGER PRIMARY KEY CHECK(singleton=1), record TEXT NOT NULL)")
         try execute("CREATE TABLE IF NOT EXISTS speech_queue(article_id TEXT PRIMARY KEY REFERENCES episodes(id), record TEXT NOT NULL)")
@@ -137,14 +190,15 @@ final class NativeStore {
     }
     func episode(sourceKey: String, settings: PrototypeProfile) throws -> Episode {
         if let saved = try existingEpisode(sourceKey: sourceKey) { return saved }
-        let e = Episode(id: UUID().uuidString.lowercased(), title: "Saved fixture", stage: .discovered, settings: settings)
+        var e = Episode(id: UUID().uuidString.lowercased(), title: "Saved fixture", stage: .discovered, settings: settings)
+        e.originalSourceIdentity = ServerRecoveryIdentity.validSource(sourceKey) ? sourceKey : nil
         try execute("INSERT INTO episodes VALUES(?,?,?)", [e.id, sourceKey, String(decoding: try Files.json(e), as: UTF8.self)])
         return e
     }
     func existingEpisode(sourceKey: String) throws -> Episode? {
         guard let record = try query("SELECT record FROM episodes WHERE source_key=?", [sourceKey]).first?.first else { return nil }
         var episode = try JSONDecoder().decode(Episode.self, from: Data(record.utf8))
-        if episode.readingListSavedAt == nil { episode.readingListSavedAt = try readingListSavedDates()[sourceKey] }
+        resolveArticleOrigin(&episode, sourceKey: sourceKey, entries: try readingListEntriesBySource())
         return episode
     }
     func save(_ e: Episode, pendingFeed: Bool = false) throws {
@@ -168,21 +222,34 @@ final class NativeStore {
         try episodes().filter { $0.stage == .published }
     }
     func episodes() throws -> [Episode] {
-        let dates = try readingListSavedDates()
+        let entries = try readingListEntriesBySource()
         return try query("SELECT record,source_key FROM episodes ORDER BY rowid DESC").map {
             var episode = try JSONDecoder().decode(Episode.self, from: Data($0[0].utf8))
-            if episode.readingListSavedAt == nil { episode.readingListSavedAt = dates[$0[1]] }
+            resolveArticleOrigin(&episode, sourceKey: $0[1], entries: entries)
             return episode
         }
     }
-    /// Resolve legacy records read-only by original source identity, not a redirected
-    /// or canonical public link. No snapshot, audio or database migration is needed.
-    private func readingListSavedDates() throws -> [String: Date] {
-        let pairs = try catalog().entries.compactMap { entry -> (String, Date)? in
-            guard let date = entry.addedAt else { return nil }
-            return ("reviewed-url-v1-" + Files.hash(Data(entry.url.absoluteString.utf8)), date)
+    /// Resolve legacy metadata read-only by original source identity, never the RSS link.
+    private func readingListEntriesBySource() throws -> [String: ReadingListEntry] {
+        let pairs = try catalog().entries.map { entry in
+            ("reviewed-url-v1-" + Files.hash(Data(entry.url.absoluteString.utf8)), entry)
         }
         return Dictionary(pairs, uniquingKeysWith: { first, _ in first })
+    }
+    private func resolveArticleOrigin(_ episode: inout Episode, sourceKey: String,
+                                      entries: [String: ReadingListEntry]) {
+        if ServerRecoveryIdentity.validSource(sourceKey) { episode.originalSourceIdentity = sourceKey }
+        let entry = entries[sourceKey]
+        if episode.readingListSavedAt == nil { episode.readingListSavedAt = entry?.addedAt }
+        guard episode.originalSourceHost == nil else { return }
+        episode.originalSourceHost = entry?.url.host
+        if episode.originalSourceHost == nil, let bytes = try? snapshot(articleID: episode.id),
+           let review = try? JSONDecoder().decode(StoredExtraction.self, from: bytes).review() {
+            let original = review.page.originalURL
+            if sourceKey == "reviewed-url-v1-" + Files.hash(Data(original.absoluteString.utf8)) {
+                episode.originalSourceHost = original.host
+            }
+        }
     }
     func markFeed(_ hash: String) throws { try execute("UPDATE feed_status SET pending=0,local_hash=? WHERE singleton=1", [hash]) }
     func saveSnapshot(articleID: String, data: Data) throws {

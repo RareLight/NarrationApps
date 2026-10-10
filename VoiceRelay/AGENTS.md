@@ -1,8 +1,8 @@
 # VoiceRelay development
 
 This directory is the canonical root for the Swift/macOS application. Inspect the
-engineering brief, implementation plan, and validation record in `docs/` before
-extending a slice. Keep the independently testable Swift core shared by the Xcode
+architecture guide, implementation plan, and validation record in `docs/` before
+extending the application. Keep the independently testable Swift core shared by the Xcode
 app, diagnostic CLI, and Swift package tests.
 
 Current user-confirmed lifecycle: processing and delivery are owned by the
@@ -18,10 +18,10 @@ automatic admission is not retried until the next session. Automatic delivery
 drains run after publication, retirement/removal, launch and refresh, plus
 periodically while the app runs; interrupted queue items are re-readied on
 launch only when automation is enabled. Persistent LaunchAgent/XPC ownership and SMAppService
-enrollment are no longer required. Preserve the dormant agent prototype as
-inactive reference code; do not reintroduce it into active UI or enroll it.
+enrollment are no longer required. The inactive agent/XPC prototype and standalone
+layout-reproduction projects were removed at the user's request; do not reintroduce them.
 
-Delivery is configured in the Delivery settings pane: complete HTTPS Feed folder
+Delivery is configured in the Publishing settings pane: complete HTTPS Feed folder
 and Public folder URLs plus channel details persist in UserDefaults. feed.xml
 and lowercase audio/ are implicit under each folder; the subscription URL is
 read-only with Copy. URL drafts normalize when committed using Foundation
@@ -34,8 +34,8 @@ require fresh byte-confirmed copies; preserve old remote files and never apply
 old-host deletes to a new destination. Failures use sanitized status text.
 
 Current UX direction: a native MenuBarExtra menu and one sidebar library window
-(Articles, Queue, Server Audio). Settings uses native pane navigation for
-General, Delivery and Troubleshooting, with no global Cancel. Generate/Stop
+(Articles with All Articles/Queue scopes, Uploads, Server Audio). Settings uses native pane navigation for
+General, Publishing and Troubleshooting, with no global Cancel. Generate/Stop
 live with audio work.
 Keep voice, speed and source choice as user preferences;
 technical encoding/runtime/feed details stay internal or diagnostic.
@@ -48,9 +48,9 @@ published or integrity-confirmed already-placed final audio files.
 Use standard macOS controls, toolbars, sidebar and semantic typography/colors. Liquid Glass
 belongs to navigation/control chrome, not content backgrounds. Remove retired
 active UI, state, callbacks, scene wiring and previews; retain core fixture/CLI
-coverage and dormant agent references.
+coverage. Remove abandoned prototypes rather than bundling inactive executables.
 
-Current storage/UI direction: General, Delivery and Troubleshooting share one
+Current storage/UI direction: General, Publishing and Troubleshooting share one
 resizable
 400×680-ideal Settings window (360×540 minimum) switched by a centered compact icon-navigation strip
 (292×46 selector — three 92pt tiles plus spacing, 16pt SF symbols, 12pt labels,
@@ -69,9 +69,8 @@ rechecks internally. Older diagnostics that mention "refresh Saved Audio" refer
 to that automatic recheck / reopening the pane. Inline errors carry a
 hover-revealed ⓧ dismiss that is presentation-only: it never mutates stored
 errors, snapshots, queue records or history, and suppression is keyed per
-notice until the condition resolves or a context reset. Articles, Queue and
-Saved Audio live in the sidebar workspace;
-Generate/Stop live in the Queue toolbar and status menu. Progress is shown only
+notice until the condition resolves or a context reset. Articles (All Articles/Queue scopes) and Server Audio live in the sidebar workspace;
+Generate/Stop live in the Articles toolbar (both scopes) and status menu. Progress is shown only
 while owned work runs or stops; terminal results clear transient progress.
 Generate and Reset stay enabled during ordinary row removals; a Generate
 request waits for queued metadata mutations to finish before snapshotting the
@@ -115,7 +114,12 @@ never blocks enqueue/retry and legacy excluded/paused rows are retryable. Reset
 Queue is explicit and confirmed, removes only native queue membership, and
 preserves source inventory, article snapshots, audio and preferences. Server Audio
 is durable episode history, including pending uploads, confirmed remote episodes
-and unfinished server removals. New audio is generated in app-owned system temporary
+and unfinished server removals. Articles, Queue/preparing rows and Server Audio
+share the same original-website/Saved-date line. Episode originalSourceHost is
+independent of RSS sourceHost/sourceURL; legacy origins resolve read-only from
+retained inventory or identity-matching, integrity-checked snapshots. A missing
+saved date is omitted from that line, never replaced by the generation date.
+New audio is generated in app-owned system temporary
 storage; delete its local copy only after both byte-confirmed media upload and
 confirmed feed membership for the current destination. Commit cleanup intent
 before unlink, verify hash/size/file identity, and never retire an episode just
@@ -128,13 +132,32 @@ retained text and preserve old-host copies. VoiceRelay's Server Audio ×/Remove
 Selections and confirmed pane reset retire feed membership before remote deletion;
 keep pending server removals visible until confirmed. Upload New Items appears only
 for pending audio/publication, disables during delivery and hides after confirmation.
-Show in Finder remains only for legacy local audio. No hosted-file listing or server
-audit is performed; history reflects the app's recorded confirmations.
+Show in Finder remains only for legacy local audio. Server Audio normally reflects recorded confirmations. Explicit Publishing → Check
+Publishing automatically reconciles bounded authenticated feed/media before queued
+generation and through ordinary delivery, with no separate Check Server Audio UI.
+Use original-source identity or unambiguous retained links, streamed SHA-256,
+format inspection and full decode. Prefer longer valid copies at comparable
+voice/speed; retain the server copy for ties or known variants. Preserve losing
+server files; local replacements get fresh opaque identities. Item failures retain
+existing feed membership and continue unrelated work with sanitized diagnostics.
+Whole-feed failures block feed replacement/deletes, not unrelated fresh uploads.
+Five-minute cadence/backoff, changed queue/destination gates and cached proofs
+avoid unneeded work; unchanged proofs expire after 24 hours or use strong server
+validators. Restore review still gates all changes. No directory-wide orphan
+listing, title-only matching or arbitrary enclosure fetches.
 Native metadata uses SQLite WAL with persisted sidecars so read-only connections can
 open and read concurrently with writers; future backups must use the SQLite backup
 API, never raw database copies.
 Processing and inference-helper scratch use app-owned macOS system temporary storage.
-Persistent runtime/model/cache assets and explicit installer scratch remain project-local.
+Persistent runtime/model/cache assets and explicit installer scratch remain confined
+to the selected runtime root: legacy project-local installations remain supported;
+explicit General installation uses the private app-managed SpeechRuntime directory.
+Bundle immutable setup sources/pins; never download on build/startup/readiness.
+Library backups use SQLite backup, include retained text and delivery bookkeeping,
+exclude credentials/preferences/audio/runtime/scratch, and remain private. Restore
+validates and stages before atomic replacement, preserves the previous library,
+and disables automation/delivery for review; a persistent review gate also blocks
+local cleanup/server changes until Finish Library Review. No live state is restored by tests.
 Archived-article recovery is optional and off by default. Original fetching and
 validation run first; eligible failures can query existing Archive.ph Memento
 TimeMaps then Wayback Availability. Never submit captures, solve CAPTCHAs, execute
@@ -173,7 +196,7 @@ input files were deleted by that reset.
 - Provide named, source-local SwiftUI previews with synthetic, inert states.
 - The user does not authorize automated computer use. Do not operate the GUI or
   request Accessibility or Screen Recording access. Perform permitted source,
-  build, and focused fixture checks; hand off GUI, protected-file, agent-context,
+  build, and focused fixture checks; hand off GUI, protected-file, server,
   listening, and device validation to the user with exact commands or steps.
 - Report builds, tests, Canvas rendering, GUI behavior, and live acceptance
   separately. Mock tones are pipeline evidence, never speech acceptance.
@@ -181,16 +204,8 @@ input files were deleted by that reset.
   tests when behavior changes. Do not enroll services, upload feeds, migrate live
   state, or cut over hosting as a side effect of build or startup.
 - Testing mode: **autonomous** (confirmed October 4, 2026). Relevant isolated
-  source/build/fixture checks run automatically; for agent/client work:
-
-  ```sh
-  cd /path/to/VoiceRelay
-  CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" \
-  SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache" \
-  swift test --cache-path "$PWD/.build/swiftpm-cache" \
-    --disable-sandbox --skip-update --filter 'agent|Agent'
-  .build/debug/VoiceRelayAgent --self-check
-  ```
+  source/build/fixture checks run automatically. GUI, protected-file, listening
+  and real server acceptance remain operator-owned.
 
 - After editing `project.pbxproj` also run the project-reference regression
   (learned from a duplicate object-ID defect SwiftPM cannot see):
@@ -201,5 +216,47 @@ input files were deleted by that reset.
     --filter xcodeProjectAppSourcesUseUniqueBuildFileReferences
   ```
 
-  GUI, Canvas, protected-file, listening, and actual-agent enrollment, context,
-  and device validation remain manual operator steps.
+  GUI, Canvas, protected-file, listening, and device validation remain manual operator steps.
+
+October 9 approved UI: Articles and Queue share one Articles sidebar destination.
+All Articles is a typed source/retained-job union ordered by saved date; Queue
+shows every episode/preparation in processing order. Scope changes preserve
+independent selections. Already-queued source entries are omitted from manual
+Add; history is not a new exclusion rule. Queue removal never deletes source
+entries, snapshots or server audio. Publishing replaces the visible Delivery
+pane label; internal keys remain compatible. Its setup/recovery strip uses
+existing metadata without Keychain/network probes, distinguishes unknown from
+missing credentials, and disappears when configured. Configuration is not remote
+verification. Generate Audio/Stop names and availability agree across toolbar
+and menus; list Delete is focus-scoped. The restore review gate takes precedence.
+
+October 10 upload outbox: Uploads sits between Articles and Server Audio and shows
+tracked completed audio awaiting upload/publication, verification failures and retained
+local cleanup conflicts. Speech chunks stay in Queue; no directory-wide file scan.
+Transfer byte progress is transient and cannot confirm media integrity or RSS membership.
+Clear outbox rows only after current-destination publication confirmation and resolution
+of local cleanup verification issues. Persist sanitized per-item cleanup notices and
+continue other cleanup/upload work without misreporting a connection failure.
+Uploads and Server Audio have independent native state filters with counts; failed
+verification includes both server verification failures and local cleanup conflicts.
+Server Audio stays durable history, including pending removals; filtered selection
+removal/reset targets only visible rows. Retry honors restore review and lifecycle gates.
+
+October 10 follow-up: Uploads × explicitly discards a tracked local copy without
+retiring server audio or retained text. Persist intent before safe unlink; automatic
+recovery/transfer must skip deliberately discarded copies. Changed bytes are only
+removable from the owning library's temporary audio folder. Keep failed removals
+visible. Articles/Queue have independent Website filters using Foundation host
+normalization and a www display alias; other subdomains remain distinct. Selection
+actions only target visible rows; filtering never limits automatic processing.
+
+Explicit local discard also cancels matching native queue membership atomically
+with its intent, preventing an interrupted Ready job from recreating the file.
+Reading List entries and retained snapshots remain available for manual re-enqueue.
+Discarded local copies never become automatic reconciliation replacement winners.
+
+Help copy: keep hover tooltips short and action-focused; section ⓘ hover uses
+“About <section>”, with brief popover summaries. Longer publishing/backup guidance
+belongs in the shared native Help menu's static topic windows. Keep deletion
+consequences and archive/backup privacy visible; do not expose implementation
+details unless needed for a user's decision. Help never probes library/server state.

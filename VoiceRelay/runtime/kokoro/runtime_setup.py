@@ -226,7 +226,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Project-local Kokoro runtime preparation; no synthesis.")
     parser.add_argument("command", choices=["paths", "check", "setup", "_asset-check", "_asset-download"])
     parser.add_argument("--download", action="store_true")
+    parser.add_argument("--app-managed", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.app_managed and os.getpgrp() != os.getpid():
+        os.setsid()  # Quit/Cancel can stop this helper and its installer children together.
     if args.download and args.command != "setup":
         parser.error("--download is only valid with setup")
     selected = selection()

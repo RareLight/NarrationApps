@@ -1,8 +1,9 @@
-# Optional project-local Kokoro inference runtime
+# Kokoro inference runtime
 
-VoiceRelay's October 2 development speech adapter executes an explicitly installed
-project-local runtime. Model weights and Python distributions are not bundled in
-this app or copied from the historical benchmark.
+VoiceRelay's speech adapter executes an explicitly installed, pinned runtime in
+the app-managed SpeechRuntime directory or a selected legacy checkout. Immutable
+setup sources/pins are bundled; model weights and Python distributions are not
+bundled in the app or copied from the historical benchmark.
 
 - mlx-audio 0.5.7: MIT, copyright 2024 Prince Canuma.
   https://github.com/Blaizzy/mlx-audio/blob/v0.5.7/LICENSE
@@ -19,4 +20,4 @@ SoundFile, NumPy and Torch; their licenses must be reviewed independently.
 This notice is not a complete redistribution clearance. Packaging an interpreter,
 Python dependencies, G2P/eSpeak components, model and voices requires a complete
 license/source/notice review and signed relocation validation before distribution.
-See `docs/KOKORO_PROVIDER.md` for the development boundary and operator gates.
+See [Kokoro setup](../docs/KOKORO_PROVIDER.md) for runtime boundaries and operator gates.

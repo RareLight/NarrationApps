@@ -205,111 +205,6 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     #expect(model.audioCleanupError != "Some saved audio is unavailable. Reconnect its original storage or restore access.")
 }
 
-@MainActor
-private final class StubAgentTransport: AgentTransport {
-    var endpoint: AgentEndpoint?
-    var autoReply: Result<Data, AgentClientFailure>?
-    var activated = false
-    var invalidated = false
-    var sent: [Data] = []
-    private var replyHandler: (@Sendable (Result<Data, AgentClientFailure>) -> Void)?
-    func activate(onFailure: @escaping @Sendable (AgentClientFailure) -> Void) throws { activated = true }
-    func send(_ data: Data, reply: @escaping @Sendable (Result<Data, AgentClientFailure>) -> Void) {
-        sent.append(data); replyHandler = reply
-        if let endpoint { Task { reply(.success(await endpoint.handle(data))) } }
-        else if let autoReply { Task { @MainActor in reply(autoReply) } }
-    }
-    func deliver(_ result: Result<Data, AgentClientFailure>) { replyHandler?(result) }
-    func invalidate() { invalidated = true }
-}
-
-private func agentDiagnosticsRoot() throws -> URL {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent("voicerelay-agentdiag-\(UUID())")
-    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    return root
-}
-
-@Test @MainActor func agentDiagnosticsInertModelNeverConnects() async {
-    var calls = 0
-    let model = AgentDiagnosticsModel(inert: true, client: AgentClient { calls += 1; return StubAgentTransport() })
-    model.check()
-    await model.waitForCheck()
-    #expect(calls == 0 && !model.checking && model.snapshot == nil && model.error == nil)
-}
-
-@Test @MainActor func agentDiagnosticsShowsReadOnlyCountsAfterExplicitCheck() async throws {
-    let root = try agentDiagnosticsRoot(); defer { try? FileManager.default.removeItem(at: root) }
-    let state = root.appendingPathComponent("state")
-    let transport = StubAgentTransport()
-    transport.endpoint = AgentEndpoint(stateRoot: state)
-    var calls = 0
-    let model = AgentDiagnosticsModel(client: AgentClient { calls += 1; return transport })
-    #expect(calls == 0 && !model.checking)
-    model.check()
-    #expect(model.checking)
-    await model.waitForCheck()
-    #expect(calls == 1 && transport.activated && transport.invalidated)
-    #expect(model.snapshot?.mode == "readOnlyFoundation" && model.snapshot?.supportedCommands == ["snapshot"])
-    #expect(model.snapshot?.articles == 0 && model.error == nil && !model.checking)
-    #expect(!FileManager.default.fileExists(atPath: state.path))
-}
-
-@Test @MainActor func agentDiagnosticsFailureClearsStaleSnapshotAndExplicitRepeatWorks() async throws {
-    let root = try agentDiagnosticsRoot(); defer { try? FileManager.default.removeItem(at: root) }
-    let failed = StubAgentTransport(); failed.autoReply = .failure(.unavailable)
-    let ready = StubAgentTransport(); ready.endpoint = AgentEndpoint(stateRoot: root.appendingPathComponent("state"))
-    var transports = [failed, ready]
-    let model = AgentDiagnosticsModel(client: AgentClient { transports.removeFirst() })
-    model.snapshot = AgentSnapshot(catalog: ReadingListCatalog(), queue: [])
-    model.error = "Stale message"
-    model.check()
-    await model.waitForCheck()
-    #expect(model.snapshot == nil && model.error == AgentClientFailure.unavailable.message && !model.checking)
-    model.check()
-    await model.waitForCheck()
-    #expect(model.error == nil && model.snapshot?.mode == "readOnlyFoundation" && ready.invalidated)
-}
-
-@Test @MainActor func agentDiagnosticsCancelClearsAndLateReplyDoesNotRevive() async throws {
-    let root = try agentDiagnosticsRoot(); defer { try? FileManager.default.removeItem(at: root) }
-    let endpoint = AgentEndpoint(stateRoot: root.appendingPathComponent("state"))
-    var transports: [StubAgentTransport] = []
-    var first = true
-    let model = AgentDiagnosticsModel(client: AgentClient {
-        let transport = StubAgentTransport()
-        if first { transport.endpoint = endpoint; first = false }
-        transports.append(transport)
-        return transport
-    })
-    model.check()
-    model.cancel()
-    model.check()
-    await model.waitForCheck()
-    #expect(transports.count == 1)
-    #expect(model.error == nil && model.snapshot?.mode == "readOnlyFoundation" && !model.checking)
-    model.check()
-    for _ in 0..<200 {
-        if transports.count > 1 && !transports[1].sent.isEmpty { break }
-        try await Task.sleep(for: .milliseconds(5))
-    }
-    let cancelled = try #require(transports.count > 1 ? transports[1] : nil)
-    let staleSent = try #require(cancelled.sent.first)
-    model.cancel()
-    #expect(!model.checking && model.snapshot == nil && model.error == nil && cancelled.invalidated)
-    model.check()
-    for _ in 0..<200 {
-        if transports.count > 2 && !transports[2].sent.isEmpty { break }
-        try await Task.sleep(for: .milliseconds(5))
-    }
-    let fresh = try #require(transports.count > 2 ? transports[2] : nil)
-    let freshSent = try #require(fresh.sent.first)
-    cancelled.deliver(.success(await endpoint.handle(staleSent)))
-    fresh.deliver(.success(await endpoint.handle(freshSent)))
-    await model.waitForCheck()
-    #expect(model.error == nil && model.snapshot?.mode == "readOnlyFoundation" && fresh.invalidated)
-    #expect(transports.count == 3 && !model.checking)
-}
-
 @Test @MainActor func appShutdownWaitsForOwnedWorkAndPreservesQueue() async throws {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let coordinator = FixtureCoordinator(), provider = CancellableProvider(holdCleanup: true)
@@ -374,7 +269,7 @@ private func agentDiagnosticsRoot() throws -> URL {
 
 @Test @MainActor func settingsSectionsAreDistinctAndInertViewsConstruct() throws {
     #expect(SettingsSection.allCases == [.general, .delivery, .troubleshooting])
-    #expect(Set(SettingsSection.allCases.map(\.rawValue)) == ["General", "Delivery", "Troubleshooting"])
+    #expect(Set(SettingsSection.allCases.map(\.rawValue)) == ["General", "Publishing", "Troubleshooting"])
     let model = AppModel(preview: true)
     let general = SettingsView(model: model)
     let troubleshooting = SettingsView(model: model, initialSection: .troubleshooting)
@@ -448,8 +343,8 @@ private func agentDiagnosticsRoot() throws -> URL {
 }
 
 @Test @MainActor func workspaceSectionsAndNativeViewsConstructInertly() async throws {
-    #expect(WorkspaceSection.allCases == [.articles, .queue, .savedAudio])
-    #expect(Set(WorkspaceSection.allCases.map(\.rawValue)) == ["Articles", "Queue", "Server Audio"])
+    #expect(WorkspaceSection.allCases == [.articles, .uploads, .savedAudio])
+    #expect(Set(WorkspaceSection.allCases.map(\.rawValue)) == ["Articles", "Uploads", "Server Audio"])
     let model = AppModel(preview: true)
     for section in WorkspaceSection.allCases {
         model.workspaceSection = section
@@ -483,13 +378,13 @@ private func agentDiagnosticsRoot() throws -> URL {
 
 @Test @MainActor func workspaceErrorDoesNotRepeatQueueRowButKeepsDistinctGlobalFailures() throws {
     let model = AppModel(preview: true)
-    model.workspaceSection = .queue
+    model.workspaceSection = .articles; model.articleScope = .queue
     model.queueItems = [SpeechQueueItem(id: "00000000-0000-0000-0000-000000000001", title: "Synthetic", state: .failed, lastError: "Synthetic feed failure")]
     model.error = "Synthetic feed failure"
     #expect(model.workspaceError == nil)
     model.error = "A different failure needs attention."
     #expect(model.workspaceError == "A different failure needs attention.")
-    model.workspaceSection = .articles
+    model.workspaceSection = .savedAudio
     model.error = "Synthetic feed failure"
     #expect(model.workspaceError == "Synthetic feed failure")
     model.error = nil
@@ -614,10 +509,13 @@ private func agentDiagnosticsRoot() throws -> URL {
     #expect(model.enqueueIssues.count == 1 && model.enqueueIssues.first?.contains("Two") == true)
     #expect(try await coordinator.queue(stateRoot: storage.stateRoot).map(\.id) == [queued.id])
     model.articleSelection = [one.id]
+    // Unified Articles omits sources already in Queue. A disabled/no-op Add must
+    // not clear an unrelated entry's collected issue or create duplicate work.
+    #expect(!model.canAddSelectedArticles && model.eligibleSelectedArticles.isEmpty)
     model.addSelectedToQueue()
-    #expect(model.enqueueIssues.isEmpty)
+    #expect(model.enqueueIssues.count == 1)
     await model.waitForEnqueue()
-    #expect(model.enqueueIssues.isEmpty && model.queueItems.count == 1 && !model.running)
+    #expect(model.enqueueIssues.count == 1 && counter.count == 1 && model.queueItems.count == 1 && !model.running)
     await model.shutdown()
     #expect(model.pendingAdds.isEmpty)
 }
@@ -626,7 +524,7 @@ private func agentDiagnosticsRoot() throws -> URL {
     let model = AppModel(preview: true)
     model.pendingAdds = ["one": "Synthetic article one"]
     model.queueItems = [SpeechQueueItem(id: "00000000-0000-0000-0000-000000000001", title: "Synthetic queued article")]
-    _ = QueueView(model: model)
+    _ = ArticlesView(model: model)
     let url = URL(string: "https://articles.example/synthetic")!
     _ = ArticlePreviewView(url: url, inert: true)
     _ = RelayMenu(model: model)
@@ -1000,7 +898,7 @@ private final class CommitProbe: @unchecked Sendable {
     #expect(model.queueOriginHost(saved) == "saved.example" && model.queueOriginHost(legacy) == "origin.example")
     #expect(model.queueOriginHost(unknown) == nil)
     model.queueItems = [saved, legacy, unknown]; model.pendingAdds[entry.id] = entry.title
-    _ = QueueView(model: model).body
+    _ = ArticlesView(model: model).body
     #expect(!model.running && !model.processingSpeech)
 }
 
@@ -1012,7 +910,7 @@ private final class CommitProbe: @unchecked Sendable {
     #expect(!control(0).usesBulkRemoval && !control(1).usesBulkRemoval)
     #expect(control(2).usesBulkRemoval && control(9).usesBulkRemoval)
     let model = AppModel(preview: true)
-    _ = QueueView(model: model)
+    _ = ArticlesView(model: model)
     _ = LibraryView(model: model)
 }
 
@@ -1477,6 +1375,7 @@ private final class StubDeliveryTransport: DeliveryTransport, @unchecked Sendabl
     var statusForPath: ((String, String) -> Int?)?
     var headLengths: [String: Int] = [:]
     var stored: [String: Int] = [:]
+    var bodies: [String: Data] = [:]
     var entered: (method: String, path: String)? { calls.first.map { ($0.method, $0.path) } }
     func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String]) async throws -> DeliveryResponse {
         try Task.checkCancellation()
@@ -1488,13 +1387,17 @@ private final class StubDeliveryTransport: DeliveryTransport, @unchecked Sendabl
         case "PROPFIND":
             let xml = "<d:multistatus xmlns:d=\"DAV:\"><d:response><d:href>\(path)</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"
             return DeliveryResponse(status: 207, body: Data(xml.utf8))
+        case "GET":
+            guard let data = bodies[path] else { return DeliveryResponse(status: 404) }
+            return DeliveryResponse(status: 200, headers: ["Content-Length": String(data.count)], body: data)
         case "MKCOL": return DeliveryResponse(status: 201)
         case "PUT":
             let bytes = try body?.count ?? file.map { try Data(contentsOf: $0).count } ?? 0
             stored[path] = bytes
+            bodies[path] = try body ?? file.map { try Data(contentsOf: $0) }
             return DeliveryResponse(status: 201)
         case "HEAD":
-            guard let size = headLengths[path] ?? stored[path] else { return DeliveryResponse(status: 404) }
+            guard let size = stored[path].map({ headLengths[path] ?? $0 }) else { return DeliveryResponse(status: 404) }
             return DeliveryResponse(status: 200, headers: ["Content-Length": String(size)])
         case "DELETE": return DeliveryResponse(status: 204)
         default: return DeliveryResponse(status: 405)
@@ -1709,7 +1612,8 @@ private actor FeedConfirmationGate: DeliveryTransport {
 @Test @MainActor func deliveryShutdownCancelsHeldDrainWithoutStartingFollowUp() async throws {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
-    _ = try await FixtureCoordinator().enqueue(article(), storage: storage, preferences: SpeechPreferences())
+    _ = try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: article(),
+        backend: SyntheticProvider(), storage: storage, delivery: appDeliverySettings())
     let transport = FeedConfirmationGate()
     let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport },
         credentialStore: RecordingCredentials(password: "pw"))
@@ -1734,6 +1638,7 @@ private actor FeedConfirmationGate: DeliveryTransport {
     model.deliverySettings = settings
     model.savedEpisodes = try await coordinator.savedAudio(storage: storage)
     #expect(model.savedAudioDeliveryStatus(first.episode) == .awaitingUpload)
+    #expect(model.uploadItems.map(\.id) == [first.episode.id])
     #expect(model.showsUploadNewItems && model.canUploadNewItems)
     model.uploadNewItems()
     #expect(model.deliveryBusy && model.showsUploadNewItems && !model.canUploadNewItems)
@@ -1741,6 +1646,7 @@ private actor FeedConfirmationGate: DeliveryTransport {
     // The status updates at drain completion, without a library refresh or pane reopen.
     #expect(model.savedAudioDeliveryStatus(first.episode) == .published)
     #expect(!model.showsUploadNewItems && !model.canUploadNewItems)
+    #expect(model.uploadItems.isEmpty && model.uploadProgress.isEmpty)
     var replacement = first.episode
     replacement.audioHash = "replacement-audio"
     #expect(model.savedAudioDeliveryStatus(replacement) == .awaitingUpload)
@@ -1756,12 +1662,14 @@ private actor FeedConfirmationGate: DeliveryTransport {
     #expect(model.savedAudioDeliveryStatus(first.episode) == .published)
     #expect(model.savedAudioDeliveryStatus(second.episode) == .uploaded)
     #expect(model.showsUploadNewItems && model.canUploadNewItems && model.deliveryError != nil)
+    #expect(model.uploadItems.map(\.id) == [second.episode.id] && model.uploadsNeedAttention)
     transport.statusForPath = nil
     model.uploadNewItems(); await model.waitForDelivery()
     #expect(model.savedAudioDeliveryStatus(second.episode) == .published && !model.showsUploadNewItems)
-    #expect(model.deliveryError == nil)
+    #expect(model.deliveryError == nil && model.uploadItems.isEmpty && model.uploadProgress.isEmpty)
     model.deliverySettings.feedFolderURL = URL(string: "https://another.example/podcast/")
     #expect(model.savedAudioDeliveryStatus(first.episode) == .notUploaded && model.showsUploadNewItems)
+    #expect(model.uploadItems.count == 2)
     model.deliverySettings.enabled = false
     #expect(!model.showsUploadNewItems && !model.canUploadNewItems)
     let stopped = transport.calls.count
@@ -2167,12 +2075,12 @@ private actor HeldDeliveryTransport: DeliveryTransport {
     model.deliverySettings = appDeliverySettings()
     model.triggerDelivery(force: true); await model.waitForDelivery()
     #expect(model.deliveryPendingCount == 0 && model.deliveryError != nil)
-    #expect(model.deliveryStatus == "Delivery needs attention")
+    #expect(model.deliveryStatus == "Publishing needs attention")
     transport.statusFor = nil
     model.triggerDelivery(force: true); await model.waitForDelivery()
     #expect(model.deliveryError == nil)
     model.triggerDelivery(force: true); await model.waitForDelivery()
-    #expect(model.deliveryStatus == "Delivery up to date")
+    #expect(model.deliveryStatus == "Publishing up to date")
     await model.shutdown()
 }
 
@@ -2375,18 +2283,18 @@ private actor ServerDeletionGate: DeliveryTransport {
     await transport.arm(failure: failDeletion)
     model.removeSavedAudio(ids: ids)
     #expect(model.savedEpisodes.map(\.id) == ids)
-    #expect(model.savedAudioRemovalStatus(try #require(model.savedEpisodes.first)) == "Removing…")
+    #expect(model.savedAudioRemovalStatus(try #require(model.savedEpisodes.first)) == "Removing from server…")
     await model.waitForAudioMutation(); try await transport.waitUntilHeld()
     model.refreshLibrary(); await model.waitForLibraryRefresh()
     let pending = try #require(model.savedEpisodes.first)
     #expect(model.savedEpisodes.map(\.id) == ids && pending.stage == .expired)
-    #expect(model.savedAudioRemovalStatus(pending) == "Removing…" && !model.canRemoveSavedAudio(pending))
+    #expect(model.savedAudioRemovalStatus(pending) == "Removing from server…" && !model.canRemoveSavedAudio(pending))
     model.removeSavedAudio(ids: ids) // Simulate a repeated action while DELETE is in flight.
     #expect(model.error == nil && !model.audioMutationBusy)
     await transport.release(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
     if failDeletion {
         let failed = try #require(model.savedEpisodes.first)
-        #expect(model.savedAudioRemovalStatus(failed) == "Removal pending" && model.canRemoveSavedAudio(failed))
+        #expect(model.savedAudioRemovalStatus(failed) == "Removal needs retry" && model.canRemoveSavedAudio(failed))
         await transport.clearFailure()
         model.removeSavedAudio(ids: ids)
         await model.waitForAudioMutation(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
@@ -2424,5 +2332,35 @@ private actor ServerDeletionGate: DeliveryTransport {
     let preview = AppModel(preview: true, defaults: defaults)
     preview.useArchivedArticles = false
     #expect(defaults.bool(forKey: "useArchivedArticles"))
+    await model.shutdown()
+}
+
+@Test @MainActor func uploadsLocalRemovalHonorsOwnershipGatesAndClearsOnlyLocalOutbox() async throws {
+    let (root, base) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = ManagedSpeechStorage(audioDirectory: base.audioDirectory, stateRoot: base.stateRoot,
+        temporaryRoot: base.temporaryRoot, temporaryAudio: true)
+    let generated = try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: article(),
+        backend: SyntheticProvider(), storage: storage)
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, defaults: defaults)
+    model.savedEpisodes = [generated.episode]
+    let item = try #require(model.uploadItems.first)
+    #expect(model.canDiscardLocalUpload(item))
+    model.libraryReviewRequired = true
+    #expect(!model.canDiscardLocalUpload(item)); model.discardLocalUpload(item)
+    #expect(FileManager.default.fileExists(atPath: generated.audioURL.path))
+    model.libraryReviewRequired = false; model.deliveryBusy = true
+    #expect(!model.canDiscardLocalUpload(item))
+    model.deliveryBusy = false; model.running = true
+    #expect(!model.canDiscardLocalUpload(item))
+    model.running = false
+    model.discardLocalUpload(item)
+    #expect(model.audioMutationBusy && !model.canDiscardLocalUpload(item))
+    await model.waitForAudioMutation()
+    #expect(!model.audioMutationBusy && model.uploadItems.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: generated.audioURL.path))
+    #expect(model.savedEpisodes.count == 1 && model.savedEpisodes[0].stage == .published)
+    #expect(model.audioState(model.savedEpisodes[0]).phase == .discarded)
+    #expect(!model.hasNewItemsToUpload)
     await model.shutdown()
 }

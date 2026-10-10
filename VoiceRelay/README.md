@@ -1,314 +1,218 @@
-# VoiceRelay native macOS prototype
+# VoiceRelay
 
-VoiceRelay queues Safari Reading List articles and generates local Kokoro speech
-with a shared Swift pipeline: semantic extraction, narration, restartable native
-SQLite checkpoints, validated mono AAC-LC/M4A and atomic local RSS. Kokoro's saved
-article fixture now has operator-confirmed success. **The app and CLI have no tone
-mode.** Synthetic audio providers exist only inside automated tests.
+VoiceRelay turns Safari Reading List articles into a private podcast using local
+Kokoro speech and WebDAV publishing. While the macOS app runs, it discovers
+articles, prepares saved text, processes the queue and publishes episodes according
+to your preferences. Failed items remain available for manual Retry. Safari
+bookmarks and Reading List flags are never modified.
 
-The current Slice 3 continuation adds article selection and batch enqueue, a saved
-speech library with offline resume, in-app voice/speed preferences, persistent
-Reading List entries, and a durable manual speech queue. Normal
-app use requires no TOML file or pipeline parameters. Generated audio uses app-owned macOS temporary storage until its upload and
-feed publication are confirmed, then the local copy is removed. Server Audio
-retains episode history and server removal controls; metadata and article text
-remain private and persistent. No folder choice or scheduled rotation is required. Article inspection
-and narration previews open in a dedicated Article Preview window, reached from
-Articles.
-The pinned inference runtime still needs explicit development setup; bundled
-runtime onboarding and automated opt-in discovery/retry scheduling remain later
-work.
+Requires Apple Silicon, macOS 27.0+, Xcode with the macOS 27 SDK (Swift 6.2+),
+python3, uv, ffmpeg and ffprobe. Speech uses a pinned, explicitly installed runtime.
+Audio is mono 24 kHz AAC-LC/M4A at 96 kbps, with original levels and dynamics: no
+normalization, gain, limiter or dynamic range compression. Narration opens with
+article title/source and ends with “End of article.” Episode dates use Reading List
+save dates when available; optional publisher artwork stays external.
 
-See [implementation sequence](docs/IMPLEMENTATION_PLAN.md),
-[validation and open gates](docs/VALIDATION.md),
-[source review and speech checks](docs/SOURCE_REVIEW.md),
-[dormant agent prototype reference](docs/AGENT_PROTOCOL.md), and
-[Kokoro setup](docs/KOKORO_PROVIDER.md). This directory is the canonical native
-project. Historical Python code, customized configuration and published data are
-preserved in their original locations.
+## Build and setup
 
-Single-worker processing overlaps chunk validation and article encoding with
-inference, with one resident helper and at most two articles in flight. Debug
-logging in Troubleshooting includes sanitized stage timings. For throughput,
-Stop/Quit and listening checks, see the [pipeline guide](docs/KOKORO_PROVIDER.md#october-7-bounded-single-worker-optimization).
-
-## Xcode and app use
-
-Requires macOS 27.0+, Xcode with the macOS 27 SDK (Swift 6.2+), ffmpeg/ffprobe and
-the explicitly installed project-local Kokoro runtime. Copy
-`Packaging/Signing.example.xcconfig` to `Signing.local.xcconfig` at the project
-root and set your own team there. Both Debug and Release load this ignored local
-file automatically in Xcode and `scripts/build-app.sh`, keeping signing
-identifiers out of the shared project. Alternatively, select your own team in
-Xcode's Signing & Capabilities. Open `VoiceRelay.xcodeproj`, choose
-**VoiceRelay → My Mac**, build (⌘B) and run (⌘R). Use an Apple Development identity
-and a matching provisioning profile for the Data Protection Keychain entitlement.
-
-The waveform menu-bar icon
-opens a native status menu; no Dock icon or startup window is expected.
-Choosing **Articles**, **Queue**, **Server Audio** or **Settings…** opens and
-focuses the corresponding standalone window, which enables the Dock icon and
-⌘-Tab entry while any such window is open, including when minimized. The main
-window's sidebar switches between **Articles**, **Queue** and **Server Audio**.
-Closing the last standalone window returns to menu-bar-only operation.
-
-1. In **Settings… → General → Speech**, choose Language & Region, then a voice and
-   speed. Defaults are US English, Heart and 1.0×. The menu shows ten US or eight
-   UK voices ordered by upstream quality grade; changing region picks its
-   highest-rated voice. Choices save automatically. Audio defaults are mono 24 kHz AAC-LC at
-   96k, original levels/dynamics without normalization or DRC, 0.15-second chunk
-   gaps and 1,800-character narration chunks. Processing uses floating-point
-   intermediates. Existing finalized audio is preserved; unfinished app work
-   adopts the encoding policy while retaining reusable speech chunks.
-2. Configure **Settings… → Delivery** with the Feed folder and Public folder URLs
-   and your app password. `feed.xml` and `audio/` are implicit. Copy the subscription
-   URL into Overcast. New audio is temporary until upload and publication are both
-   confirmed; **Server Audio** retains history and manages server deletion. Existing VoiceRelay local
-   audio follows the same cleanup policy after confirmed delivery. Starting the app never downloads models automatically.
-   Optional archived-article recovery lives under **General → Reading List →
-   Try archived copies when articles fail** (off by default). It checks existing
-   Archive.ph/Wayback captures after a fetch or validation failure, preserving the
-   original source and Reading List date. See the [recovery guide](docs/SOURCE_REVIEW.md#optional-archived-article-recovery)
-   for URL disclosure, limits, unavailable services and retry steps.
-3. Choose **Articles** in the status menu. Pick the source once under
-   **Settings → General → Reading List**; VoiceRelay then re-reads it
-   at startup and every five minutes while the app runs. Pull down in Articles
-   to check immediately; opening Articles also checks the source. Troubleshooting
-   shows the last successful check and any source error. Discovery is read-only;
-   entries persist across relaunch. Selecting entries does not fetch their pages.
-4. Select one or several entries (⌘-click or Shift-click), then click **Add to
-   Queue** in the toolbar. Selected rows immediately show a *Preparing…* pending
-   state while a background task converts them in displayed list order: new
-   articles are fetched/extracted and saved with current voice,
-   voice and speed; previously saved text is reused without a fetch.
-   A failed source becomes a per-entry error in Articles and does not stop the
-   remaining additions; saved items remain. There is no required review step.
-   Double-click an entry (or use its **Preview Article** menu) to open its page
-   in the Article Preview window. **Settings → Troubleshooting** shows the
-   Reading List source, its status and diagnostics only.
-   Newly generated narration starts with the article title and source and ends
-   with a separate **End of article.** paragraph. Existing finalized audio is
-   retained until confirmed upload/publication, then its local copy is removed. Article Open Graph/Twitter preview metadata supplies optional
-   episode artwork; absent images never block processing. Publisher image URLs
-   appear in RSS as `itunes:image`, without downloading or embedding the image.
-   Current Overcast supports episode artwork on podcast screens and during
-   playback (since 2025.11.1); playlists/widgets keep podcast-level identity.
-   See [Overcast's release notes](https://apps.apple.com/us/app/overcast-podcast-app/id888422857)
-   and the [Open Graph protocol](https://ogp.me/). Artwork availability, sizing
-   and persistence depend on the publisher and player.
-5. Open **Server Audio** — it updates automatically — to see episode history,
-   duration, size and delivery status. **Published** confirms both the media copy
-   and its inclusion in the server feed. Temporary audio is removed at that point,
-   including existing VoiceRelay output after confirmed delivery. Listen in Overcast.
-   **Show in Finder** is available only for older local copies awaiting cleanup.
-   **Upload New Items** appears while shown episodes need upload/publication and
-   hides when complete; failures leave it available for retry. A row's × or
-   **Remove Selections** retires the episode from the feed before deleting server
-   audio. **Reset Server Audio…** confirms removal of every shown episode.
-   Pending server removals remain listed until confirmed. Article text and Reading
-   List entries are kept. Stop returns interrupted speech to Ready; Quit preserves
-   unfinished checkpoints. Missing pending temporary files regenerate from retained
-   text under the same GUID and captured voice; failed rows stay manual Retry.
-
-6. Open **Queue** and click **Generate Speech** to process waiting items in
-   order; prepared rows show a *Ready* checkmark. The run keeps draining while
-   eligible work remains: it waits for in-flight preparations, and articles
-   added while speech is already running join the same run without another
-   click. Compatible consecutive items share one prepared speech-helper
-   session, so the local model does not reload between articles.
-   The current-article readout advances through the run. Verified completed items
-   leave Queue automatically and remain in Server Audio. The bar also includes each
-   article's encoding/publication completion, so it
-   reaches 100% only when nothing eligible remains.
-   **Stop Generating** abandons only the interrupted article's unfinished work
-   and returns its row to Ready; completed audio and the feed are untouched.
-   Quit instead retains unfinished checkpoints for resume. Failed items keep
-   their checkpoints and need **Retry** on their row, then an explicit run;
-   Retry alone starts no speech. A failure does not stop the run — later Ready
-   items still process.
-   Removing one or more selected rows (their × control, or Remove for a
-   selection) preserves saved article text and audio; removing a *Preparing…*
-   row cancels its pending add. With zero or one selection the pane shows
-   **Reset Queue…**; with two or more it switches to **Remove Selections**.
-   Only Reset Queue asks for confirmation and
-   clears every queued membership; Reading List entries, saved article text,
-   published audio and preferences are preserved either way.
-   Double-click a queue row (or use its **Preview Article** menu) to reopen the
-   saved article page in the Article Preview window; resolving the URL reads the
-   saved snapshot and the preview then fetches the page as it does for Articles.
-   Speech-helper failures report a role-specific message; completed chunks are
-   retained for resume. Queue and source inventory use the same internal native
-   database.
-
-7. **Settings… → Delivery** configures the private podcast upload with one
-   **Feed folder URL**, a **Public folder URL**, and channel details.
-   Enter the complete HTTPS upload folder supplied by your WebDAV provider,
-   for example `https://webdav.example/podcast`. VoiceRelay always uploads
-   `feed.xml` in that folder and
-   `.m4a` files in its lowercase `audio/` subfolder. Neither name is configurable.
-   Common pasted URL variations normalize on leaving the field or taking an
-   action: missing HTTPS, surrounding whitespace, spaces/percent-encoded spaces,
-   redundant slashes, dot segments, default ports and trailing slashes. A pasted
-   `feed.xml` URL also resolves to its containing folder. Credentials and query
-   parameters require a brief, field-specific correction; they are never echoed.
-   Existing folders are checked first; upload creates missing parents in order.
-   The public folder is the website address that serves these same files, which
-   can differ from the WebDAV address. **Subscription URL** shows the complete
-   derived `…/feed.xml` address read-only; **Copy** puts it on the clipboard for
-   your podcatcher. Public audio links always use `…/audio/` beneath that folder.
-   Existing settings retain their feed destination and adopt the fixed layout;
-   saved local audio uploads again when its destination changes. Old remote
-   copies are preserved, and old delete requests never follow a changed host.
-   The password persists only in the device-local Data Protection Keychain,
-   never in settings files or logs. Save it again when first using this protected
-   store. Touch ID, a supported paired Apple Watch, or your Mac password can
-   authorize access; macOS chooses the available authentication methods.
-   Tests and uploads share a successful unlock until Quit. Opening Settings
-   does not query Keychain, and cancelled access is not retried automatically.
-   Replacing/removing a credential may require separate macOS confirmation.
-   **Test Connection** checks the feed and implicit audio folders read-only.
-   It reports readable destinations, not write permission, and creates nothing.
-   If a folder is missing but its parent is readable, the result says folders
-   will be created on upload. **Upload Now** creates them if permitted.
-   Editing settings or saved credentials invalidates the result. **Upload Now**
-   retries items blocked by credentials, permissions or remote-size verification
-   after you correct them. Uploaded sizes are confirmed using HEAD, with a
-   read-only WebDAV file-property check when HEAD cannot confirm the length.
-   Use the username required by your provider and a password or app password
-   authorized for WebDAV writes. Configure the public HTTPS folder to serve
-   the same uploaded files; its path may differ from the upload path because
-   the website can publish a subfolder as its root. Follow your provider's
-   hosting instructions rather than assuming the two URLs are identical.
-   Test Connection checks WebDAV folders; it does not verify public mapping.
-   With delivery
-   enabled, each verified publication uploads its audio, then the remote feed,
-   and retired audio is removed remotely after the feed no longer references
-   it — uploads drain automatically after publishing, removals, launch and
-   periodic refresh while the app runs.
-
-   **Troubleshooting → Enable debug logging** captures up to 200 delivery events
-   in memory for the current app session. **Copy Debug Log** copies the captured
-   events; **Clear Log** discards them. Logging defaults off; the toggle persists,
-   while events do not. Disabling stops new recording and retains existing events
-   until cleared or Quit. Events include request methods, HTTP codes and fixed
-   failure categories, never passwords, usernames, URLs, paths, article content,
-   authorization headers or server bodies.
-
-While the app is running, new Reading List entries are automatically admitted
-and the ready queue is processed without further clicks — set-and-forget
-operation. Manual Add to Queue/Generate/Retry remain as overrides. **Stop
-Generating** still interrupts the current item and suspends automatic
-processing until new work arrives or Generate is pressed; failed rows stay for
-explicit Retry and are never silently retried forever. Relaunch re-readies any
-interrupted item when automation is enabled.
-
-Finished opaque UUID-named M4A files use app-owned macOS temporary storage, alongside
-separate processing/helper scratch. Completed processing scratch is removed after
-publication; finished M4A copies remain until byte-confirmed upload and feed
-membership, then durable cleanup intent and hash/file-identity checks permit unlink.
-Server Audio history remains after unlink. There is no audio-folder preference or
-scheduled retention. Earlier VoiceRelay output follows the same confirmed-cleanup
-policy; unrelated files and Python/reference output are never adopted or deleted.
-The private SQLite index, saved article text and diagnostic RSS stay under
-`~/Library/Application Support/VoiceRelayPrototype/SpeechLibrary` for recovery.
-If macOS clears unconfirmed output, it is requeued from saved text. A changed upload
-destination recreates released bytes using the same GUID; old-host files are kept.
-Unfinished server removals remain visible and their remote deletion waits for feed
-confirmation. The diagnostic CLI still supports explicit isolated output folders.
-Extracted content is rendered as plain text; raw HTML is never rendered as a page.
-
-Processing and delivery are owned by the running app itself, bound to its
-lifetime. Closing the status menu or a standalone window keeps current work
-running; **Quit** cancels and waits for owned work — that is the stop control,
-through either the menu's **Quit VoiceRelay** or standard macOS Quit. Relaunch restores
-durable state and resumes owned work. No worker is
-enrolled, no live state is adopted, and no feed is uploaded unless delivery is
-deliberately configured and enabled in Settings.
-
-The bundle still contains an inactive `VoiceRelayAgent` prototype and its
-versioned XPC contract as reference material. Nothing registers, launches or
-connects to it; Settings has no agent control and the running app does not
-require it. See the dormant-agent note for the retained layout; do not treat it
-as required functionality or an enrollment path.
-
-## Build and diagnostic CLI
+Copy `Packaging/Signing.example.xcconfig` to the ignored `Signing.local.xcconfig`
+at the project root and set your team there, or select your team in Xcode's
+Signing & Capabilities. Debug and Release load the local file automatically. Use
+an Apple Development identity and a matching provisioning profile for the Data
+Protection Keychain entitlement. Open `VoiceRelay.xcodeproj`, choose **VoiceRelay →
+My Mac**, build and run. To package a signed Release build without launching it:
 
 ```sh
-cd /path/to/VoiceRelay
-swift test
-swift build -c release
-./scripts/build-app.sh release
+bash scripts/build-app.sh release
 ```
 
-The optional build script builds through Xcode and copies its signed bundle to
-`dist/VoiceRelay.app`, preserving resources, acknowledgements, Keychain
-entitlements and the matching provisioning profile. It requires development
-signing configured in Xcode. Set `VOICERELAY_SIGNING_IDENTITY` to a specific
-identity if needed; ad hoc signing cannot validate protected Keychain access.
-Xcode also builds its app bundle directly. Both use the same
-shared core and provisional `org.voicerelay.prototype` identity. Quit the previous
-app before running another copy. Canvas, GUI, speech/listening and final-context
-checks are operator-owned; compilation does not establish those gates.
+The script copies Xcode's signed bundle to `dist/VoiceRelay.app` and verifies it.
+Private signing files, generated output, runtime/model assets and backups are
+ignored. Neither building nor starting the app downloads models.
 
-The CLI is a developer diagnostic surface. TOML import is optional compatibility
-support there, not product onboarding. `doctor` defaults to `./config.toml`; other
-commands import a profile only with explicit `--config`. Imported files are read-only.
+In **Settings → General → Speech setup**, choose **Install Speech Runtime…**.
+Installation explicitly downloads pinned Python, packages and model/voice assets;
+**Check Speech Runtime** verifies them offline. The managed runtime is under
+`~/Library/Application Support/VoiceRelayPrototype/SpeechRuntime`. Existing
+checkout installations remain supported. Cancel and Quit join owned setup work;
+global environments are unchanged. See [Kokoro setup and pipeline](docs/KOKORO_PROVIDER.md).
+
+## Everyday use
+
+The waveform status menu opens **Articles**, **Queue**, **Uploads**, **Server Audio** and
+**Settings…**. Articles and Queue are scopes in one library window alongside
+Uploads and Server Audio. Opening a standalone window enables the Dock/⌘-Tab entry; closing
+the last returns to menu-bar-only operation. Closing windows does not stop work.
+
+1. In **General → Speech**, choose Language & Region, Voice and speed. Defaults
+   are US English, Heart and 1.0×. Voice choices are ranked by upstream quality
+   grades: ten US voices and eight UK voices. New admissions capture these choices.
+2. In **General → Reading List**, choose the source. Discovery runs at startup,
+   every five minutes, when Articles appears or the source changes, and on
+   Articles' pull-down gesture. Newest saved items appear first; ties keep discovery
+   order and undated entries come last. Automatic admission and processing are
+   controlled by the General preferences.
+3. **Add to Queue** prepares selected articles in displayed order in the
+   background, showing Preparing and per-entry failures. Saved text is reused
+   offline. Double-click or **Preview Article** opens the dedicated preview window;
+   that window fetches the page. Optional **Try archived copies when articles
+   fail** is off by default; see [article handling](docs/SOURCE_REVIEW.md).
+4. **Generate Audio** (⌘⇧G) drains Ready work, pending preparations and late
+   additions in processing order. **Stop** (⌘.) returns interrupted speech to
+   Ready and suspends automatic processing until new work arrives or Generate is
+   pressed; already-started finalization can finish. Quit joins owned work while
+   retaining recoverable checkpoints. Relaunch resumes eligible automation.
+   Failed rows require Retry; they are not repeatedly retried automatically.
+5. Queue removal deletes only queue membership. Source entries, saved text and
+   server audio remain. Individual and multi-selection removal need no
+   confirmation; **Reset Queue…** does. Scope selections remain independent.
+
+Articles, Queue/preparing rows and Server Audio share the original-website and
+Saved-date line. A missing saved date is omitted rather than replaced by the
+voice-generation date. Progress appears only during owned work; publishing is
+shown separately from speech/finalization.
+
+## Publishing and Server Audio
+
+In **Settings → Publishing**, supply complete HTTPS **Feed folder URL** and
+**Public folder URL**, channel details and WebDAV credentials. For example,
+`https://webdav.example/podcast/` can upload files served at
+`https://podcast.example/`. Follow your provider's mapping instructions; these
+addresses need not be identical. VoiceRelay puts `feed.xml` and lowercase `audio/`
+under each folder. **Subscription URL** is read-only with **Copy** for Overcast
+or another podcatcher.
+
+Pasted URLs normalize on commit: whitespace, missing HTTPS, spaces/percent escapes,
+redundant slashes, dot segments, default ports and trailing slashes are handled.
+A pasted feed.xml URL resolves to its parent. Credentials or query parameters
+require a field-specific correction and are never echoed in diagnostics.
+
+Passwords persist only in the device-local Data Protection Keychain. macOS chooses
+available authentication methods, which can include Touch ID, supported Apple
+Watch authorization or your Mac password. Successful access is reused until Quit;
+opening Settings does not query Keychain. Cancelling does not cause automatic
+reprompting. Saving/removing credentials may require separate system confirmation.
+
+**Test Connection** probes folders read-only; it proves neither write permission
+nor the public website mapping. A readable ancestor permits a missing-folder
+result; uploading creates folders if authorized. **Upload Now** is the manual retry
+override. Enabled publishing also drains after publication/removal, launch and
+periodically while the app runs. Media size is confirmed with HEAD or WebDAV
+metadata before feed publication.
+
+**Server Audio** is durable episode history. **Published** means current-destination
+media bytes and feed membership are confirmed. **Upload New Items** appears only
+while shown episodes need upload/publication. Removing an episode retires feed
+membership before remote media deletion, and keeps unfinished removals visible.
+**Reset Server Audio…** requires confirmation. Source entries and retained text
+are preserved. **Show in Finder** applies only to older remaining local copies.
+
+Finished audio uses app-owned macOS temporary storage. Its local copy is removed
+only after both media and feed confirmation, with committed cleanup intent and
+hash/file-identity checks. Missing unconfirmed output regenerates from retained
+text under the same GUID and captured voice; failed rows stay manual Retry.
+Destination changes recreate released bytes and preserve old-host files. There is
+no audio-folder preference or scheduled retention policy.
+
+Publishing automatically reconciles existing server feed/audio with local state.
+Verified matches restore history and leave Queue without regeneration or media PUT.
+At comparable voice/speed, the longer valid copy wins; ties retain the server copy.
+Replacements preserve the old server file, and item errors retain its feed membership
+while unrelated work continues. Cached proofs and conditional requests reduce
+repeated downloads. Exact identity or retained-link evidence is required; titles
+and orphan filenames are insufficient. See [automatic reconciliation and operator
+tests](docs/SERVER_RECOVERY.md) for conflict rules, caching and matching limits.
+
+## Private state and backups
+
+The native library remains at
+`~/Library/Application Support/VoiceRelayPrototype/SpeechLibrary`. Compatibility
+paths and internal preference keys are retained. Clearing Xcode Derived Data does
+not erase the library; changing the app bundle identifier changes its preferences
+domain. The app owns processing/publishing; no agent or service enrollment exists.
+The original Python reference, customized state and published files are preserved
+in their existing locations and never silently imported.
+
+**Troubleshooting → Library backup** exports retained text, inventory, queue,
+episode history and delivery bookkeeping using SQLite backup, including WAL
+commits. Backups exclude credentials, preferences, audio, scratch and models.
+They contain private source content and server information: keep them private.
+Restore validates/stages before replacing the library, preserves the previous
+library and disables automation/publishing behind **Finish Library Review**.
+It does not change Safari, local audio or server files. See [backup/restore checks](docs/BETA_TESTING.md#4-private-library-backup-and-restore).
+
+**Troubleshooting → Enable debug logging** retains the newest 200 events in memory.
+The toggle persists; events do not survive Quit. Copy Debug Log and Clear Log
+operate on this session. Logs include sanitized HTTP outcomes/stage timings,
+never credentials, URLs, paths, source text, authorization headers or server bodies.
+
+## Development and validation
+
+The Swift package shares the native core across the app, diagnostic CLI and tests.
+Use isolated fixtures; never point tests at live library or Safari input.
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" \
+SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache" \
+swift test --cache-path "$PWD/.build/swiftpm-cache" --disable-sandbox --skip-update
+python3 -m unittest discover -s runtime/kokoro/tests
+```
+
+After changing project.pbxproj, run the
+`xcodeProjectAppSourcesUseUniqueBuildFileReferences` regression. The CLI's
+`--help` lists explicit diagnostic commands; it never uploads or enables automation.
+A safe source-discovery fixture is:
 
 ```sh
 swift build --product voicerelay
 native_bin="$(swift build --show-bin-path)"
-"$native_bin/voicerelay" doctor --config "$PWD/config.fixture.example.toml"
-"$native_bin/voicerelay" speech-fixture --project-root "$PWD" \
-  --directory "$PWD/var/speech-cli-next"
+"$native_bin/voicerelay" reading-list --plist "$PWD/Fixtures/reading-list.synthetic.plist"
 ```
 
-`speech-fixture` produces actual speech from the bundled synthetic HTML article.
-The removed `fixture` command cannot generate tones. Select an empty or previously
-owned speech workspace; existing nonempty directories, tone markers, overlap with
-imported live paths, escaped paths and missing initialized media are refused.
-Illustrative `.invalid` delivery URLs are never contacted.
+Build/fixture results do not establish GUI, Canvas, protected-file access, actual
+speech/listening, Keychain or live DAV/Overcast acceptance. Those checks are manual.
 
-For operator-run interruption/recovery, use `--interrupt-after chunk-committed`
-and repeat the same command. `--terminate-after` kills only the invoking CLI at
-an explicit checkpoint boundary; the owned helper watches parent loss. The
-following extended driver executes actual Kokoro and is not an agent-run check:
-
-```sh
-swift -I Sources/CSQLite scripts/check-process-recovery.swift "$native_bin/voicerelay" "$PWD"
-```
-
-`reading-list --plist` reports only counts. `review-url --url --directory` exports
-one private review without speech. Run `voicerelay --help` for current options.
-
-## Runtime, privacy and acceptance
-
-Runtime/model assets remain project-local and ignored: `models/`, `.runtime/`,
-`.cache/`, `.venv/`, generated `var/` and application output are not committed.
-Source, selection pins, hashed dependency lock and redistribution notices are
-versioned. Setup is explicit:
-
-```sh
-python3 runtime/kokoro/runtime_setup.py setup --download
-python3 runtime/kokoro/runtime_setup.py check
-```
-
-No startup/build/check command changes global Python or conda configuration.
-No real MLX/Metal model execution or GUI automation is performed by the agent.
-
-The earlier MLX/Metal abort and beta AppKit/linkd messages are tracked in the
-validation record. The operator's later speech success does not prove that the
-Metal scheme change caused recovery: API Validation was already unchecked.
-
-Open gates include GUI/Canvas of the new settings/library, actual reviewed-article
-speech/listening, interrupted/relaunch recovery, long-input memory and packaged
-runtime onboarding. Safari permissions must be verified in the actual app context.
-Live migration needs reviewed backups;
-WebDAV uploads, public media hosting and Overcast need deliberate independent
-acceptance before delivery is enabled.
+| Guide | Purpose |
+| --- | --- |
+| [Architecture](docs/ARCHITECTURE.md) | Current components, storage and safety boundaries |
+| [Development handoff](docs/DEVELOPMENT_HANDOFF.md) | Working context and code map |
+| [Roadmap](docs/IMPLEMENTATION_PLAN.md) | Remaining beta gates and later priorities |
+| [Beta checks](docs/BETA_TESTING.md) | Operator speech, setup, interruption and backup tests |
+| [Native UI acceptance](docs/UI_ACCEPTANCE.md) | Layout, keyboard and accessibility checks |
+| [Validation evidence](docs/VALIDATION.md) | Dated results and unverified acceptance |
+| [Approved design](docs/design/README.md) | Synthetic design record, distinct from native UI |
 
 ## License
 
 VoiceRelay is licensed under the [GNU Affero General Public License v3](LICENSE).
-Third-party dependencies and runtime/model assets retain their own licenses;
-see [Acknowledgements](Acknowledgements/Kokoro-Runtime.md) and the notices in
-`Acknowledgements/`. Downloaded runtime and model assets are not included in Git.
+Dependencies and runtime/model assets retain their own licenses; see
+[Acknowledgements](Acknowledgements/README.md). Downloaded assets are not
+included in Git. Fully bundled tools, notarization and distribution remain future
+release decisions.
+
+**Uploads** is the publishing outbox, between Articles and Server Audio. It shows
+per-item transfer progress, pending feed publication and verification failures.
+Confirmed published items leave the outbox; unresolved local cleanup conflicts
+remain with their diagnostics. Both screens have independent **Filter** menus,
+including **Needs Attention** and **Failed Verification**. Filter changes do not
+contact the server. Partially generated speech remains in Articles → Queue.
+
+Uploads rows offer **×** to discard only their tracked local copy, keeping server
+audio and saved article text. Explicitly discarded copies are not automatically
+regenerated. Failed removals remain listed for retry. Server Audio records an
+unpublished discarded copy as **Local Upload Removed**.
+
+Articles and Queue each retain their own **Website** filter. Foundation parses
+and normalizes original hosts; HTTP/HTTPS, capitalization, trailing host dots
+and `www.` aliases group together. Other subdomains stay distinct. Filtering does
+not change source URLs, processing order or automatic processing; selection
+actions apply only to visible rows.
+
+Explicit local discard also cancels matching native queue membership atomically
+with its intent, preventing an interrupted Ready job from recreating the file.
+Reading List entries and retained snapshots remain available for manual re-enqueue.
+Discarded local copies never become automatic reconciliation replacement winners.
+
+For publishing or backup guidance, open **Help → Publishing and Uploads** or
+**Help → Library Backup and Restore**. Section ⓘ controls give brief summaries;
+**More Help…** opens the corresponding guide. Help content is bundled and offline.

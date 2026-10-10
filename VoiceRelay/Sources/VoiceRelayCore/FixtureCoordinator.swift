@@ -582,8 +582,10 @@ public actor FixtureCoordinator {
             try boundary(.audioPlaced)
             // Origin metadata is captured at the commit whether or not delivery is enabled.
             e.audioHash = encodedHash; e.stage = .published; e.localAudioReleased = nil
+            e.localAudioDiscarded = nil; e.localCleanupNotice = nil
             e.author = article.author
             e.sourceHost = article.finalURL.host ?? article.originalURL.host
+            e.originalSourceHost = article.originalURL.host
             e.sourceURL = article.canonicalURL ?? article.finalURL
             e.artworkURL = article.previewImageURL
             if let delivery {
@@ -599,6 +601,7 @@ public actor FixtureCoordinator {
         if e.author == nil, e.sourceURL == nil {
             e.author = article.author
             e.sourceHost = article.finalURL.host ?? article.originalURL.host
+            e.originalSourceHost = article.originalURL.host
             e.sourceURL = article.canonicalURL ?? article.finalURL
             e.artworkURL = article.previewImageURL
             try store.save(e)

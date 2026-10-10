@@ -60,6 +60,13 @@ private final class FakeWebDAVTransport: DeliveryTransport, @unchecked Sendable 
     var propfindBodyFor: ((String) -> Data)?
     var recordedCalls: [Call] { lock.withLock { calls } }
     var methods: [String] { recordedCalls.map(\.method) }
+    func upload(_ url: URL, file: URL, headers: [String: String], progress: @escaping @Sendable (Int64, Int64) -> Void) async throws -> DeliveryResponse {
+        let bytes = Int64(try Data(contentsOf: file).count)
+        progress(bytes / 2, bytes)
+        let response = try await request("PUT", url: url, body: nil, file: file, headers: headers)
+        progress(bytes, bytes)
+        return response
+    }
     func objectLength(_ path: String) -> Int? { lock.withLock { objects[path] } }
     func body(_ path: String) -> Data? { lock.withLock { bodies[path] } }
     func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String]) async throws -> DeliveryResponse {
@@ -86,6 +93,9 @@ private final class FakeWebDAVTransport: DeliveryTransport, @unchecked Sendable 
             let href = URLComponents(url: url, resolvingAgainstBaseURL: false)!.percentEncodedPath
             let xml = "<d:multistatus xmlns:d=\"DAV:\"><d:response><d:href>\(href)</d:href><d:propstat><d:prop>\(properties)</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"
             return DeliveryResponse(status: 207, body: propfindBodyFor?(path) ?? Data(xml.utf8))
+        case "GET":
+            guard let data = lock.withLock({ bodies[path] }) else { return DeliveryResponse(status: 404) }
+            return DeliveryResponse(status: 200, headers: ["Content-Length": String(data.count)], body: data)
         case "MKCOL": return DeliveryResponse(status: 201)
         case "PUT":
             lock.withLock {
@@ -95,7 +105,7 @@ private final class FakeWebDAVTransport: DeliveryTransport, @unchecked Sendable 
             return DeliveryResponse(status: 201)
         case "HEAD":
             if let headers = headHeaders[path] { return DeliveryResponse(status: 200, headers: headers) }
-            let known = lock.withLock { headLengths[path] ?? objects[path] }
+            let known = lock.withLock { objects[path].map { headLengths[path] ?? $0 } }
             guard let known else { return DeliveryResponse(status: 404) }
             return DeliveryResponse(status: 200, headers: ["Content-Length": String(known)])
         case "DELETE":
@@ -319,16 +329,17 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     var episode = result.episode
     #expect(episode.author == "Private Author")
     #expect(episode.sourceHost == "articles.example")
+    #expect(episode.originalSourceHost == "articles.example")
     #expect(episode.sourceURL?.absoluteString == "https://articles.example/private-canonical")
     #expect(episode.delivery?.status == .pending)
     #expect(episode.delivery?.remotePath == "remote.php/dav/files/user/Podcast Feed/audio/\(episode.id).m4a")
     #expect(result.remoteDelivery == "pending")
     var legacy = try #require(JSONSerialization.jsonObject(with: Files.json(episode)) as? [String: Any])
-    for key in ["author", "sourceHost", "sourceURL", "delivery", "audioVolumeID", "manualAudioDeletionRequested"] {
+    for key in ["author", "sourceHost", "originalSourceHost", "sourceURL", "delivery", "audioVolumeID", "manualAudioDeletionRequested"] {
         legacy.removeValue(forKey: key)
     }
     let restored = try JSONDecoder().decode(Episode.self, from: JSONSerialization.data(withJSONObject: legacy))
-    #expect(restored.id == episode.id && restored.author == nil && restored.sourceURL == nil && restored.delivery == nil)
+    #expect(restored.id == episode.id && restored.author == nil && restored.sourceURL == nil && restored.delivery == nil && restored.originalSourceHost == nil)
     episode.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/x.m4a",
                                    attempts: 2, uploadedByteLength: 123, lastAttemptAt: Date(timeIntervalSince1970: 100))
     let decoded = try JSONDecoder().decode(Episode.self, from: Files.json(episode))
@@ -350,9 +361,10 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     let sequence = transport.recordedCalls.map { "\($0.method) \($0.path)" }
     let mediaPath = "/remote.php/dav/files/user/Podcast Feed/audio/\(result.episode.id).m4a"
     let feedPath = "/remote.php/dav/files/user/Podcast Feed/feed.xml"
-    #expect(sequence == ["PROPFIND /remote.php/dav/files/user/Podcast Feed",
+    #expect(sequence == ["GET \(feedPath)", "HEAD \(mediaPath)", "PROPFIND /remote.php/dav/files/user/Podcast Feed",
                          "PROPFIND /remote.php/dav/files/user/Podcast Feed/audio",
-                         "PUT \(mediaPath)", "HEAD \(mediaPath)", "PUT \(feedPath)", "HEAD \(feedPath)"])
+                         "HEAD \(mediaPath)", "PUT \(mediaPath)", "HEAD \(mediaPath)", "GET \(mediaPath)",
+                         "GET \(feedPath)", "PUT \(feedPath)", "HEAD \(feedPath)"])
     #expect(transport.recordedCalls.map(\.authorized).allSatisfy { $0 })
     let episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
     #expect(episode?.delivery?.status == .uploaded)
@@ -452,6 +464,7 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     #expect(drain.failed == 1 && drain.feedUploaded)
     let episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
     #expect(episode?.delivery?.status == .failed)
+    #expect(episode?.delivery?.verificationFailed == true)
     // The feed still uploads; the unconfirmed item is simply absent from it.
     let feedPath = "/remote.php/dav/files/user/Podcast Feed/feed.xml"
     let feed = String(decoding: try #require(transport.body(feedPath)), as: UTF8.self)
@@ -466,7 +479,7 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     #expect(automatic.uploadedMedia == 0)
     let retry = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
         credential: FakeCredentials(password: "x"), transport: transport, force: true)
-    #expect(retry.uploadedMedia == 1 && retry.feedUploaded)
+    #expect(retry.uploadedMedia == 0 && retry.feedUploaded) // Complete existing bytes are reconciled without another PUT.
     #expect(try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }?.delivery?.status == .uploaded)
 }
 
@@ -552,7 +565,7 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     let callsBefore = transport.recordedCalls.count
     _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
         credential: FakeCredentials(password: "x"), transport: transport)
-    #expect(transport.recordedCalls.dropFirst(callsBefore).allSatisfy { $0.method == "PROPFIND" })
+    #expect(transport.recordedCalls.dropFirst(callsBefore).allSatisfy { ["GET", "PROPFIND"].contains($0.method) })
     episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
     #expect(episode?.delivery?.status == .pending)
     failPut = false
@@ -580,7 +593,7 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     let callsBefore = transport.recordedCalls.count
     _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
         credential: FakeCredentials(password: "x"), transport: transport)
-    #expect(transport.recordedCalls.dropFirst(callsBefore).allSatisfy { $0.method == "PROPFIND" })
+    #expect(transport.recordedCalls.dropFirst(callsBefore).allSatisfy { ["GET", "PROPFIND"].contains($0.method) })
     // Any settings change makes auth failures eligible again.
     reject = false
     settings.publicFolderURL = URL(string: "https://podcast.example/new-show/")
@@ -609,7 +622,7 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     let second = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
         credential: FakeCredentials(password: "x"), transport: transport, force: true)
     #expect(second.feedUploaded && second.uploadedMedia == 0)
-    #expect(transport.recordedCalls.dropFirst(callsBefore).allSatisfy { $0.method == "PROPFIND" || $0.path.hasSuffix("feed.xml") })
+    #expect(transport.recordedCalls.dropFirst(callsBefore).allSatisfy { ["PROPFIND", "HEAD"].contains($0.method) || $0.path.hasSuffix("feed.xml") })
     #expect(try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }?.delivery?.status == .failed)
 }
 
@@ -669,7 +682,8 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     transport.headLengths.removeAll(); transport.davLengths.removeAll()
     let recovered = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
         credential: FakeCredentials(password: "x"), transport: transport, force: true)
-    #expect(recovered.feedUploaded && recovered.remoteDeletes == 1)
+    #expect((recovered.feedUploaded || sizeFailure) && recovered.remoteDeletes == 1)
+    // When only the receipt failed, GET confirms the already-updated feed without another PUT.
 }
 
 @Test func removeSavedAudioQueuesRemoteDeleteWithoutNetwork() async throws {
@@ -1444,4 +1458,217 @@ private func temporaryDeliveryStorage(_ root: URL) -> ManagedSpeechStorage {
     let quiet = FakeWebDAVTransport()
     _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: nil), transport: quiet)
     #expect(quiet.methods.isEmpty && confirmed.pendingRemoteDeletes.isEmpty)
+}
+
+#if canImport(Security)
+@Test func deliveryCredentialCancellationReplacesContextWithoutKeychainAccess() {
+    let store = KeychainCredentialStore(), original = store.context()
+    store.cancelAuthentication()
+    let renewed = store.context()
+    #expect(renewed !== original)
+    #expect(store.context() === renewed)
+    store.cancelAuthentication()
+    #expect(store.context() !== renewed)
+}
+#endif
+
+private final class UploadEventRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [UploadProgress] = []
+    func record(_ event: UploadProgress) { lock.withLock { events.append(event) } }
+    var snapshot: [UploadProgress] { lock.withLock { events } }
+}
+
+@Test func uploadsCleanupConflictDoesNotFailPublishingOrBlockOtherLocalCleanup() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let first = try await publishReview("conflict", storage: storage, delivery: settings)
+    let second = try await publishReview("healthy", storage: storage, delivery: settings)
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        for var episode in try store.episodes() { episode.audioFinalizationComplete = false; try store.save(episode) }
+    }
+    let remote = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: remote)
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        for var episode in try store.episodes() { episode.audioFinalizationComplete = true; try store.save(episode) }
+    }
+    let original = try Data(contentsOf: first.audioURL)
+    try Files.write(Data("unowned replacement".utf8), to: first.audioURL)
+    let idle = FakeWebDAVTransport(), log = DeliveryDebugLog(); log.enabled = true
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: nil), transport: idle, debugLog: log)
+    let episodes = try await coordinator.savedAudio(storage: storage)
+    let conflict = try #require(episodes.first { $0.id == first.episode.id })
+    let healthy = try #require(episodes.first { $0.id == second.episode.id })
+    let summary = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+    #expect(summary.lastError == nil && summary.pendingMedia == 0 && !summary.needsDrain)
+    #expect(conflict.localCleanupNotice != nil && healthy.localCleanupNotice == nil)
+    #expect(try Data(contentsOf: first.audioURL) == Data("unowned replacement".utf8))
+    #expect(!FileManager.default.fileExists(atPath: second.audioURL.path) && idle.methods.isEmpty)
+    #expect(UploadItem(episode: conflict, publication: .published).isInOutbox)
+    #expect(!UploadItem(episode: healthy, publication: .published).isInOutbox)
+    #expect(log.text.contains("local audio cleanup: verification failed") && !log.text.contains(root.path))
+    // Repairing the tracked bytes clears the durable issue on a quiet local retry.
+    try Files.write(original, to: first.audioURL)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: nil), transport: idle)
+    let repaired = try #require(try await coordinator.savedAudio(storage: storage).first { $0.id == first.episode.id })
+    #expect(repaired.localCleanupNotice == nil && !FileManager.default.fileExists(atPath: first.audioURL.path))
+    #expect(!UploadItem(episode: repaired, publication: .published).isInOutbox)
+}
+
+@Test func uploadsProgressAndFeedConfirmationRemainSeparate() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let generated = try await publishReview(storage: storage, delivery: settings), remote = FakeWebDAVTransport()
+    remote.statusFor = { method, path in method == "PUT" && path.hasSuffix("feed.xml") ? 503 : nil }
+    let recorder = UploadEventRecorder()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: LoggingDeliveryTransport(base: remote, log: DeliveryDebugLog()), progress: recorder.record)
+    let phases = recorder.snapshot.map(\.phase)
+    #expect(phases.contains(.verifyingLocal) && phases.contains(.transferring) && phases.contains(.verifyingServer))
+    #expect(phases.last == .publishing)
+    #expect(recorder.snapshot.compactMap(\.fraction).last == 1)
+    #expect(recorder.snapshot.compactMap(\.fraction).first.map { $0 > 0 && $0 < 1 } == true)
+    let episode = try #require(try await coordinator.savedAudio(storage: storage).first)
+    let summary = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+    #expect(summary.publicationStates[episode.id] == .uploaded)
+    #expect(UploadItem(episode: episode, publication: .uploaded, feedError: summary.feedError).isInOutbox)
+    remote.statusFor = nil
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: remote, force: true)
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings).publicationStates[episode.id] == .published)
+    #expect(remote.recordedCalls.filter { $0.method == "PUT" && $0.path.hasSuffix(generated.episode.id + ".m4a") }.count == 1)
+}
+
+@Test func uploadsByteProgressRequiresKnownTotalsAndDoesNotCertifyPublication() {
+    let episode = Episode(id: "synthetic", title: "Synthetic", stage: .published, settings: PrototypeProfile.fixture(at: URL(fileURLWithPath: "/synthetic")))
+    let progress = UploadProgress(episode: episode, phase: .transferring, sentBytes: 100, totalBytes: 100)
+    #expect(progress.fraction == 1)
+    #expect(UploadItem(episode: episode, publication: .awaitingUpload, progress: progress).isInOutbox)
+    #expect(UploadProgress(episode: episode, phase: .transferring, sentBytes: 5, totalBytes: -1).fraction == nil)
+    #expect(UploadProgress(episode: episode, phase: .verifyingServer, sentBytes: 100, totalBytes: 100).fraction == nil)
+    #expect(!UploadItem(episode: episode, publication: .published).isInOutbox)
+    var removing = episode; removing.manualAudioDeletionRequested = true
+    removing.delivery = DeliveryState(status: .failed, remotePath: "audio/synthetic.m4a", lastError: "Removal needs retry.")
+    #expect(!UploadItem(episode: removing, publication: .failed).isInOutbox)
+}
+
+@Test func uploadsServerRemovalFailuresRemainVisibleInHistoryWithPerItemDetails() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let generated = try await publishReview(storage: storage, delivery: settings), remote = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: remote)
+    _ = try await coordinator.removeSavedAudio(ids: [generated.episode.id], storage: storage)
+    remote.statusFor = { method, _ in method == "DELETE" ? 503 : nil }
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: remote, force: true)
+    let pending = try #require(try await coordinator.savedAudio(storage: storage).first)
+    let item = UploadItem(episode: pending, publication: .notUploaded)
+    #expect(item.phase == .removalFailed && item.detail != nil && item.phase.needsAttention)
+    #expect(!item.isInOutbox)
+    remote.statusFor = nil
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: remote, force: true)
+    #expect(try await coordinator.savedAudio(storage: storage).isEmpty)
+}
+
+@Test func uploadsExplicitRetryRevalidatesRepairedLocalBytesBeforeTransferring() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let generated = try await publishReview(storage: storage, delivery: settings), remote = FakeWebDAVTransport()
+    let original = try Data(contentsOf: generated.audioURL)
+    try Files.write(Data("substituted".utf8), to: generated.audioURL)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: remote)
+    let failed = try #require(try await coordinator.savedAudio(storage: storage).first)
+    #expect(failed.delivery?.verificationFailed == true && failed.delivery?.status == .failed)
+    #expect(!remote.recordedCalls.contains { $0.method == "PUT" && $0.path.hasSuffix(".m4a") })
+    try Files.write(original, to: generated.audioURL)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: remote, force: true)
+    let recovered = try #require(try await coordinator.savedAudio(storage: storage).first)
+    #expect(recovered.delivery?.verificationFailed != true)
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings).publicationStates[recovered.id] == .published)
+    #expect(remote.recordedCalls.filter { $0.method == "PUT" && $0.path.hasSuffix(".m4a") }.count == 1)
+    #expect(UploadItem(episode: failed, publication: .notUploaded).phase == .waiting)
+}
+
+@Test func localUploadDiscardRemovesChangedBytesButPreservesConfirmedServerAndText() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let generated = try await publishReview(storage: storage, delivery: settings), remote = FakeWebDAVTransport()
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        var episode = generated.episode; episode.audioFinalizationComplete = false; try store.save(episode)
+    }
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: remote)
+    let before = try #require(try await coordinator.savedAudio(storage: storage).first)
+    let serverBytes = remote.body("/" + settings.remoteMediaPath(before.id))
+    let feed = remote.body("/" + settings.remoteFeedPath), count = remote.recordedCalls.count
+    try Files.write(Data("partial or conflicting local bytes".utf8), to: generated.audioURL)
+    try await coordinator.discardLocalUpload(id: before.id, storage: storage)
+    let after = try #require(try await coordinator.savedAudio(storage: storage).first)
+    #expect(!FileManager.default.fileExists(atPath: generated.audioURL.path))
+    #expect(after.stage == .published && after.localAudioDiscarded == true && after.localCleanupNotice == nil)
+    #expect(after.audioHash == before.audioHash && after.info == before.info && after.delivery == before.delivery)
+    #expect(!UploadItem(episode: after, publication: .published).isInOutbox)
+    #expect(remote.recordedCalls.count == count && remote.body("/" + settings.remoteMediaPath(after.id)) == serverBytes)
+    #expect(remote.body("/" + settings.remoteFeedPath) == feed)
+    try await FixtureCoordinator().recoverTemporaryAudio(storage: storage, settings: settings)
+    #expect(try await coordinator.queue(stateRoot: storage.stateRoot).isEmpty)
+    let store = try NativeStore(url: storage.profile.database, readOnly: true)
+    #expect(try store.snapshot(articleID: after.id) != nil)
+}
+
+@Test func localUploadDiscardSuppressesAutomaticRecoveryAndTransferAfterRelaunch() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let generated = try await publishReview(storage: storage, delivery: settings)
+    let ready = try await coordinator.enqueue(deliveryReview(), storage: storage, preferences: SpeechPreferences())
+    #expect(ready.id == generated.episode.id)
+    try await coordinator.discardLocalUpload(id: generated.episode.id, storage: storage)
+    #expect(try await coordinator.queue(stateRoot: storage.stateRoot).isEmpty)
+    let restarted = FixtureCoordinator()
+    try await restarted.recoverTemporaryAudio(storage: storage, settings: settings)
+    #expect(try await restarted.queue(stateRoot: storage.stateRoot).isEmpty)
+    let episode = try #require(try await restarted.savedAudio(storage: storage).first)
+    let item = UploadItem(episode: episode, publication: .awaitingUpload)
+    #expect(item.phase == .discarded && !item.isInOutbox)
+    let remote = FakeWebDAVTransport()
+    _ = try await restarted.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: remote)
+    #expect(!remote.recordedCalls.contains { $0.method == "PUT" && $0.path.hasSuffix(".m4a") })
+    #expect(try await restarted.deliverySummary(stateRoot: storage.stateRoot, settings: settings).pendingMedia == 0)
+}
+
+@Test func localUploadDiscardRetainsReplacedOrLinkedFilesAndDurableRetryNotice() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), coordinator = FixtureCoordinator()
+    let generated = try await publishReview(storage: storage)
+    await coordinator.setBeforeOwnedAudioUnlink { file in try? Files.write(Data("replacement during unlink".utf8), to: file) }
+    await #expect(throws: RelayError.self) { try await coordinator.discardLocalUpload(id: generated.episode.id, storage: storage) }
+    await coordinator.setBeforeOwnedAudioUnlink(nil)
+    #expect(try Data(contentsOf: generated.audioURL) == Data("replacement during unlink".utf8))
+    let failed = try #require(try await coordinator.savedAudio(storage: storage).first)
+    #expect(failed.localAudioDiscarded == true && failed.localCleanupNotice != nil)
+    #expect(UploadItem(episode: failed, publication: .notUploaded).isInOutbox)
+    let unrelated = root.appendingPathComponent("unrelated.m4a")
+    try Files.write(Data("unrelated".utf8), to: unrelated)
+    try FileManager.default.removeItem(at: generated.audioURL)
+    try FileManager.default.createSymbolicLink(at: generated.audioURL, withDestinationURL: unrelated)
+    await #expect(throws: RelayError.self) { try await coordinator.discardLocalUpload(id: generated.episode.id, storage: storage) }
+    #expect(try Data(contentsOf: unrelated) == Data("unrelated".utf8))
+    try FileManager.default.removeItem(at: generated.audioURL)
+    try await coordinator.discardLocalUpload(id: generated.episode.id, storage: storage)
+    #expect(try await coordinator.savedAudio(storage: storage).first?.localCleanupNotice == nil)
+}
+
+@Test func localUploadDiscardPreservesLegacyChangedFilesAndAllowsDeliberateRegeneration() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let legacy = try deliveryStorage(root: root), coordinator = FixtureCoordinator()
+    let generated = try await publishReview(storage: legacy)
+    try Files.write(Data("changed legacy file".utf8), to: generated.audioURL)
+    await #expect(throws: RelayError.self) { try await coordinator.discardLocalUpload(id: generated.episode.id, storage: legacy) }
+    #expect(try Data(contentsOf: generated.audioURL) == Data("changed legacy file".utf8))
+    let nextRoot = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: nextRoot) }
+    let temporary = temporaryDeliveryStorage(nextRoot)
+    let initial = try await publishReview(storage: temporary)
+    try await coordinator.discardLocalUpload(id: initial.episode.id, storage: temporary)
+    let regenerated = try await publishReview(storage: temporary)
+    #expect(regenerated.episode.id == initial.episode.id && regenerated.episode.localAudioDiscarded == nil)
+    #expect(regenerated.episode.localCleanupNotice == nil && FileManager.default.fileExists(atPath: regenerated.audioURL.path))
 }

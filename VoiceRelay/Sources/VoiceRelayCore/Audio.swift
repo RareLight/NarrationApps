@@ -17,7 +17,7 @@ struct AudioProcessor: Sendable {
         if let hash, let cached = inspection.info(hash) { return cached }
         let data = try ToolRunner.run(settings.ffprobe,
             ["-v", "error", "-show_streams", "-show_format", "-of", "json", url.path],
-            timeout: settings.toolTimeoutSeconds, directory: toolDirectory)
+            timeout: settings.toolTimeoutSeconds, directory: toolDirectory, invalidInputIsArtifact: true)
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let streams = obj["streams"] as? [[String: Any]], streams.count == 1,
               let stream = streams.first, stream["codec_type"] as? String == "audio",
@@ -50,7 +50,7 @@ struct AudioProcessor: Sendable {
         if inspection.isDecoded(hash) { return }
         _ = try ToolRunner.run(settings.ffmpeg,
             ["-nostdin", "-v", "error", "-xerror", "-i", url.path, "-map", "0:a:0", "-f", "null", "-"],
-            timeout: settings.toolTimeoutSeconds, directory: toolDirectory)
+            timeout: settings.toolTimeoutSeconds, directory: toolDirectory, invalidInputIsArtifact: true)
         inspection.markDecoded(hash)
     }
     func validate(_ result: SynthesisResult, within directory: URL) throws {

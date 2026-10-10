@@ -160,6 +160,7 @@ public enum DeliveryError: Error, LocalizedError, Sendable, Equatable {
     static let verificationNotice = "The remote copy size could not be confirmed; the upload is treated as unfinished."
     static func classify(_ status: Int) -> DeliveryError {
         switch status {
+        case 412: .retryable("The server copy changed during publishing; reconciliation will retry automatically.")
         case 401: .authFailed("Delivery credentials were rejected (HTTP 401).")
         case 403: .permissionDenied(permissionNotice)
         case 500...599: .retryable("The delivery endpoint is unavailable (HTTP \(status)). Upload retries automatically.")
@@ -274,9 +275,18 @@ public final class SessionDeliveryCredentialStore: DeliveryCredentialStore, @unc
 /// macOS Keychain generic-password items keyed by host:username. No password is logged or returned elsewhere.
 public final class KeychainCredentialStore: DeliveryCredentialStore, @unchecked Sendable {
     public static let service = "VoiceRelay Podcast Upload"
-    private let authenticationContext = LAContext()
+    private let contextLock = NSLock()
+    private var authenticationContext = LAContext()
     public init() { authenticationContext.localizedReason = "Unlock VoiceRelay delivery for this app session." }
-    public func cancelAuthentication() { authenticationContext.invalidate() }
+    public func cancelAuthentication() {
+        let cancelled = contextLock.withLock {
+            let previous = authenticationContext
+            authenticationContext = LAContext()
+            authenticationContext.localizedReason = "Unlock VoiceRelay delivery for this app session."
+            return previous
+        }
+        cancelled.invalidate()
+    }
     func base(_ username: String, _ host: String) -> [String: Any] {
         let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let host = host.lowercased()
@@ -292,8 +302,8 @@ public final class KeychainCredentialStore: DeliveryCredentialStore, @unchecked 
         }
         return access
     }
-    private func context() -> LAContext {
-        authenticationContext
+    func context() -> LAContext {
+        contextLock.withLock { authenticationContext }
     }
     public func hasPassword(username: String, host: String) throws -> Bool {
         var query = base(username, host)
@@ -362,9 +372,8 @@ public struct DeliveryResponse: Sendable, Equatable {
     public init(status: Int, headers: [String: String] = [:], body: Data = Data()) {
         self.status = status; self.headers = headers; self.body = body
     }
-    public var contentLength: Int64? {
-        headers.first(where: { $0.key.lowercased() == "content-length" }).flatMap { Self.byteCount($0.value) }
-    }
+    func header(_ name: String) -> String? { headers.first { $0.key.lowercased() == name.lowercased() }?.value }
+    public var contentLength: Int64? { header("content-length").flatMap(Self.byteCount) }
     static func byteCount(_ text: String) -> Int64? {
         let digits = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !digits.isEmpty, digits.utf8.allSatisfy({ (48...57).contains($0) }) else { return nil }
@@ -374,15 +383,27 @@ public struct DeliveryResponse: Sendable, Equatable {
 
 public protocol DeliveryTransport: Sendable {
     func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String]) async throws -> DeliveryResponse
+    func upload(_ url: URL, file: URL, headers: [String: String], progress: @escaping @Sendable (Int64, Int64) -> Void) async throws -> DeliveryResponse
+    func read(_ url: URL, headers: [String: String], maximumBytes: Int64) async throws -> DeliveryResponse
+    func digest(_ url: URL, headers: [String: String], maximumBytes: Int64) async throws -> RemoteAudioDigest
+    func verifiedAudio(_ url: URL, headers: [String: String], maximumBytes: Int64, settings: PrototypeProfile) async throws -> VerifiedRemoteAudio
+}
+
+extension DeliveryTransport {
+    /// Injected transports can omit byte reporting; the UI then uses an indeterminate indicator.
+    public func upload(_ url: URL, file: URL, headers: [String: String], progress: @escaping @Sendable (Int64, Int64) -> Void) async throws -> DeliveryResponse {
+        try await request("PUT", url: url, body: nil, file: file, headers: headers)
+    }
 }
 
 /// Opt-in, bounded session log. Events cannot carry endpoints, account names, secrets or server bodies.
 public final class DeliveryDebugLog: @unchecked Sendable {
-    public enum Method: String, Sendable { case propfind = "PROPFIND", mkcol = "MKCOL", put = "PUT", head = "HEAD", delete = "DELETE" }
+    public enum Method: String, Sendable { case get = "GET", propfind = "PROPFIND", mkcol = "MKCOL", put = "PUT", head = "HEAD", delete = "DELETE" }
     public enum Folder: String, Sendable { case root, feed, audio }
     public enum SizeResult: String, Sendable { case matched, unavailable, mismatch, unsupported }
     public enum Failure: String, Sendable { case credentials, keychain, permissions, transport, configuration, cancelled }
     public enum ArchiveResult: String, Sendable { case lookup, recovered, unavailable }
+    public enum Reconciliation: String, Sendable { case started, unchanged, deferred, serverPreferred, localPreferred, metadataRepaired, itemFailed, finished }
     public enum Event: Sendable {
         case credentialPresence(Bool), credentialRead, credentialCacheHit, credentialSaved, credentialRemoved
         case connectionStarted, connectionVerified, connectionFoldersPending, deliveryStarted, deliveryFinished
@@ -393,8 +414,12 @@ public final class DeliveryDebugLog: @unchecked Sendable {
         case speechEncoding(Double, Double)
         case speechFinalizerWaiting(Int?), speechFinalizerAcquired(Double, Int?)
         case articleArchive(ArticleArchive, ArchiveResult), articleArchiveSkipped
+        case reconciliation(Reconciliation)
+        case localCleanupFailed
         var message: String {
             switch self {
+            case .localCleanupFailed: "local audio cleanup: verification failed; file retained"
+            case .reconciliation(let result): "server reconciliation: \(result.rawValue)"
             case .articleArchive(let provider, let result): "article archive: \(provider.rawValue) \(result.rawValue)"
             case .articleArchiveSkipped: "article archive: skipped (URL not eligible)"
             case .credentialPresence(let present): "credential presence: \(present ? "stored" : "missing")"
@@ -476,6 +501,13 @@ public struct LoggingDeliveryTransport: DeliveryTransport {
     public let base: any DeliveryTransport
     public let log: DeliveryDebugLog
     public init(base: any DeliveryTransport, log: DeliveryDebugLog) { self.base = base; self.log = log }
+    public func upload(_ url: URL, file: URL, headers: [String: String], progress: @escaping @Sendable (Int64, Int64) -> Void) async throws -> DeliveryResponse {
+        log.record(.request(.put))
+        do {
+            let response = try await base.upload(url, file: file, headers: headers, progress: progress)
+            log.record(.response(.put, response.status)); return response
+        } catch { log.recordFailure(error); throw error }
+    }
     public func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String]) async throws -> DeliveryResponse {
         let known = DeliveryDebugLog.Method(rawValue: method)
         if let known { log.record(.request(known)) }
@@ -490,15 +522,22 @@ public struct LoggingDeliveryTransport: DeliveryTransport {
 /// Ephemeral URLSession transport. Every redirect is refused; credentials are already
 /// constrained to the configured origin by WebDAVClient before they reach a request.
 public final class URLSessionDeliveryTransport: DeliveryTransport, @unchecked Sendable {
-    private let timeout: TimeInterval
+    let timeout: TimeInterval
     public init(timeout: TimeInterval = 60) { self.timeout = timeout }
+    public func upload(_ url: URL, file: URL, headers: [String: String], progress: @escaping @Sendable (Int64, Int64) -> Void) async throws -> DeliveryResponse {
+        try await request("PUT", url: url, body: nil, file: file, headers: headers, progress: progress)
+    }
     public func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String]) async throws -> DeliveryResponse {
+        try await request(method, url: url, body: body, file: file, headers: headers, progress: nil)
+    }
+    private func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String],
+                         progress: (@Sendable (Int64, Int64) -> Void)?) async throws -> DeliveryResponse {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil; configuration.httpCookieStorage = nil
         configuration.urlCredentialStorage = nil; configuration.httpShouldSetCookies = false
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = timeout; configuration.timeoutIntervalForResource = timeout
-        let session = URLSession(configuration: configuration, delegate: DeliverySessionDelegate(), delegateQueue: nil)
+        let session = URLSession(configuration: configuration, delegate: DeliverySessionDelegate(progress: progress), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         do {
             let request = try await withTaskCancellationHandler {
@@ -544,6 +583,16 @@ public final class URLSessionDeliveryTransport: DeliveryTransport, @unchecked Se
 }
 
 final class DeliverySessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let progress: (@Sendable (Int64, Int64) -> Void)?
+    private var lastProgressAt: TimeInterval = 0
+    init(progress: (@Sendable (Int64, Int64) -> Void)? = nil) { self.progress = progress }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastProgressAt >= 0.15 || totalBytesSent == totalBytesExpectedToSend else { return }
+        lastProgressAt = now
+        progress?(totalBytesSent, totalBytesExpectedToSend)
+    }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
         completionHandler(nil)
@@ -551,6 +600,15 @@ final class DeliverySessionDelegate: NSObject, URLSessionTaskDelegate, @unchecke
     func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         completionHandler(.performDefaultHandling, nil)
+    }
+}
+
+private final class UploadVerificationStage: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = true
+    var verifying: Bool {
+        get { lock.withLock { value } }
+        set { lock.withLock { value = newValue } }
     }
 }
 
@@ -583,7 +641,7 @@ public struct WebDAVClient: Sendable {
         // Session stores report actual Keychain reads and cache hits separately.
         if !(credential is SessionDeliveryCredentialStore) { debugLog?.record(.credentialRead) }
     }
-    private func remoteURL(_ remotePath: String, directory: Bool = false) throws -> URL {
+    func remoteURL(_ remotePath: String, directory: Bool = false) throws -> URL {
         guard let base = settings.feedFolderURL, var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { throw DeliveryError.fatal("Delivery endpoint is not configured.") }
         let segments: [String]
         do { segments = try DeliverySettings.pathSegments(remotePath) }
@@ -597,7 +655,7 @@ public struct WebDAVClient: Sendable {
         return url.scheme?.lowercased() == base.scheme?.lowercased()
             && url.host?.lowercased() == base.host?.lowercased() && port(url) == port(base)
     }
-    private func headers(for url: URL, extra: [String: String]) throws -> [String: String] {
+    func headers(for url: URL, extra: [String: String]) throws -> [String: String] {
         var headers = extra
         guard let base = settings.feedFolderURL else { throw DeliveryError.authFailed(DeliveryError.authNotice) }
         guard Self.sameOrigin(url, base: base) else { return headers }
@@ -643,13 +701,18 @@ public struct WebDAVClient: Sendable {
     }
     @discardableResult
     private func perform(_ method: String, remotePath: String, body: Data? = nil, file: URL? = nil,
-                         contentType: String? = nil, directory: Bool = false, acceptable: (Int) -> Bool) async throws -> DeliveryResponse {
+                         contentType: String? = nil, directory: Bool = false, progress: (@Sendable (Int64, Int64) -> Void)? = nil, extraHeaders: [String: String] = [:], acceptable: (Int) -> Bool) async throws -> DeliveryResponse {
         let target = try remoteURL(remotePath, directory: directory)
-        var extra: [String: String] = [:]
-        if method == "HEAD" { extra["Accept-Encoding"] = "identity"; extra["Cache-Control"] = "no-cache" }
+        var extra = extraHeaders
+        if method == "HEAD" { extra["Accept-Encoding"] = "identity"; extra["Cache-Control"] = "no-cache"; extra["Want-Repr-Digest"] = "sha-256=10" }
         if let contentType { extra["Content-Type"] = contentType }
-        let response = try await transport.request(method, url: target, body: body, file: file,
+        let response: DeliveryResponse
+        if let file, let progress {
+            response = try await transport.upload(target, file: file, headers: try headers(for: target, extra: extra), progress: progress)
+        } else {
+            response = try await transport.request(method, url: target, body: body, file: file,
                                                    headers: try headers(for: target, extra: extra))
+        }
         guard acceptable(response.status) else { throw DeliveryError.classify(response.status) }
         return response
     }
@@ -670,24 +733,30 @@ public struct WebDAVClient: Sendable {
         try await requireCollection(remotePath: path, role: role, level: level)
     }
     /// Complete-byte upload; confirm length through HEAD or DAV:getcontentlength.
-    public func uploadFile(_ local: URL, remotePath: String) async throws {
+    @discardableResult
+    public func uploadFile(_ local: URL, remotePath: String, onlyIfMissing: Bool = false, progress: (@Sendable (Int64, Int64) -> Void)? = nil,
+                           verifying: (@Sendable () -> Void)? = nil) async throws -> DeliveryResponse {
         guard let bytes = try local.resourceValues(forKeys: [.fileSizeKey]).fileSize, bytes >= 0 else {
             throw DeliveryError.fatal("The local audio size could not be read; no upload was attempted.")
         }
         let size = Int64(bytes)
-        _ = try await perform("PUT", remotePath: remotePath, file: local, contentType: "audio/mp4") { (200...299).contains($0) }
-        try await verify(remotePath: remotePath, expected: size)
+        _ = try await perform("PUT", remotePath: remotePath, file: local, contentType: "audio/mp4", progress: progress, extraHeaders: onlyIfMissing ? ["If-None-Match": "*"] : [:]) { (200...299).contains($0) }
+        verifying?()
+        return try await verify(remotePath: remotePath, expected: size)
     }
-    public func uploadData(_ data: Data, remotePath: String, contentType: String = "application/rss+xml") async throws {
-        _ = try await perform("PUT", remotePath: remotePath, body: data, contentType: contentType) { (200...299).contains($0) }
-        try await verify(remotePath: remotePath, expected: Int64(data.count))
+    public func uploadData(_ data: Data, remotePath: String, contentType: String = "application/rss+xml", ifMatch: String? = nil, onlyIfMissing: Bool = false) async throws {
+        var preconditions: [String: String] = [:]
+        if let ifMatch { preconditions["If-Match"] = ifMatch }
+        else if onlyIfMissing { preconditions["If-None-Match"] = "*" }
+        _ = try await perform("PUT", remotePath: remotePath, body: data, contentType: contentType, extraHeaders: preconditions) { (200...299).contains($0) }
+        _ = try await verify(remotePath: remotePath, expected: Int64(data.count))
     }
-    private func verify(remotePath: String, expected: Int64) async throws {
+    private func verify(remotePath: String, expected: Int64) async throws -> DeliveryResponse {
         let head = try await perform("HEAD", remotePath: remotePath) { (200...299).contains($0) || [405, 501].contains($0) }
         let headResult: DeliveryDebugLog.SizeResult = [405, 501].contains(head.status) ? .unsupported
             : head.contentLength == nil ? .unavailable : head.contentLength == expected ? .matched : .mismatch
         debugLog?.record(.sizeCheck(.head, headResult))
-        if headResult == .matched { return }
+        if headResult == .matched { return head }
         // HEAD may omit a length or describe a negotiated representation. Ask the DAV
         // resource itself for its unencoded length, never the XML response body's size.
         let target = try remoteURL(remotePath)
@@ -701,6 +770,7 @@ public struct WebDAVClient: Sendable {
         guard result == .matched else {
             throw DeliveryError.fatal(DeliveryError.verificationNotice)
         }
+        return response
     }
     /// Remote removal mirrors local retirement; an absent copy is already retired.
     public func delete(remotePath: String) async throws {
@@ -797,9 +867,19 @@ public struct DeliveryLedger: Codable, Sendable, Equatable {
     public var lastAttemptAt: Date?
     public var settingsHash: String?
     public var destinationURL: URL?
+    var serverAudioProofs: [String: ServerAudioProof]?
+    var reconciledFeed: Data?
+    var reconciledFeedETag: String?
+    var reconciledAt: Date?
+    public var reconciliationAttemptAt: Date?
+    var reconciliationError: String?
+    var preservedServerItems: [String]?
+    var blockedServerIDs: [String]?
+    var serverFeedUnsafe: Bool?
+    var reconciledQueueIDs: [String]?
     public init() {}
     public static func fileURL(stateRoot: URL) -> URL { stateRoot.appendingPathComponent("private/delivery.json") }
-    public static func load(stateRoot: URL) throws -> DeliveryLedger {
+    public static func load(stateRoot: URL, preserveCorrupt: Bool = true) throws -> DeliveryLedger {
         let url = fileURL(stateRoot: stateRoot)
         guard FileManager.default.fileExists(atPath: url.path) else { return DeliveryLedger() }
         let data: Data
@@ -808,7 +888,7 @@ public struct DeliveryLedger: Codable, Sendable, Equatable {
         }
         do { return try JSONDecoder().decode(DeliveryLedger.self, from: data) } catch {
             let preserved = url.appendingPathExtension("corrupt-\(Int(Date().timeIntervalSince1970))")
-            try? FileManager.default.moveItem(at: url, to: preserved)
+            if preserveCorrupt { try? FileManager.default.moveItem(at: url, to: preserved) }
             throw RelayError.storage("The delivery ledger is corrupt; the original was preserved alongside it.")
         }
     }
@@ -859,6 +939,8 @@ public struct DeliverySummary: Sendable, Equatable {
     public var publicationStates: [String: DeliveryPublicationStatus] = [:]
     public var publicationAudioHashes: [String: String] = [:]
     public var publicationSettingsHash: String?
+    public var verificationFailedIDs: Set<String> = []
+    public var feedError: String?
     public init() {}
     public var needsDrain: Bool { pendingMedia > 0 || pendingRemoteDeletes > 0 || remoteFeedPending }
 }
@@ -868,16 +950,21 @@ extension FixtureCoordinator {
     public func deliverySummary(stateRoot: URL, settings: DeliverySettings? = nil) throws -> DeliverySummary {
         var summary = DeliverySummary()
         let database = PrototypeProfile.fixture(at: stateRoot).database
-        guard FileManager.default.fileExists(atPath: database.path) else { return summary }
         let ledger = try DeliveryLedger.load(stateRoot: stateRoot)
         summary.remoteFeedPending = ledger.remoteFeedPending
         summary.pendingRemoteDeletes = ledger.pendingRemoteDeletes.count
         summary.feedUploaded = ledger.lastUploadedFeedHash != nil
-        summary.lastError = ledger.lastError
+        summary.lastError = ledger.lastError ?? ledger.reconciliationError
+        summary.verificationFailedIDs = Set(ledger.blockedServerIDs ?? [])
+        summary.feedError = ledger.remoteFeedPending ? ledger.lastError ?? ledger.reconciliationError : nil
+        guard FileManager.default.fileExists(atPath: database.path) else { return summary }
         let store = try NativeStore(url: database, readOnly: true)
         let episodes = try store.episodes().filter { $0.stage == .published }
         if let settings = try settings?.normalized() {
-            let candidate = (try? RemoteChannel(settings: settings)).flatMap { try? RSS.renderRemote(episodes, channel: $0) }
+            if ledger.destinationURL != settings.feedFolderURL {
+                summary.verificationFailedIDs = []; summary.feedError = nil
+            }
+            let candidate = (try? RemoteChannel(settings: settings)).flatMap { try? RSS.renderReconciledRemote(episodes, channel: $0, preserved: ledger.preservedServerItems ?? []) }
             if let candidate, ledger.lastUploadedFeedHash != Files.hash(candidate) { summary.remoteFeedPending = true }
             let identity = try? settings.publicationHash()
             summary.publicationSettingsHash = identity
@@ -901,12 +988,16 @@ extension FixtureCoordinator {
             }
         }
         for episode in episodes {
+            if episode.localAudioDiscarded == true && episode.delivery?.status != .uploaded { continue }
             switch episode.delivery?.status {
             case .pending: summary.pendingMedia += 1
             case .uploaded: summary.uploadedMedia += 1
             case .failed: summary.failedMedia += 1
             case nil: break
             }
+        }
+        if episodes.isEmpty && ledger.reconciledFeed == nil && (ledger.preservedServerItems ?? []).isEmpty && ledger.pendingRemoteDeletes.isEmpty {
+            summary.remoteFeedPending = false
         }
         return summary
     }
@@ -917,7 +1008,13 @@ extension FixtureCoordinator {
         let database = PrototypeProfile.fixture(at: stateRoot).database
         guard FileManager.default.fileExists(atPath: database.path) else { return false }
         let store = try NativeStore(url: database, readOnly: true)
-        return try store.existingEpisode(sourceKey: "reviewed-url-v1-" + Files.hash(Data(url.absoluteString.utf8))) != nil
+        if try store.existingEpisode(sourceKey: "reviewed-url-v1-" + Files.hash(Data(url.absoluteString.utf8))) != nil { return true }
+        // An old feed can lack original-source fingerprints. An exact article-link
+        // match to recovered remote-only history still prevents automatic duplication.
+        return try store.query("SELECT record FROM episodes WHERE source_key LIKE 'remote-episode-v1-%'").contains { row in
+            let episode = try JSONDecoder().decode(Episode.self, from: Data(row[0].utf8))
+            return episode.stage == .published && episode.originalSourceIdentity == nil && episode.sourceURL == url
+        }
     }
     static func deliveryBackoff(_ attempts: Int) -> TimeInterval {
         min(60 * pow(2, Double(max(0, attempts - 1))), 1800)
@@ -948,23 +1045,26 @@ extension FixtureCoordinator {
     @discardableResult
     public func deliverPending(storage: ManagedSpeechStorage, settings: DeliverySettings,
                                credential: any DeliveryCredentialStore, transport: any DeliveryTransport,
-                               force: Bool = false, now: Date = Date(), debugLog: DeliveryDebugLog? = nil) async throws -> DeliveryResult {
+                               force: Bool = false, now: Date = Date(), debugLog: DeliveryDebugLog? = nil,
+                               progress: (@Sendable (UploadProgress) -> Void)? = nil) async throws -> DeliveryResult {
         try Task.checkCancellation()
         try storage.validate()
         let settings = try settings.normalized()
         try settings.validate()
         var result = DeliveryResult()
         guard settings.enabled else { result.skipped = true; return result }
+        try await reconcileServerAutomatically(storage: storage, settings: settings, credential: credential,
+            transport: transport, force: force, now: now, debugLog: debugLog)
         let root = storage.stateRoot.resolvingSymlinksInPath().standardizedFileURL
         guard activeDeliveryRoots.insert(root.path).inserted else {
             throw RelayError.setup("A delivery drain is already uploading this library.")
         }
         defer { activeDeliveryRoots.remove(root.path) }
         let database = PrototypeProfile.fixture(at: root).database
-        guard FileManager.default.fileExists(atPath: database.path) else { return result }
         var ledger = try DeliveryLedger.load(stateRoot: root)
-        let store = try PipelineStore(databaseURL: database)
         let settingsHash = try settings.settingsHash()
+        guard FileManager.default.fileExists(atPath: database.path) else { return result }
+        let store = try PipelineStore(databaseURL: database)
         if ledger.destinationURL != settings.feedFolderURL {
             // Preserve copies at the old destination; never delete them on a new host.
             ledger.pendingRemoteDeletes = []
@@ -976,10 +1076,13 @@ extension FixtureCoordinator {
             // Explicit Upload Now also recovers saved size-verification failures and
             // password changes, which never enter the settings hash.
             for var episode in try store.published()
-                where episode.delivery?.status == .failed && [DeliveryError.authNotice, DeliveryError.permissionNotice, DeliveryError.verificationNotice].contains(episode.delivery?.lastError ?? "") {
+                where episode.localAudioDiscarded != true && episode.delivery?.status == .failed && ledger.blockedServerIDs?.contains(episode.id) != true
+                    && ((force && episode.delivery?.verificationFailed == true)
+                        || [DeliveryError.authNotice, DeliveryError.permissionNotice, DeliveryError.verificationNotice].contains(episode.delivery?.lastError ?? "")) {
                 episode.delivery?.status = .pending
                 episode.delivery?.attempts = 0
                 episode.delivery?.lastError = nil
+                episode.delivery?.verificationFailed = nil
                 episode.delivery?.nextAttemptAt = nil
                 try store.save(episode)
             }
@@ -994,24 +1097,27 @@ extension FixtureCoordinator {
         var ledgerChanged = Self.reconcileRemoteDeletes(episodes, settings: settings, ledger: &ledger)
         let published = episodes.filter { $0.stage == .published }
         if !ledger.remoteFeedPending,
-           let candidate = try? RSS.renderRemote(published, channel: RemoteChannel(settings: settings)),
+           let candidate = try? RSS.renderReconciledRemote(published, channel: RemoteChannel(settings: settings), preserved: ledger.preservedServerItems ?? []),
            ledger.lastUploadedFeedHash != Files.hash(candidate) {
             ledger.remoteFeedPending = true
             ledgerChanged = true
         }
         if ledgerChanged { try ledger.save(stateRoot: root) }
         let mediaDue = published.contains { episode in
+            guard episode.localAudioDiscarded != true else { return false }
             guard let delivery = episode.delivery else { return true }
             if delivery.status == .uploaded && (delivery.destinationURL != settings.feedFolderURL
                 || delivery.remotePath != settings.remoteMediaPath(episode.id)) { return true }
             return delivery.status == .pending && (force || delivery.nextAttemptAt == nil || delivery.nextAttemptAt! <= now)
         }
-        let feedPending = ledger.remoteFeedPending || ledger.lastUploadedFeedHash == nil
+        let hasFeedContent = !published.isEmpty || ledger.reconciledFeed != nil
+            || !(ledger.preservedServerItems ?? []).isEmpty || !ledger.pendingRemoteDeletes.isEmpty
+        let feedPending = hasFeedContent && (ledger.remoteFeedPending || ledger.lastUploadedFeedHash == nil)
         let feedDue = feedPending && (force || ledger.feedAttempts == 0 || ledger.lastAttemptAt == nil
             || now >= ledger.lastAttemptAt! + Self.deliveryBackoff(ledger.feedAttempts))
         let deletesDue = !feedPending && !ledger.pendingRemoteDeletes.isEmpty
         guard force || mediaDue || feedDue || deletesDue else {
-            try releaseConfirmedTemporaryAudio(storage: storage, settings: settings)
+            try releaseTemporaryAudio(storage: storage, settings: settings, continueOnFailure: true, debugLog: debugLog)
             return result
         }
         let client: WebDAVClient
@@ -1032,7 +1138,7 @@ extension FixtureCoordinator {
             default: notice = nil
             }
             if let notice {
-                for var episode in try store.published() where episode.delivery?.status == .pending {
+                for var episode in try store.published() where episode.localAudioDiscarded != true && episode.delivery?.status == .pending {
                     episode.delivery?.status = .failed
                     episode.delivery?.lastError = notice
                     episode.delivery?.lastAttemptAt = now
@@ -1045,12 +1151,19 @@ extension FixtureCoordinator {
         // Media uploads first; the remote feed only references confirmed bytes.
         for var episode in try store.published() {
             try Task.checkCancellation()
+            if episode.localAudioDiscarded == true {
+                if episode.delivery?.status == .uploaded && episode.delivery?.destinationURL != settings.feedFolderURL {
+                    episode.delivery?.status = .pending; try store.save(episode)
+                }
+                continue
+            }
+            if ledger.blockedServerIDs?.contains(episode.id) == true { result.failed += 1; continue }
             var delivery = episode.delivery ?? DeliveryState(status: .pending, remotePath: settings.remoteMediaPath(episode.id))
             let expectedPath = settings.remoteMediaPath(episode.id)
             if delivery.status == .uploaded && (delivery.destinationURL != settings.feedFolderURL || delivery.remotePath != expectedPath) {
                 delivery.status = .pending
                 delivery.uploadedByteLength = nil
-                delivery.attempts = 0; delivery.nextAttemptAt = nil; delivery.lastError = nil
+                delivery.attempts = 0; delivery.nextAttemptAt = nil; delivery.lastError = nil; delivery.verificationFailed = nil
             }
             guard delivery.status == .pending else { continue }
             // A pending copy follows the configured folder and host. Persist provenance
@@ -1063,6 +1176,9 @@ extension FixtureCoordinator {
             delivery.attempts += 1
             delivery.lastAttemptAt = now
             let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
+            let progressEpisode = episode
+            let verificationStage = UploadVerificationStage()
+            progress?(UploadProgress(episode: episode, phase: .verifyingLocal))
             do {
                 // Verify the exact committed bytes before any network write; a
                 // substituted file fails the delivery rather than uploading it.
@@ -1077,8 +1193,37 @@ extension FixtureCoordinator {
                 case .unavailable:
                     throw DeliveryError.retryable("The audio folder for this item is unavailable; upload retries when it returns.")
                 }
-                try await client.uploadFile(file, remotePath: delivery.remotePath)
+                // A deferred scan must not overwrite an unseen existing copy.
+                progress?(UploadProgress(episode: episode, phase: .verifyingServer))
+                let head = try await client.audioMetadata(id: episode.id)
+                if head.status != 404 {
+                    guard let digest = try await client.recoveryDigest(id: episode.id, maximumBytes: 512 * 1024 * 1024),
+                          digest.sha256 == episode.audioHash, digest.byteLength == episode.info?.byteLength else {
+                        throw DeliveryError.retryable("An existing copy needs reconciliation; other uploads continue.")
+                    }
+                } else {
+                    verificationStage.verifying = false
+                    progress?(UploadProgress(episode: episode, phase: .transferring))
+                    let receipt = try await client.uploadFile(file, remotePath: delivery.remotePath, onlyIfMissing: true,
+                        progress: { sent, total in progress?(UploadProgress(episode: progressEpisode, phase: .transferring, sentBytes: sent, totalBytes: total)) },
+                        verifying: { verificationStage.verifying = true; progress?(UploadProgress(episode: progressEpisode, phase: .verifyingServer)) })
+                    verificationStage.verifying = true
+                    guard let hash = episode.audioHash, let info = episode.info else { throw ServerFeedParser.failure }
+                    let digest: RemoteAudioDigest
+                    if Self.representationHash(receipt.header("repr-digest")) == hash {
+                        digest = RemoteAudioDigest(status: 200, byteLength: info.byteLength, sha256: hash, etag: receipt.header("etag"))
+                    } else {
+                        guard let checked = try await client.recoveryDigest(id: episode.id, maximumBytes: info.byteLength),
+                              checked.sha256 == hash, checked.byteLength == info.byteLength else {
+                            throw DeliveryError.retryable("The uploaded media hash could not be confirmed; other uploads continue.")
+                        }
+                        digest = checked
+                    }
+                    ledger.serverAudioProofs = ledger.serverAudioProofs ?? [:]
+                    ledger.serverAudioProofs?[episode.id] = ServerAudioProof(hash: hash, info: info, etag: digest.etag, checkedAt: now)
+                }
                 delivery.status = .uploaded
+                delivery.verificationFailed = nil
                 delivery.destinationURL = settings.feedFolderURL
                 delivery.uploadedByteLength = episode.info?.byteLength
                 delivery.lastError = nil
@@ -1087,9 +1232,11 @@ extension FixtureCoordinator {
                 try store.save(episode)
                 ledger.remoteFeedPending = true
                 result.uploadedMedia += 1
+                progress?(UploadProgress(episode: episode, phase: .publishing))
             } catch let error as CancellationError {
                 throw error
             } catch let failure as DeliveryError {
+                delivery.verificationFailed = verificationStage.verifying
                 debugLog?.recordFailure(failure)
                 switch failure {
                 case .authFailed, .credentialUnavailable:
@@ -1117,7 +1264,17 @@ extension FixtureCoordinator {
                 try store.save(episode)
                 ledger.remoteFeedPending = true
                 ledger.lastError = delivery.lastError
+            } catch {
+                debugLog?.recordFailure(error)
+                delivery.status = .pending
+                delivery.lastError = "One media copy could not be synchronized; other items continued."
+                delivery.nextAttemptAt = now + Self.deliveryBackoff(delivery.attempts)
+                episode.delivery = delivery; try store.save(episode)
+                delivery.verificationFailed = verificationStage.verifying
+                episode.delivery = delivery; try store.save(episode)
+                ledger.lastError = delivery.lastError; result.retrying += 1
             }
+            if delivery.lastError != nil { progress?(UploadProgress(episode: episode, phase: delivery.verificationFailed == true ? .verificationFailed : .failed)) }
         }
         try ledger.save(stateRoot: root)
         // Self-heal remote-delete intent from durable episode records: a crash between
@@ -1127,22 +1284,27 @@ extension FixtureCoordinator {
         if reconciled { try ledger.save(stateRoot: root) }
         // Metadata-only changes (including recovered Reading List dates) need a
         // fresh feed even when every audio copy was already confirmed.
-        if let candidate = try? RSS.renderRemote(store.published(), channel: RemoteChannel(settings: settings)),
+        if let candidate = try? RSS.renderReconciledRemote(store.published(), channel: RemoteChannel(settings: settings), preserved: ledger.preservedServerItems ?? []),
            ledger.lastUploadedFeedHash != Files.hash(candidate), !ledger.remoteFeedPending {
             ledger.remoteFeedPending = true
             try ledger.save(stateRoot: root)
         }
         // Feed update gates remote deletes: a failed upload never strands listed media.
         // feedAttempts backs off retries of a failed upload; fresh pending work is due.
-        if ledger.remoteFeedPending || ledger.lastUploadedFeedHash == nil {
+        if hasFeedContent && (ledger.remoteFeedPending || ledger.lastUploadedFeedHash == nil) && ledger.serverFeedUnsafe != true {
             let feedDue = force || ledger.feedAttempts == 0 || ledger.lastAttemptAt == nil
                 || now >= ledger.lastAttemptAt! + Self.deliveryBackoff(ledger.feedAttempts)
             if feedDue {
                 do {
                     let channel = try RemoteChannel(settings: settings)
                     let published = try store.published()
-                    let feed = try RSS.renderRemote(published, channel: channel)
-                    try await client.uploadData(feed, remotePath: settings.remoteFeedPath)
+                    let feed = try RSS.renderReconciledRemote(published, channel: channel, preserved: ledger.preservedServerItems ?? [])
+                    let etag = ledger.reconciledFeedETag.flatMap { Self.strongETag($0) ? $0 : nil }
+                    if etag == nil {
+                        let current = try await client.readRecoveryFeed()
+                        guard current == ledger.reconciledFeed else { throw DeliveryError.retryable("The server feed changed; reconciliation will retry before publishing it.") }
+                    }
+                    try await client.uploadData(feed, remotePath: settings.remoteFeedPath, ifMatch: etag, onlyIfMissing: ledger.reconciledFeed == nil)
                     ledger.lastUploadedFeedHash = Files.hash(feed)
                     ledger.lastPublishedAudioHashes = Dictionary(uniqueKeysWithValues: published.compactMap { episode in
                         guard episode.delivery?.status == .uploaded, let hash = episode.audioHash else { return nil }
@@ -1153,6 +1315,7 @@ extension FixtureCoordinator {
                     ledger.feedAttempts = 0
                     ledger.lastError = nil
                     ledger.lastAttemptAt = now
+                    ledger.reconciledFeed = feed; ledger.reconciledFeedETag = nil
                     try ledger.save(stateRoot: root)
                     result.feedUploaded = true
                 } catch let error as CancellationError {
@@ -1166,7 +1329,7 @@ extension FixtureCoordinator {
                 }
             }
         }
-        if !ledger.remoteFeedPending && !ledger.pendingRemoteDeletes.isEmpty {
+        if !ledger.remoteFeedPending && ledger.serverFeedUnsafe != true && !ledger.pendingRemoteDeletes.isEmpty {
             for path in ledger.pendingRemoteDeletes {
                 do {
                     try Task.checkCancellation()
@@ -1176,6 +1339,7 @@ extension FixtureCoordinator {
                     // remote copy is gone; reconciliation never re-queues an empty path.
                     if var owner = try store.episodes().first(where: { $0.stage == .expired && $0.delivery?.remotePath == path }) {
                         owner.delivery?.remotePath = ""
+                        owner.delivery?.lastError = nil
                         try store.save(owner)
                     }
                     result.remoteDeletes += 1
@@ -1185,11 +1349,17 @@ extension FixtureCoordinator {
                 } catch {
                     debugLog?.recordFailure(error)
                     ledger.lastError = Self.deliveryNotice(error)
+                    for var owner in try store.episodes() where owner.stage == .expired && owner.delivery?.remotePath == path {
+                        owner.delivery?.lastError = ledger.lastError
+                        try store.save(owner)
+                    }
                 }
             }
             try ledger.save(stateRoot: root)
         }
-        try releaseConfirmedTemporaryAudio(storage: storage, settings: settings)
+        try releaseTemporaryAudio(storage: storage, settings: settings, continueOnFailure: true, debugLog: debugLog)
+        ledger.lastError = ledger.lastError ?? ledger.reconciliationError
+        try ledger.save(stateRoot: root)
         return result
     }
 }

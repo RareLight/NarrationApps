@@ -24,7 +24,9 @@ struct VoiceRelayCLI {
                     [--interrupt-after boundary | --terminate-after boundary]
                 voicerelay reading-list --plist /absolute/Bookmarks.plist
                 voicerelay review-url --url https://example/article --directory /private/source-review
-                    [--config /absolute/config.toml]
+                    [--use-archives] [--saved-at ISO8601] [--config /absolute/config.toml]
+                voicerelay library-backup --state-root /private/native-library --destination /private/new-backup
+                voicerelay library-restore --backup /private/library-backup --state-root /private/new-empty-library
                 doctor defaults to ./config.toml; other commands import only explicit --config.
                 reading-list reads only the explicitly selected plist and prints counts.
                 review-url fetches one selected URL and exports a private review; it produces no audio.
@@ -36,20 +38,43 @@ struct VoiceRelayCLI {
             let profile: PrototypeProfile? = (config != nil || command == "doctor")
                 ? try PrototypeProfile.load(configURL) : nil
             switch command {
+            case "library-backup":
+                guard config == nil, let root = try option("--state-root"), let destination = try option("--destination"), args.isEmpty else {
+                    throw RelayError.setup("library-backup requires explicit --state-root and --destination, without --config.")
+                }
+                let summary = try await FixtureCoordinator().backupLibrary(
+                    storage: .appStorage(stateRoot: URL(fileURLWithPath: root)), destination: URL(fileURLWithPath: destination))
+                print("PRIVATE BACKUP: \(summary.retainedArticles) articles; \(summary.episodes) episode records. No credentials or audio included.")
+            case "library-restore":
+                guard config == nil, let backup = try option("--backup"), let root = try option("--state-root"), args.isEmpty else {
+                    throw RelayError.setup("library-restore requires explicit --backup and --state-root, without --config.")
+                }
+                let destination = URL(fileURLWithPath: root)
+                guard !FileManager.default.fileExists(atPath: destination.path) else {
+                    throw RelayError.setup("CLI restore requires a new empty library location. Use Settings for replacing an existing library.")
+                }
+                _ = try await FixtureCoordinator().restoreLibrary(backup: URL(fileURLWithPath: backup), storage: .appStorage(stateRoot: destination))
+                print("PRIVATE RESTORE: staged into the explicit new library. No app preferences, audio or server files changed.")
             case "reading-list":
                 guard let path = try option("--plist"), args.isEmpty else { throw RelayError.setup("reading-list requires --plist and accepts no other options.") }
                 let snapshot = try ReadingList.read(URL(fileURLWithPath: path))
                 print("READ ONLY: \(snapshot.entries.count) Reading List entries; \(snapshot.skippedEntries) unsupported entries skipped. No source URLs or titles printed.")
             case "review-url":
+                let useArchives = args.contains("--use-archives")
+                if let index = args.firstIndex(of: "--use-archives") { args.remove(at: index) }
+                let savedAtString = try option("--saved-at")
+                let savedAt = savedAtString.flatMap { ISO8601DateFormatter().date(from: $0) }
                 guard let address = try option("--url"), let directory = try option("--directory"), args.isEmpty,
-                      let url = URL(string: address) else { throw RelayError.setup("review-url requires --url and a dedicated --directory.") }
+                      let url = URL(string: address), savedAtString == nil || savedAt != nil else {
+                    throw RelayError.setup("review-url requires --url, a dedicated --directory and a valid optional ISO8601 --saved-at.")
+                }
                 let limits = try FetchLimits(maximumBytes: profile?.maxArticleBytes ?? 10_000_000,
                                             timeout: Double(profile?.httpTimeoutSeconds ?? 30))
-                let page = try await PageFetcher(limits: limits).fetch(url)
-                let review = try ReviewedSource.prepare(page, chunkLimit: profile?.chunkMaxCharacters ?? 1800)
+                let review = try await ArticleSourceLoader(limits: limits, useArchives: useArchives).load(
+                    url, savedAt: savedAt, chunkLimit: profile?.chunkMaxCharacters ?? 1800)
                 let folder = try SourceReviewArchive.save(review, root: URL(fileURLWithPath: directory), imported: profile)
                 print("PRIVATE REVIEW: \(review.narration?.chunks.count ?? 0) narration chunks; no speech or publication.")
-                if let issue = review.issue { print("REVIEW NEEDED: \(issue.message)") }
+                if let issue = review.issueMessage { print("REVIEW NEEDED: \(issue)") }
                 print("Snapshot: \(folder.path)")
             case "doctor":
                 guard args.isEmpty, let profile else { throw RelayError.setup("Invalid doctor options.") }
@@ -91,6 +116,7 @@ struct VoiceRelayCLI {
             }
         } catch {
             let safe = (error as? RelayError)?.localizedDescription ?? (error as? SourceFetchError)?.localizedDescription
+                ?? (error as? ArticleRecoveryError)?.localizedDescription
                 ?? "Native operation failed; check setup and private artifacts."
             FileHandle.standardError.write(Data((safe + "\n").utf8)); exit(1)
         }

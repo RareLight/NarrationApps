@@ -4,6 +4,17 @@ import FoundationXML
 #endif
 
 enum RSS {
+    static func renderReconciledRemote(_ episodes: [Episode], channel: RemoteChannel, preserved: [String]) throws -> Data {
+        let normal = try renderRemote(episodes, channel: channel)
+        guard !preserved.isEmpty else { return normal }
+        let suffix = "</channel></rss>\n"
+        var text = String(decoding: normal, as: UTF8.self)
+        guard text.hasSuffix(suffix) else { throw ServerFeedParser.failure }
+        text.removeLast(suffix.count)
+        let result = Data((text + preserved.joined() + suffix).utf8)
+        guard result.count <= 4 * 1024 * 1024, XMLParser(data: result).parse() else { throw ServerFeedParser.failure }
+        return result
+    }
     static func escaped(_ text: String) -> String {
         let valid = text.unicodeScalars.filter { s in
             let v = s.value
@@ -51,7 +62,7 @@ enum RSS {
     /// blocks feed updates. An uploaded record that is internally inconsistent
     /// indicates corruption and fails the render instead.
     static func renderRemote(_ episodes: [Episode], channel: RemoteChannel) throws -> Data {
-        var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:atom=\"http://www.w3.org/2005/Atom\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><channel>"
+        var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:atom=\"http://www.w3.org/2005/Atom\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:vr=\"\(ServerRecoveryIdentity.namespace)\"><channel>"
         xml += "<title>\(escaped(channel.title))</title><link>\(escaped(channel.feedURL.absoluteString))</link><description>\(escaped(channel.description))</description><language>\(escaped(channel.language))</language><itunes:block>yes</itunes:block>"
         xml += "<atom:link href=\"\(escaped(channel.feedURL.absoluteString))\" rel=\"self\" type=\"application/rss+xml\"/>"
         let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX"); date.timeZone = TimeZone(secondsFromGMT: 0)
@@ -68,6 +79,16 @@ enum RSS {
             if let source = e.sourceURL { item += "<link>\(escaped(source.absoluteString))</link>" }
             if let creator = e.author ?? e.sourceHost { item += "<dc:creator>\(escaped(creator))</dc:creator>" }
             item += "<pubDate>\(date.string(from: when))</pubDate><enclosure url=\"\(escaped(enclosure))\" length=\"\(info.byteLength)\" type=\"audio/mp4\"/><itunes:duration>\(Int(info.duration.rounded()))</itunes:duration>\(artwork(e.artworkURL))</item>"
+            if let hash = e.audioHash, ServerRecoveryIdentity.validHash(hash) {
+                var identity = "<vr:identity sha256=\"\(hash)\""
+                if let voice = e.settings.voice { identity += " voice=\"\(escaped(voice))\"" }
+                identity += " speed=\"\(e.settings.backendSettings["speed"]?.numericValue ?? 1)\""
+                if let key = e.originalSourceIdentity, ServerRecoveryIdentity.validSource(key) { identity += " source=\"\(key)\"" }
+                if let published = e.publicationDate { identity += " publishedAt=\"\(published.formatted(.iso8601))\"" }
+                if let saved = e.readingListSavedAt { identity += " savedAt=\"\(saved.formatted(.iso8601))\"" }
+                if let origin = e.originalSourceHost { identity += " origin=\"\(escaped(origin))\"" }
+                item = item.replacingOccurrences(of: "</item>", with: identity + "/></item>")
+            }
             xml += item
         }
         xml += "</channel></rss>\n"

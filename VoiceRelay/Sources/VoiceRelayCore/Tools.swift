@@ -12,7 +12,7 @@ public enum ToolRunner {
             .first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 
-    static func run(_ tool: String, _ arguments: [String], timeout: Int, directory: URL) throws -> Data {
+    static func run(_ tool: String, _ arguments: [String], timeout: Int, directory: URL, invalidInputIsArtifact: Bool = false) throws -> Data {
         try Task.checkCancellation()
         guard let executable = locate(tool) else { throw RelayError.setup("Required audio tool is unavailable to this process.") }
         let output = directory.appendingPathComponent(".tool-\(UUID().uuidString).log")
@@ -38,7 +38,12 @@ public enum ToolRunner {
             if Date() >= deadline { stop(); throw RelayError.tool("Audio tool exceeded its configured deadline.") }
             _ = finished.wait(timeout: .now() + 0.02)
         }
-        guard process.terminationStatus == 0 else { throw RelayError.tool("Audio tool failed. Private artifacts are retained for inspection.") }
+        guard process.terminationStatus == 0 else {
+            if invalidInputIsArtifact && process.terminationReason == .exit {
+                throw RelayError.artifact("Audio inspection rejected an undecodable artifact.")
+            }
+            throw RelayError.tool("Audio tool failed. Private artifacts are retained for inspection.")
+        }
         let size = (try output.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0
         guard size <= 4_194_304 else { throw RelayError.tool("Audio tool output exceeded the inspection limit.") }
         return try Data(contentsOf: output)
