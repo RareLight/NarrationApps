@@ -474,27 +474,38 @@ extension FixtureCoordinator {
         guard let first = items.first(where: { $0.state.isReady }) else { return nil }
         return try await runQueued(first.id, storage: storage, backend: backend, onQueueChange: onQueueChange, onProgress: onProgress)
     }
-    private func waitingBatch(stateRoot: URL, allowingRunning: Bool = false) throws -> [(id: String, chunks: Int)] {
+    private func waitingBatch(stateRoot: URL, allowingRunning: Bool = false,
+                              onQueueChange: @Sendable (SpeechQueueItem) -> Void = { _ in }) throws
+        -> (ready: [(id: String, chunks: Int)], failed: [SpeechQueueItem]) {
         let items = try queue(stateRoot: stateRoot)
         guard allowingRunning || !items.contains(where: { $0.state == .running }) else { throw RelayError.setup("A queue item was interrupted. Retry it explicitly before continuing.") }
-        guard let store = try metadataReader(stateRoot) else { return [] }
+        guard let store = try metadataReader(stateRoot) else { return ([], []) }
         let episodes = Dictionary(uniqueKeysWithValues: try store.episodes().map { ($0.id, $0) })
-        return try items.filter { $0.state.isReady }.map { item in
-            guard let data = try store.snapshot(articleID: item.id) else {
-                throw RelayError.artifact("Queued article text is unavailable. Existing progress is preserved.")
+        var ready: [(id: String, chunks: Int)] = [], failed: [SpeechQueueItem] = []
+        for item in items where item.state.isReady {
+            try Task.checkCancellation()
+            do {
+                guard let data = try store.snapshot(articleID: item.id) else { throw RelayError.artifact("Missing queued text.") }
+                let review = try JSONDecoder().decode(StoredExtraction.self, from: data).review()
+                guard var plan = review.narration, !plan.chunks.isEmpty, let episode = episodes[item.id] else {
+                    throw RelayError.artifact("Unusable queued text.")
+                }
+                // Count the upgraded plan that resume will actually synthesize.
+                if episode.stage != .published, plan.version != Narration.version, let article = review.document?.article {
+                    plan = try Narration.prepare(article, limit: episode.settings.chunkMaxCharacters)
+                }
+                ready.append((item.id, plan.chunks.count))
+            } catch is CancellationError { throw CancellationError() }
+            catch {
+                if let relay = error as? RelayError {
+                    switch relay { case .storage, .writerBusy: throw relay; default: break }
+                }
+                let row = try finishQueued(item.id, state: .failed,
+                    error: "Saved article text could not be verified. Remove this queue item or restore a library backup before retrying; other items continue.", stateRoot: stateRoot)
+                failed.append(row); onQueueChange(row)
             }
-            let review = try JSONDecoder().decode(StoredExtraction.self, from: data).review()
-            guard var plan = review.narration, !plan.chunks.isEmpty,
-                  let episode = episodes[item.id] else {
-                throw RelayError.artifact("Queued article text is unavailable. Existing progress is preserved.")
-            }
-            // Resume upgrades unfinished narration. Count that same plan before running
-            // so older queued snapshots cannot under-report the new boundary chunks.
-            if episode.stage != .published, plan.version != Narration.version, let article = review.document?.article {
-                plan = try Narration.prepare(article, limit: episode.settings.chunkMaxCharacters)
-            }
-            return (item.id, plan.chunks.count)
         }
+        return (ready, failed)
     }
     /// Fixed FIFO membership prevents totals from changing when more articles are added later.
     public func runQueuedBatch(storage: ManagedSpeechStorage,
@@ -504,7 +515,8 @@ extension FixtureCoordinator {
                                onProgress: @escaping @Sendable (QueueBatchProgress) -> Void = { _ in }) async throws -> QueueBatchResult {
         try Task.checkCancellation()
         try refuseCompetingDrain(storage.stateRoot)
-        let batch = try waitingBatch(stateRoot: storage.stateRoot)
+        let planned = try waitingBatch(stateRoot: storage.stateRoot, onQueueChange: onQueueChange)
+        let batch = planned.ready
         let plannedTotal = batch.reduce(0) { $0 + $1.chunks }
         onProgress(QueueBatchProgress(stage: .extracted, completedChunks: 0, totalChunks: plannedTotal,
                                       completedArticles: 0, totalArticles: batch.count))
@@ -543,7 +555,7 @@ extension FixtureCoordinator {
         let final = QueueBatchProgress(stage: .published, completedChunks: completedChunks, totalChunks: completedChunks,
                                        completedArticles: batch.count, totalArticles: batch.count)
         onProgress(final)
-        return QueueBatchResult(lastResult: last, progress: final)
+        return QueueBatchResult(lastResult: last, progress: final, failedItems: planned.failed)
     }
     public func drainQueue(storage: ManagedSpeechStorage,
                            backend: @escaping @Sendable (Episode) throws -> any TTSBackend,
@@ -560,12 +572,12 @@ extension FixtureCoordinator {
         }
         defer { activeDrainRoots.remove(root.path) }
         // Refuse interrupted membership before allowing our own two in-flight stages.
-        _ = try waitingBatch(stateRoot: storage.stateRoot)
+        let initial = try waitingBatch(stateRoot: storage.stateRoot, onQueueChange: onQueueChange)
         let pipeline = SingleWorkerSpeechPipeline(database: storage.profile.database, debugLog: debugLog)
         let start = ProcessInfo.processInfo.systemUptime
         defer { pipeline.close(); pipeline.diagnostics.record(.queue, seconds: ProcessInfo.processInfo.systemUptime - start) }
         let progress = SpeechDrainProgress(callback: onProgress)
-        var failed: [SpeechQueueItem] = []
+        var failed = initial.failed
         var last: FixtureResult?
         var inFlight = Set<String>()
         var previous: SpeechTurn?
@@ -573,7 +585,10 @@ extension FixtureCoordinator {
         return try await withThrowingTaskGroup(of: SpeechArticleOutcome.self) { group in
             while true {
                 if Task.isCancelled || interrupted { group.cancelAll() }
-                let plans = Task.isCancelled || interrupted ? [] : try waitingBatch(stateRoot: storage.stateRoot, allowingRunning: true)
+                let planning = Task.isCancelled || interrupted ? (ready: [], failed: [])
+                    : try waitingBatch(stateRoot: storage.stateRoot, allowingRunning: true, onQueueChange: onQueueChange)
+                failed += planning.failed
+                let plans = planning.ready
                 let pending = Task.isCancelled || interrupted ? 0 : await pendingPreparationCount()
                 progress.observe(plans, pending: pending)
                 if !Task.isCancelled && !interrupted {

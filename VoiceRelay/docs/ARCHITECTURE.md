@@ -9,7 +9,7 @@ brief and checkout-migration guide are retired.
 
 | Component | Responsibility |
 | --- | --- |
-| VoiceRelayApp / SourceReviewView | App-owned lifecycle, preferences, native library/Settings/preview UI |
+| VoiceRelayApp / AppPresentation / SettingsViews / MenuBarViews / SourceReviewView / WindowPresence | App-owned lifecycle, preferences, native library/Settings/preview UI |
 | ReadingList | Read-only Safari plist parsing, durable inventory and saved-date ordering |
 | SourceReview / Extraction / ArchivedArticles | Bounded fetching, semantic extraction, quality checks and optional archive lookup |
 | SpeechQueue / FixtureCoordinator / Store | Admission, source identity, retained snapshots, queue and SQLite checkpoints |
@@ -62,6 +62,14 @@ boundaries, not publication dates or fixed-hour lookbacks. Date filters precede
 the separator and existing website count/alphabetical ordering. Filters/search
 are independent across All Articles/Queue and never change processing membership.
 
+Articles builds a fresh `ArticleListProjection` only when content/filter inputs
+change. The child selection view reuses its identity lookup and display order for
+toolbar/focused actions; selection never rebuilds the source/job union or website
+counts. No persistent content index needs invalidation. Native SwiftUI List owns
+highlighting, keyboard selection and double-click preview through its selection
+context-menu primary action. Shared app controls cover removal, selection actions
+and notices; avoid custom row highlighting or competing tap recognizers.
+
 Original URLs identify articles independently from canonical/redirected URLs.
 Snapshots preserve source, semantic blocks, narration and private provenance with
 integrity checks. Narration adds title/publisher, omits decorative separators and
@@ -94,6 +102,11 @@ and allow later Ready rows to continue. Stop abandons only interrupted speech
 scratch and returns that row to Ready, letting already-started finalization finish.
 Quit cancels/joins both stages and retains recovery checkpoints. Window closure
 never stops work; enabled automation resumes on relaunch.
+
+Queue planning validates each saved snapshot independently. Missing, corrupt or
+unusable text becomes a sanitized Failed row, while other Ready rows continue;
+failed rows require manual recovery or removal. Database-wide failures
+and interrupted-running guards remain whole-drain failures.
 
 Output is mono 24 kHz AAC-LC/M4A at 96 kbps from float intermediates, preserving
 levels/dynamics. Chunk, backend and encoding fingerprints prevent incompatible
@@ -134,6 +147,11 @@ fresh media uploads. Cadence gates, cached proofs and strong validators reduce
 network/CPU use. Restore review remains an overriding gate. See
 [conflict and efficiency rules](SERVER_RECOVERY.md).
 
+Feed PUT and matching length are insufficient to confirm publication. The app
+reads back a bounded authenticated, unencoded feed and checks exact byte length
+and SHA-256 before committing membership or permitting dependent local cleanup
+and remote deletes. Public URL mapping remains an operator check.
+
 New final media and helper/processing scratch use app-owned macOS temporary storage.
 Cleanup commits intent, checks hash/size/file identity and unlinks only after current
 media/feed confirmation. Missing unconfirmed media requeues from retained text,
@@ -157,6 +175,12 @@ scratch. Backup content remains private. Restore validates/stages before atomic
 replacement, retains the prior library and disables automation/delivery behind a
 persistent review gate, including local cleanup/server changes. No test restores
 live state. [Beta checks](BETA_TESTING.md) cover isolated and manual restoration.
+
+Library restore suspends and joins source reads/commits before replacement, then
+reloads presentation from the restored catalog even if the previous catalog was
+already loaded. Source preferences are preserved; restored automation remains
+disabled behind the persistent review gate.
+
 
 ## Native presentation and validation
 

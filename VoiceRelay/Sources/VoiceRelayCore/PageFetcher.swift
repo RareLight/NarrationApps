@@ -16,7 +16,7 @@ public enum SourceFetchError: Error, LocalizedError, Sendable, Equatable {
         case .empty: "The server returned an empty article response."
         case .redirectLimit: "Article redirect limit exceeded."
         case .insecureRedirect: "An HTTPS article redirected to HTTP; the request was stopped."
-        case .authentication: "The article requires authentication. This prototype does not use browser sessions."
+        case .authentication: "The article requires authentication. VoiceRelay does not use browser sessions."
         case .transportPolicy: "macOS transport security refused this source. Choose its HTTPS URL; the app keeps the system's transport protections."
         case .timeout: "Article fetch exceeded its deadline; retry the selected article."
         case .network: "Article fetch failed. Check connectivity and review the selected source."

@@ -81,7 +81,9 @@ struct AudioProcessor: Sendable {
                     timeout: settings.toolTimeoutSeconds, directory: toolDirectory)
                 let input = try FileHandle(forReadingFrom: pcm)
                 defer { try? input.close() }
-                while let data = try input.read(upToCount: 65_536), !data.isEmpty { try output.write(contentsOf: data) }
+                while let data = try input.read(upToCount: 65_536), !data.isEmpty {
+                    try Task.checkCancellation(); try output.write(contentsOf: data)
+                }
             }
             if index < artifacts.count - 1 {
                 try output.write(contentsOf: Data(repeating: 0, count: Int(Double(settings.sampleRate) * settings.gapSeconds) * 4))
@@ -103,8 +105,7 @@ struct AudioProcessor: Sendable {
         }
         diagnostics.recordEncoding(seconds: encodingSeconds, audioDuration: info.duration)
         let complete = directory.appendingPathComponent("episode.m4a")
-        try Files.write(try Data(contentsOf: partial), to: complete)
-        try? FileManager.default.removeItem(at: partial)
+        try Files.moveValidatedScratch(partial, to: complete)
         return (complete, info)
     }
     func publish(_ source: URL, destination: URL, expectedHash: String, inMediaDirectory: Bool = false) throws {
@@ -128,7 +129,7 @@ struct AudioProcessor: Sendable {
         }
         let candidate = staging.appendingPathComponent(inMediaDirectory ? ".\(UUID().uuidString).m4a.tmp" : destination.lastPathComponent)
         defer { try? FileManager.default.removeItem(at: candidate) }
-        try Files.write(try Data(contentsOf: source), to: candidate)
+        try Files.copy(source, to: candidate)
         guard try Files.hash(candidate, description: "staged audio") == expectedHash else { throw RelayError.artifact("Staged media integrity check failed.") }
         _ = try probe(candidate, final: true); try decode(candidate)
         try Task.checkCancellation()

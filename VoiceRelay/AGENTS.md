@@ -321,3 +321,17 @@ Audio and Settings/Quit have half the original inter-label gap. Window-opening
 items, including failure status, dismiss only their captured popover host before
 activation/opening; Sync stays open. Host capture is weak, inert in previews and
 must not mutate SwiftUI state or activate windows during layout.
+
+October 11 final polish: queue planning fails unusable snapshots per row and keeps
+healthy Ready work running. Restore suspends/joins source reads and settings
+bookkeeping before swapping libraries, then reloads the catalog for review.
+Publishing reads back bounded authenticated feed bytes and verifies SHA-256 before
+confirming membership, local cleanup or remote deletion. Settings ledger writes
+are coalesced on the coordinator; rendering uses fresh per-render projections.
+Audio staging streams bounded buffers; validated same-directory scratch is renamed.
+App presentation is split into AppPresentation, SettingsViews and MenuBarViews with
+named inert previews. Packaging stages and verifies before atomic exchange; fake
+packaging fixtures never build, sign or launch an application. CONTRIBUTING.md and
+docs/RELEASE_CHECKLIST.md describe engineering and distribution gates; historical
+validation lives separately in docs/VALIDATION_HISTORY.md. Do not bump to 1.0 or
+operate Developer ID/notarization accounts before operator acceptance/approval.

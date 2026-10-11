@@ -274,3 +274,25 @@ func singleWorkerOverlapsEncodingBoundsWorkAndJoinsCancellation(_ action: String
     #expect(!log.text.contains(root.path) && !log.text.contains("missing.sqlite"))
     #expect(!FileManager.default.fileExists(atPath: missing.path))
 }
+
+@Test func streamedArtifactCopyPreservesBytesPermissionsAndCancellation() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("voicerelay-copy-\(UUID())")
+    try Files.directory(root); defer { try? FileManager.default.removeItem(at: root) }
+    let source = root.appendingPathComponent("source"), destination = root.appendingPathComponent("destination")
+    let bytes = Data((0..<(3 * 1024 * 1024)).map { UInt8($0 % 251) })
+    try Files.write(bytes, to: source); try Files.copy(source, to: destination)
+    #expect(try Files.hash(destination) == Files.hash(bytes))
+    #expect((try FileManager.default.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+    let task = Task { try await Task.sleep(for: .seconds(30)); try Files.copy(source, to: destination) }
+    task.cancel()
+    await #expect(throws: CancellationError.self) { try await task.value }
+    #expect(try Files.hash(destination) == Files.hash(bytes))
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).sorted() == ["destination", "source"])
+    let completed = root.appendingPathComponent("completed")
+    try Files.moveValidatedScratch(source, to: completed)
+    #expect(!FileManager.default.fileExists(atPath: source.path))
+    #expect(try Files.hash(completed) == Files.hash(bytes))
+    // A failed source read never overwrites the previously committed destination.
+    #expect(throws: (any Error).self) { try Files.copy(source, to: destination) }
+    #expect(try Files.hash(destination) == Files.hash(bytes))
+}

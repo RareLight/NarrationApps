@@ -954,6 +954,16 @@ public struct DeliverySummary: Sendable, Equatable {
 }
 
 extension FixtureCoordinator {
+    public func invalidateDeliveryFeed(stateRoot: URL, settingsHash: String) throws {
+        try Task.checkCancellation()
+        guard FileManager.default.fileExists(atPath: PrototypeProfile.fixture(at: stateRoot).database.path),
+              !activeDeliveryRoots.contains(stateRoot.resolvingSymlinksInPath().standardizedFileURL.path) else { return }
+        try ManagedSpeechStorage.validateLibrary(stateRoot: stateRoot)
+        var ledger = try DeliveryLedger.load(stateRoot: stateRoot)
+        guard ledger.settingsHash != settingsHash, !ledger.remoteFeedPending else { return }
+        ledger.remoteFeedPending = true
+        try ledger.save(stateRoot: stateRoot)
+    }
     /// Durable read used by automation: a library without a database has no pending work.
     public func deliverySummary(stateRoot: URL, settings: DeliverySettings? = nil) throws -> DeliverySummary {
         var summary = DeliverySummary()
@@ -1313,7 +1323,7 @@ extension FixtureCoordinator {
                         let current = try await client.readRecoveryFeed()
                         guard current == ledger.reconciledFeed else { throw DeliveryError.retryable("The server feed changed; reconciliation will retry before publishing it.") }
                     }
-                    try await client.uploadData(feed, remotePath: settings.remoteFeedPath, ifMatch: etag, onlyIfMissing: ledger.reconciledFeed == nil)
+                    try await client.publishFeed(feed, ifMatch: etag, onlyIfMissing: ledger.reconciledFeed == nil)
                     ledger.lastUploadedFeedHash = Files.hash(feed)
                     ledger.lastPublishedAudioHashes = Dictionary(uniqueKeysWithValues: published.compactMap { episode in
                         guard episode.delivery?.status == .uploaded, let hash = episode.audioHash else { return nil }

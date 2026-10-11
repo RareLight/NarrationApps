@@ -261,7 +261,7 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     let review = SourceReviewModel(preview: true)
     await review.stop()
     await review.stop()
-    #expect(!review.busy && !review.persistenceBusy)
+    #expect(!review.busy && !review.maintenanceSuspended)
     let idle = AppModel(storage: storage)
     await idle.shutdown()
     #expect(idle.stopping && !idle.running)
@@ -323,7 +323,7 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     model.sourceReview.error = "Synthetic file-access failure; previous entries retained."
     _ = TroubleshootingView(model: model).body
     _ = ConfigurationView(model: model).body
-    #expect(model.sourceReview.catalog.entries.count == 2 && !model.sourceReview.busy && !model.sourceReview.persistenceBusy)
+    #expect(model.sourceReview.catalog.entries.count == 2 && !model.sourceReview.busy && !model.sourceReview.maintenanceSuspended)
     #expect(!model.libraryMaintenanceBusy && !model.runtimeBusy)
 }
 
@@ -399,14 +399,14 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     #expect(model.workspaceError == nil)
 }
 
-@Test @MainActor func appResumeSavedEpisodeUsesCapturedSettingsAndPreservesQueueRecovery() async throws {
+@Test @MainActor func appQueueUsesCapturedSettingsAndPreservesQueueRecovery() async throws {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let coordinator = FixtureCoordinator()
     let item = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences(voice: .bella, speed: 0.9))
-    let saved = try #require(try await coordinator.library(storage: storage).first(where: { $0.id == item.id }))
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() })
     model.queueItems = [item]
-    model.resume(saved)
+    model.preferences = SpeechPreferences(voice: .heart, speed: 1.0)
+    model.runQueue()
     await model.waitForProcessing()
     await model.waitForLibraryRefresh()
     #expect(model.result?.episode.id == item.id && model.result?.episode.stage == .published)
@@ -1748,6 +1748,7 @@ private actor FeedConfirmationGate: DeliveryTransport {
     #expect(!ledger.remoteFeedPending && ledger.settingsHash == (try? settings.settingsHash()))
     // A settings edit changes the hash and marks the feed pending for the next drain.
     model.deliverySettings.channelTitle = "Renamed Channel"
+    await model.waitForSettingsBookkeeping()
     ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
     #expect(ledger.remoteFeedPending)
     model.triggerDelivery()
@@ -2624,4 +2625,25 @@ private actor ServerDeletionGate: DeliveryTransport {
     model.refreshLibrary(allowDelivery: false); await model.waitForLibraryRefresh()
     #expect(try await coordinator.library(storage: storage).isEmpty)
     await model.shutdown()
+}
+
+@Test @MainActor func deliverySettingsBookkeepingCoalescesAndJoinsOnQuit() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    do { _ = try NativeStore(url: ManagedSpeechStorage.prepareLibrary(stateRoot: storage.stateRoot)) }
+    var ledger = DeliveryLedger(); ledger.settingsHash = try appDeliverySettings().settingsHash(); ledger.remoteFeedPending = false
+    try ledger.save(stateRoot: storage.stateRoot)
+    let model = AppModel(storage: storage, defaults: defaults)
+    model.deliverySettings = appDeliverySettings(); model.deliveryConnectionVerified = true
+    model.deliverySettings.channelTitle = "First edit"
+    model.deliverySettings.channelTitle = "Final edit"
+    #expect(!model.deliveryConnectionVerified)
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).remoteFeedPending == false)
+    await model.waitForSettingsBookkeeping()
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).remoteFeedPending)
+    ledger.remoteFeedPending = false; try ledger.save(stateRoot: storage.stateRoot)
+    model.deliverySettings.channelTitle = "Cancelled edit"
+    await model.shutdown()
+    await model.waitForSettingsBookkeeping()
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).remoteFeedPending == false)
 }

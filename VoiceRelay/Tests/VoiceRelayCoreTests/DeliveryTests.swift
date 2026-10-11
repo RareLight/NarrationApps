@@ -57,6 +57,7 @@ private final class FakeWebDAVTransport: DeliveryTransport, @unchecked Sendable 
     var headLengths: [String: Int] = [:]
     var headHeaders: [String: [String: String]] = [:]
     var davLengths: [String: Int] = [:]
+    var getResponseFor: ((String) -> DeliveryResponse?)?
     var propfindBodyFor: ((String) -> Data)?
     var recordedCalls: [Call] { lock.withLock { calls } }
     var methods: [String] { recordedCalls.map(\.method) }
@@ -94,6 +95,7 @@ private final class FakeWebDAVTransport: DeliveryTransport, @unchecked Sendable 
             let xml = "<d:multistatus xmlns:d=\"DAV:\"><d:response><d:href>\(href)</d:href><d:propstat><d:prop>\(properties)</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"
             return DeliveryResponse(status: 207, body: propfindBodyFor?(path) ?? Data(xml.utf8))
         case "GET":
+            if let override = getResponseFor?(path) { return override }
             guard let data = lock.withLock({ bodies[path] }) else { return DeliveryResponse(status: 404) }
             return DeliveryResponse(status: 200, headers: ["Content-Length": String(data.count)], body: data)
         case "MKCOL": return DeliveryResponse(status: 201)
@@ -364,7 +366,7 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     #expect(sequence == ["GET \(feedPath)", "HEAD \(mediaPath)", "PROPFIND /remote.php/dav/files/user/Podcast Feed",
                          "PROPFIND /remote.php/dav/files/user/Podcast Feed/audio",
                          "HEAD \(mediaPath)", "PUT \(mediaPath)", "HEAD \(mediaPath)", "GET \(mediaPath)",
-                         "GET \(feedPath)", "PUT \(feedPath)", "HEAD \(feedPath)"])
+                         "GET \(feedPath)", "PUT \(feedPath)", "HEAD \(feedPath)", "GET \(feedPath)"])
     #expect(transport.recordedCalls.map(\.authorized).allSatisfy { $0 })
     let episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
     #expect(episode?.delivery?.status == .uploaded)
@@ -1716,4 +1718,85 @@ private final class UploadEventRecorder: @unchecked Sendable {
         #expect(try await coordinator.queue(stateRoot: storage.stateRoot).isEmpty)
         #expect(try await coordinator.library(storage: storage).first?.stage == .published)
     }
+}
+
+@Test func feedReadbackRejectsStaleEqualLengthAndIncompleteRepresentations() async throws {
+    let settings = deliverySettings(), transport = FakeWebDAVTransport()
+    let client = try WebDAVClient(transport: transport, settings: settings, credential: FakeCredentials(password: "fixture"))
+    let expected = Data("new-feed".utf8)
+    try await client.uploadData(expected, remotePath: settings.remoteFeedPath)
+    for response in [
+        DeliveryResponse(status: 200, headers: ["Content-Length": "8"], body: Data("old-feed".utf8)),
+        DeliveryResponse(status: 200, headers: ["Content-Length": "8"], body: Data("new".utf8)),
+        DeliveryResponse(status: 404),
+        DeliveryResponse(status: 200, body: Data(repeating: 0, count: 4 * 1024 * 1024 + 1))
+    ] {
+        transport.getResponseFor = { _ in response }
+        await #expect(throws: (any Error).self) { try await client.confirmPublishedFeed(expected) }
+    }
+    transport.getResponseFor = nil
+    try await client.confirmPublishedFeed(expected)
+    #expect(transport.recordedCalls.filter { $0.method == "GET" }.allSatisfy { $0.authorized && $0.encoding == "identity" })
+    let cancelled = Task { try Task.checkCancellation(); try await client.confirmPublishedFeed(expected) }
+    cancelled.cancel()
+    await #expect(throws: CancellationError.self) { try await cancelled.value }
+}
+
+@Test func unconfirmedFeedRetainsLocalAudioAndBlocksRemoteDeletes() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let episode = try await publishReview(storage: storage, delivery: settings).episode
+    let transport = FakeWebDAVTransport()
+    // Missing feed before PUT is normal. After PUT, return stale bytes of exactly the new length.
+    transport.getResponseFor = { path in
+        guard path.hasSuffix("feed.xml"), let data = transport.body(path) else { return nil }
+        return DeliveryResponse(status: 200, headers: ["Content-Length": String(data.count)], body: Data(repeating: 32, count: data.count))
+    }
+    let result = try await coordinator.deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "fixture"), transport: transport, force: true)
+    #expect(!result.feedUploaded)
+    let ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(ledger.remoteFeedPending)
+    #expect(ledger.lastUploadedFeedHash == nil)
+    #expect(ledger.lastPublishedAudioHashes?.isEmpty != false)
+    #expect(FileManager.default.fileExists(atPath: storage.audioDirectory.appendingPathComponent(episode.id + ".m4a").path))
+    #expect(!transport.methods.contains("DELETE"))
+    transport.getResponseFor = nil
+    let retried = try await coordinator.deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "fixture"), transport: transport, force: true, reconcileNow: true)
+    // Reconciliation may confirm the already-correct stored feed without another PUT.
+    #expect(retried.failed == 0)
+    let confirmed = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(!confirmed.remoteFeedPending && confirmed.lastPublishedAudioHashes?[episode.id] == episode.audioHash)
+}
+
+@Test func feedReadbackFailurePreservesPendingRemoteRemoval() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let retired = try await publishReview("retire-readback", storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "fixture"), transport: transport)
+    let oldFeed = try #require(transport.body("/" + settings.remoteFeedPath))
+    _ = try await coordinator.removeSavedAudio(ids: [retired.episode.id], storage: storage)
+    let start = transport.recordedCalls.count
+    transport.getResponseFor = { path in
+        guard path.hasSuffix("feed.xml"), transport.body(path) != oldFeed else { return nil }
+        let count = transport.body(path)!.count
+        return DeliveryResponse(status: 200, headers: ["Content-Length": String(count)], body: Data(repeating: 32, count: count))
+    }
+    let failed = try await coordinator.deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "fixture"), transport: transport, force: true)
+    #expect(!failed.feedUploaded && failed.remoteDeletes == 0)
+    #expect(!transport.recordedCalls.dropFirst(start).contains { $0.method == "DELETE" })
+    let ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(ledger.remoteFeedPending && ledger.pendingRemoteDeletes == [settings.remoteMediaPath(retired.episode.id)])
+    #expect(transport.objectLength("/" + settings.remoteMediaPath(retired.episode.id)) != nil)
+}
+
+@Test func oversizedFeedIsRejectedBeforePUT() async throws {
+    let transport = FakeWebDAVTransport()
+    let client = try WebDAVClient(transport: transport, settings: deliverySettings(), credential: FakeCredentials(password: "fixture"))
+    await #expect(throws: (any Error).self) { try await client.publishFeed(Data(repeating: 32, count: 4 * 1024 * 1024 + 1)) }
+    #expect(transport.methods.isEmpty)
 }

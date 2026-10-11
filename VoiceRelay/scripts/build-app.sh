@@ -26,8 +26,14 @@ fi
 "${build_command[@]}" build
 application="$native_root/dist/VoiceRelay.app"
 mkdir -p "$native_root/dist"
-# Replace only the generated bundle; merging would retain obsolete signed files.
-if [[ -e "$application" ]]; then rm -rf "$application"; fi
-ditto "$native_root/DerivedData/Build/Products/$xcode_configuration/VoiceRelay.app" "$application"
-codesign --verify --strict "$application"
+staging_root="$(mktemp -d "$native_root/dist/.VoiceRelay-package.XXXXXX")"
+trap 'rm -rf "$staging_root"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+staged_application="$staging_root/VoiceRelay.app"
+ditto "$native_root/DerivedData/Build/Products/$xcode_configuration/VoiceRelay.app" "$staged_application"
+codesign --verify --deep --strict "$staged_application"
+# Both directories are on the same filesystem. Exchange existing bundles atomically;
+# the previous package becomes staging and is removed only after a successful swap.
+/usr/bin/python3 "$native_root/scripts/install-app.py" "$staged_application" "$application"
 echo "$application"

@@ -138,7 +138,7 @@ Finalizer waits include a Ready-item count; zero near the drain's end generally
 means CPU finalization remains with no inference work available. Logs contain no
 source text, identities, URLs or paths. The October 7 synthetic assembly result
 was a stage measurement, not end-to-end speech/listening acceptance; see
-[dated evidence](VALIDATION.md#october-7-single-worker-pipeline-optimization).
+[dated evidence](VALIDATION_HISTORY.md#october-7-single-worker-pipeline-optimization).
 
 Listen in Overcast or to explicit fixture output for pronunciation, omissions,
 levels, distortion and chunk joins. Check Stop during a later batch and Quit/relaunch

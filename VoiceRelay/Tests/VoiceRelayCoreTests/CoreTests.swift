@@ -3405,3 +3405,61 @@ private func publishedEpisode(_ tag: String, storage: ManagedSpeechStorage) asyn
         #expect(!error.localizedDescription.contains("feed_status"))
     }
 }
+
+@Test func queuePlanningIsolatesMissingAndCorruptSnapshots() async throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let audio = root.appendingPathComponent("audio"); try Files.directory(audio)
+    let storage = ManagedSpeechStorage(audioDirectory: audio, stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let coordinator = FixtureCoordinator()
+    let healthy = try await coordinator.enqueue(reviewedArticle("healthy"), storage: storage, preferences: SpeechPreferences())
+    let missing = try await coordinator.enqueue(reviewedArticle("missing"), storage: storage, preferences: SpeechPreferences())
+    let corrupt = try await coordinator.enqueue(reviewedArticle("corrupt"), storage: storage, preferences: SpeechPreferences())
+    let last = try await coordinator.enqueue(reviewedArticle("last"), storage: storage, preferences: SpeechPreferences())
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        try store.execute("DELETE FROM snapshots WHERE article_id=?", [missing.id])
+        try store.saveSnapshot(articleID: corrupt.id, data: Data("invalid JSON private text".utf8))
+    }
+    let result = try await coordinator.drainQueue(storage: storage, backend: { _ in SyntheticSpeechContractBackend("planning") })
+    #expect(result.progress.completedArticles == 2 && result.lastResult?.episode.id == last.id)
+    #expect(result.failedItems.map(\.id) == [missing.id, corrupt.id])
+    #expect(result.failedItems.allSatisfy { $0.state == .failed && $0.lastError?.contains("private text") == false })
+    #expect(try await coordinator.library(storage: storage).first { $0.id == healthy.id }?.stage == .published)
+    let rerun = try await coordinator.drainQueue(storage: storage, backend: { _ in throw RelayError.setup("Must not retry failed plans") })
+    #expect(rerun.failedItems.isEmpty && rerun.progress.completedArticles == 0)
+    // An all-broken Ready queue completes with per-item failures, including hash corruption.
+    _ = try await coordinator.retryQueued(missing.id, stateRoot: storage.stateRoot)
+    _ = try await coordinator.retryQueued(corrupt.id, stateRoot: storage.stateRoot)
+    do { try NativeStore(url: storage.profile.database).execute("UPDATE snapshots SET hash='bad' WHERE article_id=?", [corrupt.id]) }
+    let broken = try await coordinator.drainQueue(storage: storage, backend: { _ in throw RelayError.setup("No usable plans") })
+    #expect(broken.failedItems.count == 2 && broken.progress.completedArticles == 0)
+}
+
+@Test func queuePlanningIsolatesLateInvalidAdmission() async throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let audio = root.appendingPathComponent("audio"); try Files.directory(audio)
+    let storage = ManagedSpeechStorage(audioDirectory: audio, stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let coordinator = FixtureCoordinator(), gate = LatePlanningGate()
+    let drain = Task { try await coordinator.drainQueue(storage: storage, backend: { _ in SyntheticSpeechContractBackend("late") },
+        pendingPreparationCount: { await gate.count() }) }
+    while !(await gate.entered) { await Task.yield() }
+    let bad = try await coordinator.enqueue(reviewedArticle("late-bad"), storage: storage, preferences: SpeechPreferences())
+    // Mutation is serialized before the planner gets its next coordinator turn.
+    do { try NativeStore(url: storage.profile.database).execute("DELETE FROM snapshots WHERE article_id=?", [bad.id]) }
+    let good = try await coordinator.enqueue(reviewedArticle("late-good"), storage: storage, preferences: SpeechPreferences())
+    await gate.release()
+    let result = try await drain.value
+    #expect(result.failedItems.map(\.id) == [bad.id] && result.lastResult?.episode.id == good.id)
+}
+
+private actor LatePlanningGate {
+    private(set) var entered = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    func count() async -> Int {
+        if entered { return 0 }
+        entered = true
+        await withCheckedContinuation { continuation = $0 }
+        return 1
+    }
+    func release() { continuation?.resume(); continuation = nil }
+}

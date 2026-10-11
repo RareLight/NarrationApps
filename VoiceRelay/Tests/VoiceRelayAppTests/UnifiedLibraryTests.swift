@@ -1,6 +1,8 @@
 import Foundation
 import SwiftUI
 import Testing
+import Observation
+import Synchronization
 @testable import VoiceRelayApp
 @testable import VoiceRelayCore
 
@@ -598,4 +600,57 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     model.savedEpisodes = [replacement]
     #expect(model.visibleServerAudio.map(\.id) == [original.id] && model.visibleUploads.map(\.id) == [original.id])
     #expect(model.serverAudioFilter == .attention && model.uploadsFilter == .attention)
+}
+
+@Test @MainActor func articleSelectionUpdatesActionsWithoutInvalidatingContentProjection() {
+    let model = AppModel(preview: true)
+    model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: [source("one"), source("two")], skippedEntries: 0))
+    for scope in [ArticleScope.all, .queue] {
+        model.articleScope = scope
+        model.queueItems = [job("one-job", source: "one"), job("two-job", source: "two")]
+        let contentChanged = Synchronization.Mutex(false)
+        withObservationTracking {
+            _ = ArticlesView(model: model).body
+        } onChange: {
+            contentChanged.withLock { $0 = true }
+        }
+        let rows = model.unfilteredArticleRows
+        let projection = ArticleListProjection(rows: rows, visibleRows: model.visibleArticleRows(in: rows))
+        let actionsChanged = Synchronization.Mutex(false)
+        withObservationTracking {
+            _ = ArticleSelectionList(model: model, projection: projection).body
+        } onChange: {
+            actionsChanged.withLock { $0 = true }
+        }
+        model.unifiedArticleSelection = [rows[0].id]
+        model.unifiedArticleSelection = [rows[1].id]
+        #expect(!contentChanged.withLock { $0 })
+        #expect(actionsChanged.withLock { $0 })
+        // Data changes still rebuild the parent; there is no long-lived index.
+        model.queueItems.append(job("late"))
+        #expect(contentChanged.withLock { $0 })
+    }
+}
+
+@Test @MainActor func articleProjectionSelectionRespectsFiltersOrderAndChangingContent() {
+    let model = AppModel(preview: true)
+    model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: [source("old", date: 1), source("new", date: 3)], skippedEntries: 0))
+    model.queueItems = [job("retained")]
+    model.unifiedArticleSelection = [.source("old"), .source("new"), .source("missing"), .retained(.episode("retained"))]
+    func projection() -> ArticleListProjection {
+        let rows = model.unfilteredArticleRows
+        return ArticleListProjection(rows: rows, visibleRows: model.visibleArticleRows(in: rows))
+    }
+    #expect(projection().selectedRows(model.articleListSelection).map(\.title) == ["Synthetic new", "Synthetic old", "Synthetic retained"])
+    model.articleSearchQuery = "old"
+    #expect(projection().selectedRows(model.articleListSelection).map(\.title) == ["Synthetic old"])
+    #expect(model.articleSelection == ["old", "new", "missing"]) // Hidden selections stay scope-local.
+    model.articleSearchQuery = ""
+    model.sourceReview.catalog = ReadingListCatalog()
+    model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: [source("new", date: 3), source("later", date: 4)], skippedEntries: 0))
+    model.queueItems = []
+    let updated = projection()
+    #expect(updated.selectedRows(model.articleListSelection).map(\.title) == ["Synthetic new"])
+    #expect(model.articleListSelection.intersection(updated.rowIDs) == [.source("new")])
+    #expect(updated.visibleRows.map(\.title) == ["Synthetic later", "Synthetic new"])
 }

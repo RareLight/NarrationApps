@@ -18,6 +18,9 @@
 		B10000000000000000000009 /* SourceReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000011 /* SourceReviewTests.swift */; };
 		B1000000000000000000000F /* WindowPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000014 /* WindowPresence.swift */; };
 		B10000000000000000000010 /* DeliveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000016 /* DeliveryTests.swift */; };
+		B10000000000000000000018 /* AppPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000018 /* AppPresentation.swift */; };
+		B10000000000000000000019 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000019 /* SettingsViews.swift */; };
+		B1000000000000000000001A /* MenuBarViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000001A /* MenuBarViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -61,6 +64,9 @@
 		F20000000000000000000001 /* VoiceRelay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = VoiceRelay.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F20000000000000000000002 /* voicerelay */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = voicerelay; sourceTree = BUILT_PRODUCTS_DIR; };
 		F20000000000000000000003 /* VoiceRelayCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = VoiceRelayCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F10000000000000000000018 /* AppPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppPresentation.swift; path = Sources/VoiceRelayApp/AppPresentation.swift; sourceTree = "<group>"; };
+		F10000000000000000000019 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsViews.swift; path = Sources/VoiceRelayApp/SettingsViews.swift; sourceTree = "<group>"; };
+		F1000000000000000000001A /* MenuBarViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MenuBarViews.swift; path = Sources/VoiceRelayApp/MenuBarViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -112,6 +118,9 @@
 				F10000000000000000000001 /* VoiceRelayApp.swift */,
 				F10000000000000000000010 /* SourceReviewView.swift */,
 				F10000000000000000000014 /* WindowPresence.swift */,
+				F1000000000000000000001A /* MenuBarViews.swift */,
+				F10000000000000000000019 /* SettingsViews.swift */,
+				F10000000000000000000018 /* AppPresentation.swift */,
 				F10000000000000000000002 /* VoiceRelayCLI.swift */,
 				A10000000000000000000004 /* VoiceRelayCore */,
 				F1000000000000000000000C /* CSQLite */,
@@ -259,6 +268,9 @@
 				B10000000000000000000001 /* VoiceRelayApp.swift in Sources */,
 				B10000000000000000000008 /* SourceReviewView.swift in Sources */,
 				B1000000000000000000000F /* WindowPresence.swift in Sources */,
+				B1000000000000000000001A /* MenuBarViews.swift in Sources */,
+				B10000000000000000000019 /* SettingsViews.swift in Sources */,
+				B10000000000000000000018 /* AppPresentation.swift in Sources */,
 			);
 		};
 		E20000000000000000000002 /* Sources */ = {

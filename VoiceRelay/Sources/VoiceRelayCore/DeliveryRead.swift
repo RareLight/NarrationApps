@@ -173,6 +173,24 @@ extension WebDAVClient {
         guard response.status == 200 else { throw DeliveryError.classify(response.status) }
         return response.body
     }
+    func publishFeed(_ feed: Data, ifMatch: String? = nil, onlyIfMissing: Bool = false) async throws {
+        guard feed.count <= 4 * 1024 * 1024 else {
+            throw DeliveryError.fatal("The podcast feed is too large to verify safely. Remove finished episodes before publishing again.")
+        }
+        try await uploadData(feed, remotePath: settings.remoteFeedPath, ifMatch: ifMatch, onlyIfMissing: onlyIfMissing)
+        try await confirmPublishedFeed(feed)
+    }
+    /// Size alone cannot confirm RSS membership. Verify the exact authenticated
+    /// representation before dependent cleanup or server removals are authorized.
+    func confirmPublishedFeed(_ expected: Data) async throws {
+        try Task.checkCancellation()
+        guard expected.count <= 4 * 1024 * 1024,
+              let actual = try await readRecoveryFeed(), actual.count == expected.count,
+              Files.hash(actual) == Files.hash(expected) else {
+            throw DeliveryError.retryable("The uploaded feed contents could not be confirmed; publication remains pending.")
+        }
+        try Task.checkCancellation()
+    }
     func readFeed(ifNoneMatch: String? = nil) async throws -> DeliveryResponse {
         let target = try remoteURL(settings.remoteFeedPath)
         var headers = try recoveryHeaders(target)

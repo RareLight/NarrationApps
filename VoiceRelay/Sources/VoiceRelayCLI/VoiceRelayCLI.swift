@@ -17,7 +17,7 @@ struct VoiceRelayCLI {
             }
             if command == "help" || command == "--help" {
                 print("""
-                VoiceRelay native prototype — explicit local speech checks.
+                VoiceRelay — explicit local diagnostics and speech checks.
                 voicerelay doctor [--config /absolute/config.toml]
                 voicerelay speech-fixture --directory /dedicated/speech-fixture --project-root /VoiceRelay
                     [--voice af_heart] [--speed 1.0] [--config /absolute/config.toml]

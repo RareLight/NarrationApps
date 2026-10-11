@@ -27,7 +27,8 @@ My Mac**, build and run. To package a signed Release build without launching it:
 bash scripts/build-app.sh release
 ```
 
-The script copies Xcode's signed bundle to `dist/VoiceRelay.app` and verifies it.
+The script stages and verifies Xcode's signed bundle before replacing
+`dist/VoiceRelay.app`; a failed copy or verification keeps the previous package.
 Private signing files, generated output, runtime/model assets and backups are
 ignored. Neither building nor starting the app downloads models.
 
@@ -117,8 +118,8 @@ reprompting. Saving/removing credentials may require separate system confirmatio
 nor the public website mapping. A readable ancestor permits a missing-folder
 result; uploading creates folders if authorized. **Upload Now** is the manual retry
 override. Enabled publishing also drains after publication/removal, launch and
-periodically while the app runs. Media size is confirmed with HEAD or WebDAV
-metadata before feed publication.
+periodically while the app runs. Media size and hash are confirmed before feed publication; the uploaded feed is
+read back through authenticated WebDAV and its exact contents confirmed.
 
 **Server Audio** is durable episode history. **Published** means current-destination
 media bytes and feed membership are confirmed. **Upload New Items** appears only
@@ -159,6 +160,32 @@ repeated downloads. Exact identity or retained-link evidence is required; titles
 and orphan filenames are insufficient. See [automatic reconciliation and operator
 tests](docs/SERVER_RECOVERY.md) for conflict rules, caching and matching limits.
 
+
+**Uploads** is the publishing outbox, between Articles and Server Audio. It shows
+per-item transfer progress, pending feed publication and verification failures.
+Confirmed published items leave the outbox; unresolved local cleanup conflicts
+remain with their diagnostics. Both screens have independent **Filter** menus,
+including **Needs Attention** and **Failed Verification**. Filter changes do not
+contact the server. Partially generated speech remains in Articles → Queue.
+
+Uploads rows offer **×** to discard only their tracked local copy, keeping server
+audio and saved article text. Explicitly discarded copies are not automatically
+regenerated. Failed removals remain listed for retry. Server Audio records an
+unpublished discarded copy as **Local Upload Removed**.
+
+Articles and Queue each retain their own **Website** filter. Foundation parses
+and normalizes original hosts; HTTP/HTTPS, capitalization, trailing host dots
+and `www.` aliases group together. Other subdomains stay distinct. Filtering does
+not change source URLs, processing order or automatic processing; selection
+actions apply only to visible rows.
+
+Discarding local audio also removes its matching Queue work; you can add the
+article again manually.
+
+For publishing or backup guidance, open **Help → Publishing and Uploads** or
+**Help → Library Backup and Restore**. Section ⓘ controls give brief summaries;
+**More Help…** opens the corresponding guide. Help content is bundled and offline.
+
 ## Private state and backups
 
 The native library remains at
@@ -190,8 +217,8 @@ Use isolated fixtures; never point tests at live library or Safari input.
 ```sh
 CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" \
 SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache" \
-swift test --cache-path "$PWD/.build/swiftpm-cache" --disable-sandbox --skip-update
-python3 -m unittest discover -s runtime/kokoro/tests
+swift test --cache-path "$PWD/.build/swiftpm-cache" --disable-sandbox --skip-update --no-parallel
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s runtime/kokoro/tests
 ```
 
 After changing project.pbxproj, run the
@@ -212,6 +239,9 @@ speech/listening, Keychain or live DAV/Overcast acceptance. Those checks are man
 | --- | --- |
 | [Architecture](docs/ARCHITECTURE.md) | Current components, storage and safety boundaries |
 | [Development handoff](docs/DEVELOPMENT_HANDOFF.md) | Working context and code map |
+| [Implementation checklist](docs/FINAL_POLISH.md) | Approved final polish and remaining acceptance |
+| [Contributing](CONTRIBUTING.md) | Engineering conventions and regression commands |
+| [Release checklist](docs/RELEASE_CHECKLIST.md) | Versioning, distribution and release gates |
 | [Roadmap](docs/IMPLEMENTATION_PLAN.md) | Remaining beta gates and later priorities |
 | [Beta checks](docs/BETA_TESTING.md) | Operator speech, setup, interruption and backup tests |
 | [Native UI acceptance](docs/UI_ACCEPTANCE.md) | Layout, keyboard and accessibility checks |
@@ -224,30 +254,3 @@ Dependencies and runtime/model assets retain their own licenses; see
 [Acknowledgements](Acknowledgements/README.md). Downloaded assets are not
 included in Git. Fully bundled tools, notarization and distribution remain future
 release decisions.
-
-**Uploads** is the publishing outbox, between Articles and Server Audio. It shows
-per-item transfer progress, pending feed publication and verification failures.
-Confirmed published items leave the outbox; unresolved local cleanup conflicts
-remain with their diagnostics. Both screens have independent **Filter** menus,
-including **Needs Attention** and **Failed Verification**. Filter changes do not
-contact the server. Partially generated speech remains in Articles → Queue.
-
-Uploads rows offer **×** to discard only their tracked local copy, keeping server
-audio and saved article text. Explicitly discarded copies are not automatically
-regenerated. Failed removals remain listed for retry. Server Audio records an
-unpublished discarded copy as **Local Upload Removed**.
-
-Articles and Queue each retain their own **Website** filter. Foundation parses
-and normalizes original hosts; HTTP/HTTPS, capitalization, trailing host dots
-and `www.` aliases group together. Other subdomains stay distinct. Filtering does
-not change source URLs, processing order or automatic processing; selection
-actions apply only to visible rows.
-
-Explicit local discard also cancels matching native queue membership atomically
-with its intent, preventing an interrupted Ready job from recreating the file.
-Reading List entries and retained snapshots remain available for manual re-enqueue.
-Discarded local copies never become automatic reconciliation replacement winners.
-
-For publishing or backup guidance, open **Help → Publishing and Uploads** or
-**Help → Library Backup and Restore**. Section ⓘ controls give brief summaries;
-**More Help…** opens the corresponding guide. Help content is bundled and offline.

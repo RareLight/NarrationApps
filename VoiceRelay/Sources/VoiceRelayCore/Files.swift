@@ -11,6 +11,7 @@ enum Files {
         stream.open(); defer { stream.close() }
         var hash = SHA256(); var buffer = [UInt8](repeating: 0, count: 65_536)
         while true {
+            try Task.checkCancellation()
             let n = stream.read(&buffer, maxLength: buffer.count)
             if n < 0 { throw failure }
             if n == 0 { break }
@@ -34,6 +35,34 @@ enum Files {
             throw RelayError.storage("Cannot commit staged artifact.")
         }
         try syncDirectory(url.deletingLastPathComponent())
+    }
+    static func copy(_ source: URL, to destination: URL) throws {
+        try Task.checkCancellation()
+        let temporary = destination.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).tmp")
+        let fd = Darwin.open(temporary.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+        guard fd >= 0 else { throw RelayError.storage("Cannot create staged artifact.") }
+        let output = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? output.close(); try? FileManager.default.removeItem(at: temporary) }
+        let input = try FileHandle(forReadingFrom: source)
+        defer { try? input.close() }
+        while let data = try input.read(upToCount: 65_536), !data.isEmpty {
+            try Task.checkCancellation()
+            try output.write(contentsOf: data)
+        }
+        try output.synchronize(); try output.close()
+        try Task.checkCancellation()
+        guard rename(temporary.path, destination.path) == 0 else { throw RelayError.storage("Cannot commit staged artifact.") }
+        try syncDirectory(destination.deletingLastPathComponent())
+    }
+    static func moveValidatedScratch(_ source: URL, to destination: URL) throws {
+        try Task.checkCancellation()
+        let fd = Darwin.open(source.path, O_RDONLY | O_NOFOLLOW)
+        guard fd >= 0 else { throw RelayError.storage("Cannot open validated audio.") }
+        defer { close(fd) }
+        guard fsync(fd) == 0, rename(source.path, destination.path) == 0 else {
+            throw RelayError.storage("Cannot commit validated audio.")
+        }
+        try syncDirectory(destination.deletingLastPathComponent())
     }
     static func syncDirectory(_ url: URL) throws {
         let fd = Darwin.open(url.path, O_RDONLY)

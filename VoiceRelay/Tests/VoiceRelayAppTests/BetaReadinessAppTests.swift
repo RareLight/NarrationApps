@@ -54,7 +54,7 @@ private final class RuntimeCheckProbe: @unchecked Sendable {
     model.debugLoggingEnabled = true
     #expect(model.runtimeTestResult == .untested && model.canManageSpeechRuntime)
     model.deliveryBusy = true; model.deliveryTesting = true; model.deliveryCredentialBusy = true
-    model.sourceReview.busy = true; model.sourceReview.persistenceBusy = true
+    model.sourceReview.busy = true
     model.pendingAdds = ["one": "Preparing"]
     model.queueMutationBusy = true; model.audioMutationBusy = true
     #expect(!model.canManageLibrary && model.canManageSpeechRuntime)
@@ -76,7 +76,7 @@ private final class RuntimeCheckProbe: @unchecked Sendable {
     #expect(!model.canManageSpeechRuntime)
     model.libraryMaintenanceBusy = false
     model.deliveryBusy = false; model.deliveryTesting = false; model.deliveryCredentialBusy = false
-    model.sourceReview.busy = false; model.sourceReview.persistenceBusy = false
+    model.sourceReview.busy = false
     model.pendingAdds = [:]; model.queueMutationBusy = false; model.audioMutationBusy = false
     await model.shutdown()
     #expect(!model.canManageSpeechRuntime && !FileManager.default.fileExists(atPath: root.path))
@@ -131,13 +131,28 @@ private func betaAppStorage(_ root: URL, _ tag: String) -> ManagedSpeechStorage 
     #expect(model.libraryMaintenanceBusy && !model.canGenerateAudio && !model.canManageLibrary)
     await model.waitForLibraryMaintenance()
     #expect(model.libraryBackupError == nil && model.libraryBackupStatus?.contains("1 articles") == true)
-    let restored = AppModel(storage: target, defaults: defaults)
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [ReadingListEntry(id: "old", safariID: nil,
+        url: URL(string: "https://articles.example/old")!, title: "Old catalog", addedAt: nil)], skippedEntries: 0), stateRoot: target.stateRoot)
+    let reader = RestoreReaderProbe()
+    let restored = AppModel(storage: target, defaults: defaults, readingListReader: { _ in
+        await reader.start()
+        try await Task.sleep(for: .seconds(30))
+        return ReadingListSnapshot(entries: [], skippedEntries: 0)
+    })
+    restored.sourceReview.loadCatalog()
+    while restored.sourceReview.busy { await Task.yield() }
+    #expect(restored.sourceReview.catalog.entries.map(\.id) == ["old"])
     restored.preferences = SpeechPreferences(voice: .bella)
     restored.autoAdmitEnabled = true; restored.autoProcessEnabled = true
     defaults.set(true, forKey: "autoAdmitArticles"); defaults.set(true, forKey: "autoProcessArticles")
+    let chosen = URL(fileURLWithPath: "/synthetic/restore-reading-list.plist")
+    restored.sourceReview.setSource(chosen)
+    while !(await reader.entered) { await Task.yield() }
     restored.restoreLibrary(from: backup)
     await restored.waitForLibraryMaintenance(); await restored.waitForLibraryRefresh()
     #expect(restored.libraryBackupError == nil)
+    #expect(restored.sourceReview.catalog.entries.map(\.id) == ["one"] && !restored.sourceReview.maintenanceSuspended)
+    #expect(restored.sourceReview.plist == chosen && restored.sourceReview.lastSyncedAt == nil)
     #expect(restored.libraryReviewRequired && !restored.canGenerateAudio)
     #expect(!restored.autoAdmitEnabled && !restored.autoProcessEnabled && restored.autoHalted && !restored.deliverySettings.enabled)
     #expect(defaults.bool(forKey: "autoAdmitArticles") == false && defaults.bool(forKey: "autoProcessArticles") == false)
@@ -210,4 +225,9 @@ private func betaAppStorage(_ root: URL, _ tag: String) -> ManagedSpeechStorage 
     await model.waitForLibraryMaintenance()
     #expect(model.libraryBackupError != nil && !FileManager.default.fileExists(atPath: root.path))
     await model.shutdown()
+}
+
+private actor RestoreReaderProbe {
+    private(set) var entered = false
+    func start() { entered = true }
 }

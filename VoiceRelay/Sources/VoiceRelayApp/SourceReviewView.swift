@@ -10,7 +10,7 @@ final class SourceReviewModel {
     var status = "Saved articles load automatically once a Reading List source is chosen."
     var error: String?
     var busy = false
-    var persistenceBusy = false
+    private(set) var maintenanceSuspended = false
     var preview = false
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var requestID = UUID()
@@ -26,6 +26,7 @@ final class SourceReviewModel {
     @ObservationIgnored private var immediateSyncTask: Task<Void, Never>?
     @ObservationIgnored private var sourceReadTask: Task<ReadingListSnapshot, Error>?
     private var autoReading = false
+    @ObservationIgnored private var sourceCommitWaiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private var syncRequested = false
     @ObservationIgnored private var sourceGeneration = 0
     static let syncInterval: Duration = .seconds(300)
@@ -60,7 +61,7 @@ final class SourceReviewModel {
         return home.appendingPathComponent("Library/Safari/Bookmarks.plist")
     }
     func loadCatalog() {
-        guard !preview, !busy, !catalogLoaded, !stopping else { return }
+        guard !preview, !busy, !catalogLoaded, !maintenanceSuspended, !stopping else { return }
         let request = UUID(); requestID = request; busy = true
         task = Task {
             defer { if requestID == request { busy = false; task = nil } }
@@ -75,7 +76,7 @@ final class SourceReviewModel {
 
     var sourcePickerURL: URL { plist ?? Self.preferredPlist(savedPath: nil) }
     func selectPlist() {
-        guard !preview, !busy, !persistenceBusy, !stopping else { return }
+        guard !preview, !busy, !maintenanceSuspended, !stopping else { return }
         let panel = NSOpenPanel(); panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
         panel.title = "Choose a Reading List property-list file (read-only)"
         panel.directoryURL = sourcePickerURL.deletingLastPathComponent()
@@ -84,7 +85,7 @@ final class SourceReviewModel {
         if panel.runModal() == .OK, let url = panel.url { setSource(url) }
     }
     func setSource(_ url: URL) {
-        guard !preview, !stopping else { return }
+        guard !preview, !maintenanceSuspended, !stopping else { return }
         guard url != plist else { onContextChange(); requestSourceSync(); return }
         sourceGeneration += 1
         sourceReadTask?.cancel()
@@ -107,7 +108,7 @@ final class SourceReviewModel {
         }
     }
     func requestSourceSync() {
-        guard !preview, !stopping else { return }
+        guard !preview, !maintenanceSuspended, !stopping else { return }
         syncRequested = true
         guard immediateSyncTask == nil else { return }
         immediateSyncTask = Task { [weak self] in
@@ -136,23 +137,27 @@ final class SourceReviewModel {
     }
     @discardableResult
     func synchronizeOnce() async -> Bool {
-        guard !preview, !stopping, !busy, !autoReading else { return false }
+        guard !preview, !maintenanceSuspended, !stopping, !busy, !autoReading else { return false }
         guard let file = plist else {
             if catalog.entries.isEmpty { status = "Choose a Reading List source in Settings to load articles." }
             return true
         }
         autoReading = true
-        defer { autoReading = false; sourceReadTask = nil }
+        defer {
+            autoReading = false; sourceReadTask = nil
+            let waiters = sourceCommitWaiters; sourceCommitWaiters = []
+            for waiter in waiters { waiter.resume() }
+        }
         let generation = sourceGeneration
         let readTask = Task { try await snapshotReader(file) }
         sourceReadTask = readTask
         do {
             let result = try await withTaskCancellationHandler { try await readTask.value } onCancel: { readTask.cancel() }
             try Task.checkCancellation()
-            guard !stopping, generation == sourceGeneration, plist == file else { return true }
+            guard !stopping, !maintenanceSuspended, generation == sourceGeneration, plist == file else { return true }
             let current = try await coordinator.catalog(stateRoot: stateRoot)
             try Task.checkCancellation()
-            guard !stopping, generation == sourceGeneration, plist == file else { return true }
+            guard !stopping, !maintenanceSuspended, generation == sourceGeneration, plist == file else { return true }
             var proposed = current
             proposed.reconcile(result); proposed.excludedIDs = []
             let removed = current.entries.filter { !proposed.currentIDs.contains($0.id) }
@@ -172,6 +177,30 @@ final class SourceReviewModel {
         }
         return true
     }
+    /// Prevent a source commit from crossing an atomic library replacement.
+    func suspendForLibraryReplacement() async {
+        maintenanceSuspended = true; sourceGeneration += 1; syncRequested = false
+        let current = task, immediate = immediateSyncTask, read = sourceReadTask
+        current?.cancel(); immediate?.cancel(); read?.cancel()
+        await current?.value; await immediate?.value
+        _ = try? await read?.value
+        // A direct synchronizeOnce caller owns the commit after its reader completes.
+        await waitForSourceCommit()
+        lastSyncedAt = nil
+    }
+    private func waitForSourceCommit() async {
+        await withCheckedContinuation { continuation in
+            if autoReading { sourceCommitWaiters.append(continuation) }
+            else { continuation.resume() }
+        }
+    }
+    func reloadAfterLibraryReplacement() async throws {
+        let saved = try await coordinator.catalog(stateRoot: stateRoot)
+        try Task.checkCancellation()
+        catalog = saved; catalogLoaded = true; error = nil
+        status = "Restored articles loaded. Review the library before enabling automation."
+    }
+    func finishLibraryReplacement() { maintenanceSuspended = false }
     func cancel() { task?.cancel() }
     func stop() async {
         stopping = true
@@ -180,6 +209,7 @@ final class SourceReviewModel {
         current?.cancel(); auto?.cancel(); immediate?.cancel(); read?.cancel()
         await current?.value; await auto?.value; await immediate?.value
         _ = try? await read?.value
+        await waitForSourceCommit()
     }
     private func safe(_ error: any Error) -> String {
         if error is SourceFetchError || error is RelayError || error is ArticleRecoveryError { return error.localizedDescription }
@@ -434,6 +464,24 @@ enum ArticleWebsiteFilter: Hashable, Identifiable {
     }
 }
 
+/// A fresh content projection, independent of selection. Selection lookups reuse
+/// its identities and display order rather than rebuilding the source/job union.
+struct ArticleListProjection {
+    let visibleRows: [ArticleLibraryRow]
+    let rowIDs: Set<ArticleRowID>
+    private let visibleByID: [ArticleRowID: (index: Int, row: ArticleLibraryRow)]
+
+    init(rows: [ArticleLibraryRow], visibleRows: [ArticleLibraryRow]) {
+        self.visibleRows = visibleRows
+        rowIDs = Set(rows.map(\.id))
+        visibleByID = Dictionary(visibleRows.enumerated().map { ($0.element.id, (index: $0.offset, row: $0.element)) },
+                                 uniquingKeysWith: { first, _ in first })
+    }
+    func selectedRows(_ selection: Set<ArticleRowID>) -> [ArticleLibraryRow] {
+        selection.compactMap { visibleByID[$0] }.sorted { $0.index < $1.index }.map(\.row)
+    }
+}
+
 extension AppModel {
     var pendingArticleRows: [ArticleLibraryRow] {
         let entries = sourceReview.catalog.entries.filter { pendingAdds[$0.id] != nil }
@@ -447,10 +495,11 @@ extension AppModel {
         }
     }
     var queuedArticleRows: [ArticleLibraryRow] {
-        queueItems.map { item in
-            let entry = sourceReview.catalog.entries.first { $0.id == item.sourceEntryID }
+        let entries = Dictionary(sourceReview.catalog.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return queueItems.map { item in
+            let entry = item.sourceEntryID.flatMap { entries[$0] }
             return ArticleLibraryRow(id: .retained(.episode(item.id)), title: item.title,
-                host: queueOriginHost(item), savedAt: queueSavedDates[item.id] ?? entry?.addedAt, source: entry,
+                host: item.sourceHost ?? entry?.url.host, savedAt: queueSavedDates[item.id] ?? entry?.addedAt, source: entry,
                 jobs: [item], preparationID: nil,
                 retained: entry == nil || !sourceReview.catalog.currentIDs.contains(entry!.id))
         } + pendingArticleRows
@@ -490,8 +539,8 @@ extension AppModel {
         get { articleScope == .all ? articlesWebsiteFilter : queueWebsiteFilter }
         set { if articleScope == .all { articlesWebsiteFilter = newValue } else { queueWebsiteFilter = newValue } }
     }
-    var articleWebsiteCounts: [ArticleWebsiteFilter: Int] {
-        let rows = unfilteredArticleRows
+    var articleWebsiteCounts: [ArticleWebsiteFilter: Int] { websiteCounts(for: unfilteredArticleRows) }
+    func websiteCounts(for rows: [ArticleLibraryRow]) -> [ArticleWebsiteFilter: Int] {
         var counts: [ArticleWebsiteFilter: Int] = [.all: rows.count]
         let now = Date(), calendar = Calendar.current
         for filter in ArticleWebsiteFilter.dateOptions {
@@ -503,8 +552,8 @@ extension AppModel {
         }
         return counts
     }
-    var articleWebsiteOptions: [ArticleWebsiteFilter] {
-        let counts = articleWebsiteCounts
+    var articleWebsiteOptions: [ArticleWebsiteFilter] { websiteOptions(counts: articleWebsiteCounts) }
+    func websiteOptions(counts: [ArticleWebsiteFilter: Int]) -> [ArticleWebsiteFilter] {
         var options = Set(counts.keys).subtracting([.all, .today, .thisWeek])
         // Retain an empty selected website, so refresh never silently widens the filter.
         if articleWebsiteSelection != .all && !articleWebsiteSelection.isDateFilter { options.insert(articleWebsiteSelection) }
@@ -519,8 +568,9 @@ extension AppModel {
         get { articleScope == .all ? articlesSearchText : queueSearchText }
         set { if articleScope == .all { articlesSearchText = newValue } else { queueSearchText = newValue } }
     }
-    var visibleArticleRows: [ArticleLibraryRow] {
-        unfilteredArticleRows.filter { articleWebsiteSelection.includes($0) && matchesArticleSearch($0, query: articleSearchQuery) }
+    var visibleArticleRows: [ArticleLibraryRow] { visibleArticleRows(in: unfilteredArticleRows) }
+    func visibleArticleRows(in rows: [ArticleLibraryRow]) -> [ArticleLibraryRow] {
+        rows.filter { articleWebsiteSelection.includes($0) && matchesArticleSearch($0, query: articleSearchQuery) }
     }
     func matchesArticleSearch(_ row: ArticleLibraryRow, query: String) -> Bool {
         guard LibraryTextSearch.isSearching(query) else { return true }
@@ -544,10 +594,8 @@ extension AppModel {
     }
     var unifiedArticleSelection: Set<ArticleRowID> {
         get {
-            if articleScope == .queue { return Set(queueSelection.map { .retained($0) }) }
-            let valid = Set(allArticleRows.map(\.id))
-            return Set(articleSelection.map { ArticleRowID.source($0) })
-                .union(retainedArticleSelection.map { .retained($0) }).intersection(valid)
+            if articleScope == .queue { return articleListSelection }
+            return articleListSelection.intersection(Set(allArticleRows.map(\.id)))
         }
         set {
             if articleScope == .queue {
@@ -557,6 +605,12 @@ extension AppModel {
                 retainedArticleSelection = Set(newValue.compactMap { if case .retained(let id) = $0 { id } else { nil } })
             }
         }
+    }
+    /// Reading the native List binding must never sort or filter the library.
+    var articleListSelection: Set<ArticleRowID> {
+        if articleScope == .queue { return Set(queueSelection.map { .retained($0) }) }
+        return Set(articleSelection.map { ArticleRowID.source($0) })
+            .union(retainedArticleSelection.map { .retained($0) })
     }
     var selectedUnifiedRows: [ArticleLibraryRow] {
         let selection = unifiedArticleSelection
@@ -570,7 +624,7 @@ extension AppModel {
     }
     func canRemoveQueueIDs(_ ids: Set<QueueSelectionID>) -> Bool {
         !ids.isEmpty && !preview && !stopping && !libraryMaintenanceBusy && !libraryReviewRequired
-            && !sourceReview.persistenceBusy
+            && !sourceReview.maintenanceSuspended
             && !ids.contains { mutatingQueueEntries.contains($0) }
             && !queueItems.contains { processingSpeech && $0.state == .running && ids.contains(.episode($0.id)) }
     }
@@ -588,8 +642,11 @@ extension AppModel {
         else if let entry = row.source { ArticlePreviewNavigation.open(entry.url, using: openWindow, inert: preview) }
     }
     var canPreviewUnifiedSelection: Bool {
-        !preview && !stopping && !libraryMaintenanceBusy && selectedUnifiedRows.count == 1
-            && (selectedUnifiedRows[0].source != nil || !selectedUnifiedRows[0].jobs.isEmpty)
+        canPreviewArticleRows(selectedUnifiedRows)
+    }
+    func canPreviewArticleRows(_ rows: [ArticleLibraryRow]) -> Bool {
+        !preview && !stopping && !libraryMaintenanceBusy && rows.count == 1
+            && (rows[0].source != nil || !rows[0].jobs.isEmpty)
     }
     func previewUnifiedSelection(openWindow: OpenWindowAction) {
         guard canPreviewUnifiedSelection, let row = selectedUnifiedRows.first else { return }
@@ -619,10 +676,10 @@ extension FocusedValues {
 
 struct ArticlesView: View {
     @Bindable var model: AppModel
-    @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
-    @State private var confirmingReset = false
     var body: some View {
+        let rows = model.unfilteredArticleRows
+        let projection = ArticleListProjection(rows: rows, visibleRows: model.visibleArticleRows(in: rows))
         VStack(spacing: 0) {
             HStack {
                 Picker("Articles scope", selection: $model.articleScope) {
@@ -630,13 +687,13 @@ struct ArticlesView: View {
                     Text("Queue (\(model.queueItems.count + model.pendingAdds.count))").tag(ArticleScope.queue)
                 }.pickerStyle(.segmented).frame(maxWidth: 292)
                 Spacer(minLength: 12)
-                let websiteCounts = model.articleWebsiteCounts
+                let websiteCounts = model.websiteCounts(for: rows)
                 Picker("Filter", selection: $model.articleWebsiteSelection) {
                     ForEach(ArticleWebsiteFilter.dateOptions) { filter in
                         Text("\(filter.title) (\(websiteCounts[filter, default: 0]))").tag(filter)
                     }
                     Divider()
-                    ForEach(model.articleWebsiteOptions) { filter in
+                    ForEach(model.websiteOptions(counts: websiteCounts)) { filter in
                         Text("\(filter.title) (\(websiteCounts[filter, default: 0]))").tag(filter)
                     }
                 }.pickerStyle(.menu).frame(maxWidth: 260)
@@ -654,63 +711,10 @@ struct ArticlesView: View {
                 }.padding([.horizontal, .top])
             }
             sourceNotices
-            List(selection: $model.unifiedArticleSelection) {
-                ForEach(model.visibleArticleRows) { row in
-                    ArticleLibraryRowView(model: model, row: row)
-                        .tag(row.id)
-                        .contentShape(Rectangle())
-                        .onTapGesture(count: 2) { model.previewArticleRow(row, openWindow: openWindow) }
-                        .contextMenu {
-                            Button("Preview Article") { model.previewArticleRow(row, openWindow: openWindow) }
-                                .disabled(model.preview || (row.source == nil && row.jobs.isEmpty))
-                        }
-                }
-            }
-            .refreshable { await model.sourceReview.refreshSource() }
-            .onDeleteCommand { model.removeUnifiedSelection() }
-            .focusedValue(\.libraryListActions, LibraryListActions(
-                canPreview: model.canPreviewUnifiedSelection,
-                canAdd: model.articleScope == .all && model.canAddSelectedArticles,
-                canRemove: model.canRemoveUnifiedSelection,
-                preview: { model.previewUnifiedSelection(openWindow: openWindow) },
-                add: { model.addSelectedToQueue() }, remove: { model.removeUnifiedSelection() }))
-            .overlay { if model.visibleArticleRows.isEmpty { emptyContent } }
-        }
-        .toolbar {
-            if model.articleScope == .all {
-                ToolbarItem {
-                    Button { model.addSelectedToQueue() } label: {
-                        Label("Add to Queue (\(model.eligibleSelectedArticles.count))", systemImage: "plus")
-                    }.disabled(!model.canAddSelectedArticles)
-                }
-            }
-            ToolbarItem(placement: .secondaryAction) {
-                Menu {
-                    Button("Preview Article") { model.previewUnifiedSelection(openWindow: openWindow) }
-                        .disabled(!model.canPreviewUnifiedSelection)
-                    if model.articleScope == .queue {
-                        SelectionManagementControl(selectionCount: model.selectedUnifiedQueueIDs.count,
-                            resetTitle: "Reset Queue…", canReset: model.canResetQueue,
-                            canRemove: model.canRemoveUnifiedSelection,
-                            resetHelp: "Clear Queue; keep articles and audio",
-                            removeHelp: "Remove from Queue; keep text and audio",
-                            onReset: { confirmingReset = true }, onRemove: { model.removeUnifiedSelection() })
-                    }
-                    Divider()
-                    Button("Publishing Settings…") { showSettings(.delivery) }
-                    Button("Settings…") { showSettings(.general) }
-                } label: { Label("Actions", systemImage: "ellipsis") }
-            }
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-            ToolbarItem(placement: .primaryAction) { GenerateAudioControl(model: model) }
+            ArticleSelectionList(model: model, projection: projection)
+                .overlay { if projection.visibleRows.isEmpty { emptyContent } }
         }
         .searchable(text: $model.articleSearchQuery, placement: .toolbar, prompt: "Search Articles")
-        .confirmationDialog("Reset queue?", isPresented: $confirmingReset) {
-            Button("Reset Queue", role: .destructive) { model.resetQueue() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Remove all queued items? Reading List entries, saved article text and existing audio files will be kept.")
-        }
         .onAppear {
             model.sourceReview.loadCatalog()
             model.sourceReview.requestSourceSync()
@@ -748,6 +752,90 @@ struct ArticlesView: View {
             } else {
                 Button("Open General") { showSettings(.general) }.disabled(model.preview)
             }
+        }
+    }
+    private func showSettings(_ section: SettingsSection) {
+        model.settingsSection = section
+        WindowPresence.shared.prepareToOpen(); openSettings()
+    }
+}
+
+/// Selection-dependent actions live below the content projection's observation
+/// boundary. A click updates native highlighting and these controls only.
+struct ArticleSelectionList: View {
+    @Bindable var model: AppModel
+    let projection: ArticleListProjection
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
+    @State private var confirmingReset = false
+
+    var body: some View {
+        let selected = projection.selectedRows(model.articleListSelection)
+        let eligible = selected.filter { $0.jobs.isEmpty && $0.preparationID == nil }.compactMap(\.source)
+        let canAdd = model.articleScope == .all && model.canAddArticles(eligible)
+        let canPreview = model.canPreviewArticleRows(selected)
+        let queueIDs = Set(selected.flatMap { row in
+            row.jobs.map { QueueSelectionID.episode($0.id) }
+                + (row.preparationID.map { [QueueSelectionID.preparation($0)] } ?? [])
+        })
+        let canRemove = !model.queueMutationBusy && model.canRemoveQueueIDs(queueIDs)
+        List(selection: Binding(
+            get: { model.articleListSelection.intersection(projection.rowIDs) },
+            set: { model.unifiedArticleSelection = $0 })) {
+            ForEach(projection.visibleRows) { row in
+                ArticleLibraryRowView(model: model, row: row).tag(row.id)
+            }
+        }
+        .contextMenu(forSelectionType: ArticleRowID.self) { ids in
+            let rows = projection.selectedRows(ids)
+            Button("Preview Article") {
+                if let row = rows.first { model.previewArticleRow(row, openWindow: openWindow) }
+            }.disabled(!model.canPreviewArticleRows(rows))
+        } primaryAction: { ids in
+            let rows = projection.selectedRows(ids)
+            if model.canPreviewArticleRows(rows), let row = rows.first {
+                model.previewArticleRow(row, openWindow: openWindow)
+            }
+        }
+        .refreshable { await model.sourceReview.refreshSource() }
+        .onDeleteCommand { model.removeUnifiedSelection() }
+        .focusedValue(\.libraryListActions, LibraryListActions(
+            canPreview: canPreview, canAdd: canAdd, canRemove: canRemove,
+            preview: { model.previewUnifiedSelection(openWindow: openWindow) },
+            add: { model.addSelectedToQueue() }, remove: { model.removeUnifiedSelection() }))
+        .toolbar {
+            if model.articleScope == .all {
+                ToolbarItem {
+                    Button { model.addSelectedToQueue() } label: {
+                        Label("Add to Queue (\(eligible.count))", systemImage: "plus")
+                    }.disabled(!canAdd)
+                }
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                Menu {
+                    Button("Preview Article") { model.previewUnifiedSelection(openWindow: openWindow) }
+                        .disabled(!canPreview)
+                    if model.articleScope == .queue {
+                        SelectionManagementControl(selectionCount: queueIDs.count,
+                            resetTitle: "Reset Queue…", canReset: model.canResetQueue,
+                            canRemove: canRemove,
+                            resetHelp: "Clear Queue; keep articles and audio",
+                            removeHelp: "Remove from Queue; keep text and audio",
+                            onReset: { confirmingReset = true }, onRemove: { model.removeUnifiedSelection() })
+                    }
+                    Divider()
+                    Button("Publishing Settings…") { showSettings(.delivery) }
+                    Button("Settings…") { showSettings(.general) }
+                } label: { Label("Actions", systemImage: "ellipsis") }
+            }
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+            ToolbarItem(placement: .primaryAction) { GenerateAudioControl(model: model) }
+        }
+        .confirmationDialog("Reset queue?", isPresented: $confirmingReset) {
+            Button("Reset Queue", role: .destructive) { model.resetQueue() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Remove all queued items? Reading List entries, saved article text and existing audio files will be kept.")
         }
     }
     private func showSettings(_ section: SettingsSection) {
@@ -860,6 +948,19 @@ private func syntheticReview(issue: SourceReviewIssue? = nil) -> ReviewedSource?
     }
     model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: entries, skippedEntries: 0))
     model.articleSelection = Set(entries.map(\.id))
+    return ArticlesView(model: model)
+}
+#Preview("Queue — inert waiting and interrupted") {
+    let model = AppModel(preview: true)
+    model.queueItems = [SpeechQueueItem(id: "00000000-0000-0000-0000-000000000001", title: "A synthetic queued article"),
+                       SpeechQueueItem(id: "00000000-0000-0000-0000-000000000002", title: "A synthetic interrupted article", state: .running, attempts: 1)]
+    model.articleScope = .queue
+    return ArticlesView(model: model)
+}
+#Preview("Queue — global encoding progress") {
+    let model = AppModel(preview: true)
+    model.batchProgress = QueueBatchProgress(stage: .encoding, completedChunks: 5, totalChunks: 12, completedArticles: 0, totalArticles: 2)
+    model.articleScope = .queue
     return ArticlesView(model: model)
 }
 #endif
