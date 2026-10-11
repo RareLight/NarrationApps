@@ -1,6 +1,6 @@
 # VoiceRelay architecture
 
-Updated October 10, 2026. This describes the current Swift/macOS application.
+Updated October 11, 2026. This describes the current Swift/macOS application.
 [AGENTS.md](../AGENTS.md) defines development constraints;
 [the roadmap](IMPLEMENTATION_PLAN.md) defines remaining work. The earlier prototype
 brief and checkout-migration guide are retired.
@@ -194,6 +194,18 @@ The activity footer and its divider appear only during owned work; idle completi
 configured publishing and empty-queue messages stay out of the workspace. Setup
 and errors use their existing readiness/inline notices; disabled-control reasons
 remain available in tooltips.
+The library uses stacked rows with symbols/text rather than color-only status.
+Library minimum/default sizes are 760×480/980×640. Settings is 400×680 ideal and
+360×540 minimum, with a centered 292×46 selector: three 92pt tiles, 16pt symbols
+and 12pt labels. Real glass indicates selection, with a keyboard-only focus cue
+and a reduced-transparency fallback. Native keyboard paths retain Command-comma,
+Command-W/Q, Generate (Command-Shift-G), Stop (Command-Period) and focus-scoped
+Delete. Source-local previews remain named, synthetic and inert. Visual and
+accessibility acceptance belongs to UI_ACCEPTANCE.md, including VoiceOver,
+light/dark, accent and accessibility appearance preferences. Apple references:
+[Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass)
+and [Materials](https://developer.apple.com/design/human-interface-guidelines/materials).
+
 Restore review takes precedence over setup/recovery notices.
 Troubleshooting has backup and debug tools only. General's speech Check/Install
 controls are independent of publishing and metadata reads/writes, but wait for

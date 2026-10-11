@@ -1,12 +1,40 @@
 # Validation evidence
 
-Current documentation was reconciled October 10, 2026. Entries below record what
+Current documentation was reconciled October 11, 2026. Entries below record what
 was checked at their stated date; older UI names, commands, signing results and
 limitations are historical evidence, not current operator instructions. Use
 [README](../README.md), [beta checks](BETA_TESTING.md),
 [UI acceptance](UI_ACCEPTANCE.md) and [server recovery](SERVER_RECOVERY.md) for
 current workflows. The newest code-validation results precede the older entries.
 Documentation-only checks are recorded separately and are not a new app build.
+
+## October 11: retired development files and private signing configuration
+
+Removed the five retired browser design-study files and their layout checker.
+Current layout/accessibility guidance now lives in ARCHITECTURE.md and
+UI_ACCEPTANCE.md. Updated stale recovery-review instructions and the
+Troubleshooting tooltip, and recorded the user's successful daily-use UI and
+unattended-operation report separately from operator checklist results.
+
+Removed the two shared project-level team assignments after confirming they
+matched the ignored local configuration. Debug and Release continue to load that
+private file; README now directs team assignments there exclusively. Read-only
+Xcode build-settings checks confirmed the inherited team, automatic signing,
+Apple Development identity, bundle identifier and entitlements remain unchanged
+for both configurations. This was not a signed build or certificate repair.
+
+- Four focused Swift tests passed: unique Xcode source/build-file references,
+  optional private signing configuration, inert workspace construction and
+  typography/selector constants. The app compiled through the package tests.
+- All 22 Python provider/setup tests passed with mocked CPU-only services.
+  Documentation checks passed (14 Markdown files, 63 local links/anchors), and
+  `git diff --check` passed. Workspace dependency pins were restored exactly.
+  Private logs and sanitized signing results:
+  `var/validation/2026-10-11-development-cleanup/`.
+- Active diagnostic CLI/fixtures, process-recovery tooling and dependency notices
+  remain. No private runtime assets, configuration, library state, published
+  audio or build artifacts were removed. No GUI/Canvas, protected-source,
+  Keychain, live server, speech or listening checks ran.
 
 ## October 10: popover hover, dismissal and tighter row pairs
 

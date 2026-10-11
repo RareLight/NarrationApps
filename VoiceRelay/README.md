@@ -16,8 +16,9 @@ save dates when available; optional publisher artwork stays external.
 ## Build and setup
 
 Copy `Packaging/Signing.example.xcconfig` to the ignored `Signing.local.xcconfig`
-at the project root and set your team there, or select your team in Xcode's
-Signing & Capabilities. Debug and Release load the local file automatically. Use
+at the project root and set your team there. Debug and Release load the local file
+automatically. Keep the team assignment in that ignored file; setting it directly
+in Xcode can write it back into the shared project. Use
 an Apple Development identity and a matching provisioning profile for the Data
 Protection Keychain entitlement. Open `VoiceRelay.xcodeproj`, choose **VoiceRelay →
 My Mac**, build and run. To package a signed Release build without launching it:
@@ -215,7 +216,6 @@ speech/listening, Keychain or live DAV/Overcast acceptance. Those checks are man
 | [Beta checks](docs/BETA_TESTING.md) | Operator speech, setup, interruption and backup tests |
 | [Native UI acceptance](docs/UI_ACCEPTANCE.md) | Layout, keyboard and accessibility checks |
 | [Validation evidence](docs/VALIDATION.md) | Dated results and unverified acceptance |
-| [Approved design](docs/design/README.md) | Synthetic design record, distinct from native UI |
 
 ## License
 

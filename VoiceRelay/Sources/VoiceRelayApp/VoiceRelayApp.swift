@@ -2370,7 +2370,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: "Speech, Reading List and automation"
         case .delivery: "Podcast connection, publishing and subscription URL"
-        case .troubleshooting: "Reading List diagnostics, library backup and logs"
+        case .troubleshooting: "Library backup and logs"
         }
     }
 }
