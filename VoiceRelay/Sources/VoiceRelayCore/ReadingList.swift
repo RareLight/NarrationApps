@@ -20,7 +20,7 @@ public struct ReadingListSnapshot: Sendable {
     }
 }
 
-/// Successful refreshes merge; absent entries are retained.
+/// Successful refreshes remove absent entries; failed reads preserve the inventory.
 /// A failed parse cannot be reconciled and never empties this inventory.
 public struct ReadingListCatalog: Codable, Sendable {
     public private(set) var entries: [ReadingListEntry] = []
@@ -49,7 +49,7 @@ public struct ReadingListCatalog: Codable, Sendable {
         currentIDs = Set(snapshot.entries.map(\.id))
         let updates = Dictionary(snapshot.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let known = Set(entries.map(\.id))
-        entries = entries.map { updates[$0.id] ?? $0 }
+        entries = entries.compactMap { updates[$0.id] }
         var appended = known
         entries += snapshot.entries.filter { appended.insert($0.id).inserted }
     }

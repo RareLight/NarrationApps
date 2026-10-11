@@ -36,22 +36,37 @@ Installation explicitly downloads pinned Python, packages and model/voice assets
 `~/Library/Application Support/VoiceRelayPrototype/SpeechRuntime`. Existing
 checkout installations remain supported. Cancel and Quit join owned setup work;
 global environments are unchanged. See [Kokoro setup and pipeline](docs/KOKORO_PROVIDER.md).
+The result appears beside Check: Not tested, Runtime verified or the failure.
+Publishing and source refreshes do not disable speech setup controls; active audio
+work and library maintenance do, with a reason shown in General.
 
 ## Everyday use
 
-The waveform status menu opens **Articles**, **Queue**, **Uploads**, **Server Audio** and
-**Settings…**. Articles and Queue are scopes in one library window alongside
-Uploads and Server Audio. Opening a standalone window enables the Dock/⌘-Tab entry; closing
-the last returns to menu-bar-only operation. Closing windows does not stop work.
+The waveform menu opens a compact popover with overall status, **Sync Now**,
+**Articles**, **Server Audio**, **Settings** and **Quit VoiceRelay**. Green **Ready**
+requires a successful Reading List read, verified speech runtime and verified
+WebDAV connection this session. A red problem status opens its affected Settings
+pane. Startup checks the installed speech runtime offline, without downloading.
+
+**Sync Now** refreshes the Reading List, checks existing server audio, prepares new
+articles, generates Ready work and publishes it, even when automatic admission and
+processing are off. It does not change those preferences or retry failed speech
+rows. During this one-shot task, its button becomes a compact phase progress bar:
+measured generation/current-file transfer progress, animated checks, then the button returns.
+Articles and Queue are scopes in one library window alongside Uploads and Server
+Audio. Opening a standalone window enables the Dock/⌘-Tab entry; closing the last
+returns to menu-bar-only operation. Closing windows does not stop work.
 
 1. In **General → Speech**, choose Language & Region, Voice and speed. Defaults
    are US English, Heart and 1.0×. Voice choices are ranked by upstream quality
    grades: ten US voices and eight UK voices. New admissions capture these choices.
-2. In **General → Reading List**, choose the source. Discovery runs at startup,
+2. Safari's `~/Library/Safari/Bookmarks.plist` is the default source. In
+   **General → Reading List**, choose another file if needed. Discovery runs at startup,
    every five minutes, when Articles appears or the source changes, and on
    Articles' pull-down gesture. Newest saved items appear first; ties keep discovery
    order and undated entries come last. Automatic admission and processing are
    controlled by the General preferences.
+
 3. **Add to Queue** prepares selected articles in displayed order in the
    background, showing Preparing and per-entry failures. Saved text is reused
    offline. Double-click or **Preview Article** opens the dedicated preview window;
@@ -66,6 +81,10 @@ the last returns to menu-bar-only operation. Closing windows does not stop work.
 5. Queue removal deletes only queue membership. Source entries, saved text and
    server audio remain. Individual and multi-selection removal need no
    confirmation; **Reset Queue…** does. Scope selections remain independent.
+
+Search in Articles (All Articles/Queue), Uploads and Server Audio matches visible
+titles, source, saved dates, status and errors. Searches are local, combine with
+the Website/state filters and do not restrict automatic processing or publishing.
 
 Articles, Queue/preparing rows and Server Audio share the original-website and
 Saved-date line. A missing saved date is omitted rather than replaced by the
@@ -107,12 +126,28 @@ membership before remote media deletion, and keeps unfinished removals visible.
 **Reset Server Audio…** requires confirmation. Source entries and retained text
 are preserved. **Show in Finder** applies only to older remaining local copies.
 
+Server Audio sorts newest article saved dates first, with undated episodes last.
+Saved dates and original websites remain searchable after removing the source
+article from Safari; generation dates do not replace missing saved dates.
+
 Finished audio uses app-owned macOS temporary storage. Its local copy is removed
 only after both media and feed confirmation, with committed cleanup intent and
 hash/file-identity checks. Missing unconfirmed output regenerates from retained
 text under the same GUID and captured voice; failed rows stay manual Retry.
 Destination changes recreate released bytes and preserve old-host files. There is
 no audio-folder preference or scheduled retention policy.
+
+Remove unwanted articles in Safari Reading List. After a successful source refresh,
+VoiceRelay removes them from Articles and Queue and clears cached article text and
+unfinished generation files. Server Audio history and server copies remain until
+you remove them in Server Audio. Unconfirmed finished local audio stays available
+for publishing; confirmed media/feed copies can be released locally as usual.
+Failed source reads preserve the library. Private backups already exported are
+not changed by later article removal.
+
+The Articles filter starts with **Today** and **This Week**, based on the Reading
+List saved date in your local calendar. Undated articles appear under All Websites
+or their website filter. Search combines with the selected filter in each scope.
 
 Publishing automatically reconciles existing server feed/audio with local state.
 Verified matches restore history and leave Queue without regeneration or media PUT.

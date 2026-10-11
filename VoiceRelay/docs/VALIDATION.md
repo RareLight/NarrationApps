@@ -8,6 +8,165 @@ limitations are historical evidence, not current operator instructions. Use
 current workflows. The newest code-validation results precede the older entries.
 Documentation-only checks are recorded separately and are not a new app build.
 
+## October 10: popover hover, dismissal and tighter row pairs
+
+Enabled menu actions now highlight their complete row on hover/press with system
+selection colors; disabled actions and noninteractive status/progress do not.
+Articles/Server Audio and Settings/Quit have half their prior vertical text gap
+(4pt row padding and 1pt spacing). Window-opening actions, including failure
+status, order out only the weakly captured popover host before activating/opening
+the requested scene. Sync stays open for progress. The zero-size attachment is
+inert in previews and does not mutate SwiftUI state or activate during layout.
+
+- Eight focused app tests passed, including expanded inert menu/progress
+  construction, unattached dismissal, health, one-shot Sync and lifecycle checks.
+- Unsigned Xcode Debug build passed with the existing AppIntents metadata warning;
+  workspace dependency pins were restored exactly. Documentation checks passed
+  (16 Markdown files, 71 links/anchors); `git diff --check` passed. Private logs:
+  `var/validation/2026-10-10-menu-hover/`.
+- No GUI/Canvas, protected-source, Keychain, live server or listening checks ran.
+  Hover appearance, keyboard focus and dismissal/reopening with both newly opened
+  and existing target windows remain manual steps in UI_ACCEPTANCE.md.
+
+## October 10: compact menu popover and one-shot Sync
+
+The menu now contains verified overall status, Sync Now, Articles, Server Audio,
+Settings and Quit VoiceRelay with two dividers. The user approved a compact
+MenuBarExtra window-style popover for a native progress bar. Sync owns a coalesced
+source refresh, server check, admission, generation and publishing task, even when
+automatic admission/processing are off, without changing those preferences.
+Its button becomes phase progress: measured generation/current-file transfers and
+indeterminate checks/preparation, returning after completion or cancellation.
+Ready requires all three session service verifications; failures open the affected
+Settings pane. Startup verifies an installed speech runtime offline. Credential
+and destination edits invalidate old connection proofs, including in-flight ones.
+
+- **131 app tests and 61 publishing/server core tests passed.** Seven new app
+  regressions cover automation-off one-shot publication, duplicate calls,
+  recorded/failed-row exclusions, repeated Sync without new media PUTs, source-read
+  failure preserving inventory, Stop/Quit, inert/review guards, health routing,
+  stale credential proofs and measured phase progress. The coalesced delivery test
+  adds explicit-check coverage. Eight focused test functions (including its four
+  parameter cases) passed before the full relevant suite.
+- **Unsigned Xcode Debug build passed**, with the existing AppIntents metadata
+  warning. Original workspace dependency pins were restored exactly. Documentation
+  links/anchors and `git diff --check` passed. Private logs:
+  `var/validation/2026-10-10-menu-sync/`.
+- Tests use synthetic tone providers and fake source/credential/transport services.
+  No live Safari, Keychain, server, speech, listening, GUI or Canvas checks ran.
+  Popover focus/rendering, live Ready/failure routing, automation-off Sync and
+  progress remain operator steps in UI_ACCEPTANCE.md. No project-file change.
+
+## October 10: durable Server Audio ordering and changing-content projections
+
+Server Audio previously inherited database insertion order. It now explicitly
+sorts captured Reading List saved dates newest first, undated last, with stable
+episode-ID ties independent of reload/event order. Episode fields supply origin
+and date even after source inventory/cache removal. Worker saves and upload
+progress retain known origin/date/identity when incoming snapshots omit them.
+Search and filters continue to project current episode/status records by stable
+identity without a separate source index.
+
+- **121 app tests and eight focused core tests passed**, covering saved-date vs
+  generation-date order, ties/undated records, reversed reloads, source removal,
+  additions/removals, metadata/progress changes, current search/status results,
+  durable legacy-origin capture across cache cleanup and reopening, stale saves,
+  episode dates in RSS, backup/restore and server preservation.
+- **Unsigned Xcode Debug build passed** with the existing AppIntents metadata
+  warning. Original workspace dependency pins were restored exactly. Documentation
+  checks passed (16 Markdown files, 71 local links/anchors); `git diff --check`
+  passed. Private logs: `var/validation/2026-10-10-server-sort/`.
+- No GUI, protected Safari, Keychain, live server or listening checks were run.
+  Signed-app display/order and real-source removal remain operator checks in
+  UI_ACCEPTANCE.md. Audio bytes and server feed/media were not changed.
+
+## October 10: Server Audio reset placement
+
+Reset Server Audio now appears only in Actions (…) below two selections; Remove
+Selections stays in the toolbar for multiple selections. Confirmation, captured
+visible-item targets and deletion guards are unchanged. Swift app compilation and
+two focused selection/removal tests passed; documentation/link and whitespace
+checks passed. Menu placement and confirmation rendering remain manual checks in
+UI_ACCEPTANCE.md. No GUI, Safari, Keychain or real server interaction was performed.
+
+## October 10: Reading List removal and saved-date filters
+
+Successful source refreshes now drop absent articles, persist local cache-removal
+intent and hide matching queued work. The app cancels pending admissions and joins
+owned speech before deleting snapshots, checkpoints and validated scratch. It
+preserves server episode history, feed membership and unconfirmed finished audio;
+ordinary media/feed-confirmed cleanup releases eligible local copies. Failed reads
+preserve inventory, item cleanup failures retry independently, and restore review
+delays physical cleanup. Today/This Week precede website filters and use local
+calendar saved-date boundaries, including DST and locale week starts.
+
+- The full regression run passed **118 app tests**. Of 282 core tests, two older
+  absence/backup fixtures needed the new source policy and were corrected; their
+  focused rerun passed. One pre-existing project signing test still fails because
+  shared DEVELOPMENT_TEAM settings exist in the unchanged Git HEAD project. No
+  signing configuration was edited for this task.
+- The final **10 focused tests passed**: durable source removal, interrupted queue
+  backup/restore, active-speech and pending-admission cancellation, restore review,
+  lease/symlink safety and independent cleanup retry, server/feed preservation,
+  unconfirmed audio retention, saved-date period boundaries and scope/search
+  combinations. In-memory WebDAV and synthetic audio are mechanical evidence,
+  not live Safari, real speech or real-server acceptance.
+- **Unsigned Xcode Debug build passed**, with the existing AppIntents metadata
+  warning. The exact original workspace dependency pins were restored afterward.
+  Documentation checks passed (16 Markdown files, 71 local links/anchors), as did
+  `git diff --check`. Private logs are in `var/validation/2026-10-10-source-removal/`.
+- GUI menu layout, protected Safari reads and real server/media preservation
+  remain operator checks in [UI acceptance](UI_ACCEPTANCE.md).
+
+## October 10: Safari Reading List picker location
+
+The automatic source default remains ~/Library/Safari/Bookmarks.plist. The chooser
+previously left its starting directory unspecified, allowing macOS to restore a
+location such as Documents. It now explicitly starts at the selected source's
+parent folder, falling back to Safari's folder, prefills the filename and shows
+hidden files. Explicitly chosen source preferences remain unchanged.
+
+- Swift app compilation and **two focused default/picker policy tests passed**.
+  No dialog was opened or protected Safari file read; native panel placement is
+  an operator check in UI_ACCEPTANCE.md.
+- Documentation checker passed: 16 Markdown files and 70 local links/anchors;
+  `git diff --check` passed. No additional Xcode or live-source acceptance was run.
+
+## October 10: source defaults, speech verification and library search
+
+General now owns Reading List selection/diagnostics; Troubleshooting keeps backup
+and debug tools. Production preferences default to Safari's Bookmarks.plist while
+preserving selected sources; isolated/inert models do not adopt protected input.
+Speech setup replaces the ambiguous installation status with a session test
+indicator adjacent to Check. Its controls no longer use the broad backup busy
+gate, which disabled them during background publishing/source/library refreshes.
+Active audio, setup, quitting and library maintenance still block runtime work
+with an explanation. Fixed debug events record checks/installations, and cancelled
+checks do not invalidate an otherwise usable runtime. The supplied log contains
+publishing activity but no runtime-check events; the gate diagnosis comes from
+source inspection and isolated reproductions, not a captured live button state.
+
+Native search covers visible title, origin/date, status, error and audio/progress
+metadata alongside Website/state filters, preserving independent scope queries
+and row order. Selection actions omit hidden rows; automatic work remains global.
+Narration collapses consecutive repeated table/code omission announcements across
+silent separators. Source content and footnote/prose boundaries remain intact;
+unfinished narration upgrades retain compatible chunk proofs, and published audio
+is preserved.
+
+- **113 app tests and 12 core narration/extraction/logging regressions passed**,
+  including the new defaults, runtime busy-gate/outcome, search, omission-run tests
+  and existing checkpoint reuse/queue upgrade coverage. Tests used isolated state,
+  fake runtime operations and fixture audio; no protected Safari read, real model
+  check/install, credentials or server access was performed.
+- **Unsigned Xcode Debug build passed** (`CODE_SIGNING_ALLOWED=NO`). The existing
+  AppIntents metadata-extraction notice remains. Workspace pins were restored to
+  their exact pre-build state; no app was launched.
+- Documentation checker passed: 16 Markdown files and 70 local links/anchors;
+  `git diff --check` passed. Native search/Settings rendering, real runtime checking
+  and subjective narration acceptance remain operator checks in UI_ACCEPTANCE.md
+  and BETA_TESTING.md. Named inert speech-result previews are provided but unrendered.
+
 ## October 10: hide idle workspace status
 
 The workspace footer and its divider now appear only during owned speech,
@@ -1539,3 +1698,30 @@ No app launch, Canvas rendering, protected Safari/Keychain access, live server
 request, real speech generation or live-state migration occurred. Operator
 acceptance: UI_ACCEPTANCE.md section 5. The preexisting Xcode workspace pin file
 was restored exactly after compilation.
+
+## October 10: startup reconciliation and actionable Publishing notices
+
+A per-session startup check bypasses the persisted five-minute scan gate without
+forcing repeated media validation or overriding upload retry delays. The preflight
+blocks new generation while inspecting existing server audio. Readiness rendering
+remains free of credential/network queries; startup displays Checking Publishing
+and healthy completion clears the notice. Publishing failures keep Review
+Publishing… alongside Uploads issues and open the Publishing settings pane.
+Authentication, Keychain access and permissions retain fixed, sanitized diagnostics.
+Fresh library ownership is established before the first reconciliation ledger write;
+settings edits do not create a delivery ledger before library records exist.
+
+Validation: all 124 isolated app-model tests and 61 selected publishing/server
+reconciliation core tests passed. New regressions cover fresh-state recovery,
+relaunch within five minutes with no pending work, one credential read per session,
+reused media proofs, missing/unavailable/rejected credentials, no automatic reprompt,
+Publishing routing alongside outbox errors and upload backoff preservation. Existing
+restore/inert-model and queue-before-generation checks passed. The unsigned Xcode
+Debug build succeeded with only the existing AppIntents metadata-extraction notice.
+Documentation links and git diff --check passed. Private logs:
+var/validation/2026-10-10-startup-reconciliation/.
+
+No GUI/Canvas, real Keychain/Safari, live server, speech or live-state migration was
+tested. Operator acceptance: UI_ACCEPTANCE.md section 2, including rapid relaunch
+and direct settings navigation after failed authentication. Workspace dependency
+pins were restored exactly after the build.

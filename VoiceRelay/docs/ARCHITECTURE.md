@@ -15,7 +15,7 @@ brief and checkout-migration guide are retired.
 | SpeechQueue / FixtureCoordinator / Store | Admission, source identity, retained snapshots, queue and SQLite checkpoints |
 | SpeechPipeline / ExecutableSpeechBackend / KokoroMLXBackend | Replaceable engine contract, supervised helper and single-worker processing |
 | Audio / FloatWave / Feed | Audio validation/encoding, local publication and remote RSS |
-| Delivery / DeliveryRead / ServerRecovery | WebDAV confirmations, feed-first retirement and explicit server reconciliation |
+| Delivery / DeliveryRead / ServerRecovery | WebDAV confirmations, feed-first retirement and automatic server reconciliation |
 | Uploads | Local-copy removal, outbox projection and transient per-item transfer/verification progress |
 | AudioRetention | Confirmed-upload local cleanup and missing-output recovery; no age-based retention |
 | LibraryBackup / SpeechRuntimeSetup | Private SQLite backup/restore and explicit runtime installation |
@@ -31,6 +31,8 @@ application is a separate reference and is never a live state dependency.
 
 While running, the app checks the selected Reading List at startup, every five
 minutes, on Articles appearance/source change and through pull-down refresh.
+General owns source selection/diagnostics. Production defaults to Safari's
+Bookmarks.plist when no source preference exists; injected/inert models do not.
 Unreadable/transient source reads retain known inventory. Safari entries and flags
 are strictly read-only. All Articles combines source inventory with retained queue
 jobs, ordered by saved date; Queue preserves processing order. Selections are
@@ -42,12 +44,34 @@ membership. A failed automatic admission waits until the next session; failed
 speech rows remain manual Retry. New work resumes processing suspended by Stop.
 Queue removal affects only membership, never source entries or saved text.
 
+A successful source refresh removes absent inventory entries and persists local
+cache-removal intent on identity-matching episodes. Their queue membership is
+immediately excluded. The app cancels pending admissions and stops/join owned
+speech for a removed item before acquiring the pipeline lease to purge snapshots,
+chunk checkpoints and owned per-episode scratch. Cleanup retries after failures,
+continues unrelated items and respects restore review. Late pipeline saves retain
+removal intent; cleanup reads current metadata under the writer lock so it cannot
+overwrite publishing confirmations. Completed episode metadata/feed membership and
+unconfirmed final audio remain; ordinary media/feed-confirmed cleanup releases
+eligible local audio. Absent articles are never automatically regenerated from
+deleted snapshots or retired remotely merely because their local audio is missing.
+Previously exported private backups are untouched.
+
+Today/This Week filter Reading List saved dates using local Calendar day/week
+boundaries, not publication dates or fixed-hour lookbacks. Date filters precede
+the separator and existing website count/alphabetical ordering. Filters/search
+are independent across All Articles/Queue and never change processing membership.
+
 Original URLs identify articles independently from canonical/redirected URLs.
 Snapshots preserve source, semantic blocks, narration and private provenance with
 integrity checks. Narration adds title/publisher, omits decorative separators and
 ends with a separate End of article paragraph. Recognized footnotes are spoken
 once at their first reference; unresolved notes produce a notice rather than
 invented content. See [article handling](SOURCE_REVIEW.md).
+Consecutive table/code omission announcements are collapsed across nonverbal
+separators while source blocks remain intact. Unfinished plans adopt the new
+version; identical chunk requests retain compatible fingerprints. Published
+audio is preserved.
 
 Archive lookup is optional/off by default and original-first. It reads existing
 Archive.ph TimeMaps then Wayback Availability captures. Queries/private hosts are
@@ -94,7 +118,11 @@ sanitized. Test Connection is a manual read-only collection probe, not write/pub
 mapping acceptance.
 
 Publishing automatically reconciles bounded authenticated feed/media before queue
-generation and through the delivery drain. Hashed original-source identity or
+generation and through the delivery drain. Each configured/enabled launch attempts
+reconciliation regardless of a recent persisted check timestamp, reusing fresh media
+proofs and retaining upload backoff. Restore review still blocks that attempt. Startup
+shows neutral checking progress; failures link directly to Publishing Settings even
+when Uploads also has issues. Hashed original-source identity or
 unambiguous retained links establish matches; titles and orphan files are never
 proof. SHA-256, format inspection and complete decoding verify copies. Longer
 valid audio wins at comparable voice/speed; ties and known variants retain the
@@ -132,7 +160,31 @@ live state. [Beta checks](BETA_TESTING.md) cover isolated and manual restoration
 
 ## Native presentation and validation
 
-The menu bar and one Articles/Uploads/Server Audio sidebar window use native controls.
+The menu bar uses a compact MenuBarExtra .window popover with standard SwiftUI
+buttons and progress controls. Its only items are overall status, Sync Now,
+Articles, Server Audio, Settings and Quit VoiceRelay with the requested dividers.
+Enabled Button rows use semantic system selection colors on hover/press. The two
+navigation/action pairs use half the original vertical text gap. A zero-size,
+inert-in-previews AppKit attachment weakly captures only the popover host window;
+window-opening actions order out that host before activating/opening the requested
+scene. They never infer the host from the key window or global window order.
+Sync keeps the popover open for progress.
+Ready requires a successful source read, offline runtime verification and a
+successful WebDAV check in this session; failures route to the affected Settings
+pane. Rendering reads presentation state and never probes services. Startup checks
+an installed runtime offline. One Articles/Uploads/Server Audio sidebar window
+retains Generate/Stop and native controls.
+
+Sync Now owns a coalesced source → reconciliation → admission → generation →
+publishing task. A failed source read cannot admit stale inventory. It overrides
+only admission/processing toggles for that invocation, retains recorded-identity
+exclusions, failed speech Retry, server proof caching and upload backoff, and joins
+existing workers rather than starting a second inference. Stop cancels the manual
+sync continuation; internal source-pruning Stop can finish and continue unrelated
+work. Quit cancels and awaits sync and its stages. Restore review blocks it; library
+maintenance waits. The Sync button is replaced by phase progress until completion:
+measured speech/finalization or current-file transfer fractions, indeterminate checks and
+preparation. Phase fractions are not an overall task estimate.
 Settings has General, Publishing and Troubleshooting with a selected glass tile
 and keyboard-only focus cue. Glass belongs in navigation/control chrome; content
 uses standard system surfaces. Text is at least 12pt, help belongs behind section
@@ -143,6 +195,23 @@ configured publishing and empty-queue messages stay out of the workspace. Setup
 and errors use their existing readiness/inline notices; disabled-control reasons
 remain available in tooltips.
 Restore review takes precedence over setup/recovery notices.
+Troubleshooting has backup and debug tools only. General's speech Check/Install
+controls are independent of publishing and metadata reads/writes, but wait for
+active audio work, quitting or library maintenance. Session test outcomes appear
+beside Check and emit fixed, privacy-safe debug events; detecting an executable
+alone is not a passed test. Cancellation does not invalidate a working runtime.
+All Articles/Queue scopes, Uploads and Server Audio use native local search over
+visible title, origin/date, metadata, status and errors alongside existing filters.
+Search preserves scope queries and row ordering; hidden selections do not enter
+bulk actions, and processing/publishing membership is unaffected.
+
+Server Audio explicitly sorts captured Reading List saved dates descending, with
+missing dates last and episode identity breaking ties consistently across reloads
+and event arrival order. Its origin/date and search fields come from durable
+episode records, independently of the mutable Articles inventory. Stale worker
+writes and upload progress snapshots preserve already captured metadata when the
+incoming record omits it. Filters/search project current records and status by
+stable IDs; they do not retain a separate source-index cache.
 
 Source-local previews are synthetic and inert. Automated isolated fixtures and
 builds validate mechanics; GUI/Canvas, protected Safari access, actual speech and

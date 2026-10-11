@@ -15,7 +15,8 @@ private func betaEnqueue(_ storage: ManagedSpeechStorage, coordinator: FixtureCo
     let url = URL(string: "https://articles.example/\(tag)")!
     let html = String(decoding: try FixtureResource.html(), as: UTF8.self)
     let entry = ReadingListEntry(id: tag, safariID: tag, url: url, title: "Synthetic article", addedAt: Date(timeIntervalSince1970: 1_700_000_000))
-    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let entries = try await coordinator.catalog(stateRoot: storage.stateRoot).entries.filter { $0.id != entry.id } + [entry]
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: entries, skippedEntries: 0), stateRoot: storage.stateRoot)
     return try await coordinator.enqueueReadingList(tag, storage: storage, preferences: SpeechPreferences(), fetch: { _ in
         FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
             contentType: "text/html", encoding: "utf-8", fetchedAt: Date())

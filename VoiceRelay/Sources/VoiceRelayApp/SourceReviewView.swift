@@ -17,10 +17,11 @@ final class SourceReviewModel {
     @ObservationIgnored private let coordinator: FixtureCoordinator
     @ObservationIgnored private var catalogLoaded = false
     @ObservationIgnored private var stopping = false
-    @ObservationIgnored var onCatalogChange: () -> Void = {}
+    @ObservationIgnored var onCatalogChange: ([ReadingListEntry]) -> Void = { _ in }
     @ObservationIgnored var onContextChange: () -> Void = {}
     @ObservationIgnored private let stateRootOverride: URL?
     @ObservationIgnored private let snapshotReader: @Sendable (URL) async throws -> ReadingListSnapshot
+    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var autoSyncTask: Task<Void, Never>?
     @ObservationIgnored private var immediateSyncTask: Task<Void, Never>?
     @ObservationIgnored private var sourceReadTask: Task<ReadingListSnapshot, Error>?
@@ -35,9 +36,11 @@ final class SourceReviewModel {
 
     init(preview: Bool = false, coordinator: FixtureCoordinator = FixtureCoordinator(),
          stateRoot: URL? = nil, plist: URL? = nil,
+         defaults: UserDefaults = .standard,
          waitForNextSync: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
          snapshotReader: (@Sendable (URL) async throws -> ReadingListSnapshot)? = nil) {
         self.coordinator = coordinator
+        self.defaults = defaults
         self.waitForNextSync = waitForNextSync
         self.preview = preview
         stateRootOverride = stateRoot
@@ -46,10 +49,15 @@ final class SourceReviewModel {
             return try await withTaskCancellationHandler { try await child.value } onCancel: { child.cancel() }
         }
         if let plist { self.plist = plist }
-        else if !preview, stateRoot == nil,
-                let path = UserDefaults.standard.string(forKey: "readingListSource") {
-            self.plist = URL(fileURLWithPath: path)
+        else if !preview, stateRoot == nil {
+            self.plist = Self.preferredPlist(savedPath: defaults.string(forKey: "readingListSource"))
         }
+    }
+    static func preferredPlist(savedPath: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        if let path = savedPath, !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return URL(fileURLWithPath: path)
+        }
+        return home.appendingPathComponent("Library/Safari/Bookmarks.plist")
     }
     func loadCatalog() {
         guard !preview, !busy, !catalogLoaded, !stopping else { return }
@@ -65,10 +73,14 @@ final class SourceReviewModel {
         }
     }
 
+    var sourcePickerURL: URL { plist ?? Self.preferredPlist(savedPath: nil) }
     func selectPlist() {
         guard !preview, !busy, !persistenceBusy, !stopping else { return }
         let panel = NSOpenPanel(); panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
         panel.title = "Choose a Reading List property-list file (read-only)"
+        panel.directoryURL = sourcePickerURL.deletingLastPathComponent()
+        panel.nameFieldStringValue = sourcePickerURL.lastPathComponent
+        panel.showsHiddenFiles = true
         if panel.runModal() == .OK, let url = panel.url { setSource(url) }
     }
     func setSource(_ url: URL) {
@@ -77,7 +89,7 @@ final class SourceReviewModel {
         sourceGeneration += 1
         sourceReadTask?.cancel()
         plist = url; error = nil; lastSyncedAt = nil
-        if stateRootOverride == nil { UserDefaults.standard.set(url.path, forKey: "readingListSource") }
+        if stateRootOverride == nil { defaults.set(url.path, forKey: "readingListSource") }
         onContextChange()
         requestSourceSync()
     }
@@ -116,9 +128,11 @@ final class SourceReviewModel {
     }
     /// Used by the native pull gesture: wait for the coalesced read and commit so
     /// the system refresh indicator covers the entire operation.
-    func refreshSource() async {
+    @discardableResult func refreshSource() async -> Bool {
+        let previous = lastSyncedAt
         requestSourceSync()
         await immediateSyncTask?.value
+        return lastSyncedAt != previous && error == nil && !stopping && !Task.isCancelled
     }
     @discardableResult
     func synchronizeOnce() async -> Bool {
@@ -141,11 +155,12 @@ final class SourceReviewModel {
             guard !stopping, generation == sourceGeneration, plist == file else { return true }
             var proposed = current
             proposed.reconcile(result); proposed.excludedIDs = []
+            let removed = current.entries.filter { !proposed.currentIDs.contains($0.id) }
             if proposed.entries != current.entries || proposed.currentIDs != current.currentIDs {
                 let saved = try await coordinator.reconcile(result, stateRoot: stateRoot)
                 guard generation == sourceGeneration, plist == file else { return true }
                 // Once committed, inventory reflects the saved result even if article selection changed.
-                catalog = saved; onCatalogChange()
+                catalog = saved; onCatalogChange(removed)
             } else { catalog = proposed }
             catalogLoaded = true; error = nil; lastSyncedAt = Date()
             status = "\(result.entries.count) current entries; \(result.skippedEntries) unsupported entries skipped."
@@ -277,38 +292,13 @@ struct ArticlePreviewView: View {
     }
 }
 
-struct SourceReviewView: View {
-    @Bindable var model: SourceReviewModel
-    var notices = NoticeDismissalState()
-    var speechRunning = false
-    var debugModel: AppModel?
+struct TroubleshootingView: View {
+    @Bindable var model: AppModel
     var body: some View {
         Form {
-            Section {
-                LabeledContent("Source", value: model.plist?.path ?? "Not chosen")
-                    .help(model.plist?.path ?? "No Reading List source chosen")
-                    .textSelection(.enabled)
-                    .lineLimit(1).truncationMode(.middle)
-                Text(model.status).font(AppTypography.secondary)
-                LabeledContent("Last checked", value: model.lastSyncedAt?.formatted(date: .omitted, time: .standard) ?? "Not checked this session")
-                if let error = model.error, notices.isVisible(message: error, key: "source") {
-                    InlineNotice(message: error) { notices.dismiss(message: error, key: "source") }
-                }
-                HStack {
-                    Button("Choose Reading List…") { notices.reset(key: "source"); model.selectPlist() }
-                        .disabled(model.busy || model.persistenceBusy || speechRunning)
-                        .help("Choose a Reading List file")
-                    if model.busy { ProgressView().controlSize(.small); Button("Stop Loading") { model.cancel() }.help("Stop reading the Reading List") }
-                }
-            } header: {
-                SectionHelpHeader(title: "Reading List",
-                    explanation: "Reading List is read-only and checked automatically. Double-click an article in Articles to preview it.")
-            }
-            if let debugModel {
-                LibraryBackupControls(model: debugModel)
-                DeliveryDebugControls(model: debugModel)
-            }
-        }.formStyle(.grouped).onAppear { model.loadCatalog() }
+            LibraryBackupControls(model: model)
+            DeliveryDebugControls(model: model)
+        }.formStyle(.grouped)
     }
 }
 
@@ -404,15 +394,22 @@ struct ArticleLibraryRow: Identifiable {
     var jobs: [SpeechQueueItem]
     let preparationID: String?
     let retained: Bool
+    var queueSummary: String? {
+        guard jobs.count > 1 else { return nil }
+        let failures = jobs.filter { $0.state == .failed || $0.state == .paused }.count
+        return "\(jobs.count) queue entries\(failures > 0 ? " · \(failures) need retry" : "")"
+    }
 }
 
 /// Foundation parses/IDNA-normalizes hosts. The www alias is a display policy only;
 /// source identities remain untouched, and other publication subdomains stay separate.
 enum ArticleWebsiteFilter: Hashable, Identifiable {
-    case all, unknown, site(String)
+    case today, thisWeek, all, unknown, site(String)
+    static let dateOptions: [Self] = [.today, .thisWeek]
+    var isDateFilter: Bool { self == .today || self == .thisWeek }
     var id: Self { self }
     var title: String {
-        switch self { case .all: "All Websites"; case .unknown: "Unknown Website"; case .site(let host): host }
+        switch self { case .today: "Today"; case .thisWeek: "This Week"; case .all: "All Websites"; case .unknown: "Unknown Website"; case .site(let host): host }
     }
     static func siteKey(_ origin: String?) -> String? {
         guard let origin = origin?.trimmingCharacters(in: .whitespacesAndNewlines), !origin.isEmpty,
@@ -424,11 +421,15 @@ enum ArticleWebsiteFilter: Hashable, Identifiable {
         if host.hasPrefix("www.") { host.removeFirst(4) }
         return host.isEmpty ? nil : host
     }
-    func includes(_ row: ArticleLibraryRow) -> Bool {
+    func includes(_ row: ArticleLibraryRow, now: Date = Date(), calendar: Calendar = .current) -> Bool {
         switch self {
-        case .all: true
-        case .unknown: Self.siteKey(row.host) == nil
-        case .site(let host): Self.siteKey(row.host) == host
+        case .today, .thisWeek:
+            guard let saved = row.savedAt,
+                  let interval = calendar.dateInterval(of: self == .today ? .day : .weekOfYear, for: now) else { return false }
+            return saved >= interval.start && saved < interval.end
+        case .all: return true
+        case .unknown: return Self.siteKey(row.host) == nil
+        case .site(let host): return Self.siteKey(row.host) == host
         }
     }
 }
@@ -492,6 +493,10 @@ extension AppModel {
     var articleWebsiteCounts: [ArticleWebsiteFilter: Int] {
         let rows = unfilteredArticleRows
         var counts: [ArticleWebsiteFilter: Int] = [.all: rows.count]
+        let now = Date(), calendar = Calendar.current
+        for filter in ArticleWebsiteFilter.dateOptions {
+            counts[filter] = rows.filter { filter.includes($0, now: now, calendar: calendar) }.count
+        }
         for row in rows {
             let key = ArticleWebsiteFilter.siteKey(row.host).map { ArticleWebsiteFilter.site($0) } ?? .unknown
             counts[key, default: 0] += 1
@@ -500,9 +505,9 @@ extension AppModel {
     }
     var articleWebsiteOptions: [ArticleWebsiteFilter] {
         let counts = articleWebsiteCounts
-        var options = Set(counts.keys).subtracting([.all])
+        var options = Set(counts.keys).subtracting([.all, .today, .thisWeek])
         // Retain an empty selected website, so refresh never silently widens the filter.
-        if articleWebsiteSelection != .all { options.insert(articleWebsiteSelection) }
+        if articleWebsiteSelection != .all && !articleWebsiteSelection.isDateFilter { options.insert(articleWebsiteSelection) }
         return [.all] + options.sorted { left, right in
             let leftCount = counts[left, default: 0], rightCount = counts[right, default: 0]
             if leftCount != rightCount { return leftCount > rightCount }
@@ -510,7 +515,33 @@ extension AppModel {
             return order == .orderedSame ? left.title < right.title : order == .orderedAscending
         }
     }
-    var visibleArticleRows: [ArticleLibraryRow] { unfilteredArticleRows.filter(articleWebsiteSelection.includes) }
+    var articleSearchQuery: String {
+        get { articleScope == .all ? articlesSearchText : queueSearchText }
+        set { if articleScope == .all { articlesSearchText = newValue } else { queueSearchText = newValue } }
+    }
+    var visibleArticleRows: [ArticleLibraryRow] {
+        unfilteredArticleRows.filter { articleWebsiteSelection.includes($0) && matchesArticleSearch($0, query: articleSearchQuery) }
+    }
+    func matchesArticleSearch(_ row: ArticleLibraryRow, query: String) -> Bool {
+        guard LibraryTextSearch.isSearching(query) else { return true }
+        var fields: [String?] = [row.title, row.host,
+            ArticleOriginMetadata(host: row.host, savedAt: row.savedAt).savedDateText,
+            row.retained ? "Retained; absent from Reading List" : nil, row.queueSummary,
+            row.preparationID != nil ? "Preparing" : nil]
+        if row.jobs.count == 1, let job = row.jobs.first {
+            fields.append(articleJobStatus(job))
+            if let message = job.lastError, notices.isVisible(message: message, key: "queue:\(job.id):\(job.attempts):\(job.state)") { fields.append(message) }
+        }
+        return LibraryTextSearch.matches(query, fields: fields)
+    }
+    func articleJobStatus(_ job: SpeechQueueItem) -> String {
+        switch job.state {
+        case .queued: "Ready"
+        case .failed, .paused: "Needs retry"
+        case .running: processingSpeech ? "Processing audio" : "Interrupted; retry required"
+        case .completed: "Audio generated; verifying"
+        }
+    }
     var unifiedArticleSelection: Set<ArticleRowID> {
         get {
             if articleScope == .queue { return Set(queueSelection.map { .retained($0) }) }
@@ -600,12 +631,16 @@ struct ArticlesView: View {
                 }.pickerStyle(.segmented).frame(maxWidth: 292)
                 Spacer(minLength: 12)
                 let websiteCounts = model.articleWebsiteCounts
-                Picker("Website", selection: $model.articleWebsiteSelection) {
+                Picker("Filter", selection: $model.articleWebsiteSelection) {
+                    ForEach(ArticleWebsiteFilter.dateOptions) { filter in
+                        Text("\(filter.title) (\(websiteCounts[filter, default: 0]))").tag(filter)
+                    }
+                    Divider()
                     ForEach(model.articleWebsiteOptions) { filter in
                         Text("\(filter.title) (\(websiteCounts[filter, default: 0]))").tag(filter)
                     }
                 }.pickerStyle(.menu).frame(maxWidth: 260)
-                    .help("Filter by website; www and HTTP/HTTPS are grouped")
+                    .help("Filter by saved date or website")
                 Text(model.articleScope == .all ? "Newest saved first" : "Processing order")
                     .font(AppTypography.secondary).foregroundStyle(.secondary)
             }.padding(12)
@@ -669,6 +704,7 @@ struct ArticlesView: View {
             ToolbarSpacer(.fixed, placement: .primaryAction)
             ToolbarItem(placement: .primaryAction) { GenerateAudioControl(model: model) }
         }
+        .searchable(text: $model.articleSearchQuery, placement: .toolbar, prompt: "Search Articles")
         .confirmationDialog("Reset queue?", isPresented: $confirmingReset) {
             Button("Reset Queue", role: .destructive) { model.resetQueue() }
             Button("Cancel", role: .cancel) {}
@@ -696,13 +732,17 @@ struct ArticlesView: View {
     }
     private var emptyContent: some View {
         ContentUnavailableView {
-            Label(model.articleWebsiteSelection != .all ? "No Matching Articles" : model.articleScope == .queue ? "Queue Is Empty" : "No Articles", systemImage: "doc.text")
+            Label(model.articleWebsiteSelection != .all || LibraryTextSearch.isSearching(model.articleSearchQuery) ? "No Matching Articles" : model.articleScope == .queue ? "Queue Is Empty" : "No Articles", systemImage: "doc.text")
         } description: {
-            Text(model.articleWebsiteSelection != .all ? "No items match this website in the current scope." : model.articleScope == .queue ? "Add articles from All Articles, or let automatic processing admit new entries."
+            Text(LibraryTextSearch.isSearching(model.articleSearchQuery) ? "Try another search or filter." : model.articleWebsiteSelection.isDateFilter ? "No articles were saved in this period." : model.articleWebsiteSelection != .all ? "No items match this website in the current scope." : model.articleScope == .queue ? "Add articles from All Articles, or let automatic processing admit new entries."
+                 : model.sourceReview.plist != nil ? "No articles found in the selected Reading List."
                  : "Choose a Reading List source in General. VoiceRelay checks it automatically while running.")
         } actions: {
+            if LibraryTextSearch.isSearching(model.articleSearchQuery) {
+                Button("Clear Search") { model.articleSearchQuery = "" }
+            }
             if model.articleWebsiteSelection != .all {
-                Button("Show All Websites") { model.articleWebsiteSelection = .all }
+                Button(model.articleWebsiteSelection.isDateFilter ? "Show All Articles" : "Show All Websites") { model.articleWebsiteSelection = .all }
             } else if model.articleScope == .queue {
                 Button("Go to All Articles") { model.articleScope = .all }
             } else {
@@ -727,10 +767,10 @@ struct ArticleLibraryRowView: View {
                 if row.retained { Text("Retained; absent from Reading List").font(AppTypography.secondary).foregroundStyle(.secondary) }
                 if row.jobs.count > 1 {
                     let failures = row.jobs.filter { $0.state == .failed || $0.state == .paused }.count
-                    Label("\(row.jobs.count) queue entries\(failures > 0 ? " · \(failures) need retry" : "")", systemImage: failures > 0 ? "exclamationmark.triangle" : "list.bullet")
+                    Label(row.queueSummary ?? "", systemImage: failures > 0 ? "exclamationmark.triangle" : "list.bullet")
                         .font(AppTypography.secondary).foregroundStyle(.secondary)
                 } else if let job = row.jobs.first {
-                    Label(status(job), systemImage: symbol(job))
+                    Label(model.articleJobStatus(job), systemImage: symbol(job))
                         .font(AppTypography.secondary).foregroundStyle(job.state == .failed ? Color.orange : Color.secondary)
                     if let message = job.lastError,
                        model.notices.isVisible(message: message, key: "queue:\(job.id):\(job.attempts):\(job.state)") {
@@ -766,14 +806,6 @@ struct ArticleLibraryRowView: View {
             help: current ? "Stop generating audio first" : "Remove queue membership; Reading List and saved text are kept",
             isEnabled: model.canRemoveQueueIDs([.episode(job.id)])) { model.changeQueue(job.id, remove: true) }
     }
-    private func status(_ job: SpeechQueueItem) -> String {
-        switch job.state {
-        case .queued: "Ready"
-        case .failed, .paused: "Needs retry"
-        case .running: model.processingSpeech ? "Processing audio" : "Interrupted; retry required"
-        case .completed: "Audio generated; verifying"
-        }
-    }
     private func symbol(_ job: SpeechQueueItem) -> String {
         switch job.state {
         case .queued, .completed: "checkmark.circle"
@@ -799,15 +831,10 @@ private func syntheticReview(issue: SourceReviewIssue? = nil) -> ReviewedSource?
     if let issue { return ReviewedSource(page: page, document: nil, narration: nil, issue: issue) }
     return try? ReviewedSource.prepare(page, chunkLimit: 1800)
 }
-#Preview("Troubleshooting — source status") { SourceReviewView(model: sourcePreview()) }
 #Preview("Troubleshooting — delivery debug logging") {
     let model = AppModel(preview: true)
     model.debugLoggingEnabled = true
-    return SourceReviewView(model: sourcePreview(), debugModel: model)
-}
-#Preview("Troubleshooting — retained entries after permission failure") {
-    let model = sourcePreview(); model.error = "Synthetic file-access failure; previous entries retained."
-    return SourceReviewView(model: model)
+    return TroubleshootingView(model: model)
 }
 #Preview("Article preview — synthetic article") {
     ArticlePreviewView(url: URL(string: "https://articles.example/synthetic")!, inert: true, review: syntheticReview())

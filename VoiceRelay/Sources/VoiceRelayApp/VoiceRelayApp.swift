@@ -4,6 +4,42 @@ import Observation
 import Darwin
 import VoiceRelayCore
 
+enum SpeechRuntimeTestResult: Equatable {
+    case untested, success, cancelled, failure(String)
+}
+
+enum AppHealthStatus: Equatable {
+    case ready
+    case checking(String)
+    case failure(String, SettingsSection)
+    var title: String {
+        switch self {
+        case .ready: "Ready"
+        case .checking(let message), .failure(let message, _): message
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .ready: "checkmark.circle.fill"
+        case .checking: "clock"
+        case .failure: "xmark.circle.fill"
+        }
+    }
+    var settingsSection: SettingsSection? {
+        if case .failure(_, let section) = self { return section }
+        return nil
+    }
+}
+
+enum SyncPhase: String {
+    case readingList = "Reading List"
+    case reconciling = "Checking server audio"
+    case preparing = "Preparing articles"
+    case speechCheck = "Checking speech runtime"
+    case generating = "Generating audio"
+    case publishing = "Publishing"
+}
+
 /// Capture verified results synchronously, including when a later article throws before UI callbacks arrive.
 private final class BatchCompletion: @unchecked Sendable {
     private let lock = NSLock()
@@ -27,11 +63,18 @@ final class AppModel {
     var articleScope: ArticleScope = .all
     var articlesWebsiteFilter: ArticleWebsiteFilter = .all
     var queueWebsiteFilter: ArticleWebsiteFilter = .all
+    var articlesSearchText = ""
+    var queueSearchText = ""
+    var uploadsSearchText = ""
+    var serverAudioSearchText = ""
     var retainedArticleSelection: Set<QueueSelectionID> = []
     var queueSavedDates: [String: Date] = [:]
     var settingsSection: SettingsSection = .general
     /// In-flight background adds, entry id to title. Not persisted; rows merge below real queue items.
     var pendingAdds: [String: String] = [:]
+    var sourcePruningBusy = false
+    @ObservationIgnored private var sourcePruneTask: Task<Void, Never>?
+    @ObservationIgnored private var sourcePruneRequested = false
     var enqueueIssues: [String] = []
     var running = false
     var processingSpeech = false
@@ -69,6 +112,12 @@ final class AppModel {
     var deliveryPublicationSettingsHash: String?
     var deliveryTesting = false
     var deliveryTestResult: DeliveryTestResult = .untested
+    var deliveryConnectionVerified = false
+    @ObservationIgnored private var deliveryVerificationID = UUID()
+    var syncBusy = false
+    var syncPhase: SyncPhase?
+    @ObservationIgnored private var syncTask: Task<Void, Never>?
+    @ObservationIgnored private var syncPreparing = false
     /// Editor field only — never persisted to UserDefaults or files.
     var deliveryPassword = "" { didSet { cancelDeliveryTest() } }
     var deliveryPasswordStored = false
@@ -91,8 +140,8 @@ final class AppModel {
     var sourceReview = SourceReviewModel(preview: true)
     var runtimeProject = SpeechRuntimeSetup.managedRoot
     var runtimeBusy = false
-    var runtimeStatus = "Not checked"
-    var runtimeError: String?
+    var runtimeTestResult: SpeechRuntimeTestResult = .untested
+    var runtimeInstalling = false
     var runtimeVerificationFailed = false
     var libraryMaintenanceBusy = false
     var libraryBackupStatus: String?
@@ -131,12 +180,16 @@ final class AppModel {
     @ObservationIgnored private var automationTask: Task<Void, Never>?
     /// nil means no follow-up; false is automatic, true preserves a manual override.
     @ObservationIgnored private var pendingDeliveryForce: Bool?
+    @ObservationIgnored private var pendingDeliveryCheck = false
+    /// Once per app session; a persisted cadence timestamp must not skip launch authentication.
+    @ObservationIgnored private var startupReconciliationPending = true
     @ObservationIgnored private(set) var stopping = false
     var workspaceSection: WorkspaceSection? = .articles
     @ObservationIgnored private let storageOverride: ManagedSpeechStorage?
     @ObservationIgnored private let backendOverride: (@Sendable (Episode) throws -> any TTSBackend)?
     @ObservationIgnored private let enqueueFetchOverride: (@Sendable (URL) async throws -> FetchedPage)?
     @ObservationIgnored private let archiveFetchOverride: ArticleSourceLoader.ArchiveFetch?
+    @ObservationIgnored private let runtimeSetupOverride: (@Sendable (Bool, URL) throws -> Void)?
     @ObservationIgnored private let defaults: UserDefaults
     /// Delivery seams: production gets Keychain + URLSession; injected models get nil unless a
     /// test supplies fakes, so isolated models can never touch the network or Keychain.
@@ -149,9 +202,12 @@ final class AppModel {
          archiveFetch: ArticleSourceLoader.ArchiveFetch? = nil,
          defaults: UserDefaults = .standard,
          deliveryTransport: (@Sendable () -> any DeliveryTransport)? = nil,
-         credentialStore: (any DeliveryCredentialStore)? = nil) {
+         credentialStore: (any DeliveryCredentialStore)? = nil,
+         runtimeSetup: (@Sendable (Bool, URL) throws -> Void)? = nil,
+         readingListReader: (@Sendable (URL) async throws -> ReadingListSnapshot)? = nil) {
         storageOverride = storage; backendOverride = backend; enqueueFetchOverride = enqueueFetch
         archiveFetchOverride = archiveFetch
+        runtimeSetupOverride = runtimeSetup
         self.defaults = defaults
         var defaultTransport: (@Sendable () -> any DeliveryTransport)?
         if storage == nil { defaultTransport = { URLSessionDeliveryTransport() } }
@@ -159,8 +215,10 @@ final class AppModel {
         let baseCredentialStore = credentialStore ?? (storage == nil ? KeychainCredentialStore() : nil)
         let credentialLog = deliveryDebugLog
         deliveryCredentialStore = baseCredentialStore.map { SessionDeliveryCredentialStore(base: $0, debugLog: credentialLog) }
-        self.preview = preview; sourceReview = SourceReviewModel(preview: preview || storage != nil, coordinator: coordinator)
-        sourceReview.onCatalogChange = { [weak self] in self?.catalogDidChange() }
+        self.preview = preview
+        sourceReview = SourceReviewModel(preview: preview || (storage != nil && readingListReader == nil),
+            coordinator: coordinator, stateRoot: storage?.stateRoot, defaults: defaults, snapshotReader: readingListReader)
+        sourceReview.onCatalogChange = { [weak self] removed in self?.catalogDidChange(removed: removed) }
         sourceReview.onContextChange = { [weak self] in self?.notices.reset(key: "source") }
         guard !preview else {
             runtimeProject = URL(fileURLWithPath: "/synthetic/VoiceRelay")
@@ -180,11 +238,11 @@ final class AppModel {
         runtimeProject = SpeechRuntimeSetup.preferredRoot(
             saved: defaults.string(forKey: "runtimeProject").map { URL(fileURLWithPath: $0) },
             legacy: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Coding/VoiceRelay"))
-        runtimeStatus = speechRuntimeAvailable ? "Existing installation — not checked" : "Setup required"
         autoAdmitEnabled = defaults.object(forKey: "autoAdmitArticles") as? Bool ?? true
         autoProcessEnabled = defaults.object(forKey: "autoProcessArticles") as? Bool ?? true
         useArchivedArticles = defaults.bool(forKey: "useArchivedArticles")
         refreshLibrary()
+        if speechRuntimeAvailable { checkSpeechRuntime() }
         startAutomationLoop()
         sourceReview.startAutomaticSynchronization()
         triggerDelivery()
@@ -211,6 +269,7 @@ final class AppModel {
         defaults.set(autoProcessEnabled, forKey: "autoProcessArticles")
     }
     private func deliverySettingsChanged() {
+        deliveryConnectionVerified = false; deliveryVerificationID = UUID()
         // Filters are read-only: normalize/hash once per edit, never once per row or byte event.
         presentationDeliverySettings = try? deliverySettings.normalized()
         presentationDeliveryIdentity = try? presentationDeliverySettings?.publicationHash()
@@ -225,6 +284,9 @@ final class AppModel {
         // New endpoints/folders/titles change the channel; mark the feed stale so the
         // next drain re-uploads it rather than serving a stale copy (Stage-1 concern).
         let root = storageOverride?.stateRoot ?? AppStorage.managedLibrary
+        // A library without records has no feed to invalidate. Let reconciliation
+        // initialize its owned root before writing the first delivery ledger.
+        guard FileManager.default.fileExists(atPath: PrototypeProfile.fixture(at: root).database.path) else { return }
         guard let hash = try? deliverySettings.settingsHash(),
               var ledger = try? DeliveryLedger.load(stateRoot: root),
               ledger.settingsHash != hash, !ledger.remoteFeedPending else { return }
@@ -266,6 +328,7 @@ final class AppModel {
               deliverySettings.feedFolderURL?.host != nil,
               let store = deliveryCredentialStore else { return }
         let password = deliveryPassword, settings = deliverySettings
+        deliveryConnectionVerified = false; deliveryVerificationID = UUID()
         cancelDeliveryTest(); deliveryCredentialBusy = true
         deliveryCredentialTask = Task {
             defer { deliveryCredentialBusy = false; deliveryCredentialTask = nil; refreshDeliveryCredentialState() }
@@ -292,6 +355,7 @@ final class AppModel {
             deliveryPasswordStored = false; return
         }
         let settings = deliverySettings
+        deliveryConnectionVerified = false; deliveryVerificationID = UUID()
         cancelDeliveryTest(); deliveryCredentialBusy = true
         deliveryCredentialTask = Task {
             defer { deliveryCredentialBusy = false; deliveryCredentialTask = nil; refreshDeliveryCredentialState() }
@@ -314,15 +378,23 @@ final class AppModel {
         NSPasteboard.general.setString(deliveryDebugLog.text, forType: .string)
     }
     /// Coalesced background drain; requests during a drain schedule one follow-up.
-    func triggerDelivery(force: Bool = false) {
+    func triggerDelivery(force: Bool = false, reconcileNow: Bool = false) {
         guard !preview, !stopping, !audioMutationBusy, !libraryMaintenanceBusy, !libraryReviewRequired, !deliveryCredentialBusy, deliverySettings.enabled,
               (try? deliverySettings.validate()) != nil,
               let makeTransport = deliveryTransportFactory, let credential = deliveryCredentialStore else { return }
-        if deliveryTask != nil { pendingDeliveryForce = (pendingDeliveryForce ?? false) || force; return }
-        if force { credential.retryFailedAccess(username: deliverySettings.credentialUsername, host: deliverySettings.credentialHost) }
+        if deliveryTask != nil {
+            pendingDeliveryForce = (pendingDeliveryForce ?? false) || force
+            pendingDeliveryCheck = pendingDeliveryCheck || reconcileNow
+            return
+        }
+        if force || reconcileNow { credential.retryFailedAccess(username: deliverySettings.credentialUsername, host: deliverySettings.credentialHost) }
         let storage = speechStorage, settings = deliverySettings
+        let reconcileNow = startupReconciliationPending || reconcileNow
+        startupReconciliationPending = false
+        let attemptStartedAt = Date(), verificationID = deliveryVerificationID
         let ledger = try? DeliveryLedger.load(stateRoot: storage.stateRoot)
-        deliveryPreflightBusy = !running && (ledger?.destinationURL != settings.feedFolderURL || ledger?.reconciliationAttemptAt == nil || Date().timeIntervalSince(ledger?.reconciliationAttemptAt ?? .distantPast) >= 300)
+        deliveryPreflightBusy = !running && (reconcileNow || ledger?.destinationURL != settings.feedFolderURL || ledger?.reconciliationAttemptAt == nil || Date().timeIntervalSince(ledger?.reconciliationAttemptAt ?? .distantPast) >= 300)
+        if reconcileNow || force || deliveryPreflightBusy { deliveryConnectionVerified = false }
         deliveryBusy = true
         uploadProgress = [:]
         let uploadToken = UUID(); uploadRunID = uploadToken
@@ -335,18 +407,16 @@ final class AppModel {
                 audioLibraryRevision = UUID()
                 refreshLibrary(allowDelivery: false)
                 let again = pendingDeliveryForce; pendingDeliveryForce = nil
-                if let again { triggerDelivery(force: again) }
+                let checkAgain = pendingDeliveryCheck; pendingDeliveryCheck = false
+                if let again { triggerDelivery(force: again, reconcileNow: checkAgain) }
             }
             do {
                 let result = try await coordinator.deliverPending(storage: storage, settings: settings,
                     credential: credential, transport: LoggingDeliveryTransport(base: makeTransport(), log: deliveryDebugLog),
-                    force: force, debugLog: deliveryDebugLog, progress: { [weak self] event in
+                    force: force, reconcileNow: reconcileNow, now: attemptStartedAt, debugLog: deliveryDebugLog, progress: { [weak self] event in
                         Task { @MainActor [weak self] in
                             guard let self, self.uploadRunID == uploadToken, !self.stopping else { return }
-                            self.uploadProgress[event.episode.id] = event
-                            if let index = self.savedEpisodes.firstIndex(where: { $0.id == event.episode.id }) {
-                                self.savedEpisodes[index] = event.episode
-                            } else { self.savedEpisodes.append(event.episode) }
+                            self.recordUploadProgress(event)
                         }
                     })
                 try Task.checkCancellation()
@@ -354,6 +424,10 @@ final class AppModel {
                     recordDeliveryPublication(summary)
                     deliveryPendingCount = summary.pendingMedia + summary.pendingRemoteDeletes
                     deliveryError = summary.lastError
+                    if deliveryVerificationID == verificationID, deliverySettings == settings,
+                       let checkedAt = summary.reconciledAt, checkedAt >= attemptStartedAt {
+                        deliveryConnectionVerified = true
+                    }
                 }
                 // Refresh the outbox even while the inference worker is busy.
                 if let episodes = try? await coordinator.savedAudio(storage: storage) { savedEpisodes = episodes }
@@ -422,15 +496,18 @@ final class AppModel {
                 try Task.checkCancellation()
                 guard deliveryTestID == testID else { return }
                 deliveryTestResult = foldersExist ? .success : .foldersPending
+                deliveryConnectionVerified = true
                 deliveryDebugLog.record(foldersExist ? .connectionVerified : .connectionFoldersPending)
             } catch is CancellationError {
             } catch let error as DeliveryError {
                 guard deliveryTestID == testID else { return }
                 deliveryTestResult = .failure(error.localizedDescription)
+                deliveryConnectionVerified = false
                 deliveryDebugLog.recordFailure(error)
             } catch {
                 guard deliveryTestID == testID else { return }
                 deliveryTestResult = .failure("Server unreachable")
+                deliveryConnectionVerified = false
                 deliveryDebugLog.recordFailure(error)
             }
         }
@@ -456,7 +533,7 @@ final class AppModel {
         defaults.set(bytes, forKey: "speechPreferences")
     }
     var readyQueueCount: Int { queueItems.filter { $0.state.isReady }.count }
-    var canGenerateAudio: Bool { !deliveryPreflightBusy && !preview && !stopping && !runtimeBusy && !libraryMaintenanceBusy && !libraryReviewRequired && speechRuntimeAvailable && !running && !audioMutationBusy
+    var canGenerateAudio: Bool { !sourcePruningBusy && !deliveryPreflightBusy && !preview && !stopping && !runtimeBusy && !libraryMaintenanceBusy && !libraryReviewRequired && speechRuntimeAvailable && !running && !audioMutationBusy
                                  && !sourceReview.persistenceBusy && (readyQueueCount > 0 || !pendingAdds.isEmpty) }
     var canStopProcessing: Bool { !preview && !stopping && processingSpeech && !cancelling }
     var canResetQueue: Bool { !preview && !stopping && !libraryMaintenanceBusy && !libraryReviewRequired && !running && !cancelling && !isQueueResetPending
@@ -506,7 +583,7 @@ final class AppModel {
             return
         }
         let token = progressID, audioRevision = audioLibraryRevision
-        let sweepsBlocked = audioMutationBusy || libraryReviewRequired || deliveryPreflightBusy
+        let sweepsBlocked = sourcePruningBusy || audioMutationBusy || libraryReviewRequired || deliveryPreflightBusy
         let deliverySettings = deliverySettings
         let deliveryOn = deliverySettings.enabled
         libraryTask = Task {
@@ -518,14 +595,18 @@ final class AppModel {
             }
             do {
                 let storage = speechStorage
+                var sourceCleanupError: String?
                 if !sweepsBlocked {
+                    do { try await coordinator.purgeRemovedReadingListCaches(storage: storage, debugLog: deliveryDebugLog) }
+                    catch is CancellationError { return }
+                    catch { sourceCleanupError = "Removed-article cache cleanup needs attention; it will retry." }
                     try await coordinator.recoverTemporaryAudio(storage: storage,
                         settings: deliverySettings.enabled ? deliverySettings : nil)
                 }
                 let items = try await coordinator.queue(stateRoot: storage.stateRoot)
                 var saved: [Episode] = []
                 var library: [Episode] = []
-                var cleanupError: String?
+                var cleanupError: String? = sourceCleanupError
                 var delivery: DeliverySummary?
                 do {
                     if !sweepsBlocked {
@@ -637,7 +718,8 @@ final class AppModel {
         }
     }
     var selectedArticles: [ReadingListEntry] {
-        allArticleRows.filter(articlesWebsiteFilter.includes).compactMap(\.source).filter { articleSelection.contains($0.id) }
+        allArticleRows.filter { articlesWebsiteFilter.includes($0) && matchesArticleSearch($0, query: articlesSearchText) }
+            .compactMap(\.source).filter { articleSelection.contains($0.id) }
     }
     var eligibleSelectedArticles: [ReadingListEntry] {
         selectedArticles.filter { entry in
@@ -685,23 +767,66 @@ final class AppModel {
         }
         startEnqueueIfNeeded()
     }
-    private func catalogDidChange() {
-        refreshLibrary()
-        Task { await autoAdmitNewEntries() }
+    func catalogDidChange(removed: [ReadingListEntry]) {
+        let removedIDs = Set(removed.map(\.id))
+        for id in removedIDs {
+            pendingControls[id]?.cancel(); pendingControls[id] = nil
+            pendingTokens[id] = nil; pendingAdds[id] = nil
+            articleSelection.remove(id)
+            queueSelection.remove(.preparation(id)); retainedArticleSelection.remove(.preparation(id))
+        }
+        admissionQueue.removeAll { removedIDs.contains($0.entry.id) }
+        let removedJobs = Set(queueItems.filter { $0.sourceEntryID.map(removedIDs.contains) == true }.map(\.id))
+        queueItems.removeAll { removedJobs.contains($0.id) }
+        queueSelection.subtract(removedJobs.map { .episode($0) })
+        retainedArticleSelection.subtract(removedJobs.map { .episode($0) })
+        let removedURLs = Set(removed.map(\.url))
+        if let result, removedURLs.contains(result.article.originalURL) { self.result = nil }
+        enqueueIssues.removeAll { issue in removed.contains { issue.hasPrefix($0.title + " — ") } }
+        guard !removed.isEmpty, !preview, !stopping, !libraryReviewRequired, !libraryMaintenanceBusy else {
+            refreshLibrary(); Task { await autoAdmitNewEntries() }; return
+        }
+        sourcePruneRequested = true; sourcePruningBusy = true
+        guard sourcePruneTask == nil else { return }
+        sourcePruneTask = Task {
+            defer {
+                sourcePruneTask = nil; sourcePruningBusy = false
+                refreshLibrary(); Task { await autoAdmitNewEntries() }
+            }
+            while sourcePruneRequested, !stopping, !Task.isCancelled {
+                sourcePruneRequested = false
+                do {
+                    if running, try await coordinator.removedReadingListWorkIsActive(stateRoot: speechStorage.stateRoot) {
+                        let halted = autoHalted
+                        stopQueue(cancelSync: false); autoHalted = halted
+                        if let task { await task.value }
+                    }
+                    while let mutation = queueMutationTask { await mutation.value }
+                    try Task.checkCancellation()
+                    try await coordinator.purgeRemovedReadingListCaches(storage: speechStorage, debugLog: deliveryDebugLog)
+                    // A finalizer may have produced a result while Stop was joining owned work.
+                    if let result, try await coordinator.library(storage: speechStorage)
+                        .contains(where: { $0.id == result.episode.id && $0.readingListRemoved == true }) {
+                        self.result = nil
+                    }
+                } catch is CancellationError { break }
+                catch { audioCleanupError = "Removed-article cache cleanup needs attention; it will retry." }
+            }
+        }
     }
     /// Set-and-forget admission: only entries still present in the latest source read, with
     /// no queue/pending item and no recorded episode (a removed item is never re-added).
     /// Entries whose admission failed are skipped for the rest of the session.
-    func autoAdmitNewEntries() async {
-        guard !libraryMaintenanceBusy, !libraryReviewRequired, !deliveryPreflightBusy else { return }
-        guard autoAdmitEnabled, !preview, !stopping,
+    func autoAdmitNewEntries(explicit: Bool = false) async {
+        guard !sourcePruningBusy, !libraryMaintenanceBusy, !libraryReviewRequired, !deliveryPreflightBusy else { return }
+        guard (explicit || (autoAdmitEnabled && !syncPreparing)), !preview, !stopping,
               !sourceReview.busy, !sourceReview.persistenceBusy else { return }
         let catalog = sourceReview.catalog
         let queued = Set(queueItems.compactMap(\.sourceEntryID))
         let root = storageOverride?.stateRoot ?? AppStorage.managedLibrary
         let candidates = catalog.entries.filter {
             catalog.currentIDs.contains($0.id) && !queued.contains($0.id)
-                && pendingTokens[$0.id] == nil && !autoAttempted.contains($0.id)
+                && pendingTokens[$0.id] == nil && (explicit || !autoAttempted.contains($0.id))
         }
         var fresh: [ReadingListEntry] = []
         for entry in candidates where !Task.isCancelled && !stopping {
@@ -715,8 +840,67 @@ final class AppModel {
     /// Automatic processing obeys the same readiness guards as Generate; explicit Stop holds
     /// it until new work arrives or Generate is pressed again.
     func maybeAutoProcess() {
-        guard autoProcessEnabled, !autoHalted, canGenerateAudio else { return }
+        guard !syncPreparing, autoProcessEnabled, !autoHalted, canGenerateAudio else { return }
         runQueue()
+    }
+    var canSyncNow: Bool {
+        !preview && !stopping && !syncBusy && !cancelling && !libraryReviewRequired
+            && !libraryMaintenanceBusy && !sourcePruningBusy && !audioMutationBusy && !runtimeBusy && !deliveryCredentialBusy
+    }
+    /// One manual round trip, without changing persisted automation preferences.
+    func syncNow() {
+        guard canSyncNow else { return }
+        syncBusy = true; syncPreparing = true; syncPhase = .readingList
+        syncTask = Task {
+            defer { syncTask = nil; syncBusy = false; syncPreparing = false; syncPhase = nil }
+            do {
+                guard await sourceReview.refreshSource() else { return }
+                try Task.checkCancellation()
+                await waitForSourcePruning()
+                refreshLibrary(allowDelivery: false); await waitForLibraryRefresh()
+                try Task.checkCancellation()
+                // Manual Sync retries credential access and the current feed check,
+                // while retaining valid media proofs and ordinary upload backoff.
+                syncPhase = .reconciling
+                triggerDelivery(reconcileNow: true); await waitForDelivery()
+                try Task.checkCancellation()
+                syncPhase = .preparing
+                await autoAdmitNewEntries(explicit: true)
+                await waitForEnqueue()
+                syncPhase = .generating
+                await waitForProcessing()
+                await waitForAudioMutation()
+                await waitForLibraryRefresh()
+                try Task.checkCancellation()
+                if runtimeTestResult != .success && canManageSpeechRuntime {
+                    syncPhase = .speechCheck
+                    checkSpeechRuntime(); await waitForRuntimeSetup()
+                }
+                try Task.checkCancellation()
+                syncPreparing = false
+                syncPhase = .generating
+                if canGenerateAudio { runQueue(); await waitForProcessing() }
+                try Task.checkCancellation()
+                syncPhase = .publishing
+                triggerDelivery(); await waitForDelivery()
+                await waitForLibraryRefresh()
+            } catch is CancellationError {
+            } catch { self.error = "Sync could not finish; saved progress is retained." }
+        }
+    }
+    var syncProgressLabel: String {
+        if syncPhase == .reconciling || syncPhase == .publishing,
+           let transfer = uploadProgress.values.first(where: { $0.phase.active }) { return transfer.phase.title }
+        return syncPhase?.rawValue ?? "Syncing…"
+    }
+    /// Measured generation or current-file transfer progress, never an overall estimate.
+    var syncProgressFraction: Double? {
+        guard syncBusy else { return nil }
+        if syncPhase == .generating { return processingFraction }
+        if syncPhase == .reconciling || syncPhase == .publishing {
+            return uploadProgress.values.first(where: { $0.phase == .transferring })?.fraction
+        }
+        return nil
     }
     /// Launch resume: items left .running by a previous Quit are legitimate unfinished work —
     /// re-ready them once, then let automation drain. Failed items stay manual-Retry.
@@ -743,7 +927,7 @@ final class AppModel {
                 }
                 admissionQueue = []; enqueueTask = nil
             }
-            var saved = 0, issues: [String] = []
+            var saved = 0, issues: [(entryID: String, message: String)] = []
             while let next = admissionQueue.first {
                 if Task.isCancelled { break }
                 let entry = next.entry
@@ -779,10 +963,13 @@ final class AppModel {
                         pendingAdds[entry.id] = nil; pendingTokens[entry.id] = nil; pendingControls[entry.id] = nil
                     }
                     if next.automatic { autoAttempted.insert(entry.id) }
-                    issues.append("\(entry.title) — \(Self.enqueueIssueMessage(error))")
+                    if sourceReview.catalog.currentIDs.contains(entry.id) {
+                        issues.append((entry.id, "\(entry.title) — \(Self.enqueueIssueMessage(error))"))
+                    }
                 }
             }
-            enqueueIssues = issues
+            issues.removeAll { !sourceReview.catalog.currentIDs.contains($0.entryID) }
+            enqueueIssues = issues.map(\.message)
             if !processingSpeech && !running {
                 status = issues.isEmpty ? "\(saved) articles saved in queue" : "Saved \(saved); \(issues.count) need attention."
             }
@@ -982,8 +1169,9 @@ final class AppModel {
             }
         }
     }
-    func stopQueue() {
+    func stopQueue(cancelSync: Bool = true) {
         guard canStopProcessing else { return }
+        if cancelSync { syncTask?.cancel() }
         autoHalted = true
         cancelling = true; stopped = true; progressID = UUID()
         queueControl?.requestStop()
@@ -1045,6 +1233,18 @@ final class AppModel {
         ArticleOriginMetadata(host: episode.originalSourceHost ?? episode.sourceHost ?? episode.sourceURL?.host,
                               savedAt: episode.readingListSavedAt)
     }
+    /// Progress snapshots may predate captured metadata; they must not erase it in the UI.
+    func recordUploadProgress(_ event: UploadProgress) {
+        uploadProgress[event.episode.id] = event
+        var episode = event.episode
+        if let index = savedEpisodes.firstIndex(where: { $0.id == episode.id }) {
+            let previous = savedEpisodes[index]
+            episode.readingListSavedAt = episode.readingListSavedAt ?? previous.readingListSavedAt
+            episode.originalSourceHost = episode.originalSourceHost ?? previous.originalSourceHost
+            episode.originalSourceIdentity = episode.originalSourceIdentity ?? previous.originalSourceIdentity
+            savedEpisodes[index] = episode
+        } else { savedEpisodes.append(episode) }
+    }
     /// Audio metadata is separate from the original website and Reading List save date.
     func savedAudioMeta(_ episode: Episode) -> String? {
         guard let info = episode.info else { return nil }
@@ -1081,8 +1281,33 @@ final class AppModel {
             progress: deliveryBusy ? uploadProgress[episode.id] : nil)
     }
     var uploadItems: [UploadItem] { savedEpisodes.map(audioState).filter(\.isInOutbox) }
-    var visibleUploads: [UploadItem] { uploadItems.filter { uploadsFilter.includes($0.phase) } }
-    var visibleServerAudio: [Episode] { savedEpisodes.filter { serverAudioFilter.includes(audioState($0).phase) } }
+    var visibleUploads: [UploadItem] {
+        uploadItems.filter { uploadsFilter.includes($0.phase) && matchesAudioSearch($0, query: uploadsSearchText, outbox: true) }
+    }
+    var visibleServerAudio: [Episode] {
+        savedEpisodes.filter {
+            let item = audioState($0)
+            return serverAudioFilter.includes(item.phase) && matchesAudioSearch(item, query: serverAudioSearchText, outbox: false)
+        }.sorted { left, right in
+            switch (left.readingListSavedAt, right.readingListSavedAt) {
+            case let (l?, r?) where l != r: return l > r
+            case (_?, nil): return true
+            case (nil, _?): return false
+            // Stable identities keep ties/undated records ordered across reloads and events.
+            default: return left.id < right.id
+            }
+        }
+    }
+    func matchesAudioSearch(_ item: UploadItem, query: String, outbox: Bool) -> Bool {
+        guard LibraryTextSearch.isSearching(query) else { return true }
+        let episode = item.episode, origin = savedAudioOrigin(episode)
+        let removal = outbox ? nil : savedAudioRemovalStatus(episode)
+        var fields: [String?] = [episode.title, origin.host, origin.savedDateText, savedAudioMeta(episode), removal]
+        if outbox || removal == nil { fields += [item.phase.title, item.detail] }
+        if !outbox, savedAudioMeta(episode) == nil, removal == nil { fields.append("Speech ready") }
+        if outbox { fields.append(item.sentBytesText) }
+        return LibraryTextSearch.matches(query, fields: fields)
+    }
     var uploadsNeedAttention: Bool { uploadItems.contains { $0.phase.needsAttention } }
     var canRetryUploads: Bool {
         !uploadItems.isEmpty && deliverySettings.enabled && !preview && !stopping && !audioMutationBusy && !deliveryBusy
@@ -1182,6 +1407,7 @@ final class AppModel {
     }
     func waitForAudioMutation() async { if let audioMutationTask { await audioMutationTask.value } }
     func cancel() {
+        syncTask?.cancel()
         resetProgress(); error = nil; sourceReview.cancel(); libraryTask?.cancel(); enqueueTask?.cancel()
         queueMutationTask?.cancel()
         if let task {
@@ -1203,6 +1429,9 @@ final class AppModel {
     func waitForDeliveryTest() async { if let deliveryTestTask { await deliveryTestTask.value } }
     func waitForCredentialMutation() async { if let deliveryCredentialTask { await deliveryCredentialTask.value } }
     func waitForLibraryMaintenance() async { if let libraryMaintenanceTask { await libraryMaintenanceTask.value } }
+    func waitForRuntimeSetup() async { if let runtimeTask { await runtimeTask.value } }
+    func waitForSourcePruning() async { if let sourcePruneTask { await sourcePruneTask.value } }
+    func waitForSync() async { if let syncTask { await syncTask.value } }
     func shutdown() async {
         stopping = true
         // Stop owned work before terminating the UI.
@@ -1210,12 +1439,14 @@ final class AppModel {
         let current = task, enqueue = enqueueTask, library = libraryTask
         let mutation = queueMutationTask, audioMutation = audioMutationTask, preview = previewTask
         let delivery = deliveryTask, deliveryTest = deliveryTestTask, automation = automationTask, credential = deliveryCredentialTask
-        let runtime = runtimeTask, maintenance = libraryMaintenanceTask
+        let runtime = runtimeTask, maintenance = libraryMaintenanceTask, sourcePrune = sourcePruneTask
+        let sync = syncTask
         previewRequestID = UUID()
         current?.cancel(); enqueue?.cancel(); library?.cancel(); mutation?.cancel()
         audioMutation?.cancel(); preview?.cancel(); delivery?.cancel(); deliveryTest?.cancel(); automation?.cancel()
         credential?.cancel(); deliveryCredentialStore?.cancelAuthentication()
-        runtime?.cancel(); maintenance?.cancel()
+        runtime?.cancel(); maintenance?.cancel(); sourcePrune?.cancel()
+        sync?.cancel()
         sourceReview.cancel()
         await sourceReview.stop()
         if let current { await current.value }
@@ -1230,6 +1461,8 @@ final class AppModel {
         if let automation { await automation.value }
         if let runtime { await runtime.value }
         if let maintenance { await maintenance.value }
+        if let sourcePrune { await sourcePrune.value }
+        if let sync { await sync.value }
         deliveryCredentialStore?.clearSession()
         deliveryPassword = ""; deliveryPasswordStored = false; deliveryPasswordChecked = false
     }
@@ -1241,10 +1474,20 @@ final class AppModel {
              && ToolRunner.locate("ffmpeg") != nil && ToolRunner.locate("ffprobe") != nil))
     }
     var canManageLibrary: Bool {
-        !preview && !stopping && !running && !runtimeBusy && !libraryMaintenanceBusy && pendingAdds.isEmpty
+        !syncBusy && !sourcePruningBusy && !preview && !stopping && !running && !runtimeBusy && !libraryMaintenanceBusy && pendingAdds.isEmpty
             && !queueMutationBusy && !audioMutationBusy && !deliveryBusy && !deliveryTesting
             && !deliveryCredentialBusy && !sourceReview.busy && !sourceReview.persistenceBusy && libraryTask == nil
     }
+    /// Speech tools are independent of server operations and short library metadata writes.
+    var runtimeControlDisabledReason: String? {
+        if preview || (storageOverride != nil && runtimeSetupOverride == nil) { return "Unavailable in this isolated model." }
+        if stopping { return "VoiceRelay is quitting." }
+        if runtimeBusy { return "Speech setup is in progress." }
+        if running || processingSpeech || cancelling { return "Stop audio generation before checking or installing speech tools." }
+        if libraryMaintenanceBusy { return "Wait for library maintenance to finish." }
+        return nil
+    }
+    var canManageSpeechRuntime: Bool { runtimeControlDisabledReason == nil }
     func checkSpeechRuntime() {
         beginRuntimeSetup(install: false)
     }
@@ -1252,29 +1495,37 @@ final class AppModel {
         beginRuntimeSetup(install: true)
     }
     private func beginRuntimeSetup(install: Bool) {
-        guard canManageLibrary, storageOverride == nil else { return }
+        guard canManageSpeechRuntime else { return }
         let root = install ? SpeechRuntimeSetup.managedRoot : runtimeProject
-        runtimeBusy = true; runtimeError = nil
-        runtimeStatus = install ? "Installing speech runtime…" : "Checking speech runtime…"
+        runtimeBusy = true; runtimeInstalling = install; runtimeTestResult = .untested
+        let operation: DeliveryDebugLog.Event.RuntimeOperation = install ? .installation : .check
+        deliveryDebugLog.record(.speechRuntime(operation, .started))
+        let perform = runtimeSetupOverride
         runtimeTask = Task { [weak self] in
             guard let self else { return }
-            defer { runtimeTask = nil; runtimeBusy = false }
+            defer { runtimeTask = nil; runtimeBusy = false; maybeAutoProcess() }
             let worker = Task.detached {
-                if install { try SpeechRuntimeSetup.install(at: root) }
+                if let perform { try perform(install, root) }
+                else if install { try SpeechRuntimeSetup.install(at: root) }
                 else { try SpeechRuntimeSetup.check(at: root) }
             }
             do {
                 try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+                try Task.checkCancellation()
                 guard !stopping else { return }
                 if install { runtimeProject = root; defaults.set(root.path, forKey: "runtimeProject") }
                 runtimeVerificationFailed = false
-                runtimeStatus = "Speech runtime verified"
+                runtimeTestResult = .success
+                deliveryDebugLog.record(.speechRuntime(operation, .verified))
+            } catch is CancellationError {
+                guard !stopping else { return }
+                runtimeTestResult = .cancelled
+                deliveryDebugLog.record(.speechRuntime(operation, .cancelled))
             } catch {
                 guard !stopping else { return }
                 if root.standardizedFileURL == runtimeProject.standardizedFileURL { runtimeVerificationFailed = true }
-                runtimeStatus = "Needs attention"
-                runtimeError = error is CancellationError ? "Speech setup cancelled. You can retry installation."
-                    : (error as? RelayError)?.localizedDescription ?? "Speech setup failed. See the setup guide."
+                runtimeTestResult = .failure((error as? RelayError)?.localizedDescription ?? "Speech setup failed. Check the required tools and retry.")
+                deliveryDebugLog.record(.speechRuntime(operation, .failed))
             }
         }
     }
@@ -1360,7 +1611,7 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
 }
 
 enum PublishingReadiness: Equatable {
-    case needsSetup, configured, turnedOff, needsAttention, notChecked
+    case needsSetup, configured, turnedOff, needsAttention, notChecked, checking
     var title: String {
         switch self {
         case .needsSetup: "Publishing needs setup"
@@ -1368,6 +1619,7 @@ enum PublishingReadiness: Equatable {
         case .turnedOff: "Publishing is turned off"
         case .needsAttention: "Publishing needs attention"
         case .notChecked: "Publishing has not been checked"
+        case .checking: "Checking Publishing…"
         }
     }
     var detail: String {
@@ -1377,6 +1629,7 @@ enum PublishingReadiness: Equatable {
         case .turnedOff: "Enable Publishing when you want new episodes in your podcast app."
         case .needsAttention: "Review pending transfers and verification issues in Uploads, or check Publishing settings."
         case .notChecked: "The password has not been checked this session. Review Publishing to verify the connection."
+        case .checking: "Checking your password and existing server audio."
         }
     }
     var action: String {
@@ -1389,6 +1642,29 @@ enum PublishingReadiness: Equatable {
 }
 
 extension AppModel {
+    /// A verified service summary; opening the menu never performs checks itself.
+    var appHealth: AppHealthStatus {
+        if libraryReviewRequired { return .failure("Library review required", .troubleshooting) }
+        if sourceReview.plist == nil { return .failure("Reading List needs setup", .general) }
+        if sourceReview.error != nil && !sourceReview.synchronizing { return .failure("Reading List unavailable", .general) }
+        if !runtimeBusy && ((!preview && !speechRuntimeAvailable) || runtimeVerificationFailed) { return .failure("Speech runtime unavailable", .general) }
+        if case .failure = runtimeTestResult, !runtimeBusy { return .failure("Speech runtime check failed", .general) }
+        if !deliverySettings.enabled { return .failure("Publishing is off", .delivery) }
+        if (try? deliverySettings.validate()) == nil { return .failure("Publishing needs setup", .delivery) }
+        if deliveryError != nil && !deliveryPreflightBusy { return .failure("Publishing needs attention", .delivery) }
+        if case .failure = deliveryTestResult, !deliveryTesting { return .failure("Publishing check failed", .delivery) }
+        if deliveryPasswordChecked && !deliveryPasswordStored && !deliveryCredentialBusy { return .failure("Publishing password missing", .delivery) }
+        if sourceReview.synchronizing { return .checking("Checking Reading List…") }
+        if runtimeBusy { return .checking("Checking speech runtime…") }
+        if deliveryPreflightBusy || deliveryTesting { return .checking("Checking Publishing…") }
+        if sourceReview.lastSyncedAt == nil { return .failure("Reading List not checked", .general) }
+        if runtimeTestResult != .success { return .failure("Speech runtime not checked", .general) }
+        if !deliveryConnectionVerified { return .failure("Publishing not checked", .delivery) }
+        if syncBusy { return .checking("Syncing…") }
+        if processingSpeech { return .checking("Generating audio…") }
+        if deliveryBusy { return .checking("Publishing…") }
+        return .ready
+    }
     /// Read existing presentation state only. This never queries Keychain or the network.
     var publishingReadiness: PublishingReadiness {
         var required = deliverySettings
@@ -1397,14 +1673,23 @@ extension AppModel {
             return .needsSetup
         }
         if !deliverySettings.enabled { return .turnedOff }
+        if deliveryPreflightBusy { return .checking }
         if deliveryError != nil || uploadsNeedAttention { return .needsAttention }
         if !deliveryPasswordChecked { return .notChecked }
         return deliveryPasswordStored ? .configured : .needsSetup
+    }
+    /// Publishing failures must retain their Settings route alongside outbox issues.
+    var publishingSettingsNotice: PublishingReadiness? {
+        if publishingReadiness == .checking { return nil }
+        if deliveryError != nil { return .needsAttention }
+        if uploadsNeedAttention || publishingReadiness == .configured { return nil }
+        return publishingReadiness
     }
     var eligibleGenerationCount: Int { readyQueueCount + pendingAdds.count }
     /// Idle setup and errors have dedicated notices; the footer is only for owned work.
     var showsWorkspaceActivity: Bool { showsProcessingProgress || deliveryBusy }
     var generationDisabledReason: String? {
+        if sourcePruningBusy { return "Clearing removed articles from the library." }
         if libraryReviewRequired { return "Review the restored library before processing resumes." }
         if deliveryPreflightBusy { return "Checking the existing server feed before processing resumes." }
         if libraryMaintenanceBusy { return "Wait for library maintenance to finish." }
@@ -1448,6 +1733,17 @@ struct WorkspaceReadinessView: View {
                     detail: model.runtimeBusy ? "Wait for setup, or cancel it in General." : "Install or check the speech runtime in General before generating audio.",
                     symbol: "gearshape", action: "Open General", pane: .general)
             }
+            if model.publishingReadiness == .checking {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(PublishingReadiness.checking.title)
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                    .background(alignment: .bottom) { Divider() }
+            } else if let readiness = model.publishingSettingsNotice {
+                notice(readiness.title, detail: model.deliveryError ?? readiness.detail,
+                    symbol: readiness == .needsAttention ? "exclamationmark.triangle" : "gearshape",
+                    action: readiness.action, pane: .delivery)
+            }
             if model.uploadsNeedAttention {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Uploads need attention", systemImage: "exclamationmark.triangle").font(.headline)
@@ -1457,11 +1753,6 @@ struct WorkspaceReadinessView: View {
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                     .background(alignment: .bottom) { Divider() }
-            } else if model.publishingReadiness != .configured {
-                let readiness = model.publishingReadiness
-                notice(readiness.title, detail: readiness.detail,
-                    symbol: readiness == .needsAttention ? "exclamationmark.triangle" : "gearshape",
-                    action: readiness.action, pane: .delivery)
             }
         }
     }
@@ -1528,6 +1819,23 @@ struct ArticleOriginLine: View {
                 if let date = metadata.savedDateText { Text(date) }
             }.font(AppTypography.secondary).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Match visible fields locally using Foundation's locale-aware search.
+enum LibraryTextSearch {
+    static func isSearching(_ query: String) -> Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    static func matches(_ query: String, fields: [String?]) -> Bool {
+        let terms = query.split(whereSeparator: \.isWhitespace).map(String.init)
+        let text = fields.compactMap { $0 }
+        return terms.allSatisfy { term in text.contains { $0.localizedStandardContains(term) } }
+    }
+}
+
+extension UploadItem {
+    var sentBytesText: String? {
+        guard phase.active, progress?.fraction != nil, let sent = progress?.sentBytes, let total = progress?.totalBytes else { return nil }
+        return "\(ByteCountFormatter.string(fromByteCount: sent, countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)) sent"
     }
 }
 
@@ -1675,33 +1983,98 @@ struct RelayMenu: View {
     @Bindable var model: AppModel
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
+    @State private var popoverWindow = MenuPopoverWindowReference()
     var body: some View {
-        Text(model.processingStatusLine).font(AppTypography.body)
-        Divider()
-        if model.processingSpeech {
-            Button(model.cancelling ? "Stopping…" : "Stop") { model.stopQueue() }
-                .disabled(!model.canStopProcessing)
-        } else {
-            Button("Generate Audio") {
-                model.workspaceSection = .articles; model.articleScope = .queue
-                openWorkspace()
-                model.runQueue()
-            }.disabled(!model.canGenerateAudio)
-        }
-        Divider()
-        Button("Articles") { model.articleScope = .all; openWorkspace(.articles) }.disabled(model.preview)
-        Button("Queue") { model.articleScope = .queue; openWorkspace(.articles) }.disabled(model.preview)
-        Button("Uploads") { openWorkspace(.uploads) }.disabled(model.preview)
-        Button("Server Audio") { openWorkspace(.savedAudio) }.disabled(model.preview)
-        Divider()
-        Button("Publishing Settings…") { model.settingsSection = .delivery; WindowPresence.shared.prepareToOpen(); openSettings() }.disabled(model.preview)
-        Button("Settings…") { model.settingsSection = .general; WindowPresence.shared.prepareToOpen(); openSettings() }.disabled(model.preview)
-        Button("Quit VoiceRelay") { model.quit() }.disabled(model.preview)
+        VStack(alignment: .leading, spacing: 2) {
+            let health = model.appHealth
+            if let section = health.settingsSection {
+                Button { showSettings(section) } label: {
+                    Label(health.title, systemImage: health.symbol)
+                }.buttonStyle(PopoverMenuButtonStyle(foreground: .red))
+                    .disabled(model.preview || model.stopping)
+            } else {
+                Label(health.title, systemImage: health.symbol)
+                    .foregroundStyle(health == .ready ? Color.green : Color.secondary)
+                    .padding(8)
+            }
+            if model.syncBusy {
+                SyncMenuProgress(model: model)
+            } else {
+                item("Sync Now") { model.syncNow() }.disabled(!model.canSyncNow)
+            }
+            Divider()
+            VStack(spacing: 1) {
+                item("Articles") { model.articleScope = .all; openWorkspace(.articles) }.disabled(model.preview)
+                item("Server Audio") { openWorkspace(.savedAudio) }.disabled(model.preview)
+            }.buttonStyle(PopoverMenuButtonStyle(verticalPadding: 4))
+            Divider()
+            VStack(spacing: 1) {
+                item("Settings") { showSettings(.general) }.disabled(model.preview)
+                item("Quit VoiceRelay") { model.quit() }.disabled(model.preview)
+            }.buttonStyle(PopoverMenuButtonStyle(verticalPadding: 4))
+        }.buttonStyle(PopoverMenuButtonStyle())
+            .padding(6).frame(width: 280)
+            .background(MenuPopoverWindowCapture(reference: popoverWindow, inert: model.preview).frame(width: 0, height: 0))
+    }
+    private func item(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+    }
+    private func showSettings(_ section: SettingsSection) {
+        popoverWindow.dismiss()
+        model.settingsSection = section
+        WindowPresence.shared.prepareToOpen()
+        openSettings()
     }
     private func openWorkspace(_ section: WorkspaceSection? = nil) {
+        popoverWindow.dismiss()
         if let section { model.workspaceSection = section }
         WindowPresence.shared.prepareToOpen()
         openWindow(id: "articles")
+    }
+}
+
+/// Keep Button's actions and keyboard/accessibility behavior, adding menu-row hover feedback.
+private struct PopoverMenuButtonStyle: ButtonStyle {
+    var foreground: Color = .primary
+    var verticalPadding: CGFloat = 8
+    func makeBody(configuration: Configuration) -> some View {
+        MenuLabel(label: configuration.label, pressed: configuration.isPressed,
+                  foreground: foreground, verticalPadding: verticalPadding)
+    }
+    private struct MenuLabel: View {
+        let label: ButtonStyleConfiguration.Label
+        let pressed: Bool
+        let foreground: Color
+        let verticalPadding: CGFloat
+        @Environment(\.isEnabled) private var enabled
+        @State private var hovering = false
+        var body: some View {
+            let highlighted = enabled && (hovering || pressed)
+            label.frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8).padding(.vertical, verticalPadding)
+                .foregroundStyle(highlighted ? Color(nsColor: .selectedMenuItemTextColor) : (enabled ? foreground : .secondary))
+                .background(highlighted ? Color(nsColor: .selectedContentBackgroundColor) : .clear,
+                            in: RoundedRectangle(cornerRadius: 4))
+                .contentShape(Rectangle())
+                .onHover { hovering = $0 }
+                .onDisappear { hovering = false }
+        }
+    }
+}
+
+struct SyncMenuProgress: View {
+    @Bindable var model: AppModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(model.syncProgressLabel).font(AppTypography.secondary)
+            if let fraction = model.syncProgressFraction {
+                ProgressView(value: fraction).progressViewStyle(.linear).controlSize(.small)
+                    .accessibilityLabel(model.syncPhase == .generating ? "Audio generation progress" : "Current audio file upload progress")
+            } else {
+                ProgressView().progressViewStyle(.linear).controlSize(.small)
+                    .accessibilityLabel("Sync in progress")
+            }
+        }.padding(8)
     }
 }
 
@@ -1771,6 +2144,11 @@ struct ConfigurationView: View {
             }.disabled(model.running)
             Section {
                 LabeledContent("Source", value: model.sourceReview.plist?.lastPathComponent ?? "Not chosen")
+                    .help(model.sourceReview.plist?.path ?? "No Reading List source chosen")
+                LabeledContent("Last checked", value: model.sourceReview.lastSyncedAt?.formatted(date: .omitted, time: .standard) ?? "Not checked this session")
+                if let error = model.sourceReview.error, model.notices.isVisible(message: error, key: "source") {
+                    InlineNotice(message: error) { model.notices.dismiss(message: error, key: "source") }
+                }
                 Button("Choose Reading List…") { model.sourceReview.selectPlist() }
                     .disabled(model.running || model.sourceReview.busy || model.sourceReview.persistenceBusy || model.preview)
                 Toggle("Add new articles to Queue automatically", isOn: $model.autoAdmitEnabled)
@@ -1781,7 +2159,7 @@ struct ConfigurationView: View {
                     .disabled(model.preview || model.stopping)
             } header: {
                 SectionHelpHeader(title: "Reading List",
-                    explanation: "Your Reading List is checked every five minutes and never modified. Automation handles new articles while the app runs. Optional archive recovery sends eligible public article URLs to Archive.ph or the Wayback Machine; copies may be older.")
+                    explanation: "Safari’s Bookmarks.plist is the default source, checked every five minutes and never modified. Choose another file if needed. Optional archive recovery sends eligible public article URLs to Archive.ph or Wayback; copies may be older.")
             }
             if model.speechRuntimeAvailable { speechSetup }
         }.formStyle(.grouped)
@@ -1793,24 +2171,46 @@ struct ConfigurationView: View {
     }
     private var speechSetup: some View {
             Section {
-                LabeledContent("Status", value: model.runtimeStatus)
-                if let error = model.runtimeError {
-                    InlineNotice(message: error)
-                }
-                HStack {
-                    Button("Check Speech Runtime") { model.checkSpeechRuntime() }.disabled(!model.canManageLibrary)
-                    if model.runtimeBusy {
-                        ProgressView().controlSize(.small)
-                        Button("Cancel") { model.cancelRuntimeSetup() }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Button(model.runtimeBusy && !model.runtimeInstalling ? "Checking…" : "Check Speech Runtime") { model.checkSpeechRuntime() }
+                            .disabled(!model.canManageSpeechRuntime)
+                            .help(model.runtimeControlDisabledReason ?? "Verify speech tools and model offline")
+                        if model.runtimeBusy {
+                            ProgressView().controlSize(.small)
+                            Button("Cancel") { model.cancelRuntimeSetup() }
+                        }
+                    }
+                    SpeechRuntimeTestIndicator(model: model)
+                    if let reason = model.runtimeControlDisabledReason, !model.preview, !model.runtimeBusy {
+                        Text(reason).font(AppTypography.secondary).foregroundStyle(.secondary)
                     }
                 }
-                Button("Install Speech Runtime…") { confirmingInstallation = true }.disabled(!model.canManageLibrary)
+                Button(model.runtimeBusy && model.runtimeInstalling ? "Installing…" : "Install Speech Runtime…") { confirmingInstallation = true }
+                    .disabled(!model.canManageSpeechRuntime)
+                    .help(model.runtimeControlDisabledReason ?? "Install speech tools and model")
             } header: {
                 SectionHelpHeader(title: "Speech setup",
                     explanation: "Install downloads the speech tools and model; existing installations stay active until setup succeeds. Requires python3, uv, ffmpeg and ffprobe. Check works offline.")
             }
     }
 
+}
+
+struct SpeechRuntimeTestIndicator: View {
+    @Bindable var model: AppModel
+    var body: some View {
+        if !model.runtimeBusy {
+            switch model.runtimeTestResult {
+            case .untested: Text("Not tested").foregroundStyle(.secondary)
+            case .success: Label("Runtime verified", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            case .cancelled: Text("Cancelled; test again when ready").foregroundStyle(.secondary)
+            case .failure(let message):
+                Label(message, systemImage: "xmark.circle.fill").foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
 }
 
 struct DeliveryPaneView: View {
@@ -1935,7 +2335,7 @@ struct DeliveryPaneView: View {
                     if model.deliveryPasswordStored {
                         Label("Stored in Keychain", systemImage: "key.fill").foregroundStyle(.secondary)
                     } else if !model.deliveryPasswordChecked, model.deliverySettings.feedFolderURL?.host != nil {
-                        Text("Password not checked").foregroundStyle(.secondary)
+                        Text(model.deliveryBusy || model.deliveryTesting ? "Checking password…" : "Password not checked").foregroundStyle(.secondary)
                     }
     }
     @ViewBuilder private var testIndicator: some View {
@@ -2072,7 +2472,7 @@ struct SettingsView: View {
                 case .delivery:
                     DeliveryPaneView(model: model).padding(.horizontal, 8)
                 case .troubleshooting:
-                    SourceReviewView(model: model.sourceReview, notices: model.notices, speechRunning: model.running, debugModel: model).padding(.horizontal, 8)
+                    TroubleshootingView(model: model).padding(.horizontal, 8)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2116,7 +2516,7 @@ struct VoiceRelayApp: App {
             MenuBarExtra("VoiceRelay", systemImage: "waveform") {
                 RelayMenu(model: model)
             }
-            .menuBarExtraStyle(.menu)
+            .menuBarExtraStyle(.window)
             Settings {
                 SettingsView(model: model).background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
             }
@@ -2318,7 +2718,7 @@ struct UploadsView: View {
                 ContentUnavailableView(model.uploadItems.isEmpty ? "No Pending Uploads" : "No Matching Uploads",
                     systemImage: "tray.and.arrow.up", description: Text(model.uploadItems.isEmpty
                         ? "Verified, published episodes clear from this outbox automatically."
-                        : "Choose another state filter to see other uploads."))
+                        : "Try another search or state filter."))
             } else {
                 List(model.visibleUploads) { item in
                     HStack(spacing: 12) {
@@ -2330,8 +2730,8 @@ struct UploadsView: View {
                         if item.phase.active {
                             if let fraction = item.progress?.fraction {
                                 ProgressView(value: fraction)
-                                if let sent = item.progress?.sentBytes, let total = item.progress?.totalBytes {
-                                    Text("\(ByteCountFormatter.string(fromByteCount: sent, countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)) sent")
+                                if let text = item.sentBytesText {
+                                    Text(text)
                                         .font(AppTypography.secondary).monospacedDigit().foregroundStyle(.secondary)
                                 }
                             } else { ProgressView().controlSize(.small) }
@@ -2358,6 +2758,7 @@ struct UploadsView: View {
                 }
             }
         }
+        .searchable(text: $model.uploadsSearchText, placement: .toolbar, prompt: "Search Uploads")
         .task {
             guard !model.preview else { return }
             while !Task.isCancelled, !model.stopping {
@@ -2377,7 +2778,7 @@ struct LibraryView: View {
         Group {
             if model.visibleServerAudio.isEmpty {
                 ContentUnavailableView(model.savedEpisodes.isEmpty ? "No Server Audio" : "No Matching Episodes", systemImage: "waveform",
-                                       description: Text(model.savedEpisodes.isEmpty ? "Add selected articles to the queue, then choose Generate Audio." : "Choose another state filter to see other episodes."))
+                                       description: Text(model.savedEpisodes.isEmpty ? "Add selected articles to the queue, then choose Generate Audio." : "Try another search or state filter."))
             } else {
                 List(selection: $model.savedAudioSelection) {
                     ForEach(model.visibleServerAudio, id: \.id) { episode in
@@ -2409,6 +2810,10 @@ struct LibraryView: View {
                 }
             }
         }
+        .searchable(text: $model.serverAudioSearchText, placement: .toolbar, prompt: "Search Server Audio")
+        .onChange(of: model.serverAudioSearchText) {
+            model.savedAudioSelection.formIntersection(Set(model.visibleServerAudio.map(\.id)))
+        }
         .onChange(of: model.serverAudioFilter) {
             model.savedAudioSelection.formIntersection(Set(model.visibleServerAudio.map(\.id)))
         }
@@ -2432,6 +2837,10 @@ struct LibraryView: View {
                         model.settingsSection = .delivery
                         WindowPresence.shared.prepareToOpen(); openSettings()
                     }
+                    if model.savedAudioSelection.count < 2 {
+                        Divider()
+                        selectionManagement
+                    }
                 } label: { Label("Actions", systemImage: "ellipsis") }
             }
             if model.showsUploadNewItems {
@@ -2443,17 +2852,8 @@ struct LibraryView: View {
                     .help("Upload new episodes")
                 }
             }
-            ToolbarItem(placement: .secondaryAction) {
-                SelectionManagementControl(selectionCount: model.savedAudioSelection.count,
-                    resetTitle: "Reset Server Audio…", canReset: !model.visibleServerAudio.filter(model.canRemoveSavedAudio).isEmpty,
-                    canRemove: model.visibleServerAudio.contains { model.savedAudioSelection.contains($0.id) && model.canRemoveSavedAudio($0) },
-                    resetHelp: "Remove all shown episodes and their audio",
-                    removeHelp: "Remove selected episodes and their audio",
-                    onReset: {
-                        capturedResetIDs = model.visibleServerAudio.filter(model.canRemoveSavedAudio).map(\.id)
-                        confirmingReset = true
-                    },
-                    onRemove: { model.removeSavedAudio(ids: model.visibleServerAudio.filter { model.savedAudioSelection.contains($0.id) }.map(\.id)) })
+            if model.savedAudioSelection.count > 1 {
+                ToolbarItem(placement: .secondaryAction) { selectionManagement }
             }
         }
         .confirmationDialog("Remove all server audio?", isPresented: $confirmingReset) {
@@ -2466,6 +2866,18 @@ struct LibraryView: View {
         } message: {
             Text("Remove the episodes and server audio for all \(capturedResetIDs.count) shown items and remove them from the feed? Saved article text and Reading List entries are kept.")
         }
+    }
+    private var selectionManagement: SelectionManagementControl {
+        SelectionManagementControl(selectionCount: model.savedAudioSelection.count,
+            resetTitle: "Reset Server Audio…", canReset: !model.visibleServerAudio.filter(model.canRemoveSavedAudio).isEmpty,
+            canRemove: model.visibleServerAudio.contains { model.savedAudioSelection.contains($0.id) && model.canRemoveSavedAudio($0) },
+            resetHelp: "Remove all shown episodes and their audio",
+            removeHelp: "Remove selected episodes and their audio",
+            onReset: {
+                capturedResetIDs = model.visibleServerAudio.filter(model.canRemoveSavedAudio).map(\.id)
+                confirmingReset = true
+            },
+            onRemove: { model.removeSavedAudio(ids: model.visibleServerAudio.filter { model.savedAudioSelection.contains($0.id) }.map(\.id)) })
     }
     private var canRemoveSelection: Bool {
         !model.savedAudioSelection.isEmpty && model.visibleServerAudio.contains {
@@ -2512,11 +2924,28 @@ private struct UploadPreviewEpisode: Encodable {
     let model = uploadPreviewModel(); model.serverAudioFilter = .attention
     return LibraryView(model: model).frame(width: 720, height: 480)
 }
-#Preview("Menu — inert idle") { RelayMenu(model: AppModel(preview: true)) }
-#Preview("Menu — inert processing") {
+@MainActor private func menuPreviewModel() -> AppModel {
     let model = AppModel(preview: true)
-    model.running = true
+    model.sourceReview.plist = URL(fileURLWithPath: "/synthetic/Bookmarks.plist")
+    model.sourceReview.lastSyncedAt = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    model.runtimeTestResult = .success
+    model.deliverySettings.enabled = true
+    model.deliverySettings.feedFolderURL = URL(string: "https://upload.example/podcast/")
+    model.deliverySettings.publicFolderURL = URL(string: "https://podcast.example/")
+    model.deliverySettings.username = "synthetic@example.com"
+    model.deliveryConnectionVerified = true
+    return model
+}
+#Preview("Menu — inert setup needed") { RelayMenu(model: AppModel(preview: true)) }
+#Preview("Menu — inert verified Ready") { RelayMenu(model: menuPreviewModel()) }
+#Preview("Menu — inert sync generation") {
+    let model = menuPreviewModel()
+    model.running = true; model.processingSpeech = true; model.syncBusy = true; model.syncPhase = .generating
     model.batchProgress = QueueBatchProgress(stage: .synthesizing, completedChunks: 2, totalChunks: 8, completedArticles: 0, totalArticles: 2, currentArticleIndex: 1)
+    return RelayMenu(model: model)
+}
+#Preview("Menu — inert sync checks") {
+    let model = menuPreviewModel(); model.syncBusy = true; model.syncPhase = .reconciling
     return RelayMenu(model: model)
 }
 #Preview("Workspace — inert empty") { WorkspaceView(model: AppModel(preview: true)) }
@@ -2565,6 +2994,18 @@ private struct UploadPreviewEpisode: Encodable {
     return WorkspaceView(model: model)
 }
 #Preview("Settings — inert defaults") { SettingsView(model: AppModel(preview: true)) }
+#Preview("General — verified speech runtime") {
+    let storage = ManagedSpeechStorage(audioDirectory: URL(fileURLWithPath: "/synthetic/audio"),
+        stateRoot: URL(fileURLWithPath: "/synthetic/state"), temporaryRoot: URL(fileURLWithPath: "/synthetic/scratch"))
+    let model = AppModel(preview: true, storage: storage)
+    model.runtimeTestResult = .success
+    return ConfigurationView(model: model).frame(width: 400, height: 620)
+}
+#Preview("General — speech verification failed") {
+    let model = AppModel(preview: true)
+    model.runtimeTestResult = .failure("Speech setup or verification failed. Check the required tools and retry.")
+    return ConfigurationView(model: model).frame(width: 400, height: 620)
+}
 #Preview("Settings — inert Publishing") { SettingsView(model: AppModel(preview: true), initialSection: .delivery) }
 #Preview("Settings — inert UK English voices") {
     let model = AppModel(preview: true)

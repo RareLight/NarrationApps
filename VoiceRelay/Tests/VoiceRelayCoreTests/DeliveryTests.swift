@@ -568,6 +568,14 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     #expect(transport.recordedCalls.dropFirst(callsBefore).allSatisfy { ["GET", "PROPFIND"].contains($0.method) })
     episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
     #expect(episode?.delivery?.status == .pending)
+    // A new app session checks the feed, without treating startup as Upload Now.
+    let beforeLaunch = transport.recordedCalls.count
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
+        credential: FakeCredentials(password: "x"), transport: transport, reconcileNow: true)
+    #expect(transport.recordedCalls.dropFirst(beforeLaunch).contains { $0.method == "GET" })
+    #expect(!transport.recordedCalls.dropFirst(beforeLaunch).contains { $0.method == "PUT" })
+    episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
+    #expect(episode?.delivery?.status == .pending && episode?.delivery?.nextAttemptAt == nextAttempt)
     failPut = false
     let forced = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
         credential: FakeCredentials(password: "x"), transport: transport, force: true)
@@ -1671,4 +1679,41 @@ private final class UploadEventRecorder: @unchecked Sendable {
     let regenerated = try await publishReview(storage: temporary)
     #expect(regenerated.episode.id == initial.episode.id && regenerated.episode.localAudioDiscarded == nil)
     #expect(regenerated.episode.localCleanupNotice == nil && FileManager.default.fileExists(atPath: regenerated.audioURL.path))
+}
+
+@Test(arguments: [false, true]) func sourceRemovalRetainsServerEpisodesAndUnconfirmedAudio(confirmed: Bool) async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = temporaryDeliveryStorage(root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let entry = ReadingListEntry(id: "source", safariID: nil, url: URL(string: "https://articles.example/one")!,
+        title: "Synthetic source", addedAt: .distantPast)
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport()
+    if confirmed {
+        _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    }
+    let feedPath = "/" + settings.remoteFeedPath
+    let remoteFeed = transport.body(feedPath), ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    let old = try #require(try await coordinator.library(storage: storage).first)
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [], skippedEntries: 0), stateRoot: storage.stateRoot)
+    // A stale pipeline result cannot restore deleted source caches/removal intent.
+    try NativeStore(url: storage.profile.database).save(old)
+    try await coordinator.purgeRemovedReadingListCaches(storage: storage)
+    let saved = try #require(try await coordinator.library(storage: storage).first)
+    #expect(saved.readingListRemoved == true && saved.articleCachePurged == true && saved.stage == .published)
+    #expect(saved.originalSourceHost == "articles.example" && saved.readingListSavedAt == entry.addedAt)
+    #expect(try NativeStore(url: storage.profile.database, readOnly: true).snapshot(articleID: saved.id) == nil)
+    #expect(!FileManager.default.fileExists(atPath: saved.settings.work.appendingPathComponent(saved.id).path))
+    #expect(FileManager.default.fileExists(atPath: result.audioURL.path) == !confirmed)
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot) == ledger)
+    #expect(transport.body(feedPath) == remoteFeed && !transport.methods.contains("DELETE"))
+    #expect(try await coordinator.savedAudio(storage: storage).map(\.id) == [saved.id])
+    if !confirmed {
+        // Missing local output is not regenerated from a deleted article, nor remotely retired.
+        try FileManager.default.removeItem(at: result.audioURL)
+        try await coordinator.recoverTemporaryAudio(storage: storage, settings: settings)
+        _ = try await coordinator.reconcileMissingAudio(storage: storage)
+        #expect(try await coordinator.queue(stateRoot: storage.stateRoot).isEmpty)
+        #expect(try await coordinator.library(storage: storage).first?.stage == .published)
+    }
 }

@@ -105,6 +105,9 @@ public struct Episode: Codable, Sendable {
     public var localAudioReleased: Bool? = nil
     /// Explicit local-only removal; automatic recovery must not recreate this copy.
     public var localAudioDiscarded: Bool? = nil
+    /// Source removal purges article caches without retiring server episode history.
+    public var readingListRemoved: Bool? = nil
+    public var articleCachePurged: Bool? = nil
     /// Local cleanup verification failed; the confirmed remote copy remains intact.
     public var localCleanupNotice: String? = nil
     /// Cleanup cannot race final publication validation, even if a periodic delivery starts.

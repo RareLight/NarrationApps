@@ -204,7 +204,20 @@ final class NativeStore {
     func save(_ e: Episode, pendingFeed: Bool = false) throws {
         try execute("BEGIN IMMEDIATE")
         do {
-            try execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(e), as: UTF8.self), e.id])
+            var saved = e
+            // A stale worker/delivery record must not erase already captured origin metadata.
+            if let record = try query("SELECT record FROM episodes WHERE id=?", [e.id]).first?.first,
+               let current = try? JSONDecoder().decode(Episode.self, from: Data(record.utf8)) {
+                saved.originalSourceHost = saved.originalSourceHost ?? current.originalSourceHost
+                saved.readingListSavedAt = saved.readingListSavedAt ?? current.readingListSavedAt
+                saved.originalSourceIdentity = saved.originalSourceIdentity ?? current.originalSourceIdentity
+                // Source removal intent also survives results captured before the source refresh.
+                if current.readingListRemoved == true {
+                    saved.readingListRemoved = true
+                    saved.articleCachePurged = current.articleCachePurged
+                }
+            }
+            try execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(saved), as: UTF8.self), e.id])
             if pendingFeed { try execute("UPDATE feed_status SET pending=1 WHERE singleton=1") }
             try execute("COMMIT")
         } catch { try? execute("ROLLBACK"); throw error }

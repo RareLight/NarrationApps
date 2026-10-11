@@ -17,7 +17,11 @@ with recorded audio, retained snapshots or absent source entries, and a failed
 automatic admission is not retried until the next session. Automatic delivery
 drains run after publication, retirement/removal, launch and refresh, plus
 periodically while the app runs; interrupted queue items are re-readied on
-launch only when automation is enabled. Persistent LaunchAgent/XPC ownership and SMAppService
+launch only when automation is enabled. Each enabled/configured app session attempts
+server reconciliation even if the prior session checked less than five minutes ago;
+reuse current audio proofs and keep upload backoff intact. Startup progress is neutral,
+and Publishing failures keep a direct Publishing Settings route alongside outbox issues.
+Persistent LaunchAgent/XPC ownership and SMAppService
 enrollment are no longer required. The inactive agent/XPC prototype and standalone
 layout-reproduction projects were removed at the user's request; do not reintroduce them.
 
@@ -33,7 +37,7 @@ public mapping. Editing inputs resets the test status. Changed destinations
 require fresh byte-confirmed copies; preserve old remote files and never apply
 old-host deletes to a new destination. Failures use sanitized status text.
 
-Current UX direction: a native MenuBarExtra menu and one sidebar library window
+Current UX direction: a compact MenuBarExtra window-style popover and one sidebar library window
 (Articles with All Articles/Queue scopes, Uploads, Server Audio). Settings uses native pane navigation for
 General, Publishing and Troubleshooting, with no global Cancel. Generate/Stop
 live with audio work.
@@ -70,15 +74,21 @@ to that automatic recheck / reopening the pane. Inline errors carry a
 hover-revealed ⓧ dismiss that is presentation-only: it never mutates stored
 errors, snapshots, queue records or history, and suppression is keyed per
 notice until the condition resolves or a context reset. Articles (All Articles/Queue scopes) and Server Audio live in the sidebar workspace;
-Generate/Stop live in the Articles toolbar (both scopes) and status menu. Progress is shown only
+Generate/Stop live in the Articles toolbar (both scopes) and application commands. Progress is shown only
 while owned work runs or stops; terminal results clear transient progress.
 Generate and Reset stay enabled during ordinary row removals; a Generate
 request waits for queued metadata mutations to finish before snapshotting the
 queue, and confirmed resets queue behind pending metadata work FIFO.
 Article preview is a dedicated WindowGroup(URL) window fed by
 ArticlePreviewModel, opened only from Articles double-click/context menu; inert
-previews never fetch. Troubleshooting is a compact Reading List source
-diagnostic with no saved-article list, typed URL or Preview control. Add to
+previews never fetch. General owns Reading List selection and source diagnostics;
+new production preferences default to ~/Library/Safari/Bookmarks.plist without
+overriding a selected source. Inert/injected models never default to protected
+Safari input. Troubleshooting contains library backup and debug tools, with no
+Reading List controls. Speech setup shows its session test result beside Check,
+independently of detected installation files. Background publishing/source updates
+do not disable Check/Install; active speech, quitting, setup or library maintenance
+do, with an explanatory reason. Add to
 Queue is a background task with pending rows and collected
 per-entry issues rather than a synchronous stop. Prepared rows show Ready with a
 checkmark; admission keeps working while speech runs. Process Queue drains every
@@ -177,7 +187,9 @@ from the catalog using their original source identity; date-only feed changes
 republish through ordinary delivery without regenerating/re-uploading audio.
 Standalone decorative separators (such as --, bullet and vertical bar) are
 retained in semantic blocks but omitted from narration so Kokoro receives spoken
-content. Upgrade unfinished plans and recompute queue totals; unchanged requests
+content. Consecutive table/code blocks announce each repeated omission only once,
+including across nonverbal separators; authored prose and footnote boundaries stay
+intact. Upgrade unfinished plans and recompute queue totals; unchanged requests
 retain compatible completed-chunk fingerprints. Published audio is preserved.
 Optional HTTPS Open Graph/Twitter preview images become per-episode
 RSS itunes:image artwork for current Overcast. Reuse the existing SwiftSoup
@@ -228,7 +240,7 @@ pane label; internal keys remain compatible. Its setup/recovery strip uses
 existing metadata without Keychain/network probes, distinguishes unknown from
 missing credentials, and disappears when configured. Configuration is not remote
 verification. Generate Audio/Stop names and availability agree across toolbar
-and menus; list Delete is focus-scoped. The restore review gate takes precedence.
+and application commands; list Delete is focus-scoped. The restore review gate takes precedence.
 
 October 10 upload outbox: Uploads sits between Articles and Server Audio and shows
 tracked completed audio awaiting upload/publication, verification failures and retained
@@ -260,3 +272,52 @@ Help copy: keep hover tooltips short and action-focused; section ⓘ hover uses
 belongs in the shared native Help menu's static topic windows. Keep deletion
 consequences and archive/backup privacy visible; do not expose implementation
 details unless needed for a user's decision. Help never probes library/server state.
+
+Articles (independent All Articles/Queue scopes), Uploads and Server Audio have
+native local search across visible titles, origin, saved date, status and errors.
+Search combines with existing filters, preserves row order, scopes bulk actions to
+shown selections and never changes automatic processing/publishing membership.
+
+Server Audio's confirmed Reset action lives only in Actions (…) below two
+selections; Remove Selections remains a toolbar action at two or more selections.
+
+Server Audio orders captured Reading List saved dates descending, undated last,
+with stable episode-ID ties across reload/event order. Persist original host,
+source identity and saved date on episodes; missing fields in stale worker saves
+or progress snapshots must not erase known values. Server Audio and Uploads
+filters/search derive from current episode/status records, not source inventory
+indices. Cover source removal, reload, additions/removals and metadata/status
+updates with isolated regressions; never fabricate missing saved dates.
+
+Successful Reading List refreshes delete absent source entries from Articles and
+Queue and persist cache-removal intent. Cancel pending admissions; stop/join owned
+speech for the removed item before purging snapshots, chunk checkpoints and owned
+scratch under the pipeline lease. Failed source reads preserve all data. Retry
+safe cleanup per item without blocking unrelated work; restore review gates
+physical cleanup. Keep minimal durable episode history and unconfirmed finished
+audio for publishing. Confirmed media/feed cleanup may release local audio, but
+source removal must never retire feed membership or delete server audio. Do not
+regenerate absent articles from removed snapshots. Already exported backups stay
+unchanged. Today and This Week precede a separator in the Articles filter and use
+local Calendar saved-date periods; missing dates do not match. Website sorting,
+scope independence and global processing remain unchanged.
+
+October 10 approved menu: compact MenuBarExtra .window popover contains overall
+status, Sync Now, separator, Articles, Server Audio, separator, Settings and Quit
+VoiceRelay. Ready requires current-session verified Reading List, speech runtime
+and WebDAV health; failures link to the affected Settings pane. Pure rendering
+never probes services. Check an installed speech runtime offline at startup.
+Sync Now explicitly refreshes, admits, processes and publishes eligible work regardless
+of automatic admission/processing preferences, without changing them or retrying
+failed speech rows. Retain server reconciliation/proof caching and skip recorded
+identities. Its button becomes phase progress while owned sync runs: measured
+speech/finalization or current-file transfer fractions, indeterminate checks/preparation.
+Never invent an overall percentage. Duplicate clicks coalesce; Stop/Quit cancel
+and join owned work. Restore review gates Sync; backups/restores wait for it.
+
+Popover actions highlight on hover/press using semantic system selection colors,
+without highlighting disabled actions or status/progress labels. Articles/Server
+Audio and Settings/Quit have half the original inter-label gap. Window-opening
+items, including failure status, dismiss only their captured popover host before
+activation/opening; Sync stays open. Host capture is weak, inert in previews and
+must not mutate SwiftUI state or activate windows during layout.

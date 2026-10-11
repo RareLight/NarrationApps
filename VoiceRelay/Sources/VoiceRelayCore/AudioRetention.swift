@@ -119,6 +119,7 @@ extension FixtureCoordinator {
         let store = try NativeStore(url: storage.profile.database)
         var changed: [Episode] = []
         for var episode in episodes where episode.stage == .published
+            && episode.readingListRemoved != true
             && episode.settings.temporaryAudio != true && episode.localAudioReleased != true
             && episode.delivery?.status != .uploaded {
             guard audioAvailability(episode) == .missing else { continue }

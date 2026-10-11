@@ -65,3 +65,30 @@ struct StandaloneWindowRegistration: NSViewRepresentable {
         }
     }
 }
+
+/// Capture only this popover's host; never guess from NSApp.keyWindow or window order.
+@MainActor
+final class MenuPopoverWindowReference {
+    weak var window: NSWindow?
+    func dismiss() { window?.orderOut(nil) }
+}
+
+struct MenuPopoverWindowCapture: NSViewRepresentable {
+    let reference: MenuPopoverWindowReference
+    let inert: Bool
+    func makeNSView(context: Context) -> Attachment { Attachment(reference: reference, inert: inert) }
+    func updateNSView(_ view: Attachment, context: Context) {}
+    final class Attachment: NSView {
+        let reference: MenuPopoverWindowReference
+        let inert: Bool
+        init(reference: MenuPopoverWindowReference, inert: Bool) {
+            self.reference = reference; self.inert = inert; super.init(frame: .zero)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            // A weak reference changes no SwiftUI state and performs no layout or activation.
+            if !inert { reference.window = window }
+        }
+    }
+}

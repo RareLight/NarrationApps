@@ -416,8 +416,15 @@ public final class DeliveryDebugLog: @unchecked Sendable {
         case articleArchive(ArticleArchive, ArchiveResult), articleArchiveSkipped
         case reconciliation(Reconciliation)
         case localCleanupFailed
+        case articleCacheRemoved, articleCacheRemovalFailed
+        case speechRuntime(RuntimeOperation, RuntimeOutcome)
+        public enum RuntimeOperation: String, Sendable { case check, installation }
+        public enum RuntimeOutcome: String, Sendable { case started, verified, cancelled, failed }
         var message: String {
             switch self {
+            case .articleCacheRemoved: "removed article cache: cleared; server history retained"
+            case .articleCacheRemovalFailed: "removed article cache: cleanup failed; retry pending"
+            case .speechRuntime(let operation, let outcome): "speech runtime \(operation.rawValue): \(outcome.rawValue)"
             case .localCleanupFailed: "local audio cleanup: verification failed; file retained"
             case .reconciliation(let result): "server reconciliation: \(result.rawValue)"
             case .articleArchive(let provider, let result): "article archive: \(provider.rawValue) \(result.rawValue)"
@@ -929,6 +936,7 @@ public enum DeliveryPublicationStatus: Sendable, Equatable {
 
 /// Cheap read-only delivery snapshot for status display and pending-work detection.
 public struct DeliverySummary: Sendable, Equatable {
+    public var reconciledAt: Date?
     public var pendingMedia = 0
     public var uploadedMedia = 0
     public var failedMedia = 0
@@ -951,6 +959,7 @@ extension FixtureCoordinator {
         var summary = DeliverySummary()
         let database = PrototypeProfile.fixture(at: stateRoot).database
         let ledger = try DeliveryLedger.load(stateRoot: stateRoot)
+        summary.reconciledAt = ledger.reconciledAt
         summary.remoteFeedPending = ledger.remoteFeedPending
         summary.pendingRemoteDeletes = ledger.pendingRemoteDeletes.count
         summary.feedUploaded = ledger.lastUploadedFeedHash != nil
@@ -1045,7 +1054,7 @@ extension FixtureCoordinator {
     @discardableResult
     public func deliverPending(storage: ManagedSpeechStorage, settings: DeliverySettings,
                                credential: any DeliveryCredentialStore, transport: any DeliveryTransport,
-                               force: Bool = false, now: Date = Date(), debugLog: DeliveryDebugLog? = nil,
+                               force: Bool = false, reconcileNow: Bool = false, now: Date = Date(), debugLog: DeliveryDebugLog? = nil,
                                progress: (@Sendable (UploadProgress) -> Void)? = nil) async throws -> DeliveryResult {
         try Task.checkCancellation()
         try storage.validate()
@@ -1054,7 +1063,7 @@ extension FixtureCoordinator {
         var result = DeliveryResult()
         guard settings.enabled else { result.skipped = true; return result }
         try await reconcileServerAutomatically(storage: storage, settings: settings, credential: credential,
-            transport: transport, force: force, now: now, debugLog: debugLog)
+            transport: transport, force: force, reconcileNow: reconcileNow, now: now, debugLog: debugLog)
         let root = storage.stateRoot.resolvingSymlinksInPath().standardizedFileURL
         guard activeDeliveryRoots.insert(root.path).inserted else {
             throw RelayError.setup("A delivery drain is already uploading this library.")

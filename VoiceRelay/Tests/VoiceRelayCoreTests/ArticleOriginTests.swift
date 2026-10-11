@@ -62,3 +62,50 @@ func episodeArticleOriginRecoveryIsReadOnly(_ arguments: String) throws {
     #expect(episode.readingListSavedAt == nil && episode.publicationDate == nil)
     #expect(try JSONDecoder().decode(Episode.self, from: Files.json(episode)).originalSourceHost == "origin.example")
 }
+
+@Test(arguments: [false, true]) func capturedEpisodeOriginSurvivesStaleWritesAndSourceCacheRemoval(removed: Bool) async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("voicerelay-origin-durable-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let storage = ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"),
+        stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"), temporaryAudio: true)
+    let original = URL(string: "https://origin.example/article")!
+    let key = "reviewed-url-v1-" + Files.hash(Data(original.absoluteString.utf8))
+    let savedAt = Date(timeIntervalSinceReferenceDate: 100)
+    let entry = ReadingListEntry(id: "entry", safariID: nil, url: original, title: "Synthetic source", addedAt: savedAt)
+    let coordinator = FixtureCoordinator()
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let stale: Episode
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        var profile = storage.profile; profile.backendSelector = "reviewed-article-speech"
+        var episode = try store.episode(sourceKey: key, settings: profile)
+        episode.stage = .published; episode.audioHash = "synthetic-audio-hash"
+        episode.info = AudioInfo(duration: 100, byteLength: 1000, sampleRate: 24000, channels: 1, codec: "aac")
+        episode.sourceHost = "redirect.example"; episode.publicationDate = Date(timeIntervalSinceReferenceDate: 1000)
+        try store.save(episode)
+        stale = episode // Legacy worker copy has no original host or saved date.
+    }
+    if removed {
+        // Backfill before deleting the source inventory, then remove its cached text/work.
+        _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [], skippedEntries: 0), stateRoot: storage.stateRoot)
+        try await coordinator.purgeRemovedReadingListCaches(storage: storage)
+    } else {
+        let captured = try #require(await coordinator.library(storage: storage).first)
+        try NativeStore(url: storage.profile.database).save(captured)
+    }
+    var progress = stale; progress.title = "Updated episode"
+    progress.originalSourceIdentity = nil
+    try NativeStore(url: storage.profile.database).save(progress)
+    // Reopen independently, without relying on presentation/inventory caches.
+    let reader = try NativeStore(url: storage.profile.database, readOnly: true)
+    let raw = try #require(reader.query("SELECT record FROM episodes WHERE id=?", [stale.id]).first?.first)
+    let durable = try JSONDecoder().decode(Episode.self, from: Data(raw.utf8))
+    #expect(durable.originalSourceHost == "origin.example" && durable.readingListSavedAt == savedAt)
+    #expect(durable.originalSourceIdentity == key && durable.title == "Updated episode")
+    #expect(durable.publicationDate == stale.publicationDate && durable.sourceHost == "redirect.example")
+    if removed {
+        #expect(durable.readingListRemoved == true && durable.articleCachePurged == true)
+        #expect(try reader.catalog().entries.isEmpty && reader.snapshot(articleID: stale.id) == nil)
+    }
+    #expect(try await FixtureCoordinator().savedAudio(storage: storage).first?.readingListSavedAt == savedAt)
+}

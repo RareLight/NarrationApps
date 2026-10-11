@@ -1486,7 +1486,7 @@ private func reviewedArticle(_ path: String = "one", changed: Bool = false, host
     #expect(resumed.synthesizedChunks == 0 && resumed.episode.id == result.episode.id)
 }
 
-@Test func durableReadingListRetainsAbsentEntriesAndClearsLegacyExclusionsAcrossLaunches() async throws {
+@Test func durableReadingListRemovesAbsentEntriesAndClearsLegacyExclusionsAcrossLaunches() async throws {
     let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
     let state = root.appendingPathComponent("state")
     #expect(try await FixtureCoordinator().catalog(stateRoot: state).entries.isEmpty)
@@ -1501,7 +1501,7 @@ private func reviewedArticle(_ path: String = "one", changed: Bool = false, host
     }
     _ = try await FixtureCoordinator().reconcile(ReadingListSnapshot(entries: [two], skippedEntries: 0), stateRoot: state)
     let restored = try await FixtureCoordinator().catalog(stateRoot: state)
-    #expect(restored.entries == [one, two] && restored.currentIDs == [two.id] && restored.excludedIDs.isEmpty)
+    #expect(restored.entries == [two] && restored.currentIDs == [two.id] && restored.excludedIDs.isEmpty)
     let database = PrototypeProfile.fixture(at: state).database
     let before = try Files.hash(database)
     #expect(throws: RelayError.self) { try ReadingList.parse(Data("incomplete plist".utf8)) }

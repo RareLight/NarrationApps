@@ -3,6 +3,48 @@ import SwiftSoup
 import Testing
 @testable import VoiceRelayCore
 
+@Test func narrationCollapsesOmissionRunsWithoutChangingSourceBlocks() throws {
+    let blocks: [ContentBlock] = [
+        ContentBlock(kind: .paragraph, text: "Opening prose."),
+        ContentBlock(kind: .table, text: "First table"),
+        ContentBlock(kind: .table, text: "Second table"),
+        ContentBlock(kind: .paragraph, text: "--"),
+        ContentBlock(kind: .table, text: "Third table"),
+        ContentBlock(kind: .paragraph, text: "A spoken boundary."),
+        ContentBlock(kind: .table, text: "Fourth table"),
+        ContentBlock(kind: .code, text: "first code"),
+        ContentBlock(kind: .code, text: "second code"),
+        ContentBlock(kind: .paragraph, text: "Closing prose.")
+    ]
+    let article = SemanticArticle(title: "Synthetic", originalURL: URL(string: "https://articles.example/one")!,
+        finalURL: URL(string: "https://articles.example/one")!, canonicalURL: nil, author: nil,
+        blocks: blocks, warnings: [], extractorVersion: ArticleExtractor.version)
+    let plan = try Narration.prepare(article, limit: 120)
+    let spoken = plan.chunks.map(\.text).joined(separator: "\n")
+    #expect(spoken.components(separatedBy: "Table omitted from narration.").count - 1 == 2)
+    #expect(spoken.components(separatedBy: "Code block omitted from narration.").count - 1 == 1)
+    #expect(spoken.contains("A spoken boundary.") && spoken.hasSuffix("End of article."))
+    #expect(!spoken.contains("First table") && !spoken.contains("first code"))
+    #expect(article.blocks == blocks && plan.notices.filter { $0.contains("repeated omission") }.count == 3)
+    #expect(plan.chunks.allSatisfy { $0.text.count <= 120 })
+    let oldVersion = String(Narration.version.dropLast("/omission-runs-1".count))
+    #expect(Narration.chunkFingerprintVersion(oldVersion) == Narration.chunkFingerprintVersion(plan.version))
+}
+
+@Test func narrationKeepsAuthoredPlaceholderTextAndFootnoteBoundaries() throws {
+    let article = SemanticArticle(title: "Synthetic", originalURL: URL(string: "https://articles.example")!,
+        finalURL: URL(string: "https://articles.example")!, canonicalURL: nil, author: nil,
+        blocks: [ContentBlock(kind: .table, text: "One", footnoteReferences: ["note"]),
+                 ContentBlock(kind: .table, text: "Two"),
+                 ContentBlock(kind: .paragraph, text: "Table omitted from narration."),
+                 ContentBlock(kind: .paragraph, text: "Table omitted from narration."),
+                 ContentBlock(kind: .footnote, text: "Spoken note.", footnoteID: "note")],
+        warnings: [], extractorVersion: ArticleExtractor.version)
+    let spoken = try Narration.prepare(article, limit: 120).chunks.map(\.text).joined(separator: "\n")
+    #expect(spoken.components(separatedBy: "Table omitted from narration.").count - 1 == 4)
+    #expect(spoken.contains("Footnote:") && spoken.contains("End Footnote") && spoken.contains("Spoken note."))
+}
+
 private func reviewTemporary() throws -> URL {
     let root = URL(fileURLWithPath: NSTemporaryDirectory()).resolvingSymlinksInPath()
         .appendingPathComponent("voicerelay-review-test-\(UUID().uuidString)")
@@ -232,9 +274,9 @@ private final class SourceReviewProtocol: URLProtocol, @unchecked Sendable {
         #expect(catalog.entries.map(\.id) == ["oldest", "middle", "newest"])
         let reloaded = try JSONDecoder().decode(ReadingListCatalog.self, from: JSONEncoder().encode(catalog))
         #expect(reloaded.newestFirstEntries == catalog.newestFirstEntries)
-        // Reconciliation can correct a saved date and retains entries absent from the latest read.
+        // Reconciliation corrects saved dates and removes absent entries after a successful read.
         catalog.reconcile(ReadingListSnapshot(entries: [entry("oldest", saved: 4)], skippedEntries: 0))
-        #expect(catalog.newestFirstEntries.map(\.id) == ["oldest", "newest", "middle"])
+        #expect(catalog.newestFirstEntries.map(\.id) == ["oldest"])
     }
 
     @Test func readingListNewestFirstKeepsEqualAndMissingDatesStable() {
@@ -261,11 +303,11 @@ private final class SourceReviewProtocol: URLProtocol, @unchecked Sendable {
         #expect(try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date == attributes[.modificationDate] as? Date)
         let updated = ReadingListEntry(id: "safari:B", safariID: "B", url: URL(string: "https://articles.example/b")!, title: "New", addedAt: nil)
         catalog.reconcile(ReadingListSnapshot(entries: [updated, updated], skippedEntries: 0))
-        #expect(catalog.entries.map(\.id) == ["safari:A", "safari:B"])
+        #expect(catalog.entries.map(\.id) == ["safari:B"])
         #expect(catalog.currentIDs == ["safari:B"] && catalog.excludedIDs == ["safari:A"])
         try Data("incomplete".utf8).write(to: file)
         #expect(throws: RelayError.self) { try ReadingList.read(file) }
-        #expect(catalog.entries.count == 2 && catalog.excludedIDs == ["safari:A"])
+        #expect(catalog.entries.count == 1 && catalog.excludedIDs == ["safari:A"])
     }
 
     @Test func readingListRejectsIncompleteHierarchyAndOversizedInput() throws {
@@ -671,4 +713,68 @@ func archiveRecoveryNeverQueuesUnavailableChallengeOrOversizedCopies(_ outcome: 
         #expect(review.document?.article.sourceName == expectedSource)
         #expect(review.document?.article.previewImageURL?.absoluteString == expectedImage)
     }
+}
+
+@Test func removedReadingListCachesPurgeWaitingWorkAndAllowFreshReaddition() async throws {
+    let root = try reviewTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"),
+        stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let url = URL(string: "https://articles.example/removed")!
+    let entry = ReadingListEntry(id: "removed", safariID: nil, url: url, title: "Removed", addedAt: .distantPast)
+    let coordinator = FixtureCoordinator()
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let html = String(decoding: try FixtureResource.html(), as: UTF8.self)
+    let review = try ReviewedSource.prepare(FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
+        contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast), chunkLimit: 1800)
+    let item = try await coordinator.enqueue(review, storage: storage, preferences: SpeechPreferences(), sourceEntryID: entry.id)
+    let work = storage.profile.work.appendingPathComponent(item.id)
+    try Files.directory(work); try Files.write(Data("private cached article".utf8), to: work.appendingPathComponent("cached.txt"))
+    let unchanged = storage.profile.work.appendingPathComponent("unrelated.txt")
+    try Files.write(Data("unrelated".utf8), to: unchanged)
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [], skippedEntries: 0), stateRoot: storage.stateRoot)
+    #expect(try await coordinator.catalog(stateRoot: storage.stateRoot).entries.isEmpty)
+    #expect(try await coordinator.queue(stateRoot: storage.stateRoot).isEmpty)
+    let lease = try PipelineLease(database: storage.profile.database)
+    await #expect(throws: RelayError.self) { try await coordinator.purgeRemovedReadingListCaches(storage: storage) }
+    #expect(FileManager.default.fileExists(atPath: work.path))
+    lease.release()
+    try await coordinator.purgeRemovedReadingListCaches(storage: storage)
+    #expect(!FileManager.default.fileExists(atPath: work.path))
+    #expect(try Data(contentsOf: unchanged) == Data("unrelated".utf8))
+    #expect(try await coordinator.library(storage: storage).isEmpty)
+    let reader = try NativeStore(url: storage.profile.database, readOnly: true)
+    #expect(try reader.snapshot(articleID: item.id) == nil)
+    #expect(try reader.queue().isEmpty)
+    try await coordinator.purgeRemovedReadingListCaches(storage: storage) // restart/idempotence
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let readded = try await coordinator.enqueue(review, storage: storage, preferences: SpeechPreferences(), sourceEntryID: entry.id)
+    #expect(readded.id != item.id && readded.state == .queued)
+}
+
+@Test func removedReadingListCacheFailureContinuesOtherItemsAndRetriesSafely() async throws {
+    let root = try reviewTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"),
+        stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let coordinator = FixtureCoordinator(), html = String(decoding: try FixtureResource.html(), as: UTF8.self)
+    let entries = ["one", "two"].map { ReadingListEntry(id: $0, safariID: nil,
+        url: URL(string: "https://articles.example/" + $0)!, title: $0, addedAt: nil) }
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: entries, skippedEntries: 0), stateRoot: storage.stateRoot)
+    var items: [SpeechQueueItem] = []
+    for entry in entries {
+        let review = try ReviewedSource.prepare(FetchedPage(originalURL: entry.url, finalURL: entry.url, bytes: Data(html.utf8), html: html,
+            contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast), chunkLimit: 1800)
+        items.append(try await coordinator.enqueue(review, storage: storage, preferences: SpeechPreferences(), sourceEntryID: entry.id))
+    }
+    let outside = root.appendingPathComponent("unowned")
+    try Files.directory(outside); try Files.write(Data("keep".utf8), to: outside.appendingPathComponent("private.txt"))
+    let link = storage.profile.work.appendingPathComponent(items[0].id)
+    try Files.directory(storage.profile.work)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
+    _ = try await coordinator.reconcile(ReadingListSnapshot(entries: [], skippedEntries: 0), stateRoot: storage.stateRoot)
+    await #expect(throws: RelayError.self) { try await coordinator.purgeRemovedReadingListCaches(storage: storage) }
+    #expect(try Data(contentsOf: outside.appendingPathComponent("private.txt")) == Data("keep".utf8))
+    #expect(try await coordinator.library(storage: storage).map(\.id) == [items[0].id])
+    try FileManager.default.removeItem(at: link)
+    try await coordinator.purgeRemovedReadingListCaches(storage: storage)
+    #expect(try await coordinator.library(storage: storage).isEmpty)
 }

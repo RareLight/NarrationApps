@@ -5,6 +5,12 @@ starting queued generation and through the ordinary publishing drain. There is n
 separate Check Server Audio control or recovery approval step. Library restore's
 Finish Library Review gate still blocks all automatic processing and server changes.
 Test Connection remains a read-only folder probe, not a synchronization action.
+Every configured/enabled app launch attempts reconciliation, including relaunches
+within the five-minute cadence. This bypasses only the scan's cadence gate: valid
+audio proofs, conditional feed requests and upload retry delays remain effective.
+Cancelled/unavailable Keychain access is remembered for the session; only explicit
+retry can prompt again. Startup shows Checking Publishing; failures offer Review
+Publishing directly, independently of Uploads warnings.
 
 ## Identity and conflict policy
 

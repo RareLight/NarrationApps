@@ -13,6 +13,14 @@ pull-down refresh. Safari input is strictly read-only. Transient failures retain
 known inventory. Articles shows newest saved entries first, stable discovery
 order for ties, and undated entries last.
 
+After a successful read, entries removed from Safari disappear from Articles and
+Queue. Their cached pages, narration plans, chunk checkpoints and unfinished
+generation files are cleared after owned work stops. Failed reads preserve data.
+Published episode metadata and server media stay in Server Audio until manually
+removed; unconfirmed finished audio stays locally until publishing succeeds.
+Previously exported backups are not rewritten. Today and This Week use local
+calendar periods and saved dates; undated entries do not match those filters.
+
 Selecting rows fetches nothing. Add to Queue prepares them in displayed order in
 the background, showing Preparing and collecting per-entry issues. Already-queued
 sources are omitted from manual Add. Existing saved text is reused offline;
@@ -149,6 +157,10 @@ remain at the end with a notice. Unresolved marked references produce a notice,
 with no invented note text. Ordinary numbers, mathematical superscripts and
 unmarked citations are not guessed or stripped. Decorative symbol separators
 are retained semantically and omitted from speech.
+Repeated adjacent table/code omission announcements are spoken once per run,
+including across silent separators. Spoken prose or footnote boundary cues end
+a run. Original blocks and per-block omission notices remain available for review;
+authored prose is not deduplicated.
 
 Extraction/narration fingerprints preserve versioned requests. Existing exported
 snapshots remain unchanged; use the explicit diagnostic CLI to create a new export.

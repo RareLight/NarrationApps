@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 public enum SpeechQueueState: String, Codable, Sendable {
     case queued, running, paused, failed, completed
@@ -122,18 +123,95 @@ extension FixtureCoordinator {
         try Task.checkCancellation()
         for entry in snapshot.entries { try ArticleURL.validate(entry.url) }
         let store = try metadataWriter(stateRoot)
-        var catalog = try store.catalog(); catalog.reconcile(snapshot)
+        var catalog = try store.catalog()
+        let currentSources = Set(snapshot.entries.map { "reviewed-url-v1-" + Files.hash(Data($0.url.absoluteString.utf8)) })
+        let currentIDs = Set(snapshot.entries.map(\.id))
+        let missingSources = Set(catalog.entries.filter { !currentIDs.contains($0.id) }
+            .map { "reviewed-url-v1-" + Files.hash(Data($0.url.absoluteString.utf8)) }).subtracting(currentSources)
+        // Resolve legacy origins while the old inventory still exists, then persist cleanup intent.
+        let episodes = try store.episodes()
+        catalog.reconcile(snapshot)
         // Legacy exclusions are still decodable but no longer honored; each save clears them.
         catalog.excludedIDs = []
-        try store.saveCatalog(catalog)
+        try store.execute("BEGIN IMMEDIATE")
+        do {
+            for var episode in episodes {
+                guard let source = episode.originalSourceIdentity else { continue }
+                if missingSources.contains(source) {
+                    if episode.readingListRemoved != true { episode.articleCachePurged = false }
+                    episode.readingListRemoved = true
+                } else if currentSources.contains(source), episode.readingListRemoved == true {
+                    episode.readingListRemoved = false
+                } else { continue }
+                try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
+            }
+            try store.saveCatalog(catalog)
+            try store.execute("COMMIT")
+        } catch { try? store.execute("ROLLBACK"); throw error }
         return catalog
     }
     public func queue(stateRoot: URL = AppStorage.managedLibrary) throws -> [SpeechQueueItem] {
-        let items = try metadataReader(stateRoot)?.queue() ?? []
+        guard let store = try metadataReader(stateRoot) else { return [] }
+        let removed = Set(try store.episodes().filter { $0.readingListRemoved == true }.map(\.id))
+        let items = try store.queue().filter { !removed.contains($0.id) }
         guard items.allSatisfy({ UUID(uuidString: $0.id) != nil && $0.attempts >= 0 }) else {
             throw RelayError.setup("The saved speech queue is invalid.")
         }
         return items
+    }
+    public func removedReadingListWorkIsActive(stateRoot: URL) throws -> Bool {
+        guard let store = try metadataReader(stateRoot) else { return false }
+        let removed = Set(try store.episodes().filter { $0.readingListRemoved == true }.map(\.id))
+        return try store.queue().contains { removed.contains($0.id) && $0.state == .running }
+    }
+    /// Local-only cache cleanup; no feed retirement, transport or final-audio unlink.
+    public func purgeRemovedReadingListCaches(storage: ManagedSpeechStorage, debugLog: DeliveryDebugLog? = nil) throws {
+        let episodes = try library(storage: storage).filter { $0.readingListRemoved == true && $0.articleCachePurged != true }
+        guard !episodes.isEmpty else { return }
+        let lease = try PipelineLease(database: storage.profile.database)
+        defer { lease.release() }
+        var failed = false
+        for candidate in episodes {
+            try Task.checkCancellation()
+            do {
+                let store = try metadataWriter(storage.stateRoot)
+                guard let record = try store.query("SELECT record FROM episodes WHERE id=?", [candidate.id]).first?.first else { continue }
+                var episode = try JSONDecoder().decode(Episode.self, from: Data(record.utf8))
+                guard episode.readingListRemoved == true, episode.articleCachePurged != true else { continue }
+                guard UUID(uuidString: episode.id) != nil else { throw RelayError.storage("Invalid cache identity.") }
+                for workRoot in Set([episode.settings.work, storage.profile.work]) {
+                    let owner = Files.contains(storage.temporaryRoot, workRoot) ? storage.temporaryRoot : storage.stateRoot
+                    let directory = workRoot.appendingPathComponent(episode.id)
+                    guard Files.contains(owner, workRoot), Files.contains(workRoot, directory),
+                          !Files.hasSymlink(directory, below: owner) else { throw RelayError.storage("Invalid cache location.") }
+                    var info = stat()
+                    if lstat(directory.path, &info) == 0 {
+                        guard (info.st_mode & S_IFMT) == S_IFDIR, info.st_uid == geteuid() else {
+                            throw RelayError.storage("Invalid cache ownership.")
+                        }
+                        try FileManager.default.removeItem(at: directory)
+                    } else if errno != ENOENT { throw RelayError.storage("Cache is inaccessible.") }
+                }
+                try store.execute("BEGIN IMMEDIATE")
+                do {
+                    for table in ["snapshots", "chunks", "speech_queue"] {
+                        try store.execute("DELETE FROM \(table) WHERE article_id=?", [episode.id])
+                    }
+                    let finalAudio = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
+                    if episode.stage != .published, episode.delivery == nil,
+                       !FileManager.default.fileExists(atPath: finalAudio.path) {
+                        try store.execute("DELETE FROM episodes WHERE id=?", [episode.id])
+                    } else {
+                        episode.articleCachePurged = true
+                        try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
+                    }
+                    try store.execute("COMMIT")
+                } catch { try? store.execute("ROLLBACK"); throw error }
+                debugLog?.record(.articleCacheRemoved)
+            } catch is CancellationError { throw CancellationError() }
+            catch { failed = true; debugLog?.record(.articleCacheRemovalFailed) }
+        }
+        if failed { throw RelayError.storage("Some removed-article caches could not be safely cleared. Other items were processed; cleanup will retry.") }
     }
     /// Explicit enqueue from Reading List prepares new text; previously saved text is reused offline.
     /// Fetch injection keeps this command independently testable without network or inference.
@@ -185,7 +263,7 @@ extension FixtureCoordinator {
         let catalog = try store.catalog()
         let sourceEntry = catalog.entries.first { $0.id == sourceEntryID && $0.url == review.page.originalURL }
         if sourceEntryID != nil {
-            guard sourceEntry != nil else {
+            guard sourceEntry != nil, sourceEntryID.map(catalog.currentIDs.contains) == true else {
                 throw RelayError.setup("This Reading List article does not match the saved source.")
             }
         }
@@ -241,7 +319,7 @@ extension FixtureCoordinator {
         do {
             let existing = Set(try store.queue().map(\.id))
             for episode in try store.published() where episode.settings.temporaryAudio == true || episode.localAudioReleased == true {
-                guard episode.localAudioDiscarded != true, !existing.contains(episode.id), temporaryAudioIsMissing(episode) else { continue }
+                guard episode.readingListRemoved != true, episode.localAudioDiscarded != true, !existing.contains(episode.id), temporaryAudioIsMissing(episode) else { continue }
                 if let settings, DeliveryPublicationStatus.unconfirmed(episode, settings: settings) == .uploaded { continue }
                 // Disabled delivery retains confirmed history, without repeatedly regenerating it.
                 if settings == nil, episode.delivery?.status == .uploaded { continue }

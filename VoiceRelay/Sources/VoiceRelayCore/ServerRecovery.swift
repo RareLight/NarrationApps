@@ -192,7 +192,7 @@ extension FixtureCoordinator {
     /// delivery during inference uses recorded proofs and defers metadata rekeying.
     func reconcileServerAutomatically(storage: ManagedSpeechStorage, settings: DeliverySettings,
         credential: any DeliveryCredentialStore, transport: any DeliveryTransport,
-        force: Bool, now: Date, debugLog: DeliveryDebugLog?) async throws {
+        force: Bool, reconcileNow: Bool = false, now: Date, debugLog: DeliveryDebugLog?) async throws {
         let root = storage.stateRoot.resolvingSymlinksInPath().standardizedFileURL.path
         guard !activeDrainRoots.contains(root), !activeDeliveryRoots.contains(root) else {
             debugLog?.record(.reconciliation(.deferred)); return
@@ -205,7 +205,12 @@ extension FixtureCoordinator {
         let due = ledger.destinationURL != settings.feedFolderURL || ledger.reconciliationAttemptAt == nil
             || now.timeIntervalSince(ledger.reconciliationAttemptAt!) >= 300
             || (ledger.reconciledAt != nil && ledger.reconciledQueueIDs != queueIDs)
-        guard force || due else { debugLog?.record(.reconciliation(.unchanged)); return }
+        // Launch checks the current feed even after a recent session, while retaining
+        // media proofs and ordinary upload retry deadlines. Force also rechecks bytes.
+        guard force || reconcileNow || due else { debugLog?.record(.reconciliation(.unchanged)); return }
+        // Establish library ownership before the first ledger write makes its root
+        // nonempty. A fresh installation must remain a valid managed library.
+        _ = try ManagedSpeechStorage.prepareLibrary(stateRoot: storage.stateRoot)
         ledger.reconciliationAttemptAt = now
         try ledger.save(stateRoot: storage.stateRoot)
         debugLog?.record(.reconciliation(.started))
@@ -219,6 +224,14 @@ extension FixtureCoordinator {
             debugLog?.recordFailure(error)
             ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
             ledger.reconciliationError = "Server reconciliation could not finish; other processing continues and the check will retry automatically."
+            if let failure = error as? DeliveryError {
+                switch failure {
+                case .authFailed: ledger.reconciliationError = DeliveryError.authNotice
+                case .credentialUnavailable: ledger.reconciliationError = DeliveryError.credentialNotice
+                case .permissionDenied: ledger.reconciliationError = DeliveryError.permissionNotice
+                default: break
+                }
+            }
             // Preserve the unreadable/concurrently changing feed, but independent
             // complete media can still upload to confirmed-missing opaque paths.
             ledger.serverFeedUnsafe = true

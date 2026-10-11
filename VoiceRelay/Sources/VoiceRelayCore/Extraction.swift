@@ -247,11 +247,12 @@ public enum ArticleExtractor {
 
 public enum Narration {
     private static let previousVersion = "conservative-2/footnotes-1/sentence-chunks-1/decorative-quotes-1/article-boundaries-1"
-    public static let version = previousVersion + "/decorative-separators-1"
-    // This upgrade only omits nonverbal separators. Identical request text, index,
+    private static let separatorVersion = previousVersion + "/decorative-separators-1"
+    public static let version = separatorVersion + "/omission-runs-1"
+    // These upgrades omit separators and duplicate placeholders. Identical text, index,
     // provenance and engine still produce identical audio, so keep those checkpoints.
     static func chunkFingerprintVersion(_ version: String) -> String {
-        version == Self.version ? previousVersion : version
+        [Self.version, separatorVersion].contains(version) ? previousVersion : version
     }
     private static func isDecorativeQuotation(_ text: String) -> Bool {
         let marks = CharacterSet(charactersIn: "\"'\u{2018}\u{2019}\u{201C}\u{201D}\u{00AB}\u{00BB}\u{2039}\u{203A}\u{275D}\u{275E}")
@@ -271,7 +272,9 @@ public enum Narration {
             if let id = block.footnoteID { noteIndices[id, default: []].append(index) }
         }
         var emitted: Set<String> = []
+        var lastOmission: ContentBlock.Kind?
         func emit(_ text: String, indices: [Int]) {
+            if !text.isEmpty { lastOmission = nil }
             let tokenizer = NLTokenizer(unit: .sentence); tokenizer.string = text
             var sentences: [String] = []
             tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
@@ -316,8 +319,11 @@ public enum Narration {
                 notices.append("Block \(index): decorative quotation retained in semantic artifact and omitted from narration.")
             } else if isDecorativeSeparator(text) {
                 notices.append("Block \(index): decorative separator retained in semantic artifact and omitted from narration.")
+            } else if (block.kind == .table || block.kind == .code), lastOmission == block.kind {
+                notices.append("Block \(index): repeated omission announcement suppressed.")
             } else {
                 emit(text, indices: [index])
+                if block.kind == .table || block.kind == .code { lastOmission = block.kind }
             }
             for id in block.footnoteReferences ?? [] { footnote(id, referredBy: index) }
         }
