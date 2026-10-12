@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Relay Cards — original vector study</title>
+  <defs><linearGradient id="bg" x2="0" y2="1"><stop stop-color="#95573F"/><stop offset="1" stop-color="#7E3926"/></linearGradient></defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#bg)"/>
+  <g transform="rotate(-11 394 441)"><rect x="229" y="219" width="330" height="442" rx="30" fill="#BE9076"/><rect x="253" y="195" width="330" height="442" rx="30" fill="#F4E7D3"/><path d="M298 266H520M298 310H472M298 354H520" stroke="#AD896D" stroke-width="18" stroke-linecap="round"/></g>
+  <g transform="rotate(7 604 598)"><rect x="427" y="373" width="354" height="470" rx="34" fill="#B76D4B"/><rect x="427" y="355" width="354" height="470" rx="34" fill="#EFD9B7"/>
+  <g fill="#733B2B"><rect x="477" y="562" width="27" height="75" rx="13.5"/><rect x="527" y="528" width="27" height="143" rx="13.5"/><rect x="577" y="499" width="27" height="201" rx="13.5"/><rect x="627" y="544" width="27" height="112" rx="13.5"/><rect x="677" y="576" width="27" height="47" rx="13.5"/></g></g>
+  <path d="M626 246H803L754 197M803 246L754 295" fill="none" stroke="#F2D2A2" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

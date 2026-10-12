@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Speaking Bookmark — original vector study</title>
+  <defs><linearGradient id="bg" x2="0" y2="1"><stop stop-color="#95573F"/><stop offset="1" stop-color="#7E3926"/></linearGradient></defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#bg)"/>
+  <g transform="rotate(-11 462 518)"><path d="M334 224H592Q625 224 625 257V835L463 744L301 835V257Q301 224 334 224Z" fill="#B76D4B"/><path d="M334 200H592Q625 200 625 233V803L463 712L301 803V233Q301 200 334 200Z" fill="#EFD9B7"/>
+  <g fill="#733B2B"><rect x="347" y="469" width="27" height="75" rx="13.5"/><rect x="397" y="435" width="27" height="143" rx="13.5"/><rect x="447" y="406" width="27" height="201" rx="13.5"/><rect x="497" y="451" width="27" height="112" rx="13.5"/><rect x="547" y="483" width="27" height="47" rx="13.5"/></g></g>
+  <path d="M689 284Q760 330 783 411M731 203Q837 269 869 391" fill="none" stroke="#F2D2A2" stroke-width="31" stroke-linecap="round"/>
+</svg>
