@@ -146,6 +146,8 @@ public actor FixtureCoordinator {
     func setBeforeOwnedAudioUnlink(_ hook: (@Sendable (URL) -> Void)?) { beforeOwnedAudioUnlink = hook }
     var beforeAudioRemovalLease: (@Sendable () -> Void)?
     func setBeforeAudioRemovalLease(_ hook: (@Sendable () -> Void)?) { beforeAudioRemovalLease = hook }
+    var beforeDeliveryPreflight: (@Sendable () -> Void)?
+    func setBeforeDeliveryPreflight(_ hook: (@Sendable () -> Void)?) { beforeDeliveryPreflight = hook }
     public func library(storage: ManagedSpeechStorage) throws -> [Episode] {
         try storage.validate()
         let p = storage.profile

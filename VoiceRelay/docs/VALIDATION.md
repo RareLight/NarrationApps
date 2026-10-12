@@ -11,6 +11,47 @@ limitations are historical evidence, not current operator instructions. Use
 current workflows. The newest code-validation results precede the older entries.
 Documentation-only checks are recorded separately and are not a new app build.
 
+## October 11: remove Settings upload action and investigate hangs
+
+Removed Publishing settings' Upload Now button and its inline URL-commit/forced-
+delivery action. There was no separate implementation to delete: automatic
+publishing, Sync Now and outbox/history retries share the delivery engine and
+remain available. Updated current guidance and folder errors; historical evidence
+retains the former button name.
+
+The direct call synchronously read/decoded the private publishing ledger on the
+main actor before creating its task. Moved this readiness read to the existing
+coordinator, without renaming corrupt state during the probe. New speech waits
+behind a neutral preflight gate; startup/explicit reconciliation skips redundant
+readiness I/O. Force also intentionally bypasses fresh media proofs unless strong
+validators establish unchanged copies, potentially downloading and validating
+many episodes sequentially. Sync Now reuses fresh proofs and ordinary backoff.
+This explains a possible long busy phase, not a proven main-thread freeze. Network
+operations are asynchronous/bounded; inspection runs in detached tasks.
+
+- Initial button-removal checks: **3 core + 7 app tests passed**.
+- Preflight investigation checks: **2 core + 8 app tests passed**, including four
+  coalescing cases (ordinary, backoff, force, explicit check). A deliberately held
+  preflight ran off the main thread while a separate main-actor heartbeat ran;
+  subsequent coalesced delivery completed and cleared its gates. Core coverage
+  checks destination/cadence and preservation of corrupt ledger bytes.
+- Final **all 135 app tests passed** (75.255 s), including Sync, shutdown, restore,
+  outbox controls, automation and selection regressions. Signed Release build and
+  packaging verification passed; `dist/VoiceRelay.app` is ready for manual checks.
+- Documentation links and `git diff --check` passed. No GUI, Keychain, protected
+  source or real-server tests ran. No production hang/crash was reproduced.
+  Operator checks: confirm no Settings upload action, run popover Sync Now and
+  verify Settings/library selection remains responsive. If a true freeze recurs,
+  capture an Activity Monitor Sample Process report before quitting.
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" \
+SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache" \
+swift test --cache-path "$PWD/.build/swiftpm-cache" \
+  --disable-sandbox --skip-update --no-parallel \
+  --filter 'deliveryPreflight|directPublishingPreflight|deliveryCoalesces|deliveryShutdown|manualSync|deliveryPaneAndAutomation|serverRecoveryCachedScan'
+```
+
 ## October 11: Articles selection responsiveness
 
 Selection-dependent toolbar/focused-action validation formerly rebuilt the sorted

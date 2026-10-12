@@ -402,9 +402,10 @@ final class AppModel {
         let reconcileNow = startupReconciliationPending || reconcileNow
         startupReconciliationPending = false
         let attemptStartedAt = Date(), verificationID = deliveryVerificationID
-        let ledger = try? DeliveryLedger.load(stateRoot: storage.stateRoot)
-        deliveryPreflightBusy = !running && (reconcileNow || ledger?.destinationURL != settings.feedFolderURL || ledger?.reconciliationAttemptAt == nil || Date().timeIntervalSince(ledger?.reconciliationAttemptAt ?? .distantPast) >= 300)
-        if reconcileNow || force || deliveryPreflightBusy { deliveryConnectionVerified = false }
+        // Gate new speech while the coordinator checks whether reconciliation is
+        // due. Reading a large/slow ledger here would block a UI button callback.
+        deliveryPreflightBusy = !running
+        if reconcileNow || force { deliveryConnectionVerified = false }
         deliveryBusy = true
         uploadProgress = [:]
         let uploadToken = UUID(); uploadRunID = uploadToken
@@ -421,6 +422,12 @@ final class AppModel {
                 if let again { triggerDelivery(force: again, reconcileNow: checkAgain) }
             }
             do {
+                let needsPreflight: Bool
+                if reconcileNow { needsPreflight = true }
+                else { needsPreflight = await coordinator.deliveryPreflightRequired(stateRoot: storage.stateRoot, settings: settings, now: attemptStartedAt) }
+                try Task.checkCancellation()
+                deliveryPreflightBusy = !running && needsPreflight
+                if needsPreflight { deliveryConnectionVerified = false }
                 let result = try await coordinator.deliverPending(storage: storage, settings: settings,
                     credential: credential, transport: LoggingDeliveryTransport(base: makeTransport(), log: deliveryDebugLog),
                     force: force, reconcileNow: reconcileNow, now: attemptStartedAt, debugLog: deliveryDebugLog, progress: { [weak self] event in

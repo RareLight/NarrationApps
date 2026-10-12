@@ -52,8 +52,9 @@ Retries must not erase unknown feed membership. Diagnostics never include privat
 URLs, source text or credentials.
 
 The idle check interval and failure backoff are five minutes. Changed queue
-membership or destination triggers an earlier check; Upload New Items/Upload Now
-can force a check through the same publishing path. Metadata rekeying defers while
+membership or destination triggers an earlier check. Sync Now explicitly rechecks
+the server while preserving upload backoff; Upload New Items can force a retry
+through the same publishing path. Metadata rekeying defers while
 an inference drain owns the library. Inert previews and restored-library review
 never contact the server.
 

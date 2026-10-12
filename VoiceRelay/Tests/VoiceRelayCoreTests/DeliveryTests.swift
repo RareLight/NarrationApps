@@ -473,7 +473,7 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     #expect(!feed.contains(result.episode.id))
     let ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
     #expect(!ledger.remoteFeedPending && ledger.lastUploadedFeedHash != nil)
-    // Automatic drains preserve the failure. Upload Now can recover this specific
+    // Automatic drains preserve the failure. Explicit upload retries recover this specific
     // verification failure without retrying unrelated fatal failures.
     transport.headLengths.removeAll(); transport.davLengths.removeAll()
     let automatic = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
@@ -570,7 +570,7 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     #expect(transport.recordedCalls.dropFirst(callsBefore).allSatisfy { ["GET", "PROPFIND"].contains($0.method) })
     episode = try await FixtureCoordinator().library(storage: storage).first { $0.id == result.episode.id }
     #expect(episode?.delivery?.status == .pending)
-    // A new app session checks the feed, without treating startup as Upload Now.
+    // A new app session checks the feed, without treating startup as a forced upload retry.
     let beforeLaunch = transport.recordedCalls.count
     _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings,
         credential: FakeCredentials(password: "x"), transport: transport, reconcileNow: true)
@@ -1799,4 +1799,23 @@ private final class UploadEventRecorder: @unchecked Sendable {
     let client = try WebDAVClient(transport: transport, settings: deliverySettings(), credential: FakeCredentials(password: "fixture"))
     await #expect(throws: (any Error).self) { try await client.publishFeed(Data(repeating: 32, count: 4 * 1024 * 1024 + 1)) }
     #expect(transport.methods.isEmpty)
+}
+
+@Test func deliveryPreflightUsesDestinationAndCadenceWithoutMutatingCorruptLedger() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator(), settings = deliverySettings()
+    let now = Date(timeIntervalSinceReferenceDate: 1000)
+    #expect(await coordinator.deliveryPreflightRequired(stateRoot: root, settings: settings, now: now))
+    var ledger = DeliveryLedger()
+    ledger.destinationURL = settings.feedFolderURL; ledger.reconciliationAttemptAt = now
+    try ledger.save(stateRoot: root)
+    #expect(await coordinator.deliveryPreflightRequired(stateRoot: root, settings: settings, now: now.addingTimeInterval(299)) == false)
+    #expect(await coordinator.deliveryPreflightRequired(stateRoot: root, settings: settings, now: now.addingTimeInterval(300)))
+    var changed = settings; changed.feedFolderURL = URL(string: "https://other.example/podcast/")
+    #expect(await coordinator.deliveryPreflightRequired(stateRoot: root, settings: changed, now: now))
+    let file = DeliveryLedger.fileURL(stateRoot: root), corrupt = Data("invalid-json".utf8)
+    try Files.write(corrupt, to: file)
+    #expect(await coordinator.deliveryPreflightRequired(stateRoot: root, settings: settings, now: now))
+    #expect(try Data(contentsOf: file) == corrupt)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path) == ["delivery.json"])
 }

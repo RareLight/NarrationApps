@@ -181,9 +181,6 @@ struct DeliveryPaneView: View {
                         .disabled(model.deliveryTesting || model.preview || model.stopping || model.deliveryCredentialBusy)
                     testIndicator
                 }
-                Button(model.deliveryBusy ? "Uploading…" : "Upload Now") { if commitURLs() { model.triggerDelivery(force: true) } }
-                    .disabled(model.deliveryBusy || !model.deliverySettings.enabled || model.preview || model.stopping || model.deliveryCredentialBusy)
-                    .help("Retry pending uploads now")
             } header: {
                 SectionHelpHeader(title: "Status",
                     explanation: "Test Connection checks upload folders, not write access or public playback. Uploads shows pending work and verification issues.", helpTopic: .publishing)

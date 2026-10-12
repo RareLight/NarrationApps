@@ -116,8 +116,9 @@ reprompting. Saving/removing credentials may require separate system confirmatio
 
 **Test Connection** probes folders read-only; it proves neither write permission
 nor the public website mapping. A readable ancestor permits a missing-folder
-result; uploading creates folders if authorized. **Upload Now** is the manual retry
-override. Enabled publishing also drains after publication/removal, launch and
+result; uploading creates folders if authorized. Use the popover's **Sync Now**
+for a complete manual sync, or **Uploads** for targeted upload retries. Publishing
+settings has no upload action. Enabled publishing drains after publication/removal, launch and
 periodically while the app runs. Media size and hash are confirmed before feed publication; the uploaded feed is
 read back through authenticated WebDAV and its exact contents confirmed.
 

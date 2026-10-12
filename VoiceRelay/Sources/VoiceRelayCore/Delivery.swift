@@ -687,8 +687,8 @@ public struct WebDAVClient: Sendable {
         guard try await collectionExists(remotePath: remotePath, role: role, level: level) else {
             let message = switch role {
             case .root: "The WebDAV root was not found. Check the WebDAV root URL."
-            case .feed: "The feed folder was not found. Upload Now can create missing folders."
-            case .audio: "The audio folder was not found. Upload Now can create it."
+            case .feed: "The feed folder was not found. Publishing can create missing folders."
+            case .audio: "The audio folder was not found. Publishing can create it."
             }
             throw DeliveryError.fatal(message)
         }
@@ -954,6 +954,14 @@ public struct DeliverySummary: Sendable, Equatable {
 }
 
 extension FixtureCoordinator {
+    /// Keep ledger I/O and JSON decoding off the app's main actor. This read-only
+    /// readiness probe must not rename corrupt state; the delivery owner handles it.
+    public func deliveryPreflightRequired(stateRoot: URL, settings: DeliverySettings, now: Date) -> Bool {
+        beforeDeliveryPreflight?()
+        let ledger = try? DeliveryLedger.load(stateRoot: stateRoot, preserveCorrupt: false)
+        return ledger?.destinationURL != settings.feedFolderURL || ledger?.reconciliationAttemptAt == nil
+            || now.timeIntervalSince(ledger?.reconciliationAttemptAt ?? .distantPast) >= 300
+    }
     public func invalidateDeliveryFeed(stateRoot: URL, settingsHash: String) throws {
         try Task.checkCancellation()
         guard FileManager.default.fileExists(atPath: PrototypeProfile.fixture(at: stateRoot).database.path),
@@ -1092,7 +1100,7 @@ extension FixtureCoordinator {
         }
         if ledger.settingsHash != settingsHash { ledger.remoteFeedPending = true }
         if ledger.settingsHash != settingsHash || force {
-            // Explicit Upload Now also recovers saved size-verification failures and
+            // Explicit upload retries also recover saved size-verification failures and
             // password changes, which never enter the settings hash.
             for var episode in try store.published()
                 where episode.localAudioDiscarded != true && episode.delivery?.status == .failed && ledger.blockedServerIDs?.contains(episode.id) != true

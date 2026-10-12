@@ -2136,7 +2136,7 @@ private func fetchFixture(url: URL) throws -> FetchedPage {
 
 @Test @MainActor func deliveryPaneAndAutomationControlsConstructInertly() throws {
     let model = AppModel(preview: true)
-    _ = DeliveryPaneView(model: model)
+    _ = DeliveryPaneView(model: model).body
     _ = SettingsView(model: model, initialSection: .delivery)
     #expect(!model.deliveryBusy && !model.deliveryTesting && model.deliveryTestResult == .untested)
     #expect(!model.autoAdmitEnabled && !model.autoProcessEnabled && !model.autoHalted)
@@ -2646,4 +2646,44 @@ private actor ServerDeletionGate: DeliveryTransport {
     await model.shutdown()
     await model.waitForSettingsBookkeeping()
     #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).remoteFeedPending == false)
+}
+
+private final class PublishingPreflightGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let release = DispatchSemaphore(value: 0)
+    private var started = false
+    private var mainThread = false
+    var entered: Bool { lock.withLock { started } }
+    var ranOnMainThread: Bool { lock.withLock { mainThread } }
+    func hold() {
+        lock.withLock { started = true; mainThread = Thread.isMainThread }
+        _ = release.wait(timeout: .now() + 5)
+    }
+    func open() { release.signal() }
+}
+
+@Test @MainActor func directPublishingPreflightKeepsMainActorResponsiveAndCoalescesRetries() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let transport = StubDeliveryTransport()
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport },
+                         credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = appDeliverySettings()
+    // First-session reconciliation needs no ledger readiness read.
+    model.triggerDelivery(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    let gate = PublishingPreflightGate(); defer { gate.open() }
+    await model.coordinator.setBeforeDeliveryPreflight { gate.hold() }
+    model.triggerDelivery(force: true)
+    #expect(model.deliveryBusy && model.deliveryPreflightBusy)
+    try await waitUntil("publishing preflight entered off the main actor") { gate.entered }
+    #expect(!gate.ranOnMainThread)
+    // A separate UI task runs while disk preflight is deliberately stalled.
+    let heartbeat = Task { @MainActor in true }
+    #expect(await heartbeat.value)
+    model.triggerDelivery() // Coalesces rather than blocking or opening another worker.
+    gate.open()
+    await model.coordinator.setBeforeDeliveryPreflight(nil)
+    await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    #expect(!model.deliveryBusy && !model.deliveryPreflightBusy && model.deliveryError == nil)
+    await model.shutdown()
 }

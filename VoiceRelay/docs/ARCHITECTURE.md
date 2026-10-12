@@ -129,6 +129,13 @@ remaining visible until confirmation. Destination changes preserve old-host file
 and never carry old-host deletion requests to the new host. Errors/logs are
 sanitized. Test Connection is a manual read-only collection probe, not write/public
 mapping acceptance.
+Publishing settings has no manual upload action. The popover's Sync Now runs the
+complete manual workflow; Uploads and Server Audio retain targeted upload/retry
+controls. All use the same publishing engine as automatic delivery.
+Publishing readiness reads/decodes its ledger on the coordinator, never in the
+main-actor button callback. A neutral preflight gate prevents new speech from
+starting until that check returns. Startup/explicit feed reconciliation already
+requires preflight and skips the redundant readiness read.
 
 Publishing automatically reconciles bounded authenticated feed/media before queue
 generation and through the delivery drain. Each configured/enabled launch attempts
