@@ -3,15 +3,76 @@
 This is a native Swift runtime. Python, the CLI environment and Homebrew are not native build or runtime dependencies.
 
 - Xcode: 27.0 (27A266a), Swift 6.4 (swiftlang-6.4.0.34.1).
-- Apple Silicon (`arm64`), Swift 6 language mode and complete concurrency checks in Libro targets. Shared deployment configuration is macOS 15.0; the current local app's macOS 27.0 override is preserved.
+- Apple Silicon (`arm64`), Swift 6 language mode and complete concurrency checks in Libro targets. The app and embedded worker target macOS 27.0. Core fixtures retain their independent minimum.
 - MLX Audio Swift: `8d86630ade569728aaea3dc1a29fc44e2efa719b`, https://github.com/Blaizzy/mlx-audio-swift.
 - MLX Swift: 0.31.4 (`dc43e62d7055353c7f99fa071a4e71d29dfddc44`), root-local checkout with the recorded Metal backport below. Its MLX core remains `ce45c52505c8158ea48d2a54e8caae05efd86bfe`; MLX C remains `0726ca922fc902c4c61ef9c27d94132be418e945`.
-- MLX Swift LM: 3.31.4 (`bd4b7434e6bdb588c7ef55706ff8904cb7fd4c57`).
+- MLX Swift LM: 3.31.4 (`bd4b7434e6bdb588c7ef55706ff8904cb7fd4c57`), local checkout with the manifest adaptation below.
 - Swift Transformers: 1.1.9 (`150169bfba0889c229a2ce7494cf8949f18e6906`).
-- Swift Hugging Face: 0.8.1 (`de01c0ab8fd537bbd8216cea7f774275178501a2`).
-- The complete 30-package remote graph is retained in `Libro/Libro.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. MLX Audio and MLX Swift are local checkouts pinned by `scripts/prepare-dependencies.sh`; root-local MLX Swift also supplies all transitive MLX consumers. Moving MLX Swift local preserves every remaining remote pin.
+- Swift Hugging Face: 0.8.1 (`de01c0ab8fd537bbd8216cea7f774275178501a2`), root-local checkout with the workspace-download adaptation below.
+- Remote pins are retained in `Libro/Libro.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. MLX Audio, MLX Swift, MLX Swift LM and Swift Hugging Face are local checkouts pinned by preparation scripts. Their manifests use the same sibling locations throughout the graph, avoiding SwiftPM's conflicting local/remote identity warning. Controlled SDK fixtures have a separate resolved graph under `HubDownloadTests/`.
 
 ## Narrow upstream adaptation
+
+`Patches/mlx-audio-build-compatibility.patch` and
+`Patches/mlx-lm-local-dependency.patch` retain the exact engine revisions above.
+They use local sibling dependencies and align their macOS minimum with MLX's
+Metal resource build. The audio patch also replaces deprecated API spellings:
+Breeze reads the same default quantization from `perLayerQuantization`, Irodori
+explicitly retains `.affine`, and BiLSTM uses `addMM`. Unchanged bindings become
+`let`. Llama/Qwen stream APIs accept `sending` caches and transfer them into
+Task's sending closure, instead of capturing non-Sendable caches in an explicit
+`@Sendable` closure. Borrowed reference audio is materialized as copied bytes,
+shape and dtype before the task starts; the task creates its own MLX array.
+Cache aliases must not be used after transfer. This does not
+assert that cache/model instances are safe for concurrent inference; Libro's
+Kokoro/Soprano state remains confined to separate worker processes.
+
+`Patches/mlx-metal4-platform.patch` changes only the local MLX manifest's macOS
+minimum to 26.0. Xcode chooses Metal 4.0 for those package resources, which
+supports the pinned attention headers' `if constexpr`. Metal 3.1/3.2 probes
+reproduced all four extension warnings; Metal 4.0 compiled the same headers
+without them. Project-level Metal settings do not propagate to SwiftPM packages.
+Using a package minimum of 27.0 selects Metal 4.1, whose stricter address-space
+rules reject these pinned kernels; do not raise it blindly. This build minimum
+does not lower the app/worker's macOS 27 requirement or modify kernel math.
+
+`Patches/mlx-swift-warning-compatibility.patch` selects Swift 6.4's current
+async TaskLocal overload using a `nonisolated(nonsending)` operation type.
+`withoutActuallyEscaping` keeps the existing non-escaping public callback and
+`rethrows` signatures; the operation is awaited within that lifetime. No
+Sendable conformance or inference concurrency guarantee is added. MLXNN's
+optional getters retain dynamic optional promotion through `Any`, and its
+structural switch is exhaustive without an unreachable default.
+`Patches/mlx-lm-encoding-detection.patch` uses Foundation's `usedEncoding`
+reader, preserving automatic detection rather than assuming UTF-8.
+
+`Patches/mlx-vendor-warning-policy.patch` disables only
+`-Wshorten-64-to-32` for the vendored Cmlx C++ target on macOS. Xcode adds this
+diagnostic to the pinned core whereas its upstream Darwin CMake build does
+not. This is a deliberate vendor warning-policy exception for the 459
+inventoried narrowing locations, not a claim that every conversion has been
+made overflow-safe. No numerical/index code, audio levels, or other diagnostic
+settings change. Keep the original inventory in the warning audit; when
+updating MLX, review this exception against upstream's types and build policy
+before rebasing/removing it. Do not apply it to Libro or Swift targets.
+
+The app sets `COPY_PHASE_STRIP = NO`: the producer signs the helper and Xcode's
+embedding phase copies and re-signs it without attempting to strip signed bytes.
+Preparation validates exact recorded patch sequences, accepts clean checkouts
+or previously recorded prefixes, and rejects unrelated edits before applying
+anything. `scripts/check-preparation.sh` tests setup, idempotence, migration and
+preservation of unexpected edits in disposable Git fixtures.
+After a packaged build, `scripts/check-engine-api.sh` compiles valid cache
+transfers against the actual patched APIs with Swift 6 complete checks and
+warnings as errors, and requires the compiler to reject post-transfer aliases
+for both stream APIs. These are compile fixtures, not Llama/Qwen speech tests.
+`scripts/check-engine-behavior.sh` links the actual built package objects and
+compiles its fixtures with Swift 6 complete checks and warnings as errors.
+It checks optional parameter/module initialization, tree traversal, TXT/JSONL
+UTF-8 and UTF-16 LE/BE detection, and async device/stream/random-state scopes
+through suspension, nesting, child inheritance, errors and cancellation.
+It evaluates small fixture arrays with Metal validation and does not load a
+speech model. Repeat both scripts in Debug and Release after these adaptations.
 
 `Patches/misaki-local-resources.patch` changes only `MisakiTextProcessor`: an optional prepared resource directory in its initializer, and a return from `prepare()` when supplied. The existing zero-argument initializer retains upstream behavior. Libro validates the complete directory before constructing the processor. No G2P implementation, normalization, weights or configuration is changed.
 
@@ -22,6 +83,30 @@ Update procedure: change the engine pin deliberately, inspect local loader/G2P c
 `Patches/mlx-empty-vector-metal.patch` backports the `set_vector_bytes` guard from [upstream MLX commit 08298bbb](https://github.com/ml-explore/mlx/commit/08298bbbdfbf932378b9db9e3a2aa67ea97c94c4), adapting only the encoder accessor to this older core. Nonempty vectors retain the existing binding. Empty metadata binds one zero-initialized value instead of a null pointer; the zero-rank kernel specialization does not read that metadata. This prevents the `bytes argument cannot be nil` assertion under Xcode Metal API validation without disabling validation or upgrading the graph. Other changes in that upstream commit are not included.
 
 Preparation verifies the parent and submodule revisions and the exact recorded diffs, refuses unexpected edits/untracked files, and is idempotent. Keep the checked-in backport and local root package reference together. A fresh checkout must run preparation before opening Xcode. When deliberately updating MLX, inspect whether the new core already contains the guard, remove/rebase the patch accordingly, and repeat real K/S generation with `MTL_DEBUG_LAYER=1` in both configurations. The worker probe includes arithmetic and non-leading scalar gather; a passing probe alone does not establish speech acceptance.
+
+`Patches/hub-workspace-downloads.patch` adds the opt-in Darwin
+`downloadInCache` argument to the SDK's LFS file API. Libro enables it; upstream
+default behavior remains unchanged. The existing request/authentication,
+immutable revision, metadata, Range and cache-lock flows remain in the SDK.
+Serialized URLSession data callbacks write received buffers directly into its
+workspace-local incomplete blob. Cancellation/network failure retain that
+prefix; valid 206 responses append, ignored Range/200 responses replace it,
+and 416 resets it. Missing metadata fails instead of using OS download scratch.
+No download task or whole-file Data buffer is used in this path. Libro still
+validates every staged file against its pinned length and SHA-256 before
+publishing an inventory. It also quarantines invalid orphan blobs before SDK
+reuse. This is a storage adaptation to the pinned SDK, not a second HTTP/cache
+manager.
+
+`scripts/prepare-hub.sh` verifies the revision and exact patch and preserves
+unexpected edits. On a deliberate SDK update, inspect its native streaming,
+Range and cache publication behavior before rebasing/removing this patch.
+Keep the Xcode local reference and preparation pin together. Update the fixture
+lock intentionally and run `bash macos/scripts/check-downloads.sh`, core
+fixtures, both packaged builds, interrupted real acquisition with
+`--workspace-writes-only`, offline inventory reuse and real K/S speech. SDK
+fixture HTTP never leaves the process; initial package setup may fetch source
+dependencies. See [M5 recovery evidence](../docs/native-gui-m5-acceptance.md).
 
 ## Native MP3 codec
 
@@ -35,7 +120,7 @@ LAME is LGPL-licensed. Its `COPYING` and `README` are retained under `macos/.bui
 
 ## Native assets
 
-Kokoro primary: existing `mlx-community/Kokoro-82M-bf16`, default `af_aoede`, speed 1.1. Soprano primary: existing `mlx-community/Soprano-1.1-80M-bf16`; retain that exact repository hint in its local loader. Existing primary directories and Python manifests are read-only.
+Kokoro primary: existing `mlx-community/Kokoro-82M-bf16`, native default `af_heart`, speed 1.1. The CLI retains `af_aoede`. Soprano primary: existing `mlx-community/Soprano-1.1-80M-bf16`; retain that exact repository hint in its local loader. Existing primary directories and Python manifests are read-only.
 
 English native G2P: `beshkenadze/kitten-tts-g2p` revision `9c692b92682d959d9013a9cfe6a49541997add18`. Required inventory:
 
@@ -48,7 +133,7 @@ English native G2P: `beshkenadze/kitten-tts-g2p` revision `9c692b92682d959d9013a
 
 The preparation action uses `HubClient`/`HubCache`, exact revision and file allowlist, with a workspace-local cache. It records SHA-256 digests and checks the published LFS digest of the weight. Runtime rechecks required files, sizes, JSON and all digests. The upstream British fallback uses these US assets when GB resources are absent; broader voice/pronunciation acceptance remains open.
 
-All native caches, locks, inventories, staging and auxiliary resources are under the selected workspace's `models/.native/`. No weights belong in the signed app bundle. No narration text is passed to acquisition APIs. Initial preparation covers G2P only; primary native acquisition is an M5 gate.
+All native caches, locks, inventories, staging and auxiliary resources are under the selected workspace's `models/.native/`. Inventory replacement uses a synchronized private sibling and atomic rename, avoiding Foundation's OS replacement scratch. No weights belong in the signed app bundle. No narration text is passed to acquisition APIs. Explicit preparation covers the selected K/S primary inventory and required auxiliaries; CLI coexistence and remaining GUI relocation/operator gates stay separate.
 
 ## Notices
 

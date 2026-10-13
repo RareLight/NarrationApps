@@ -1,4 +1,13 @@
 #include "Shared.xcconfig"
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+// The helper is already signed by its producing target. Copy and re-sign it
+// without attempting to strip a signed executable in the embedding phase.
+COPY_PHASE_STRIP = NO
+// Archive exposes skipped package resources through symlinks in BUILT_PRODUCTS_DIR.
+// Declare the physical input so the build-script sandbox can read the Metal library.
+LIBRO_MLX_METAL_ROOT_NO = $(BUILT_PRODUCTS_DIR)
+LIBRO_MLX_METAL_ROOT_YES = $(UNINSTALLED_PRODUCTS_DIR)/$(PLATFORM_NAME)
+LIBRO_MLX_METAL_LIBRARY = $(LIBRO_MLX_METAL_ROOT_$(DEPLOYMENT_LOCATION))/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib
 // Xcode does not normally scan Helpers. Its built-in Swift library tool must
 // include the worker so back-deployment libraries are bundled and signed.
 OTHER_SWIFT_STDLIB_TOOL_FLAGS = $(inherited) --scan-executable "$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/LibroSpeechWorker"

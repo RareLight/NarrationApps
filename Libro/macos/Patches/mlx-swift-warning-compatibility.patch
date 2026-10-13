@@ -1,0 +1,88 @@
+diff --git a/Source/MLX/Device.swift b/Source/MLX/Device.swift
+index 203c1e3..cf0bb6f 100644
+--- a/Source/MLX/Device.swift
++++ b/Source/MLX/Device.swift
+@@ -125,7 +125,11 @@ public final class Device: @unchecked Sendable, Equatable {
+     static public func withDefaultDevice<R>(
+         _ device: Device, _ body: () async throws -> R
+     ) async rethrows -> R {
+-        try await $_tlDefaultDevice.withValue(device, operation: body)
++        // Keep the public callback/executor contract and its non-escaping lifetime.
++        return try await withoutActuallyEscaping(body) { operation in
++            try await $_tlDefaultDevice.withValue(device,
++                operation: operation as nonisolated(nonsending) () async throws -> R)
++        }
+     }
+ 
+     /// Return the current default stream.
+diff --git a/Source/MLX/State.swift b/Source/MLX/State.swift
+index 54bb1b6..77dfc2e 100644
+--- a/Source/MLX/State.swift
++++ b/Source/MLX/State.swift
+@@ -104,5 +104,9 @@ public func withRandomState<R>(_ state: MLXRandom.RandomState, body: () throws -
+ public func withRandomState<R>(_ state: MLXRandom.RandomState, body: () async throws -> R)
+     async rethrows -> R
+ {
+-    try await MLXRandom.$taskLocalRandomState.withValue(state, operation: body)
++    // Keep the public callback/executor contract and its non-escaping lifetime.
++    return try await withoutActuallyEscaping(body) { operation in
++        try await MLXRandom.$taskLocalRandomState.withValue(state,
++            operation: operation as nonisolated(nonsending) () async throws -> R)
++    }
+ }
+diff --git a/Source/MLX/Stream.swift b/Source/MLX/Stream.swift
+index 6f2d2aa..1d1db97 100644
+--- a/Source/MLX/Stream.swift
++++ b/Source/MLX/Stream.swift
+@@ -101,7 +101,11 @@ public final class Stream: @unchecked Sendable, Equatable {
+         device: Device? = nil, _ body: () async throws -> R
+     ) async rethrows -> R {
+         let device = device ?? Device.defaultDevice()
+-        return try await $defaultStream.withValue(Stream(device), operation: body)
++        // Keep the public callback/executor contract and its non-escaping lifetime.
++        return try await withoutActuallyEscaping(body) { operation in
++            try await $defaultStream.withValue(Stream(device),
++                operation: operation as nonisolated(nonsending) () async throws -> R)
++        }
+     }
+ 
+     init(_ ctx: mlx_stream) {
+diff --git a/Source/MLXNN/Module.swift b/Source/MLXNN/Module.swift
+index 7cba9b1..1f69991 100644
+--- a/Source/MLXNN/Module.swift
++++ b/Source/MLXNN/Module.swift
+@@ -290,8 +290,6 @@ open class Module {
+                 }
+                 return isAllNone ? .none : .array(result)
+ 
+-            default:
+-                fatalError("Unexpected leaf \(vk) = \(v)")
+             }
+         }
+ 
+@@ -1406,9 +1404,9 @@ public enum ModuleValue {
+ 
+     public var wrappedValue: T {
+         get {
+-            // note: this gives a warning but it does in fact do something
+-            // in the case where this is e.g. ParameterInfo<MLXArray?>
+-            if let value = value as? T {
++            // Keep the dynamic cast's optional promotion when T is Optional:
++            // an uninitialized outer nil must become a valid wrapped nil.
++            if let value = (value as Any) as? T {
+                 return value
+             } else {
+                 return value!
+@@ -1519,9 +1517,9 @@ private protocol TypeErasedSetterProvider {
+ 
+     public var wrappedValue: T {
+         get {
+-            // note: this gives a warning but it does in fact do something
+-            // in the case where this is e.g. ModuleInfo<Linear?>
+-            if let module = module as? T {
++            // Keep the dynamic cast's optional promotion when T is Optional:
++            // an uninitialized outer nil must become a valid wrapped nil.
++            if let module = (module as Any) as? T {
+                 return module
+             } else {
+                 return module!

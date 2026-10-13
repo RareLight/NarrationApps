@@ -10,15 +10,18 @@ public struct WorkerConfiguration: Sendable {
     public var terminationGrace: TimeInterval
     public var debugLog: DebugLog?
     public var mp3Library: URL?
+    public var maximumFootprintBytes: UInt64
 
     public init(executable: URL, arguments: [String] = ["--serve"],
                 environment: [String: String] = [:], requestTimeout: Duration = .seconds(180),
-                shutdownGrace: TimeInterval = 0.5, terminationGrace: TimeInterval = 1, debugLog: DebugLog? = nil, mp3Library: URL? = nil) {
+                shutdownGrace: TimeInterval = 0.5, terminationGrace: TimeInterval = 1, debugLog: DebugLog? = nil, mp3Library: URL? = nil,
+                maximumFootprintBytes: UInt64 = SpeechMemoryPolicy.workerFootprintLimitBytes) {
         self.executable = executable; self.arguments = arguments; self.environment = environment
         self.requestTimeout = requestTimeout; self.shutdownGrace = shutdownGrace
         self.terminationGrace = terminationGrace
         self.debugLog = debugLog
         self.mp3Library = mp3Library
+        self.maximumFootprintBytes = maximumFootprintBytes
     }
 }
 
@@ -49,11 +52,13 @@ final class SpeechWorkerProcess: @unchecked Sendable {
     private var stopStarted = false
     private var stopped = false
     private var stopWaiters: [CheckedContinuation<Void, Never>] = []
+    private var memoryMonitor: Task<Void, Never>?
+    private var peakFootprintBytes: UInt64 = 0
 
     init(configuration: WorkerConfiguration, identity: AttemptIdentity) throws {
         guard configuration.requestTimeout > .zero, configuration.shutdownGrace.isFinite,
               configuration.shutdownGrace >= 0, configuration.terminationGrace.isFinite,
-              configuration.terminationGrace >= 0 else { throw SpeechFailure(.invalidInput) }
+              configuration.terminationGrace >= 0, configuration.maximumFootprintBytes > 0 else { throw SpeechFailure(.invalidInput) }
         self.configuration = configuration; self.identity = identity
         // A worker crash during a queued write must report EPIPE, not terminate
         // the GUI through SIGPIPE. This flag belongs only to our pipe descriptor.
@@ -81,6 +86,33 @@ final class SpeechWorkerProcess: @unchecked Sendable {
         try? diagnostics.fileHandleForWriting.close()
         DispatchQueue(label: "org.librotts.worker-control").async { [self] in readControl() }
         DispatchQueue(label: "org.librotts.worker-diagnostics").async { [self] in drainDiagnostics() }
+        memoryMonitor = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.process.isRunning else { return }
+                if let footprint = Self.physicalFootprint(of: self.process.processIdentifier) {
+                    self.lock.withLock { self.peakFootprintBytes = max(self.peakFootprintBytes, footprint) }
+                    if footprint > self.configuration.maximumFootprintBytes {
+                        self.log("memory limit exceeded pid=\(self.process.processIdentifier) footprintBytes=\(footprint) limitBytes=\(self.configuration.maximumFootprintBytes)")
+                        self.fail(SpeechFailure(.memoryLimit))
+                        // This is our owned private helper, with no final-publication authority.
+                        // Do not allow another shutdown grace interval of runaway allocation.
+                        if self.process.isRunning { kill(self.process.processIdentifier, SIGKILL) }
+                        return
+                    }
+                }
+                do { try await Task.sleep(for: .milliseconds(20)) } catch { return }
+            }
+        }
+    }
+
+    static func physicalFootprint(of pid: Int32) -> UInt64? {
+        var usage = rusage_info_v4()
+        let result = withUnsafeMutablePointer(to: &usage) { pointer in
+            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                proc_pid_rusage(pid, RUSAGE_INFO_V4, $0)
+            }
+        }
+        return result == 0 ? usage.ri_phys_footprint : nil
     }
 
     func request(_ command: WorkerCommand, progress: (@Sendable (ModelPreparationProgress) -> Void)? = nil) async throws -> WorkerEvent {
@@ -180,6 +212,8 @@ final class SpeechWorkerProcess: @unchecked Sendable {
     private func fail(_ error: any Error, token: UUID? = nil) {
         let active: Pending? = lock.withLock {
             if let token, pending?.token != token { return nil }
+            // EOF after a resource-limit kill must not hide the original cause.
+            guard terminalError == nil else { return nil }
             terminalError = error
             let active = pending; pending = nil
             return active
@@ -213,6 +247,7 @@ final class SpeechWorkerProcess: @unchecked Sendable {
                 stopStarted = true; return true
             }
             guard first else { return }
+            memoryMonitor?.cancel()
             fail(CancellationError())
             writerQueue.async { [self] in
                 if let command = try? SpeechIPC.encode(WorkerCommand(kind: .cancel, identity: identity)) {
@@ -230,7 +265,8 @@ final class SpeechWorkerProcess: @unchecked Sendable {
                 process.waitUntilExit() // Foundation reaps this owned PID.
                 _ = diagnosticsDrained.wait(timeout: .now() + 1)
                 let tail = lock.withLock { diagnosticTail }
-                log("stopped pid=\(process.processIdentifier) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit") status=\(process.terminationStatus)")
+                let peak = lock.withLock { peakFootprintBytes }
+                log("stopped pid=\(process.processIdentifier) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit") status=\(process.terminationStatus) peakFootprintBytes=\(peak)")
                 if !tail.isEmpty { log("private stderr tail:\n" + String(decoding: tail, as: UTF8.self)) }
                 try? output.fileHandleForReading.close()
                 try? diagnostics.fileHandleForReading.close()

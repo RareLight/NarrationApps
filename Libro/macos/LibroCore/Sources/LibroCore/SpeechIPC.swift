@@ -2,12 +2,12 @@ import Foundation
 import Darwin
 
 public enum SpeechFailureCode: String, Codable, Sendable {
-    case invalidInput, storage, acquisition, generation, protocolViolation, timeout, workerExited
+    case invalidInput, storage, acquisition, generation, protocolViolation, timeout, workerExited, memoryLimit
 
     public var permitsSerialRetry: Bool {
         switch self {
         case .generation, .protocolViolation, .timeout, .workerExited: true
-        case .invalidInput, .storage, .acquisition: false
+        case .invalidInput, .storage, .acquisition, .memoryLimit: false
         }
     }
 }
@@ -30,6 +30,7 @@ public struct SpeechFailure: Error, LocalizedError, Sendable {
         case .protocolViolation: "The speech worker returned an invalid response."
         case .timeout: "The speech worker did not respond within the time limit."
         case .workerExited: "The speech worker stopped before completing its request."
+        case .memoryLimit: "Speech generation was stopped because a worker used too much memory."
         }
         let stage = switch operation {
         case .initialize: " During model initialization."

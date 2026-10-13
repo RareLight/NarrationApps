@@ -98,7 +98,7 @@ public enum NativePrimaryStore {
     }
 
     public static func recordReuse(directory: URL, specification: NativePrimarySpecification, workspace: NativeWorkspace,
-                                   voice: String = "af_aoede") throws {
+                                   voice: String = SpeechSettings.defaultKokoroVoice) throws {
         let records = try validate(directory: directory, specification: specification, workspace: workspace, sharedVoice: voice)
         try record(try reuseRecordURL(specification, workspace: workspace), records: records, source: directory,
                    specification: specification, workspace: workspace)
@@ -143,10 +143,7 @@ public enum NativePrimaryStore {
                                          relativeDirectory: try relative(source, workspace: workspace), files: records)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(inventory).write(to: url, options: [.atomic])
-        let handle = try FileHandle(forWritingTo: url)
-        defer { try? handle.close() }
-        try handle.synchronize()
+        try NativeAtomicFile.write(encoder.encode(inventory), to: url, workspace: workspace)
     }
 
     private static func validateRecord(_ url: URL, records: [NativePrimaryRecord], source: URL,

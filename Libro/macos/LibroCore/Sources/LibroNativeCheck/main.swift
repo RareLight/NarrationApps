@@ -36,19 +36,27 @@ struct NativeCheck {
     private static func prepare() async throws {
         let arguments = Array(CommandLine.arguments.dropFirst())
         guard arguments.count >= 4, let model = SpeechModel(rawValue: arguments[2]),
-              arguments.dropFirst(4).allSatisfy({ $0 == "--offline" || $0.hasPrefix("--cancel-after=") }) else { exit(2) }
+              arguments.dropFirst(4).allSatisfy({ $0 == "--offline" || $0 == "--workspace-writes-only" || $0.hasPrefix("--cancel-after=") || $0.hasPrefix("--cancel-after-bytes=") }) else { exit(2) }
         let worker = URL(fileURLWithPath: arguments[0]).standardizedFileURL
         let workspace = try NativeWorkspace(root: URL(fileURLWithPath: arguments[1], isDirectory: true))
         var configuration = WorkerConfiguration(executable: worker, requestTimeout: .seconds(1_800))
-        if arguments.contains("--offline") {
+        if arguments.contains("--offline") || arguments.contains("--workspace-writes-only") {
+            var profile = arguments.contains("--offline") ? offlineProfile(workspace, allowNativeCache: true) : "(version 1)(allow default)"
+            if arguments.contains("--workspace-writes-only") {
+                let escaped = workspace.root.path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                profile += "(deny file-write*)(allow file-write* (subpath \"\(escaped)\"))"
+            }
             configuration = WorkerConfiguration(executable: URL(fileURLWithPath: "/usr/bin/sandbox-exec"),
-                arguments: ["-p", offlineProfile(workspace, allowNativeCache: true), worker.path, "--serve"], requestTimeout: .seconds(1_800))
+                arguments: ["-p", profile, worker.path, "--serve"], requestTimeout: .seconds(1_800))
         }
         let specification = NativePrimaryCatalog.specification(for: model)
         print("Preparing \(specification.repository) at \(specification.revision)")
+        configuration.debugLog = ProcessInfo.processInfo.environment["LIBRO_CHECK_DEBUG_LOG"] == "1" ? try DebugLog(workspace: workspace.root) : nil
         let checkConfiguration = configuration
+        let observed = PreparationCheckProgress()
         let task = Task {
             try await ModelPreparation.run(configuration: checkConfiguration, workspace: workspace.root, settings: .init(model: model)) { value in
+                observed.append(value)
                 print("\(value.scope.rawValue) \(value.phase.rawValue): \(value.completedBytes)/\(value.totalBytes) bytes")
             }
         }
@@ -57,6 +65,14 @@ struct NativeCheck {
            let seconds = Double(argument.dropFirst("--cancel-after=".count)), seconds > 0, seconds.isFinite {
             cancellation = Task {
                 do { try await Task.sleep(for: .seconds(seconds)); task.cancel() } catch {}
+            }
+        } else if let argument = arguments.first(where: { $0.hasPrefix("--cancel-after-bytes=") }),
+                  let bytes = Int64(argument.dropFirst("--cancel-after-bytes=".count)), bytes > 0 {
+            cancellation = Task {
+                while !Task.isCancelled {
+                    if observed.receivedBytes >= bytes { task.cancel(); return }
+                    do { try await Task.sleep(for: .milliseconds(10)) } catch { return }
+                }
             }
         } else { cancellation = nil }
         defer { cancellation?.cancel() }
@@ -253,4 +269,13 @@ private final class CheckProgress: @unchecked Sendable {
     private var storage: [SpeechProgress] = []
     func append(_ value: SpeechProgress) { lock.withLock { storage.append(value) } }
     var values: [SpeechProgress] { lock.withLock { storage } }
+}
+
+private final class PreparationCheckProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private var bytes: Int64 = 0
+    func append(_ value: ModelPreparationProgress) {
+        if value.phase == .downloading { lock.withLock { bytes = value.completedBytes } }
+    }
+    var receivedBytes: Int64 { lock.withLock { bytes } }
 }

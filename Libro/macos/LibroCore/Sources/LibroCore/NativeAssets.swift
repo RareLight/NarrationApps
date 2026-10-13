@@ -65,7 +65,7 @@ public struct NativeWorkspace: Sendable {
         return resolved
     }
 
-    public func primaryDirectory(for model: SpeechModel, voice: String = "af_aoede") throws -> URL {
+    public func primaryDirectory(for model: SpeechModel, voice: String = SpeechSettings.defaultKokoroVoice) throws -> URL {
         try NativePrimaryStore.directory(for: model, workspace: self, voice: voice)
     }
 
@@ -135,7 +135,7 @@ public enum NativeG2P {
         let inventory = AssetInventory(version: 1, repository: repository, revision: revision, sha256: hashes)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(inventory).write(to: workspace.managed(directory.appendingPathComponent(".libro-native.json")), options: [.atomic])
+        try NativeAtomicFile.write(encoder.encode(inventory), to: directory.appendingPathComponent(".libro-native.json"), workspace: workspace)
     }
 
     public static func sha256(_ url: URL) throws -> String {

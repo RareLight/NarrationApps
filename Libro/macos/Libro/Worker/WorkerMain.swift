@@ -9,6 +9,8 @@ import Darwin
 @main
 struct LibroSpeechWorker {
     static func main() async {
+        Memory.cacheLimit = SpeechMemoryPolicy.cacheLimitBytes
+        Memory.memoryLimit = SpeechMemoryPolicy.workingLimitBytes
         // Reserve stdout for bounded control records; upstream prints go to stderr.
         let control = FileHandle(fileDescriptor: dup(STDOUT_FILENO), closeOnDealloc: true)
         dup2(STDERR_FILENO, STDOUT_FILENO)
@@ -181,7 +183,7 @@ struct LibroSpeechWorker {
         let target = try NativePrimaryStore.nativeDirectory(specification, workspace: workspace)
         if (try? NativePrimaryStore.validateStaged(directory: target, specification: specification, workspace: workspace)) != nil { return }
         let stage = try workspace.managed(workspace.nativeRoot.appendingPathComponent("staging/primary-\(settings.model.rawValue)-\(specification.revision)"))
-        let files = specification.files.map { AcquisitionFile(path: $0.path, bytes: $0.bytes, hash: $0.sha256, gitOID: $0.gitOID) }
+        let files = specification.files.map { NativeAcquisitionFile(path: $0.path, bytes: $0.bytes, hash: $0.sha256, gitOID: $0.gitOID) }
         try await acquire(repository: specification.repository, revision: specification.revision, files: files,
                           stage: stage, workspace: workspace, scope: .primary, report: report)
         report(.init(scope: .primary, phase: .validating, completedBytes: total, totalBytes: total))
@@ -201,7 +203,7 @@ struct LibroSpeechWorker {
         defer { flock(lock, LOCK_UN); close(lock) }
         report(.init(scope: .g2p, phase: .checking, totalBytes: total))
         if (try? NativeG2P.validate(directory: target, workspace: workspace)) != nil { return }
-        let files = NativeG2P.requiredFiles.map { AcquisitionFile(path: $0.key, bytes: $0.value, hash: NativeG2P.sha256ByFile[$0.key]!, gitOID: nil) }
+        let files = NativeG2P.requiredFiles.map { NativeAcquisitionFile(path: $0.key, bytes: $0.value, hash: NativeG2P.sha256ByFile[$0.key]!, gitOID: nil) }
         try await acquire(repository: NativeG2P.repository, revision: NativeG2P.revision, files: files,
                           stage: staging, workspace: workspace, scope: .g2p, report: report)
         report(.init(scope: .g2p, phase: .validating, completedBytes: total, totalBytes: total))
@@ -220,7 +222,7 @@ struct LibroSpeechWorker {
         return descriptor // Reaped helper exit releases a blocked/held OS lock.
     }
 
-    private static func acquire(repository: String, revision: String, files: [AcquisitionFile], stage: URL,
+    private static func acquire(repository: String, revision: String, files: [NativeAcquisitionFile], stage: URL,
                                 workspace: NativeWorkspace, scope: ModelPreparationProgress.Scope,
                                 report: @escaping @Sendable (ModelPreparationProgress) -> Void) async throws {
         _ = try workspace.managed(stage)
@@ -231,18 +233,19 @@ struct LibroSpeechWorker {
         let client = HubClient(session: URLSession(configuration: configuration), host: HubClient.defaultHost,
                                cache: cache)
         guard let repo = Repo.ID(rawValue: repository) else { throw WorkerError.invalidRequest }
-        var missing: [AcquisitionFile] = []
+        var missing: [NativeAcquisitionFile] = []
         var requiresNetwork = false
         let total = files.reduce(Int64(0)) { $0 + Int64($1.bytes) }
-        let progress = AcquisitionProgress(total: total)
+        let progress = NativeAcquisitionProgress(total: total)
         for file in files {
             let destination = try workspace.managed(stage.appendingPathComponent(file.path))
-            if file.matches(destination) { progress.value.completedUnitCount += Int64(file.bytes); continue }
-            if FileManager.default.fileExists(atPath: destination.path) { try quarantine(destination, workspace: workspace) }
+            if try file.quarantineInvalidCopy(at: destination, workspace: workspace) {
+                progress.value.completedUnitCount += Int64(file.bytes); continue
+            }
             if let cached = cache.cachedFilePath(repo: repo, kind: .model, revision: revision, filename: file.path) {
                 let blob = try workspace.managed(cached.resolvingSymlinksInPath())
                 guard blob.path.hasPrefix(workspace.hubCache.path + "/") else { throw NativeAssetError.outsideWorkspace }
-                if !file.matches(blob) { try quarantine(blob, workspace: workspace); requiresNetwork = true }
+                if try !file.quarantineInvalidCopy(at: blob, workspace: workspace) { requiresNetwork = true }
             } else { requiresNetwork = true }
             missing.append(file)
         }
@@ -251,29 +254,40 @@ struct LibroSpeechWorker {
             for file in files {
                 guard let entry = tree.first(where: { $0.path == file.path }), entry.type == .file,
                       entry.size == file.bytes, file.gitOID == nil || entry.oid == file.gitOID else { throw NativeAssetError.changed(file.path) }
+                // Hub may find an orphan blob by ETag even with no snapshot
+                // entry. Git files use their blob OID; LFS uses SHA-256.
+                // Validate both possible identities before Hub's fast path.
+                for etag in Set([entry.oid, file.hash].compactMap { $0 }) {
+                    let blob = try cache.blobPath(repo: repo, kind: .model, etag: etag)
+                    _ = try file.quarantineInvalidCopy(at: blob, workspace: workspace)
+                }
             }
         }
         let updates = Task {
             while !Task.isCancelled {
                 report(.init(scope: scope, phase: .downloading,
-                             completedBytes: min(total, max(0, progress.value.completedUnitCount)), totalBytes: total))
+                             completedBytes: progress.completedBytes, totalBytes: total))
                 do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
             }
         }
         defer { updates.cancel() }
-        // Hub owns HTTP and cache locks. Completed-file reuse is verified;
-        // interrupted-file byte resumption remains an acceptance gate.
+        // Hub owns HTTP, cache locks and workspace-local incomplete blobs.
         // File APIs avoid the snapshot shortcut copying unrequested files.
         try await withThrowingTaskGroup(of: Void.self) { group in
             var next = 0
-            func submit(_ file: AcquisitionFile) {
-                let child = AcquisitionProgress(total: Int64(file.bytes))
+            func submit(_ file: NativeAcquisitionFile) {
+                let child = NativeAcquisitionProgress(total: Int64(file.bytes))
                 progress.value.addChild(child.value, withPendingUnitCount: Int64(file.bytes))
                 group.addTask {
                     let destination = try workspace.managed(stage.appendingPathComponent(file.path))
                     try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    _ = try await client.downloadFile(at: file.path, from: repo, to: destination, revision: revision, progress: child.value, transport: .lfs)
-                    guard file.matches(destination) else { throw NativeAssetError.changed(file.path) }
+                    _ = try await client.downloadFile(at: file.path, from: repo, to: destination, revision: revision,
+                                                      progress: child.value, transport: .lfs, downloadInCache: true)
+                    guard try file.matches(destination) else { throw NativeAssetError.changed(file.path) }
+                    if ProcessInfo.processInfo.environment["LIBRO_DEBUG_LOG"] == "1" {
+                        let offset = child.value.userInfo[ProgressUserInfoKey("cacheDownloadResumeOffset")] as? Int64 ?? 0
+                        try? FileHandle.standardError.write(contentsOf: Data("Libro prepared asset: \(file.path), resumedBytes=\(offset)\n".utf8))
+                    }
                     child.value.completedUnitCount = child.value.totalUnitCount
                 }
             }
@@ -331,23 +345,6 @@ struct LibroSpeechWorker {
     }
 }
 
-private struct AcquisitionFile: Sendable {
-    let path: String
-    let bytes: Int
-    let hash: String
-    let gitOID: String?
-    func matches(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) == bytes && (try? NativeG2P.sha256(url)) == hash
-    }
-}
-
-/// Foundation Progress synchronizes its counters; only that object crosses
-/// the SDK download/progress tasks. No model state is involved.
-private final class AcquisitionProgress: @unchecked Sendable {
-    let value: Progress
-    init(total: Int64) { value = Progress(totalUnitCount: total) }
-}
-
 private struct WorkerContext {
     let identity: AttemptIdentity
     let spool: URL
@@ -362,6 +359,13 @@ private enum LoadedEngine {
     case soprano(SopranoModel)
 
     func generate(text: String, settings: SpeechSettings) async throws -> ([Float], Int) {
+        // generatePCM returns owned CPU samples after its MLX arrays leave scope.
+        // Clearing only free buffers preserves the model, voice and RNG state.
+        defer { Memory.clearCache() }
+        return try await generatePCM(text: text, settings: settings)
+    }
+
+    private func generatePCM(text: String, settings: SpeechSettings) async throws -> ([Float], Int) {
         let audio: MLXArray
         let rate: Int
         switch self {
@@ -374,11 +378,12 @@ private enum LoadedEngine {
             audio = try await model.generate(text: text)
             rate = model.sampleRate
         }
-        guard audio.ndim == 1, audio.size > 0, rate == settings.model.capabilities.sampleRate else {
+        guard audio.ndim == 1, audio.size > 0, audio.size <= rate * 120,
+              rate == settings.model.capabilities.sampleRate else {
             throw WorkerError.invalidPCM
         }
         let samples = audio.asArray(Float.self)
-        guard samples.allSatisfy(\.isFinite), samples.count <= rate * 120 else { throw WorkerError.invalidPCM }
+        guard samples.allSatisfy(\.isFinite) else { throw WorkerError.invalidPCM }
         return (samples, rate)
     }
 }

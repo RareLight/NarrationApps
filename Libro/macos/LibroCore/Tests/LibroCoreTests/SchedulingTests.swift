@@ -144,6 +144,41 @@ final class SchedulingTests: XCTestCase {
         try fixture.assertClean()
     }
 
+    func testMemoryGuardStopsOwnedWorkersWithoutRetryAndPreservesPriorAudio() async throws {
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let previous = Data("previous complete audio".utf8)
+        try previous.write(to: fixture.destination)
+        var configuration = fixture.configuration("prepareStall")
+        // Exceed the budget with a normal fixture process, never an actual large allocation.
+        configuration.maximumFootprintBytes = 1
+        let log = ProgressLog()
+        do {
+            try await ChunkScheduler(configuration: configuration).render(chunks: ["One.", "Two.", "Three."],
+                batchID: UUID(), jobID: UUID(), workspace: fixture.root, settings: .init(), serial: false,
+                destination: fixture.destination, progress: { log.append($0) })
+            XCTFail("Expected the worker memory guard")
+        } catch let failure as SpeechFailure {
+            XCTAssertEqual(failure.code, .memoryLimit)
+            XCTAssertFalse(failure.code.permitsSerialRetry)
+        }
+        XCTAssertEqual(log.snapshot.filter { $0.phase == .attemptStarted }.map(\.attemptNumber), [1])
+        XCTAssertEqual(try Data(contentsOf: fixture.destination), previous)
+        try fixture.assertClean()
+    }
+
+    func testFootprintReaderAndInvalidMemoryBudget() throws {
+        XCTAssertGreaterThan(try XCTUnwrap(SpeechWorkerProcess.physicalFootprint(of: getpid())), 0)
+        XCTAssertNil(SpeechWorkerProcess.physicalFootprint(of: -1))
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        var configuration = fixture.configuration()
+        configuration.maximumFootprintBytes = 0
+        XCTAssertThrowsError(try SpeechWorkerProcess(configuration: configuration,
+            identity: .init(batch: UUID(), job: UUID()))) { error in
+                XCTAssertEqual((error as? SpeechFailure)?.code, .invalidInput)
+            }
+        XCTAssertTrue(try fixture.records().isEmpty)
+    }
+
     func testOrderedIncrementalResultsAndTwelveChunkBackpressure() async throws {
         let fixture = try ProcessFixture(); defer { fixture.remove() }
         let log = ProgressLog()

@@ -25,11 +25,12 @@ public struct SpeechCapabilities: Sendable {
 }
 
 public struct SpeechSettings: Codable, Equatable, Sendable {
+    public static let defaultKokoroVoice = "af_heart"
     public var model: SpeechModel
     public var voice: String
     public var speed: Float
 
-    public init(model: SpeechModel = .kokoro, voice: String = "af_aoede", speed: Float = 1.1) {
+    public init(model: SpeechModel = .kokoro, voice: String = SpeechSettings.defaultKokoroVoice, speed: Float = 1.1) {
         self.model = model
         self.voice = voice
         self.speed = speed
