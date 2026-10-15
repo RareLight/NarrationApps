@@ -77,22 +77,10 @@ Public-folder mapping and actual podcatcher playback still require operator test
 
 ## Operator acceptance
 
-1. Build/run the VoiceRelay scheme with normal signing. Confirm Publishing's
-   existing Feed folder, Public folder and password; enable debug logging in
-   Troubleshooting. No Derived Data cleanup or live library reset is needed.
-2. Let the normal publishing drain run. Existing matching episodes should appear
-   in Server Audio and leave Queue without speech generation or a media PUT.
-   A metadata/membership repair may PUT feed.xml. Refresh the subscription in
-   Overcast and verify playback, article origin and saved dates.
-3. Generate one new article. It should upload once, publish, and release its local
-   temporary copy only after media and current feed confirmation.
-4. Confirm a quiet repeated drain reports unchanged reconciliation without
-   repeated media transfers. For a deliberately unavailable disposable item,
-   confirm its error is visible while unrelated work still finishes. Use isolated
-   fixtures for destructive/conflicting-copy scenarios, not your production share.
-5. Server removal must still retire feed membership before deleting its file and
-   keep unfinished removal visible. Restore review must still prevent sync until
-   Finish Library Review. Share only sanitized logs and observed status.
+Use V11–V14 and V15 in the [consolidated checklist](../../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay)
+for credentials, normal reconciliation/readback, a new test episode, retry,
+feed-first removal and restored-library review. Do not create conflicts/reset the
+production share to exercise error cases; isolated automated fixtures cover those.
 
 ## Derived Data and preferences
 

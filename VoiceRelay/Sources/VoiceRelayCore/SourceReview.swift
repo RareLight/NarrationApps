@@ -1,5 +1,9 @@
 import Foundation
+import DocumentProcessing
+import NarrationCore
 import SwiftSoup
+import PDFKit
+import Vision
 
 public enum SourceReviewIssue: String, Codable, Sendable {
     case login, consent, accessBlocked, subscription, unavailable, extraction
@@ -28,7 +32,16 @@ public struct ReviewedSource: Sendable {
         self.page = page; self.document = document; self.narration = narration; self.issue = issue
         self.archiveRecoveryFailed = archiveRecoveryFailed
     }
+    public static func prepareAsync(_ page: FetchedPage, chunkLimit: Int) async throws -> ReviewedSource {
+        if page.contentType == "application/pdf" {
+            let document = try await PDFArticleExtractor.extract(page)
+            return ReviewedSource(page: page, document: document,
+                                  narration: try Narration.prepare(document.article, limit: chunkLimit), issue: nil)
+        }
+        return try prepare(page, chunkLimit: chunkLimit)
+    }
     public static func prepare(_ page: FetchedPage, chunkLimit: Int) throws -> ReviewedSource {
+        guard page.contentType != "application/pdf" else { throw RelayError.setup("PDF preparation requires asynchronous intake.") }
         let dom = try SwiftSoup.parse(page.html, page.finalURL.absoluteString)
         let title = try dom.title().trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let hasCaptcha = try dom.select("form[action*=captcha], #captcha, .g-recaptcha, .h-captcha").first() != nil
@@ -63,6 +76,41 @@ public struct ReviewedSource: Sendable {
         }
         let narration = try Narration.prepare(document.article, limit: chunkLimit)
         return ReviewedSource(page: page, document: document, narration: narration, issue: nil)
+    }
+}
+
+/// PDFKit reads embedded text locally; it never executes document actions or
+/// follows links. Instances stay within the background review invocation.
+enum PDFArticleExtractor {
+    static let version = PDFDocumentExtractor.version
+    static let maximumTextBytes = PDFExtractionLimits.article.maximumTextBytes
+    static func extract(_ page: FetchedPage, ocr: (@Sendable (CGImage) throws -> String)? = nil) async throws -> ExtractedDocument {
+        let recognition: PDFDocumentExtractor.Recognition?
+        if let ocr { recognition = { @Sendable image in [.init(kind: .paragraph, text: try ocr(image), origin: .ocr)] } }
+        else { recognition = nil }
+        let document: SemanticDocument
+        do { document = try await PDFDocumentExtractor.extract(data: page.bytes,
+            title: page.finalURL.deletingPathExtension().lastPathComponent.removingPercentEncoding,
+            limits: .article, recognize: recognition) }
+        catch DocumentReadError.malformed { throw SourceFetchError.invalidPDF }
+        catch DocumentReadError.encryptedPDF { throw SourceFetchError.lockedPDF }
+        catch DocumentReadError.emptyPDF { throw SourceFetchError.pdfNoText }
+        catch PDFExtractionError.pageLimit { throw SourceFetchError.pdfPageLimit }
+        catch PDFExtractionError.ocrLimit { throw SourceFetchError.pdfOCRLimit }
+        catch PDFExtractionError.restricted { throw SourceFetchError.pdfRestricted }
+        catch PDFExtractionError.textLimit { throw SourceFetchError.tooLarge }
+        guard document.blocks.reduce(0, { $0 + $1.text.count }) >= 80 else { throw RelayError.extraction("The PDF has too little readable text for narration.") }
+        let title = document.title ?? "PDF document"
+        let article = SemanticArticle(title: title, originalURL: page.originalURL, finalURL: page.finalURL,
+            canonicalURL: nil, author: document.author, blocks: document.blocks, warnings: document.warnings,
+            extractorVersion: document.extractorVersion, sourceName: page.originalURL.host)
+        let html = try SwiftSoup.parseBodyFragment("")
+        try html.title(title)
+        for block in document.blocks { try html.body()?.appendElement("p").text(block.text) }
+        return .init(article: article, cleanedHTML: "<!doctype html>\n" + (try html.outerHtml()))
+    }
+    static func render(_ page: PDFPage, maximumDimension: CGFloat = 2200) throws -> CGImage {
+        try PDFDocumentExtractor.render(page, maximumDimension: maximumDimension)
     }
 }
 
@@ -111,7 +159,8 @@ public enum SourceReviewArchive {
         let folder = root.appendingPathComponent(UUID().uuidString.lowercased())
         guard Files.contains(root, folder), !Files.hasSymlink(folder, below: root) else { throw RelayError.setup("Invalid source-review destination.") }
         try Files.directory(folder)
-        try Files.write(review.page.bytes, to: folder.appendingPathComponent("source.html"))
+        let sourceFilename = review.page.contentType == "application/pdf" ? "source.pdf" : "source.html"
+        try Files.write(review.page.bytes, to: folder.appendingPathComponent(sourceFilename))
         try Task.checkCancellation()
         if let document = review.document {
             try Files.write(try Files.json(document.article), to: folder.appendingPathComponent("article.json"))
@@ -122,7 +171,7 @@ public enum SourceReviewArchive {
         // Commit last: a folder without this manifest is an incomplete export.
         let manifest = Manifest(schemaVersion: 1, originalURL: review.page.originalURL, finalURL: review.page.finalURL,
                                 fetchedAt: review.page.fetchedAt, contentType: review.page.contentType, encoding: review.page.encoding,
-                                sourceHash: Files.hash(review.page.bytes), issue: review.issue)
+                                sourceHash: Files.hash(review.page.bytes), issue: review.issue, sourceFilename: sourceFilename)
         try Files.write(try Files.json(manifest), to: folder.appendingPathComponent("response.json"))
         return folder
     }
@@ -135,5 +184,6 @@ public enum SourceReviewArchive {
         let encoding: String
         let sourceHash: String
         let issue: SourceReviewIssue?
+        let sourceFilename: String
     }
 }

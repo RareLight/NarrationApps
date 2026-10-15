@@ -1,4 +1,6 @@
 import Foundation
+import Pronunciation
+import AudioOutput
 #if canImport(FoundationXML)
 import FoundationXML
 #endif
@@ -35,17 +37,17 @@ private func config(at root: URL, suffix: String = "") throws -> URL {
     try text.write(to: file, atomically: true, encoding: .utf8); return file
 }
 
-@Test func audioEncodingDefaultsUse96kAndIgnoreLegacyLoudnessPolicy() throws {
+@Test func audioEncodingDefaultsUseNative64kAndIgnoreLegacyLoudnessPolicy() throws {
     let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
     let profile = PrototypeProfile.fixture(at: root)
-    #expect(profile.bitrate == "96k")
+    #expect(profile.bitrate == "64k")
     #expect(ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"),
-        stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch")).profile.bitrate == "96k")
+        stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch")).profile.bitrate == "64k")
     let file = try config(at: root)
     let text = try String(contentsOf: file, encoding: .utf8).replacingOccurrences(of: "aac_bitrate = \"48k\"", with: "")
     try text.write(to: file, atomically: true, encoding: .utf8)
     let imported = try PrototypeProfile.load(file)
-    #expect(imported.bitrate == "96k")
+    #expect(imported.bitrate == "64k")
     #expect(imported.compatibilityNotices.contains { $0.contains("without normalization") })
     var historical = profile; historical.loudnessLUFS = -99
     try historical.validate() // Historical loudness metadata cannot impose an active policy.
@@ -59,32 +61,16 @@ private func config(at root: URL, suffix: String = "") throws -> URL {
     var artifacts: [LosslessArtifact] = []
     for (index, amplitude) in [0.020001, 0.20001].enumerated() {
         let path = root.appendingPathComponent("input-\(index).wav")
-        _ = try ToolRunner.run(profile.ffmpeg,
-            ["-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i",
-             "aevalsrc=\(amplitude)*sin(2*PI*440*t):s=24000:d=2", "-c:a", "pcm_f32le", path.path],
-            timeout: 10, directory: root)
+        let writer = try AtomicAudioWriter(destination: path)
+        try writer.append(samples: (0..<48_000).map { Float(amplitude * sin(2 * Double.pi * 440 * Double($0) / 24_000)) }, sampleRate: 24_000)
+        try writer.publish()
         artifacts.append(LosslessArtifact(url: path, sampleRate: 24000, channels: 1, format: "wav"))
     }
     let (encoded, info) = try processor.encode(artifacts, in: root)
     #expect(info.codec == "aac" && info.channels == 1 && info.sampleRate == 24000)
     #expect(abs(info.duration - 4.25) < 0.02)
-    func floats(_ data: Data) -> [Double] {
-        data.withUnsafeBytes { bytes in
-            stride(from: 0, to: bytes.count, by: 4).map {
-                Double(Float(bitPattern: UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: $0, as: UInt32.self))))
-            }
-        }
-    }
-    let combined = floats(try Data(contentsOf: root.appendingPathComponent("combined.pcm")))
-    #expect(combined.count == 24000 * 4 + 6000)
-    #expect(combined[(24000 * 2)..<(24000 * 2 + 6000)].allSatisfy { $0 == 0 })
-    let source = try ToolRunner.run(profile.ffmpeg,
-        ["-nostdin", "-v", "error", "-i", artifacts[0].url.path, "-c:a", "pcm_f32le", "-f", "f32le", "-"],
-        timeout: 10, directory: root)
-    #expect(Array(combined.prefix(48000)) == floats(source))
-    let decoded = floats(try ToolRunner.run(profile.ffmpeg,
-        ["-nostdin", "-v", "error", "-xerror", "-i", encoded.path, "-c:a", "pcm_f32le", "-f", "f32le", "-"],
-        timeout: 10, directory: root))
+    var decoded: [Double] = []
+    try NativeAudio.decode(encoded) { decoded += $0.map(Double.init) }
     func rms(_ seconds: Range<Double>) -> Double {
         let samples = decoded[Int(seconds.lowerBound * 24000)..<Int(seconds.upperBound * 24000)]
         return sqrt(samples.reduce(0) { $0 + $1 * $1 } / Double(samples.count))
@@ -120,12 +106,13 @@ func audioPolicyUpgradeReencodesLegacyScratchRetainsSpeechAndPreservesPlacedAudi
     episode.settings.bitrate = oldBitrate
     let directory = episode.settings.work.appendingPathComponent(item.id)
     let encoded = directory.appendingPathComponent("episode.m4a")
-    // Authentic old encoded checkpoint: normalized signal and pre-policy fingerprint.
-    _ = try ToolRunner.run(episode.settings.ffmpeg,
-        ["-nostdin", "-v", "error", "-y", "-f", "f32le", "-ar", "24000", "-ac", "1", "-i",
-         directory.appendingPathComponent("combined.pcm").path, "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
-         "-c:a", "aac", "-profile:a", "aac_low", "-b:a", oldBitrate, "-ac", "1", "-ar", "24000", encoded.path],
-        timeout: 10, directory: directory)
+    // A synthetic historical recording differs from today's speech samples.
+    // Its old settings/fingerprint can be decoded without reapplying any gain.
+    let priorWave = directory.appendingPathComponent("prior-recording.wav")
+    let priorWriter = try AtomicAudioWriter(destination: priorWave)
+    try priorWriter.append(samples: (0..<24_000).map { Float(sin(Double($0) * 0.17) * 0.05) }, sampleRate: 24_000)
+    try priorWriter.publish()
+    try NativeAudio.encode([priorWave], destination: encoded, profile: .init())
     let oldHash = try Files.hash(encoded)
     episode.encodedHash = oldHash
     episode.info = try AudioProcessor(settings: episode.settings, toolDirectory: directory).probe(encoded, final: true)
@@ -141,13 +128,26 @@ func audioPolicyUpgradeReencodesLegacyScratchRetainsSpeechAndPreservesPlacedAudi
     }
     if boundary == .audioPlaced {
         try FileManager.default.copyItem(at: encoded, to: episode.settings.audio.appendingPathComponent(item.id + ".m4a"))
+        // A pipeline upgrade must not replan/re-render an authenticated file
+        // already placed in the final folder, even after scratch was removed.
+        let narrationURL = directory.appendingPathComponent("narration.json")
+        var oldPlan = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: narrationURL)) as? [String: Any])
+        oldPlan["version"] = "historical-narration-policy"
+        try Files.write(JSONSerialization.data(withJSONObject: oldPlan), to: narrationURL)
+        let checkpointURL = directory.appendingPathComponent("extraction-checkpoint.json")
+        var oldCheckpoint = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: checkpointURL)) as? [String: Any])
+        oldCheckpoint["narrationVersion"] = "historical-narration-policy"
+        oldCheckpoint["narrationHash"] = try Files.hash(narrationURL)
+        try Files.write(JSONSerialization.data(withJSONObject: oldCheckpoint), to: checkpointURL)
+        try NativeStore(url: storage.profile.database).saveSnapshot(articleID: item.id, data: Files.json(StoredExtraction(directory: directory)))
+        try FileManager.default.removeItem(at: encoded)
     }
     let result = try await coordinator.resume(storage: storage, articleID: item.id, backend: backend)
     #expect(result.synthesizedChunks == 0 && result.episode.id == item.id)
     #expect(result.episode.settings.voice == "af_heart" && result.episode.settings.backendSettings["speed"]?.numericValue == 1.25)
     #expect(try NativeStore(url: storage.profile.database, readOnly: true).query("SELECT fingerprint,checkpoint FROM chunks ORDER BY chunk_index") == chunks)
     if boundary == .encoded {
-        #expect(result.episode.settings.bitrate == "96k")
+        #expect(result.episode.settings.bitrate == "64k")
         #expect(result.episode.audioHash != oldHash && result.episode.synthesisFingerprint != oldFingerprint)
     } else {
         #expect(result.episode.settings.bitrate == oldBitrate)
@@ -669,24 +669,6 @@ func interruptionResumesWithStableIdentityAndCheckpoints(_ boundary: FixtureBoun
     }() == .published)
 }
 
-@Test func runtimeArtifactFailureNamesRoleWithoutPrivatePaths() throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let runtime = root.appendingPathComponent("runtime/kokoro")
-    try Files.directory(runtime)
-    for name in ["selection.json", "runtime_setup.py", "requirements.lock", "python-downloads.json"] {
-        try Files.write(Data(), to: runtime.appendingPathComponent(name))
-    }
-    try Files.directory(runtime.appendingPathComponent("provider.py"))
-    do {
-        _ = try KokoroMLXBackend(configuration: KokoroConfiguration(projectRoot: root, voice: "af_heart", speed: 1))
-        Issue.record("Unreadable runtime source was accepted")
-    } catch let error as RelayError {
-        guard case .artifact = error else { throw error }
-        #expect(error.localizedDescription.contains("speech runtime sources or dependency pins"))
-        #expect(!error.localizedDescription.contains(root.path))
-    }
-}
-
 @Test func temporarySnapshotReadFailureNamesRoleWithoutPrivatePaths() throws {
     let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
     let snapshot = try StoredExtraction(review: reviewedArticle(), chunkLimit: 1800)
@@ -733,19 +715,6 @@ private struct TwoArtifactBackend: TTSBackend {
     #expect(chunk.request.text == result.narration.chunks[0].text && chunk.result.artifacts.count == 2)
 }
 
-@Test func ownedToolDeadlineAndCancellationAreBounded() async throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let timeout = Task.detached { try ToolRunner.run("/bin/sleep", ["30"], timeout: 1, directory: root) }
-    do { _ = try await timeout.value; Issue.record("Tool deadline was not enforced") }
-    catch { #expect(error is RelayError) }
-    let started = Date()
-    let cancelled = Task.detached { try ToolRunner.run("/bin/sleep", ["30"], timeout: 20, directory: root) }
-    try await Task.sleep(for: .milliseconds(100)); cancelled.cancel()
-    do { _ = try await cancelled.value; Issue.record("Tool cancellation was not enforced") }
-    catch { #expect(error is CancellationError) }
-    #expect(Date().timeIntervalSince(started) < 3)
-}
-
 @Test func systemTemporaryPathAliasesResumeAcrossFirstCreation() async throws {
     let directory = URL(fileURLWithPath: "/private/tmp/voicerelay-alias-test-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -753,280 +722,6 @@ private struct TwoArtifactBackend: TTSBackend {
     let alias = URL(fileURLWithPath: "/tmp").appendingPathComponent(directory.lastPathComponent)
     let second = try await FixtureCoordinator().run(root: alias)
     #expect(second.synthesizedChunks == 0 && first.episode.id == second.episode.id)
-}
-
-// This executable fixture emits tiny synthetic WAVs; it never imports a TTS engine.
-private func speechHelper(at root: URL, mode: String = "normal", deadline: Double = 2,
-                          temporaryRoot: URL? = nil) throws -> ExecutableSpeechBackend {
-    let script = root.appendingPathComponent("helper.py")
-    let source = #"""
-    import json, os, signal, subprocess, sys, time, wave
-    from pathlib import Path
-    mode, folder = sys.argv[1], Path(sys.argv[2])
-    if os.getpgrp() != os.getpid(): os.setsid()
-    if mode == 'startup-exit': os._exit(7)
-    def emit(i, **kw):
-        print(json.dumps(dict(protocol=1, id=i, **kw)), flush=True)
-    emit(0, kind="hello", pid=os.getpid())
-    child = None
-    def shutdown(*args):
-        if child is not None:
-            try: child.wait(timeout=0.1)
-            except subprocess.TimeoutExpired: pass
-        sys.exit(0)
-    signal.signal(signal.SIGTERM, shutdown)
-    for line in sys.stdin:
-        r = json.loads(line)
-        if r['command'] == 'prepare':
-            if mode == 'preparation-exit': os._exit(8)
-            (folder/'last-temp.txt').write_text(os.environ.get('TMPDIR') or '')
-            with (folder/'prepares').open('a') as h: h.write('1\n')
-            emit(r['id'], kind='ready')
-            continue
-        if mode in ['timeout', 'cancel']:
-            child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
-            (folder/'child-pid').write_text(str(child.pid))
-            time.sleep(30)
-        if mode == 'crash': os._exit(2)
-        if mode == 'signal': os.kill(os.getpid(), signal.SIGKILL)
-        if mode == 'control-close':
-            os.close(sys.stdout.fileno())
-            time.sleep(30)
-        if mode == 'error':
-            emit(r['id'], kind='error', code='synthesis_failed', detail=r['text'])
-            continue
-        files = []
-        (folder/'last-speed.json').write_text(json.dumps(r['speed']))
-        for name in ['first.wav', 'second.wav']:
-            path = Path(r['directory'])/name
-            with wave.open(str(path), 'wb') as w:
-                w.setnchannels(1); w.setsampwidth(2); w.setframerate(24000)
-                w.writeframes(b'\x00\x00'*2400)
-            files.append(dict(file=name, sample_rate=24000, channels=1, format='wav'))
-        if mode == 'escape': files[0]['file'] = '../outside.wav'
-        if mode == 'provenance': r['block_indices'] = [999]
-        emit(r['id'], kind='result', article_id=r['article_id'], chunk_index=r['chunk_index'],
-             block_indices=r['block_indices'], artifacts=files)
-    """#
-    try Files.write(Data(source.utf8), to: script)
-    guard let python = ToolRunner.locate("python3") else { throw RelayError.setup("Python is needed for the synthetic protocol check.") }
-    return ExecutableSpeechBackend(identity: BackendIdentity(id: "synthetic-executable-v1", displayName: "Protocol test", isMock: false),
-        executable: python, arguments: ["-I", script.path, mode, root.path],
-        environment: ProcessInfo.processInfo.environment, voice: "af_heart", speed: 1,
-        prepareTimeout: 2, synthesisTimeout: deadline, temporaryRoot: temporaryRoot)
-}
-private func speechRequest() -> SynthesisRequest {
-    SynthesisRequest(text: "private test narration", language: "en-US", voice: nil,
-                     articleID: "test-article", chunkIndex: 3, blockIndices: [2, 4], settings: [:])
-}
-
-@Test func speechHelperReusesPreparationAndPreservesArtifactOrder() throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let backend = try speechHelper(at: root); defer { backend.cancel() }
-    try backend.prepare(); try backend.prepare()
-    let first = try backend.synthesize(speechRequest(), directory: root)
-    let second = try backend.synthesize(speechRequest(), directory: root)
-    #expect(first.artifacts.map(\.url.lastPathComponent) == ["first.wav", "second.wav"])
-    #expect(second.artifacts.count == 2)
-    #expect(try String(contentsOf: root.appendingPathComponent("prepares"), encoding: .utf8) == "1\n")
-    let processor = AudioProcessor(settings: .fixture(at: root), toolDirectory: root)
-    try processor.validate(first, within: root)
-}
-
-@Test(arguments: [1.0, 2.0, 1.25])
-func speechHelperAcceptsNumericSpeedAfterCheckpointRoundTrip(_ speed: Double) throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let backend = try speechHelper(at: root); defer { backend.cancel() }
-    try backend.prepare()
-    let settings = try JSONDecoder().decode([String: SettingValue].self, from: Files.json(["speed": SettingValue.number(speed)]))
-    if speed.rounded() == speed { #expect(settings["speed"] == .integer(Int(speed))) }
-    let request = SynthesisRequest(text: "Synthetic speech request.", language: "en", voice: nil,
-        articleID: "synthetic", chunkIndex: 0, blockIndices: [0], settings: settings)
-    #expect(try backend.synthesize(request, directory: root).artifacts.count == 2)
-    #expect(try JSONDecoder().decode(Double.self, from: Data(contentsOf: root.appendingPathComponent("last-speed.json"))) == speed)
-}
-
-@Test(arguments: [SettingValue.string("1.0"), .bool(true), .integer(0), .integer(5)])
-func speechHelperRefusesInvalidSpeedSettings(_ value: SettingValue) throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let backend = try speechHelper(at: root); defer { backend.cancel() }
-    try backend.prepare()
-    let request = SynthesisRequest(text: "Synthetic speech request.", language: "en", voice: nil,
-        articleID: "synthetic", chunkIndex: 0, blockIndices: [0], settings: ["speed": value])
-    #expect(throws: RelayError.self) { try backend.synthesize(request, directory: root) }
-    #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("last-speed.json").path))
-}
-
-@Test func speechHelperNumericSpeedSurvivesPersistedFixture() async throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let backend = try speechHelper(at: root); defer { backend.cancel() }
-    let workspace = root.appendingPathComponent("speech-fixture")
-    let first = try await FixtureCoordinator().runSpeech(root: workspace, backend: backend, voice: "af_heart", speed: 1.0)
-    #expect(first.episode.settings.backendSettings["speed"]?.numericValue == 1 && first.synthesizedChunks > 0)
-    #expect(try JSONDecoder().decode(Double.self, from: Data(contentsOf: root.appendingPathComponent("last-speed.json"))) == 1)
-    // A published checkpoint remains valid when a later build changes extraction/narration versions.
-    let artifacts = workspace.appendingPathComponent("private/work").appendingPathComponent(first.episode.id)
-    let articleFile = artifacts.appendingPathComponent("article.json"), planFile = artifacts.appendingPathComponent("narration.json")
-    let checkpointFile = artifacts.appendingPathComponent("extraction-checkpoint.json")
-    var article = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: articleFile)) as? [String: Any])
-    var plan = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: planFile)) as? [String: Any])
-    var checkpoint = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: checkpointFile)) as? [String: Any])
-    article["extractorVersion"] = "previous-extractor"
-    plan["version"] = "previous-narration"
-    checkpoint["extractorVersion"] = "previous-extractor"; checkpoint["narrationVersion"] = "previous-narration"
-    try Files.write(JSONSerialization.data(withJSONObject: article, options: [.sortedKeys]), to: articleFile)
-    try Files.write(JSONSerialization.data(withJSONObject: plan, options: [.sortedKeys]), to: planFile)
-    checkpoint["articleHash"] = try Files.hash(articleFile); checkpoint["narrationHash"] = try Files.hash(planFile)
-    try Files.write(JSONSerialization.data(withJSONObject: checkpoint, options: [.sortedKeys]), to: checkpointFile)
-    let protected = [articleFile, planFile, checkpointFile, first.audioURL, first.feedURL]
-    let before = try protected.map { try Data(contentsOf: $0) }
-    let repeated = try await FixtureCoordinator().runSpeech(root: workspace, backend: backend, voice: "af_heart", speed: 1.0)
-    #expect(repeated.synthesizedChunks == 0 && repeated.episode.id == first.episode.id)
-    #expect(repeated.article.extractorVersion == "previous-extractor" && repeated.narration.version == "previous-narration")
-    #expect(try protected.map { try Data(contentsOf: $0) } == before)
-}
-
-@Test(arguments: ["error", "escape", "provenance", "crash"])
-func speechHelperRejectsFailuresAndUnsafeOutputs(_ mode: String) throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let backend = try speechHelper(at: root, mode: mode); defer { backend.cancel() }
-    try backend.prepare()
-    do { _ = try backend.synthesize(speechRequest(), directory: root); Issue.record("Invalid helper result accepted") }
-    catch { #expect(error is RelayError); #expect(!error.localizedDescription.contains("private test narration")) }
-    // A failure stops the session; preparation must start a fresh helper.
-    try backend.prepare()
-    #expect(try String(contentsOf: root.appendingPathComponent("prepares"), encoding: .utf8) == "1\n1\n")
-}
-
-@Test(arguments: ["startup-exit", "preparation-exit", "crash", "signal", "control-close"])
-func speechHelperReportsExitReasonAndOperation(_ mode: String) throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let backend = try speechHelper(at: root, mode: mode); defer { backend.cancel() }
-    let start = Date()
-    do {
-        try backend.prepare()
-        _ = try backend.synthesize(speechRequest(), directory: root)
-        Issue.record("Helper failure accepted")
-    } catch {
-        let message = error.localizedDescription
-        let expected = switch mode {
-        case "startup-exit": "exited with status 7 during startup"
-        case "preparation-exit": "exited with status 8 during preparation"
-        case "crash": "exited with status 2 during synthesis"
-        case "signal": "terminated by signal 9 during synthesis"
-        default: "closed its control connection during synthesis"
-        }
-        #expect(error is RelayError)
-        #expect(message.contains(expected))
-        #expect(!message.contains(speechRequest().text))
-        #expect(!message.contains(root.path))
-    }
-    #expect(Date().timeIntervalSince(start) < 3)
-}
-
-@Test func speechHelperOwnsSystemTemporaryDirectoryAndCleansItOnStop() throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let tempParent = try temporary(); defer { try? FileManager.default.removeItem(at: tempParent) }
-    let backend = try speechHelper(at: root, temporaryRoot: tempParent)
-    #expect(try FileManager.default.contentsOfDirectory(atPath: tempParent.path).isEmpty)
-    try backend.prepare()
-    let children = try FileManager.default.contentsOfDirectory(atPath: tempParent.path)
-    #expect(children.count == 1)
-    let child = tempParent.appendingPathComponent(children[0])
-    let marker = try String(contentsOf: root.appendingPathComponent("last-temp.txt"), encoding: .utf8)
-    #expect(marker == child.path && !marker.hasPrefix(root.path))
-    let mode = try #require(FileManager.default.attributesOfItem(atPath: child.path)[.posixPermissions] as? NSNumber)
-    #expect(mode.intValue == 0o700)
-    backend.cancel()
-    #expect(try FileManager.default.contentsOfDirectory(atPath: tempParent.path).isEmpty)
-    try backend.prepare()
-    let second = try FileManager.default.contentsOfDirectory(atPath: tempParent.path)
-    #expect(second.count == 1 && second != children)
-    backend.cancel()
-    #expect(try FileManager.default.contentsOfDirectory(atPath: tempParent.path).isEmpty)
-}
-
-@Test func speechHelperTemporaryDirectoryCleansAfterLaunchPreparationFailure() throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let tempParent = try temporary(); defer { try? FileManager.default.removeItem(at: tempParent) }
-    let backend = try speechHelper(at: root, mode: "preparation-exit", temporaryRoot: tempParent)
-    defer { backend.cancel() }
-    do { try backend.prepare(); Issue.record("Failed preparation accepted") }
-    catch { #expect(error is RelayError) }
-    #expect(try FileManager.default.contentsOfDirectory(atPath: tempParent.path).isEmpty)
-    #expect(FileManager.default.fileExists(atPath: tempParent.path))
-}
-
-@Test func speechHelperRejectsUnsafeTemporaryRootsWithoutCreation() throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    func refused(_ temporaryRoot: URL, sourceLocation: SourceLocation = #_sourceLocation) throws {
-        let backend = try speechHelper(at: root, temporaryRoot: temporaryRoot)
-        defer { backend.cancel() }
-        do {
-            try backend.prepare()
-            Issue.record("Unsafe temporary root accepted", sourceLocation: sourceLocation)
-        } catch {
-            #expect(error is RelayError, sourceLocation: sourceLocation)
-            #expect(!error.localizedDescription.contains(temporaryRoot.path), sourceLocation: sourceLocation)
-        }
-    }
-    let outside = URL(fileURLWithPath: "/nonexistent-voicerelay-test-\(UUID().uuidString)")
-    try refused(outside)
-    #expect(!FileManager.default.fileExists(atPath: outside.path))
-    try refused(URL(fileURLWithPath: "/"))
-    try refused(FileManager.default.homeDirectoryForCurrentUser)
-    let target = try temporary(); defer { try? FileManager.default.removeItem(at: target) }
-    let parent = try temporary(); defer { try? FileManager.default.removeItem(at: parent) }
-    let link = parent.appendingPathComponent("linked-root")
-    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
-    try refused(link)
-    #expect(try FileManager.default.contentsOfDirectory(atPath: target.path).isEmpty)
-    #expect(try FileManager.default.contentsOfDirectory(atPath: parent.path) == ["linked-root"])
-    #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("prepares").path))
-}
-
-@Test(arguments: ["timeout", "cancel"])
-func speechHelperDeadlineAndCancelStopOwnedDescendants(_ mode: String) async throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let backend = try speechHelper(at: root, mode: mode, deadline: mode == "timeout" ? 0.3 : 10)
-    defer { backend.cancel() }; try backend.prepare()
-    let work = Task.detached {
-        let start = Date()
-        let result = Result { try backend.synthesize(speechRequest(), directory: root) }
-        return (result, Date().timeIntervalSince(start))
-    }
-    if mode == "cancel" {
-        for _ in 0..<100 {
-            if FileManager.default.fileExists(atPath: root.appendingPathComponent("child-pid").path) { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        backend.cancel()
-    }
-    let (result, elapsed) = await work.value
-    do { _ = try result.get(); Issue.record("Unbounded helper completed") }
-    catch { #expect(mode == "cancel" ? error is CancellationError : error is RelayError) }
-    // Measure the helper call, excluding the test executor's delayed resumption
-    // when the other fixture cases run ffmpeg concurrently.
-    #expect(elapsed < 3)
-    let pid = try #require(Int32(String(contentsOf: root.appendingPathComponent("child-pid"), encoding: .utf8)))
-    #expect(kill(pid, 0) == -1 && errno == ESRCH)
-}
-
-@Test func kokoroMissingRuntimeAndEscapedModelPathsFailLocally() throws {
-    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let source = root.appendingPathComponent("runtime/kokoro"); try Files.directory(source)
-    for name in ["provider.py", "runtime_setup.py", "selection.json", "requirements.lock", "python-downloads.json"] {
-        try Files.write(Data("synthetic pin".utf8), to: source.appendingPathComponent(name))
-    }
-    let backend = try KokoroMLXBackend(configuration: KokoroConfiguration(projectRoot: root))
-    try Files.write(Data("changed interpreter metadata".utf8), to: source.appendingPathComponent("python-downloads.json"))
-    let changed = try KokoroMLXBackend(configuration: KokoroConfiguration(projectRoot: root))
-    #expect(backend.identity.id != changed.identity.id)
-    #expect(throws: RelayError.self) { try backend.prepare() }
-    #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".runtime").path))
-    let outside = try temporary(); defer { try? FileManager.default.removeItem(at: outside) }
-    try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("models"), withDestinationURL: outside)
-    #expect(throws: RelayError.self) { try KokoroMLXBackend(configuration: KokoroConfiguration(projectRoot: root)) }
 }
 
 private struct SyntheticSpeechContractBackend: TTSBackend {
@@ -1141,12 +836,17 @@ private extension FixtureCoordinator {
 @Test func speechPreferencesHaveSensibleDefaultsAndRoundTrip() throws {
     let defaults = SpeechPreferences()
     #expect(defaults.voice == .heart && defaults.speed == 1)
+    for speed in [0.5, 0.75, 1.137, 1.5, 2.0] {
+        let preferences = SpeechPreferences(voice: .emma, speed: speed)
+        try preferences.validate()
+        #expect(try JSONDecoder().decode(SpeechPreferences.self, from: Files.json(preferences)) == preferences)
+    }
     let changed = SpeechPreferences(voice: .emma, speed: 1.25)
     try changed.validate()
     let bytes = try Files.json(changed)
     #expect(try JSONDecoder().decode(SpeechPreferences.self, from: bytes) == changed)
     #expect(!String(decoding: bytes, as: UTF8.self).contains("path"))
-    for speed in [0.0, 0.5, 2.0, Double.infinity, Double.nan] {
+    for speed in [0.0, 0.49, 2.01, Double.infinity, Double.nan] {
         #expect(throws: RelayError.self) { try SpeechPreferences(speed: speed).validate() }
     }
 }
@@ -1565,7 +1265,7 @@ private func reviewedArticle(_ path: String = "one", changed: Bool = false, host
             throw NSError(domain: "PRIVATE_TOKEN_AND_URL", code: 1)
         })
         Issue.record("Expected failure")
-    } catch { #expect(error is NSError) }
+    } catch { #expect((error as NSError).domain == "PRIVATE_TOKEN_AND_URL") }
     let failed = try #require(await FixtureCoordinator().queue(stateRoot: storage.stateRoot).first)
     #expect(failed.state == .failed && failed.attempts == 1 && failed.lastError?.contains("PRIVATE") == false)
     #expect(try await FixtureCoordinator().runNextQueued(storage: storage, backend: { _ in SyntheticSpeechContractBackend("unused") }) == nil)
@@ -1703,25 +1403,6 @@ private final class BatchBackendLog: @unchecked Sendable {
     #expect(ProcessInfo.processInfo.systemUptime - start >= 1.5)
     _ = owner
     #expect(try await FixtureCoordinator().queue(stateRoot: storage.stateRoot).first?.state == .queued)
-}
-
-@Test func helperErrorCodesMapDistinctMessagesAndRejectUnsafeDetail() {
-    #expect(ExecutableSpeechBackend.helperFailure(code: "not_prepared", detail: nil)
-        == .setup("Speech helper lost its prepared session; completed chunks are retained."))
-    #expect(ExecutableSpeechBackend.helperFailure(code: "invalid_audio", detail: nil)
-        == .artifact("The speech engine produced invalid audio; completed chunks are retained."))
-    #expect(ExecutableSpeechBackend.helperFailure(code: "empty_audio", detail: nil)
-        == .artifact("The speech engine produced no audio for one chunk; completed chunks are retained."))
-    #expect(ExecutableSpeechBackend.helperFailure(code: "synthesis_failed", detail: "MemoryError")
-        == .artifact("Speech synthesis failed inside the local engine (engine error: MemoryError); completed chunks are retained."))
-    for unsafe in ["/private/var/model", "../secret", "a message with spaces", "token-with-dashes", String(repeating: "A", count: 41)] {
-        let failure = ExecutableSpeechBackend.helperFailure(code: "synthesis_failed", detail: unsafe)
-        #expect(failure == .artifact("Speech synthesis failed inside the local engine; completed chunks are retained."))
-        #expect(!failure.localizedDescription.contains(unsafe))
-    }
-    #expect(ExecutableSpeechBackend.helperFailure(code: "missing_assets", detail: "MemoryError").localizedDescription.contains("Run explicit project-local setup."))
-    #expect(ExecutableSpeechBackend.helperFailure(code: "unknown", detail: nil)
-        == .artifact("Speech helper failed; completed chunks are retained."))
 }
 
 @Test func queueRemovalAndUnavailableAudioPreserveEpisodeAndNeverCreateDestination() async throws {
@@ -2236,7 +1917,7 @@ func queueCancellationBeforeSuccessAcknowledgementRetainsItem(_ stage: Stage) as
     }
     #expect(names == ["Debug", "Release"])
     let signing = try String(contentsOf: root.appendingPathComponent("Packaging/Signing.xcconfig"), encoding: .utf8)
-    #expect(signing.split(separator: "\n").filter { !$0.hasPrefix("//") } == ["#include? \"../Signing.local.xcconfig\""])
+    #expect(signing.split(separator: "\n").filter { !$0.hasPrefix("//") } == ["#include \"NativeSpeech.xcconfig\"", "#include? \"../Signing.local.xcconfig\""])
     // Shared build settings must not acquire a developer's private team identifier.
     for object in objects.values {
         if let settings = object["buildSettings"] as? [String: Any] {
@@ -2592,6 +2273,25 @@ private final class ArtifactOnCancelBackend: TTSBackend, @unchecked Sendable {
     _ = try await created.value
 }
 
+@Test func missingAudioReconciliationWaitsForCheckpointWriter() async throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let audio = root.appendingPathComponent("audio"); try Files.directory(audio)
+    let storage = ManagedSpeechStorage(audioDirectory: audio, stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let coordinator = FixtureCoordinator()
+    _ = try await coordinator.enqueue(reviewedArticle(), storage: storage, preferences: SpeechPreferences())
+    var holder: NativeStore? = try NativeStore(url: storage.profile.database)
+    let entered = DispatchSemaphore(value: 0)
+    let reconciliation = Task.detached {
+        entered.signal()
+        return try await coordinator.reconcileMissingAudio(storage: storage)
+    }
+    #expect(awaitSemaphore(entered, timeout: .now() + 2))
+    try await Task.sleep(for: .milliseconds(150))
+    withExtendedLifetime(holder) {}
+    holder = nil
+    #expect(try await reconciliation.value.isEmpty)
+}
+
 @Test func queueBatchProgressDecodesMissingPendingPreparations() throws {
     let legacy = Data("{\"stage\":\"SYNTHESIZING\",\"completedChunks\":2,\"totalChunks\":5,\"completedArticles\":1,\"totalArticles\":3,\"currentArticleIndex\":2}".utf8)
     let decoded = try JSONDecoder().decode(QueueBatchProgress.self, from: legacy)
@@ -2799,7 +2499,8 @@ private final class ArtifactOnCancelBackend: TTSBackend, @unchecked Sendable {
         episode.id == second.id ? failing : SyntheticSpeechContractBackend("drain")
     })
     #expect(result.progress.completedArticles == 2 && result.lastResult?.episode.id == third.id)
-    #expect(result.failedItems.map(\.id) == [second.id])
+let failureMessages = result.failedItems.map { $0.lastError ?? "unknown" }
+    #expect(result.failedItems.map(\.id) == [second.id], "Unexpected failures: \(failureMessages)")
     let queue = try await coordinator.queue(stateRoot: storage.stateRoot)
     #expect(queue.map(\.id) == [second.id] && queue.first?.state == .failed)
     #expect(try NativeStore(url: storage.profile.database, readOnly: true)
@@ -3462,4 +3163,34 @@ private actor LatePlanningGate {
         return 1
     }
     func release() { continuation?.resume(); continuation = nil }
+}
+
+private struct PronunciationFixtureBackend: TTSBackend {
+    let pronunciations: PronunciationDictionary
+    let identity = BackendIdentity(id: "pronunciation-fixture", displayName: "Synthetic pronunciation fixture", isMock: false)
+    func prepare() throws {}
+    func cancel() {}
+    func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
+        try SyntheticAudioBackend().synthesize(request, directory: directory)
+    }
+}
+
+@Test func pronunciationChangesReplanUnfinishedNarrationAndPreservePublishedAudio() async throws {
+    let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let initial = try PronunciationDictionary(entries: [.init(word: "reading", spelling: "ree ding")])
+    let changed = try PronunciationDictionary(entries: [.init(word: "reading", spelling: "red ding")])
+    do {
+        _ = try await FixtureCoordinator().runSpeech(root: root, backend: PronunciationFixtureBackend(pronunciations: initial), interruptAfter: .chunkCommitted)
+        Issue.record("Expected interruption")
+    } catch { #expect(error is RelayError) }
+    let next = try await FixtureCoordinator().runSpeech(root: root, backend: PronunciationFixtureBackend(pronunciations: changed))
+    #expect(next.synthesizedChunks == next.narration.chunks.count)
+    #expect(next.narration.chunks.map(\.text).joined(separator: " ").contains("red ding"))
+    #expect(!next.narration.chunks.map(\.text).joined(separator: " ").contains("ree ding"))
+    #expect(next.article.blocks.contains { $0.text.lowercased().contains("reading") })
+    let audio = try Data(contentsOf: next.audioURL)
+    let published = try await FixtureCoordinator().runSpeech(root: root, backend: PronunciationFixtureBackend(pronunciations: initial))
+    #expect(published.synthesizedChunks == 0)
+    #expect(published.episode.guid == next.episode.guid)
+    #expect(try Data(contentsOf: published.audioURL) == audio)
 }

@@ -5,12 +5,20 @@ import SwiftSoup
 public enum SourceFetchError: Error, LocalizedError, Sendable, Equatable {
     case invalidURL, invalidLimits, status(Int), unsupportedType, unsupportedEncoding, tooLarge, empty
     case redirectLimit, insecureRedirect, authentication, transportPolicy, timeout, network
+    case invalidPDF, lockedPDF, pdfNoText, pdfRestricted, pdfPageLimit, pdfOCRLimit, pdfOCRFailed
     public var errorDescription: String? {
         switch self {
         case .invalidURL: "Choose an HTTP or HTTPS article URL without embedded credentials."
         case .invalidLimits: "Article fetch limits must be positive, at most 50 MB and 300 seconds, with at most 10 redirects."
         case .status(let code): "HTTP \(code): the server did not return an article. Review the source manually."
-        case .unsupportedType: "This response is not HTML. PDF and other document types require separate support."
+        case .unsupportedType: "This response is not an HTML article or PDF document."
+        case .invalidPDF: "The PDF could not be read. Review the original document."
+        case .lockedPDF: "The PDF is password-protected. Unlock it outside VoiceRelay before importing."
+        case .pdfNoText: "No readable text was found in the PDF, including after OCR. Review the original document."
+        case .pdfRestricted: "The PDF does not permit text extraction. Review the original document."
+        case .pdfPageLimit: "The PDF exceeds the 500-page intake limit. Import a shorter document."
+        case .pdfOCRLimit: "The PDF exceeds the OCR limit of 50 scanned pages or two minutes. Import a shorter document."
+        case .pdfOCRFailed: "PDF text recognition could not finish. Review the original document or retry."
         case .unsupportedEncoding: "The HTML encoding is unsupported or invalid; source review is required."
         case .tooLarge: "Article response exceeds the configured byte limit."
         case .empty: "The server returned an empty article response."
@@ -71,7 +79,7 @@ public struct PageFetcher: Sendable {
         try await fetch(url, configuration: .ephemeral)
     }
     func fetch(_ url: URL, configuration: URLSessionConfiguration,
-               acceptedTypes: Set<String> = ["text/html", "application/xhtml+xml"],
+               acceptedTypes: Set<String> = ["text/html", "application/xhtml+xml", "application/pdf"],
                allowedHosts: Set<String>? = nil) async throws -> FetchedPage {
         try ArticleURL.validate(url); try Task.checkCancellation()
         if let allowedHosts, !allowedHosts.contains(url.host?.lowercased() ?? "") || url.scheme != "https" || (url.port != nil && url.port != 443) {
@@ -98,7 +106,8 @@ public struct PageFetcher: Sendable {
                         if let allowedHosts, !allowedHosts.contains(final.host?.lowercased() ?? "") { throw SourceFetchError.invalidURL }
                         guard (200...299).contains(response.statusCode) else { throw SourceFetchError.status(response.statusCode) }
                         let type = response.mimeType?.lowercased() ?? ""
-                        guard acceptedTypes.contains(type) else { throw SourceFetchError.unsupportedType }
+                        let permitsPDF = acceptedTypes.contains("application/pdf")
+                        guard acceptedTypes.contains(type) || (permitsPDF && ["application/octet-stream", "application/x-pdf"].contains(type)) else { throw SourceFetchError.unsupportedType }
                         guard response.expectedContentLength <= Int64(limits.maximumBytes) else { throw SourceFetchError.tooLarge }
                         var bytes = Data(); bytes.reserveCapacity(min(limits.maximumBytes, 65_536))
                         for try await byte in stream {
@@ -108,6 +117,15 @@ public struct PageFetcher: Sendable {
                         }
                         try Task.checkCancellation()
                         guard !bytes.isEmpty else { throw SourceFetchError.empty }
+                        if type.hasPrefix("image/"), acceptedTypes.contains(type) {
+                            return FetchedPage(originalURL: url, finalURL: final, bytes: bytes, html: "",
+                                               contentType: type, encoding: "binary", fetchedAt: Date())
+                        }
+                        if permitsPDF && (type == "application/pdf" || type == "application/x-pdf" || type == "application/octet-stream") {
+                            guard bytes.starts(with: Data("%PDF-".utf8)) else { throw type == "application/octet-stream" ? SourceFetchError.unsupportedType : .invalidPDF }
+                            return FetchedPage(originalURL: url, finalURL: final, bytes: bytes, html: "",
+                                               contentType: "application/pdf", encoding: "binary", fetchedAt: Date())
+                        }
                         let decoded = try Self.decode(bytes, declared: response.textEncodingName)
                         return FetchedPage(originalURL: url, finalURL: final, bytes: bytes, html: decoded.text,
                                            contentType: type, encoding: decoded.encoding, fetchedAt: Date())

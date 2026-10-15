@@ -1,3 +1,4 @@
+import AppPresentation
 import SwiftUI
 import AppKit
 import Observation
@@ -241,7 +242,8 @@ final class ArticlePreviewModel {
                                             timeout: Double(profile?.httpTimeoutSeconds ?? 30))
                 let limit = profile?.chunkMaxCharacters ?? 1800
                 let result = try await ArticleSourceLoader(limits: limits,
-                    useArchives: UserDefaults.standard.bool(forKey: "useArchivedArticles"))
+                    useArchives: UserDefaults.standard.bool(forKey: "useArchivedArticles"),
+                    describeImages: UserDefaults.standard.object(forKey: "describeArticleImages") as? Bool ?? true)
                     .load(url, chunkLimit: limit)
                 try Task.checkCancellation()
                 review = result
@@ -265,27 +267,30 @@ struct ArticlePreviewContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let review {
-                Text(review.document?.article.title ?? "Source inspection").font(.title2)
-                Text("Original: \(review.page.originalURL.absoluteString)\nFinal: \(review.page.finalURL.absoluteString)").font(AppTypography.secondary).textSelection(.enabled)
+                Text(review.document?.article.title ?? "Source inspection").appFont(.title2)
+                Text("Original: \(review.page.originalURL.absoluteString)\nFinal: \(review.page.finalURL.absoluteString)").appFont(.secondary).textSelection(.enabled)
                 if let copy = review.page.archivedCopy {
                     Text("Archived copy · \(copy.provider.label) · \(copy.capturedAt.formatted(date: .abbreviated, time: .omitted))")
-                        .font(AppTypography.secondary).foregroundStyle(.secondary)
+                        .appFont(.secondary).foregroundStyle(.secondary)
                 }
                 if let message = review.issueMessage, dismissedIssue != message {
                     InlineNotice(message: message) { dismissedIssue = message }
                 }
                 if let document = review.document {
-                    Text("Semantic blocks").font(.headline)
+                    Text("Semantic blocks").appFont(.headline)
                     ForEach(Array(document.article.blocks.enumerated()), id: \.offset) { index, block in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("\(index) · \(block.kind.rawValue)").font(AppTypography.secondary).foregroundStyle(.secondary)
+                            Text("\(index) · \(block.kind.rawValue)").appFont(.secondary).foregroundStyle(.secondary)
                             Text(block.text).textSelection(.enabled)
+                            if block.imageDescriptionGenerated == true, let description = block.narrationText {
+                                Text("Generated · " + description).appFont(.secondary).foregroundStyle(.secondary).textSelection(.enabled)
+                            }
                         }
                     }
                     ForEach(document.article.warnings, id: \.self) { Text($0).foregroundStyle(.orange) }
                 }
                 if let narration = review.narration {
-                    Text("Narration preview · \(narration.chunks.count) chunks").font(.headline)
+                    Text("Narration preview · \(narration.chunks.count) chunks").appFont(.headline)
                     ForEach(narration.chunks, id: \.index) { chunk in Text(chunk.text).textSelection(.enabled) }
                     ForEach(narration.notices, id: \.self) { Text($0).foregroundStyle(.orange) }
                 }
@@ -310,7 +315,7 @@ struct ArticlePreviewView: View {
                 ArticlePreviewContent(review: model.review, placeholder: model.status)
             }.padding().frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(AppTypography.body)
+        .appFont(.body)
         .navigationTitle(model.title ?? "Article Preview")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -363,7 +368,7 @@ struct LibraryBackupControls: View {
             if model.libraryReviewRequired {
                 Button("Finish Library Review") { model.finishLibraryReview() }.disabled(!model.canManageLibrary)
             }
-            if let status = model.libraryBackupStatus { Text(status).font(AppTypography.secondary) }
+            if let status = model.libraryBackupStatus { Text(status).appFont(.secondary) }
             if let error = model.libraryBackupError { InlineNotice(message: error) }
         } header: {
             SectionHelpHeader(title: "Library backup",
@@ -699,7 +704,7 @@ struct ArticlesView: View {
                 }.pickerStyle(.menu).frame(maxWidth: 260)
                     .help("Filter by saved date or website")
                 Text(model.articleScope == .all ? "Newest saved first" : "Processing order")
-                    .font(AppTypography.secondary).foregroundStyle(.secondary)
+                    .appFont(.secondary).foregroundStyle(.secondary)
             }.padding(12)
             Divider()
             WorkspaceReadinessView(model: model)
@@ -850,16 +855,16 @@ struct ArticleLibraryRowView: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(row.title).font(.headline).lineLimit(2)
+                Text(row.title).appFont(.headline).lineLimit(2)
                 ArticleOriginLine(metadata: ArticleOriginMetadata(host: row.host, savedAt: row.savedAt))
-                if row.retained { Text("Retained; absent from Reading List").font(AppTypography.secondary).foregroundStyle(.secondary) }
+                if row.retained { Text("Retained; absent from Reading List").appFont(.secondary).foregroundStyle(.secondary) }
                 if row.jobs.count > 1 {
                     let failures = row.jobs.filter { $0.state == .failed || $0.state == .paused }.count
                     Label(row.queueSummary ?? "", systemImage: failures > 0 ? "exclamationmark.triangle" : "list.bullet")
-                        .font(AppTypography.secondary).foregroundStyle(.secondary)
+                        .appFont(.secondary).foregroundStyle(.secondary)
                 } else if let job = row.jobs.first {
                     Label(model.articleJobStatus(job), systemImage: symbol(job))
-                        .font(AppTypography.secondary).foregroundStyle(job.state == .failed ? Color.orange : Color.secondary)
+                        .appFont(.secondary).foregroundStyle(job.state == .failed ? Color.orange : Color.secondary)
                     if let message = job.lastError,
                        model.notices.isVisible(message: message, key: "queue:\(job.id):\(job.attempts):\(job.state)") {
                         InlineNotice(message: message) {
@@ -868,7 +873,7 @@ struct ArticleLibraryRowView: View {
                     }
                 }
                 if row.preparationID != nil {
-                    Label("Preparing…", systemImage: "clock").font(AppTypography.secondary).foregroundStyle(.secondary)
+                    Label("Preparing…", systemImage: "clock").appFont(.secondary).foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 8)
@@ -962,5 +967,12 @@ private func syntheticReview(issue: SourceReviewIssue? = nil) -> ReviewedSource?
     model.batchProgress = QueueBatchProgress(stage: .encoding, completedChunks: 5, totalChunks: 12, completedArticles: 0, totalArticles: 2)
     model.articleScope = .queue
     return ArticlesView(model: model)
+}
+#endif
+
+#if DEBUG
+#Preview("Articles — accessibility text, inert") {
+    ArticlesView(model: AppModel(preview: true)).appTextSizing(AppTextSize())
+        .dynamicTypeSize(.accessibility3).frame(width: 980, height: 640)
 }
 #endif

@@ -231,3 +231,92 @@ private actor RestoreReaderProbe {
     private(set) var entered = false
     func start() { entered = true }
 }
+
+private final class RuntimeInstallationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var installed = false
+    private var count = 0
+    var available: Bool { lock.withLock { installed } }
+    var calls: Int { lock.withLock { count } }
+    func install() throws {
+        let attempt = lock.withLock { count += 1; return count }
+        if attempt == 1 { throw CancellationError() }
+        if attempt == 2 { throw RelayError.setup("Synthetic installation failure") }
+        lock.withLock { installed = true }
+    }
+}
+
+@Test @MainActor func runtimeOnboardingOffersExplicitInstallAndSupportsCancellationAndRetry() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("voicerelay-onboarding-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let suite = "voicerelay-onboarding-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let probe = RuntimeInstallationProbe()
+    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
+        runtimeSetup: { install, _ in #expect(install); try probe.install() },
+        runtimeInstalled: { _ in probe.available })
+    model.sourceReview.plist = URL(fileURLWithPath: "/synthetic/Bookmarks.plist")
+    #expect(model.runtimeSetupNeededAtLaunch && !model.speechRuntimeAvailable)
+    #expect(model.appHealth == .needsSetup("Set up speech", .general))
+    #expect(model.appHealth.symbol == "arrow.down.circle" && model.appHealth.settingsSection == .general)
+    #expect(!model.canGenerateAudio && probe.calls == 0 && !model.runtimeBusy)
+    // Rendering and declining the window do not install; the General action remains available.
+    _ = SpeechRuntimeOnboardingView(model: model).body
+    #expect(probe.calls == 0 && model.canManageSpeechRuntime)
+    model.installSpeechRuntime(); model.installSpeechRuntime()
+    await model.waitForRuntimeSetup()
+    #expect(probe.calls == 1 && model.runtimeTestResult == .cancelled && !model.speechRuntimeAvailable)
+    model.installSpeechRuntime(); await model.waitForRuntimeSetup()
+    #expect(probe.calls == 2 && model.runtimeTestResult == .failure("Synthetic installation failure"))
+    #expect(model.canManageSpeechRuntime && !model.speechRuntimeAvailable)
+    model.installSpeechRuntime(); await model.waitForRuntimeSetup()
+    #expect(probe.calls == 3 && model.runtimeTestResult == .success && model.speechRuntimeAvailable)
+    #expect(defaults.string(forKey: "runtimeProject") == NativeSpeechSetup.managedRoot.path)
+    let installed = AppModel(storage: betaAppStorage(root, "installed"), defaults: defaults,
+        runtimeSetup: { _, _ in Issue.record("Installed startup must not download") },
+        runtimeInstalled: { _ in probe.available })
+    #expect(!installed.runtimeSetupNeededAtLaunch && installed.speechRuntimeAvailable)
+    await model.shutdown(); await installed.shutdown()
+    #expect(!FileManager.default.fileExists(atPath: root.path))
+}
+
+@Test @MainActor func runtimeOnboardingIsInertForPreviewsAndOrdinaryInjectedModels() async {
+    let preview = AppModel(preview: true, runtimeInstalled: { _ in Issue.record("Preview probed the host"); return false })
+    let root = URL(fileURLWithPath: "/synthetic/VoiceRelay-onboarding")
+    let isolated = AppModel(storage: betaAppStorage(root, "state"))
+    #expect(!preview.runtimeSetupNeededAtLaunch && !isolated.runtimeSetupNeededAtLaunch)
+    #expect(preview.runtimeTestResult == .untested && isolated.runtimeTestResult == .untested)
+    await preview.shutdown(); await isolated.shutdown()
+}
+
+@Test @MainActor func voiceSamplesCoverRegionalChoicesAndInertPlaybackNeverStarts() throws {
+    for voice in SpeechVoice.allCases {
+        let sample = try #require(VoiceSamples.sample(model: .kokoro, voice: voice.rawValue))
+        #expect(sample.url != nil)
+        #expect(sample.name == String(voice.rawValue.dropFirst(3)).capitalized)
+    }
+    let model = AppModel(preview: true)
+    model.voiceSamplePlayer.toggle(url: nil, id: "missing")
+    model.playVoiceSample()
+    #expect(model.voiceSamplePlayer.error != nil && model.voiceSamplePlayer.playingID == nil)
+    model.preferences.voice = .bella
+    #expect(model.voiceSamplePlayer.error == nil)
+}
+
+
+@Test @MainActor func offlineSetupFailureDoesNotSuggestAConnectionAndInstallationExplainsDownloadRecovery() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("voicerelay-setup-guidance-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let suite = "voicerelay-setup-guidance-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
+        runtimeSetup: { _, _ in throw CocoaError(.fileNoSuchFile) })
+    model.checkSpeechRuntime(); await model.waitForRuntimeSetup()
+    guard case .failure(let offline) = model.runtimeTestResult else { Issue.record("Check should fail"); return }
+    #expect(offline.contains("offline") && !offline.contains("connection"))
+    model.installSpeechRuntime(); await model.waitForRuntimeSetup()
+    guard case .failure(let installation) = model.runtimeTestResult else { Issue.record("Install should fail"); return }
+    #expect(installation.contains("internet connection"))
+    #expect(!FileManager.default.fileExists(atPath: root.path))
+    await model.shutdown()
+}

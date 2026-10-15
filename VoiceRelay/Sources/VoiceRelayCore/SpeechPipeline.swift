@@ -1,3 +1,5 @@
+import Pronunciation
+import NarrationCore
 import Foundation
 
 public enum SpeechTimingStage: String, Sendable {
@@ -126,10 +128,12 @@ final class SingleWorkerSpeechPipeline: @unchecked Sendable {
     let database: URL
     let finalization = SpeechFinalizationLane()
     let diagnostics: SpeechDiagnostics
+    let audioObserver: (@Sendable (SpeechTimingStage, URL) throws -> Void)?
     private let lock = NSLock()
     private var lease: PipelineLease?
     private var active: (any TTSBackend)?
-    init(database: URL, debugLog: DeliveryDebugLog?) {
+    init(database: URL, debugLog: DeliveryDebugLog?, audioObserver: (@Sendable (SpeechTimingStage, URL) throws -> Void)? = nil) {
+        self.audioObserver = audioObserver
         self.database = database; diagnostics = SpeechDiagnostics(log: debugLog)
     }
     func ensureLease(_ database: URL) throws {
@@ -139,7 +143,10 @@ final class SingleWorkerSpeechPipeline: @unchecked Sendable {
         }
     }
     func provider(_ candidate: any TTSBackend) -> any TTSBackend {
-        PipelineSpeechBackend(pipeline: self, candidate: candidate)
+        if let native = candidate as? any PreparedTTSBackend {
+            return PreparedPipelineSpeechBackend(pipeline: self, candidate: native)
+        }
+        return PipelineSpeechBackend(pipeline: self, candidate: candidate)
     }
     fileprivate func prepare(_ candidate: any TTSBackend) throws {
         try lock.withLock {
@@ -151,6 +158,18 @@ final class SingleWorkerSpeechPipeline: @unchecked Sendable {
             } catch { candidate.cancel(); throw error }
         }
     }
+    fileprivate func prepareNarration(_ candidate: any PreparedTTSBackend, projection: NarrationPlan) throws -> NarrationPlan {
+        try prepare(candidate)
+        let worker = try lock.withLock {
+            guard let active = active as? any PreparedTTSBackend, active.identity.id == candidate.identity.id else {
+                throw RelayError.setup("Prepare the native speech pipeline first.")
+            }
+            return active
+        }
+        do { return try worker.prepareNarration(projection) }
+        catch { lock.withLock { active?.cancel(); active = nil }; throw error }
+    }
+
     fileprivate func synthesize(_ candidate: any TTSBackend, request: SynthesisRequest,
                                directory: URL, next: SynthesisRequest?) throws -> SynthesisResult {
         let worker = try lock.withLock {
@@ -177,6 +196,7 @@ private struct PipelineSpeechBackend: LookaheadTTSBackend {
     let pipeline: SingleWorkerSpeechPipeline
     let candidate: any TTSBackend
     var identity: BackendIdentity { candidate.identity }
+    var pronunciations: PronunciationDictionary { candidate.pronunciations }
     func prepare() throws { try pipeline.prepare(candidate) }
     func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
         try synthesize(request, directory: directory, next: nil)
@@ -188,10 +208,29 @@ private struct PipelineSpeechBackend: LookaheadTTSBackend {
     func cancel() {}
 }
 
+private struct PreparedPipelineSpeechBackend: PreparedTTSBackend, LookaheadTTSBackend {
+    let pipeline: SingleWorkerSpeechPipeline
+    let candidate: any PreparedTTSBackend
+    var identity: BackendIdentity { candidate.identity }
+    var pronunciations: PronunciationDictionary { candidate.pronunciations }
+    var speechSettings: SpeechSettings { candidate.speechSettings }
+    var narrationVersion: String { candidate.narrationVersion }
+    var preparationPurpose: NarrationPlanPurpose { candidate.preparationPurpose }
+    func prepareNarration(_ projection: NarrationPlan) throws -> NarrationPlan { try pipeline.prepareNarration(candidate, projection: projection) }
+    func prepare() throws { try pipeline.prepare(candidate) }
+    func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
+        try synthesize(request, directory: directory, next: nil)
+    }
+    func synthesize(_ request: SynthesisRequest, directory: URL, next: SynthesisRequest?) throws -> SynthesisResult {
+        try pipeline.synthesize(candidate, request: request, directory: directory, next: next)
+    }
+    func cancel() {} // Pipeline retains the sole helper through CPU finalization.
+}
+
 /// Serializes progress callbacks across the two CPU/GPU stages, retaining the
 /// whole drain's counts until encoding and publication actually complete.
 final class SpeechDrainProgress: @unchecked Sendable {
-    private struct Item { var total: Int; var done = 0; var complete = false; let ordinal: Int }
+    private struct Item { var total: Int; var done = 0; var complete = false; var prepared = false; let ordinal: Int }
     private let lock = NSLock()
     private var items: [String: Item] = [:]
     private var waiting: [(id: String, chunks: Int)] = []
@@ -208,7 +247,9 @@ final class SpeechDrainProgress: @unchecked Sendable {
     func update(_ id: String, _ value: PipelineProgress) {
         lock.withLock {
             guard var item = items[id] else { return }
-            item.total = max(item.total, value.totalChunks)
+            if !item.prepared, value.totalChunks > 0 {
+                item.total = value.totalChunks; item.prepared = true
+            }
             item.done = max(item.done, min(item.total, value.completedChunks))
             items[id] = item; emit(value.stage, current: id)
         }
@@ -216,7 +257,7 @@ final class SpeechDrainProgress: @unchecked Sendable {
     func complete(_ id: String, chunks: Int) {
         lock.withLock {
             guard var item = items[id] else { return }
-            item.total = chunks; item.done = chunks; item.complete = true
+            item.total = chunks; item.done = chunks; item.complete = true; item.prepared = true
             items[id] = item; emit(.published, current: id)
         }
     }
@@ -233,7 +274,9 @@ final class SpeechDrainProgress: @unchecked Sendable {
         callback(QueueBatchProgress(stage: stage, completedChunks: items.values.reduce(0) { $0 + $1.done },
             totalChunks: items.values.reduce(0) { $0 + $1.total } + ready.reduce(0) { $0 + $1.chunks },
             completedArticles: items.values.filter(\.complete).count, totalArticles: items.count + ready.count + pending,
-            currentArticleIndex: items[current]?.ordinal, pendingPreparations: pending))
+            currentArticleIndex: items[current]?.ordinal, pendingPreparations: pending,
+            countsAreFinal: ready.isEmpty && pending == 0 && items.values.allSatisfy(\.prepared),
+            currentArticleFraction: items[current].flatMap { $0.prepared ? Double($0.done + ($0.complete ? 1 : 0)) / Double($0.total + 1) : nil }))
     }
 }
 

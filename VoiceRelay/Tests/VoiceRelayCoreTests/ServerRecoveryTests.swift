@@ -1,4 +1,5 @@
 import Foundation
+import AudioOutput
 import Testing
 @testable import VoiceRelayCore
 
@@ -448,7 +449,11 @@ private struct RawRecoveryTransport: DeliveryTransport {
 @Test func serverRecoveryDefaultVerifierDecodesActualAACAndRejectsDamagedBytes() async throws {
     let (root, storage) = try recoveryStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let file = root.appendingPathComponent("synthetic.m4a"), profile = storage.profile
-    _ = try ToolRunner.run(profile.ffmpeg, ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=24000", "-t", "0.5", "-ac", "1", "-c:a", "aac", "-b:a", "96k", file.path], timeout: 30, directory: root)
+    let wave = root.appendingPathComponent("synthetic.wav")
+    let writer = try AtomicAudioWriter(destination: wave)
+    try writer.append(samples: (0..<12_000).map { Float(sin(2 * Double.pi * 330 * Double($0) / 24_000) * 0.1) }, sampleRate: 24_000)
+    try writer.publish()
+    try NativeAudio.encode([wave], destination: file, profile: .init())
     let bytes = try Data(contentsOf: file), url = URL(string: "https://dav.example/audio.m4a")!
     let valid = try await RawRecoveryTransport(bytes: bytes).verifiedAudio(url, headers: [:], maximumBytes: 1_000_000, settings: profile)
     #expect(valid.digest.sha256 == Files.hash(bytes) && valid.info?.codec == "aac" && (valid.info?.duration ?? 0) > 0)
@@ -457,20 +462,23 @@ private struct RawRecoveryTransport: DeliveryTransport {
     }
 }
 
-@Test func serverRecoveryUnavailableInspectionToolIsNotDamagedAudioEvidence() async throws {
+@Test func serverRecoveryUsesNativeInspectionDespiteLegacyToolSettings() async throws {
     let (root, storage) = try recoveryStorage(); defer { try? FileManager.default.removeItem(at: root) }
-    var profile = storage.profile; profile.ffprobe = root.appendingPathComponent("missing-ffprobe").path
-    await #expect(throws: RelayError.self) {
-        try await RawRecoveryTransport(bytes: Data("uninspected".utf8)).verifiedAudio(URL(string: "https://dav.example/audio.m4a")!, headers: [:], maximumBytes: 100, settings: profile)
+    var profile = storage.profile
+    profile.ffprobe = root.appendingPathComponent("missing-ffprobe").path
+    profile.ffmpeg = root.appendingPathComponent("missing-ffmpeg").path
+    profile.toolTimeoutSeconds = 0
+    let wave = root.appendingPathComponent("synthetic.wav"), file = root.appendingPathComponent("synthetic.m4a")
+    let writer = try AtomicAudioWriter(destination: wave)
+    try writer.append(samples: (0..<12_000).map { Float(sin(2 * Double.pi * 330 * Double($0) / 24_000) * 0.1) }, sampleRate: 24_000)
+    try writer.publish()
+    try NativeAudio.encode([wave], destination: file, profile: .init())
+    let bytes = try Data(contentsOf: file), url = URL(string: "https://dav.example/audio.m4a")!
+    let valid = try await RawRecoveryTransport(bytes: bytes).verifiedAudio(url, headers: [:], maximumBytes: 1_000_000, settings: profile)
+    #expect(valid.digest.sha256 == Files.hash(bytes) && valid.info?.codec == "aac")
+    await #expect(throws: InvalidServerAudio.self) {
+        try await RawRecoveryTransport(bytes: Data("damaged-container".utf8)).verifiedAudio(url, headers: [:], maximumBytes: 1_000_000, settings: profile)
     }
-    let tool = root.appendingPathComponent("timeout-probe")
-    try Files.write(Data("#!/bin/sh\nexec /bin/sleep 2\n".utf8), to: tool)
-    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: tool.path)
-    profile.ffprobe = tool.path; profile.toolTimeoutSeconds = 0
-    do {
-        _ = try await RawRecoveryTransport(bytes: Data("uninspected".utf8)).verifiedAudio(URL(string: "https://dav.example/audio.m4a")!, headers: [:], maximumBytes: 100, settings: profile)
-        Issue.record("Expected an inspection deadline")
-    } catch let error as RelayError { #expect(error == .tool("Audio tool exceeded its configured deadline.")) }
 }
 
 @Test func serverRecoveryFailureIsVisibleBeforeAnEmptyLibraryHasADatabase() async throws {

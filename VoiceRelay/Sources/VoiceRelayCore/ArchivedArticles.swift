@@ -32,15 +32,23 @@ public enum ArticleRecoveryError: Error, LocalizedError, Sendable {
 public struct ArticleSourceLoader: Sendable {
     public typealias Fetch = @Sendable (URL) async throws -> FetchedPage
     public typealias ArchiveFetch = @Sendable (URL, FetchLimits, Set<String>, Set<String>) async throws -> FetchedPage
+    public typealias ImageFetch = @Sendable (URL) async throws -> Data
+    public typealias ImageCaption = @Sendable (Data) async throws -> String?
     public let limits: FetchLimits
     public let useArchives: Bool
     private let fetch: Fetch?
     private let archiveFetch: ArchiveFetch?
     private let debugLog: DeliveryDebugLog?
+    private let imageFetch: ImageFetch?
+    private let imageCaption: ImageCaption?
+    private let describeImages: Bool
     public init(limits: FetchLimits, useArchives: Bool = false, fetch: Fetch? = nil, archiveFetch: ArchiveFetch? = nil,
-                debugLog: DeliveryDebugLog? = nil) {
+                debugLog: DeliveryDebugLog? = nil, imageFetch: ImageFetch? = nil, imageCaption: ImageCaption? = nil,
+                describeImages: Bool = true) {
         self.limits = limits; self.useArchives = useArchives; self.fetch = fetch; self.archiveFetch = archiveFetch
         self.debugLog = debugLog
+        self.imageFetch = imageFetch; self.imageCaption = imageCaption
+        self.describeImages = describeImages
     }
     public func load(_ url: URL, savedAt: Date? = nil, chunkLimit: Int) async throws -> ReviewedSource {
         try ArticleURL.validate(url); try Task.checkCancellation()
@@ -100,10 +108,12 @@ public struct ArticleSourceLoader: Sendable {
         throw ArticleRecoveryError.unavailable(failure ?? .network)
     }
     private func review(_ page: FetchedPage, chunkLimit: Int) async throws -> ReviewedSource {
-        let work = Task.detached { try Task.checkCancellation(); return try ReviewedSource.prepare(page, chunkLimit: chunkLimit) }
+        let work = Task.detached { try Task.checkCancellation(); return try await ReviewedSource.prepareAsync(page, chunkLimit: chunkLimit) }
         let result = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
         try Task.checkCancellation()
-        return result
+        return try await ImageNarration.enrich(result, chunkLimit: chunkLimit,
+            nativeEnabled: describeImages && fetch == nil && archiveFetch == nil,
+            fetch: describeImages ? imageFetch : nil, caption: describeImages ? imageCaption : nil, debugLog: debugLog)
     }
     private func request(_ url: URL, limits: FetchLimits, types: Set<String>, hosts: Set<String>) async throws -> FetchedPage {
         let page: FetchedPage

@@ -6,14 +6,20 @@ articles, prepares saved text, processes the queue and publishes episodes accord
 to your preferences. Failed items remain available for manual Retry. Safari
 bookmarks and Reading List flags are never modified.
 
-Requires Apple Silicon, macOS 27.0+, Xcode with the macOS 27 SDK (Swift 6.2+),
-python3, uv, ffmpeg and ffprobe. Speech uses a pinned, explicitly installed runtime.
-Audio is mono 24 kHz AAC-LC/M4A at 96 kbps, with original levels and dynamics: no
+The app targets Apple Silicon and macOS 27.0+. Building from source requires
+Xcode with the macOS 27 SDK (Swift 6.2+) and the sibling `swift-packages` checkout. Speech uses a bundled native Swift MLX
+helper with explicitly prepared pinned model assets; Python/uv/FFmpeg are not required.
+Audio is mono 24 kHz AAC-LC/M4A at 64 kbps, with original levels and dynamics: no
 normalization, gain, limiter or dynamic range compression. Narration opens with
 article title/source and ends with “End of article.” Episode dates use Reading List
 save dates when available; optional publisher artwork stays external.
 
 ## Build and setup
+
+Prepare the common sources with `bash ../swift-packages/scripts/prepare-dependencies.sh`.
+Xcode consumes two local packages: SwiftNarration at `../swift-packages` and the
+independent AppPresentation package at `../swift-packages/AppPresentation`. Neither
+depends on Libro's repository. See [package boundaries and release management](../swift-packages/docs/PACKAGE_BOUNDARIES.md).
 
 Copy `Packaging/Signing.example.xcconfig` to the ignored `Signing.local.xcconfig`
 at the project root and set your team there. Debug and Release load the local file
@@ -32,19 +38,27 @@ The script stages and verifies Xcode's signed bundle before replacing
 Private signing files, generated output, runtime/model assets and backups are
 ignored. Neither building nor starting the app downloads models.
 
-In **Settings → General → Speech setup**, choose **Install Speech Runtime…**.
-Installation explicitly downloads pinned Python, packages and model/voice assets;
-**Check Speech Runtime** verifies them offline. The managed runtime is under
+On first launch without a speech model, the speech setup window offers
+**Install Speech Model** or **Not Now**. Installation starts only after your choice;
+you can cancel or retry without leaving setup. Installed models skip this window
+and are checked offline at startup. To install later, use
+**Settings → General → Speech setup → Install Speech Model…**.
+Installation explicitly downloads verified native model and pronunciation assets;
+**Check Speech Setup** loads the installed model offline without generating audio. The managed runtime is under
 `~/Library/Application Support/VoiceRelayPrototype/SpeechRuntime`. Existing
 checkout installations remain supported. Cancel and Quit join owned setup work;
 global environments are unchanged. See [Kokoro setup and pipeline](docs/KOKORO_PROVIDER.md).
-The result appears beside Check: Not tested, Runtime verified or the failure.
+The result appears beside Check: Speech setup not checked, Speech setup ready or the failure.
 Publishing and source refreshes do not disable speech setup controls; active audio
 work and library maintenance do, with a reason shown in General.
 
 ## Everyday use
 
-The waveform menu opens a compact popover with overall status, **Sync Now**,
+**General → Appearance → Text size** adjusts text throughout the library,
+Settings, previews, Help and menu popover. Use **⌘+**, **⌘−** and **⌘0** to enlarge,
+reduce or reset it. The preference persists; small text stays at least 12 points.
+
+The circular waveform menu opens a compact popover with overall status, **Sync Now**,
 **Articles**, **Server Audio**, **Settings** and **Quit VoiceRelay**. Green **Ready**
 requires a successful Reading List read, verified speech runtime and verified
 WebDAV connection this session. A red problem status opens its affected Settings
@@ -59,8 +73,9 @@ Articles and Queue are scopes in one library window alongside Uploads and Server
 Audio. Opening a standalone window enables the Dock/⌘-Tab entry; closing the last
 returns to menu-bar-only operation. Closing windows does not stop work.
 
-1. In **General → Speech**, choose Language & Region, Voice and speed. Defaults
-   are US English, Heart and 1.0×. Voice choices are ranked by upstream quality
+1. In **General → Speech**, choose Language and region, Voice and speed. Defaults
+   are US English, Heart and 1.0×. Speed spans 0.5–2.0× in 0.05 steps;
+   existing saved values are preserved. Voice choices are ranked by upstream quality
    grades: ten US voices and eight UK voices. New admissions capture these choices.
 2. Safari's `~/Library/Safari/Bookmarks.plist` is the default source. In
    **General → Reading List**, choose another file if needed. Discovery runs at startup,
@@ -194,7 +209,7 @@ The native library remains at
 paths and internal preference keys are retained. Clearing Xcode Derived Data does
 not erase the library; changing the app bundle identifier changes its preferences
 domain. The app owns processing/publishing; no agent or service enrollment exists.
-The original Python reference, customized state and published files are preserved
+Private legacy environments, customized state and published files are preserved
 in their existing locations and never silently imported.
 
 **Troubleshooting → Library backup** exports retained text, inventory, queue,
@@ -203,55 +218,57 @@ commits. Backups exclude credentials, preferences, audio, scratch and models.
 They contain private source content and server information: keep them private.
 Restore validates/stages before replacing the library, preserves the previous
 library and disables automation/publishing behind **Finish Library Review**.
-It does not change Safari, local audio or server files. See [backup/restore checks](docs/BETA_TESTING.md#4-private-library-backup-and-restore).
+It does not change Safari, local audio or server files. See [backup/restore checks](../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay).
 
 **Troubleshooting → Enable debug logging** retains the newest 200 events in memory.
 The toggle persists; events do not survive Quit. Copy Debug Log and Clear Log
 operate on this session. Logs include sanitized HTTP outcomes/stage timings,
 never credentials, URLs, paths, source text, authorization headers or server bodies.
 
+## Speech samples and pronunciation
+
+General's Play Sample/Stop Sample plays the supported voice's bundled recording at
+1.0× without loading a model. All samples now use:
+
+> Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!
+
+Settings → Pronunciation edits one shared Libro/VoiceRelay spelling dictionary.
+Use English phonetic spellings and Play to hear a native preview at the selected
+voice/speed. Saved samples do not incorporate new overrides. Ordinary narration
+captures rules for its work; editing a rule does not rewrite finished recordings.
+See [pronunciation](../swift-packages/docs/PRONUNCIATION.md) and
+[sample regeneration](../swift-packages/docs/VOICE_SAMPLES.md).
+
+The accepted Kokoro pacing is implemented. Some units/temperatures and contextual
+homographs remain [known frontend limitations](../swift-packages/docs/TEXT_NORMALIZATION_RESEARCH.md);
+changing speed or voice is not a general correction for those cases.
+
 ## Development and validation
 
-The Swift package shares the native core across the app, diagnostic CLI and tests.
-Use isolated fixtures; never point tests at live library or Safari input.
+The Swift package exposes VoiceRelayCore and the GUI executable; no product CLI
+is maintained. Use isolated source/transport/credential fixtures, never the live
+library or Safari input. Prepare/run the shared fixtures before app tests:
 
 ```sh
-CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" \
-SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache" \
-swift test --cache-path "$PWD/.build/swiftpm-cache" --disable-sandbox --skip-update --no-parallel
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s runtime/kokoro/tests
+bash ../swift-packages/scripts/check.sh
+NARRATION_FIXTURE_WORKER="$PWD/../swift-packages/.build/debug/NarrationFixtureWorker" \
+  swift test --disable-sandbox --no-parallel --jobs 4
+bash scripts/check-packaging.sh
+bash scripts/check-docs.sh
 ```
 
-After changing project.pbxproj, run the
-`xcodeProjectAppSourcesUseUniqueBuildFileReferences` regression. The CLI's
-`--help` lists explicit diagnostic commands; it never uploads or enables automation.
-A safe source-discovery fixture is:
-
-```sh
-swift build --product voicerelay
-native_bin="$(swift build --show-bin-path)"
-"$native_bin/voicerelay" reading-list --plist "$PWD/Fixtures/reading-list.synthetic.plist"
-```
-
-Build/fixture results do not establish GUI, Canvas, protected-file access, actual
-speech/listening, Keychain or live DAV/Overcast acceptance. Those checks are manual.
-
-| Guide | Purpose |
-| --- | --- |
-| [Architecture](docs/ARCHITECTURE.md) | Current components, storage and safety boundaries |
-| [Development handoff](docs/DEVELOPMENT_HANDOFF.md) | Working context and code map |
-| [Implementation checklist](docs/FINAL_POLISH.md) | Approved final polish and remaining acceptance |
-| [Contributing](CONTRIBUTING.md) | Engineering conventions and regression commands |
-| [Release checklist](docs/RELEASE_CHECKLIST.md) | Versioning, distribution and release gates |
-| [Roadmap](docs/IMPLEMENTATION_PLAN.md) | Remaining beta gates and later priorities |
-| [Beta checks](docs/BETA_TESTING.md) | Operator speech, setup, interruption and backup tests |
-| [Native UI acceptance](docs/UI_ACCEPTANCE.md) | Layout, keyboard and accessibility checks |
-| [Validation evidence](docs/VALIDATION.md) | Dated results and unverified acceptance |
+[Contributing](CONTRIBUTING.md) records engineering conventions. Start with the
+[documentation index](docs/README.md), [architecture](docs/ARCHITECTURE.md) and
+[current validation](docs/VALIDATION.md). All manual tests and current candidate
+paths are in the [single operator checklist](../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay).
+[Release gates](docs/RELEASE_CHECKLIST.md) separate local ad-hoc packaging from
+normal team/Keychain, clean-Mac and public distribution acceptance. Automated
+fixtures/builds do not establish GUI, listening or real-service behavior.
 
 ## License
 
 VoiceRelay is licensed under the [GNU Affero General Public License v3](LICENSE).
 Dependencies and runtime/model assets retain their own licenses; see
 [Acknowledgements](Acknowledgements/README.md). Downloaded assets are not
-included in Git. Fully bundled tools, notarization and distribution remain future
-release decisions.
+included in Git. The native helper/Metal/notices are bundled already; model weights are explicitly
+installed. Notarization and public distribution remain separate release gates.

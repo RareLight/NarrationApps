@@ -418,10 +418,12 @@ public final class DeliveryDebugLog: @unchecked Sendable {
         case localCleanupFailed
         case articleCacheRemoved, articleCacheRemovalFailed
         case speechRuntime(RuntimeOperation, RuntimeOutcome)
+        case imageDescriptions(Int, Int)
         public enum RuntimeOperation: String, Sendable { case check, installation }
         public enum RuntimeOutcome: String, Sendable { case started, verified, cancelled, failed }
         var message: String {
             switch self {
+            case .imageDescriptions(let added, let skipped): "image descriptions: added \(max(0, added)); skipped \(max(0, skipped))"
             case .articleCacheRemoved: "removed article cache: cleared; server history retained"
             case .articleCacheRemovalFailed: "removed article cache: cleanup failed; retry pending"
             case .speechRuntime(let operation, let outcome): "speech runtime \(operation.rawValue): \(outcome.rawValue)"

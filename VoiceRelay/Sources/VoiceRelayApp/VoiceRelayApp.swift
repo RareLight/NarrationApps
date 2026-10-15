@@ -1,3 +1,6 @@
+import NarrationUI
+import AppPresentation
+import PronunciationUI
 import SwiftUI
 import AppKit
 import Observation
@@ -11,23 +14,27 @@ enum SpeechRuntimeTestResult: Equatable {
 enum AppHealthStatus: Equatable {
     case ready
     case checking(String)
+    case needsSetup(String, SettingsSection)
     case failure(String, SettingsSection)
     var title: String {
         switch self {
         case .ready: "Ready"
-        case .checking(let message), .failure(let message, _): message
+        case .checking(let message), .needsSetup(let message, _), .failure(let message, _): message
         }
     }
     var symbol: String {
         switch self {
         case .ready: "checkmark.circle.fill"
         case .checking: "clock"
+        case .needsSetup: "arrow.down.circle"
         case .failure: "xmark.circle.fill"
         }
     }
     var settingsSection: SettingsSection? {
-        if case .failure(_, let section) = self { return section }
-        return nil
+        switch self {
+        case .failure(_, let section), .needsSetup(_, let section): return section
+        default: return nil
+        }
     }
 }
 
@@ -35,7 +42,7 @@ enum SyncPhase: String {
     case readingList = "Reading List"
     case reconciling = "Checking server audio"
     case preparing = "Preparing articles"
-    case speechCheck = "Checking speech runtime"
+    case speechCheck = "Checking speech setup"
     case generating = "Generating audio"
     case publishing = "Publishing"
 }
@@ -91,7 +98,14 @@ final class AppModel {
     @ObservationIgnored private var uploadRunID = UUID()
     var cancelling = false
     var queueSelection: Set<QueueSelectionID> = []
-    var preferences = SpeechPreferences() { didSet { savePreferences() } }
+    let pronunciationPreview = PronunciationPreview()
+    var pronunciationIsInert: Bool { preview || storageOverride != nil }
+    var pronunciationConfiguration: PronunciationPreviewConfiguration? {
+        guard !pronunciationIsInert, !stopping, !running, !runtimeBusy, speechRuntimeAvailable else { return nil }
+        return .init(worker: NativeSpeechSetup.workerExecutable, workspace: runtimeProject,
+            settings: .init(model: .kokoro, voice: preferences.voice.rawValue, speed: Float(preferences.speed)), priority: .background)
+    }
+    var preferences = SpeechPreferences() { didSet { if oldValue.voice != preferences.voice { voiceSamplePlayer.stop() }; savePreferences() } }
     var audioCleanupError: String?
     /// Set-and-forget automation preferences; storage-injected models stay manual by default.
     var autoAdmitEnabled = false { didSet { saveAutoAdmit() } }
@@ -134,15 +148,31 @@ final class AppModel {
     var isQueueResetPending = false
     let notices = NoticeDismissalState()
     var preview = false
+    var textSize = AppTextSize() {
+        didSet { if !preview { defaults.set(textSize.percent, forKey: "interfaceTextSizePercent") } }
+    }
+    var describeArticleImages = true {
+        didSet { if !preview { defaults.set(describeArticleImages, forKey: "describeArticleImages") } }
+    }
     var useArchivedArticles = false {
         didSet { if !preview { defaults.set(useArchivedArticles, forKey: "useArchivedArticles") } }
     }
     var sourceReview = SourceReviewModel(preview: true)
-    var runtimeProject = SpeechRuntimeSetup.managedRoot
+    var runtimeProject = NativeSpeechSetup.managedRoot
     var runtimeBusy = false
     var runtimeTestResult: SpeechRuntimeTestResult = .untested
     var runtimeInstalling = false
     var runtimeVerificationFailed = false
+    private var onboarding = SpeechSetupOnboarding()
+    var runtimeSetupNeededAtLaunch: Bool { onboarding.needsSetup }
+    let voiceSamplePlayer = AudioPreviewPlayer()
+    var canPlayVoiceSample: Bool { !preview && !stopping }
+    func playVoiceSample() {
+        guard canPlayVoiceSample else { return }
+        pronunciationPreview.stop()
+        guard let sample = VoiceSamples.sample(model: .kokoro, voice: preferences.voice.rawValue) else { return }
+        voiceSamplePlayer.toggle(url: sample.url, id: sample.id)
+    }
     var libraryMaintenanceBusy = false
     var libraryBackupStatus: String?
     var libraryBackupError: String?
@@ -191,8 +221,10 @@ final class AppModel {
     @ObservationIgnored private let backendOverride: (@Sendable (Episode) throws -> any TTSBackend)?
     @ObservationIgnored private let enqueueFetchOverride: (@Sendable (URL) async throws -> FetchedPage)?
     @ObservationIgnored private let archiveFetchOverride: ArticleSourceLoader.ArchiveFetch?
+    @ObservationIgnored private let runtimeInstalledOverride: (@Sendable (URL) -> Bool)?
     @ObservationIgnored private let runtimeSetupOverride: (@Sendable (Bool, URL) throws -> Void)?
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let inertDefaults: InertDefaultsDomain?
     /// Delivery seams: production gets Keychain + URLSession; injected models get nil unless a
     /// test supplies fakes, so isolated models can never touch the network or Keychain.
     @ObservationIgnored private let deliveryTransportFactory: (@Sendable () -> any DeliveryTransport)?
@@ -202,14 +234,19 @@ final class AppModel {
          backend: (@Sendable (Episode) throws -> any TTSBackend)? = nil,
          enqueueFetch: (@Sendable (URL) async throws -> FetchedPage)? = nil,
          archiveFetch: ArticleSourceLoader.ArchiveFetch? = nil,
-         defaults: UserDefaults = .standard,
+         defaults: UserDefaults? = nil,
          deliveryTransport: (@Sendable () -> any DeliveryTransport)? = nil,
          credentialStore: (any DeliveryCredentialStore)? = nil,
          runtimeSetup: (@Sendable (Bool, URL) throws -> Void)? = nil,
+         runtimeInstalled: (@Sendable (URL) -> Bool)? = nil,
          readingListReader: (@Sendable (URL) async throws -> ReadingListSnapshot)? = nil) {
         storageOverride = storage; backendOverride = backend; enqueueFetchOverride = enqueueFetch
         archiveFetchOverride = archiveFetch
         runtimeSetupOverride = runtimeSetup
+        runtimeInstalledOverride = runtimeInstalled
+        let domain = defaults == nil && (preview || storage != nil) ? InertDefaultsDomain() : nil
+        let defaults = defaults ?? domain?.defaults ?? .standard
+        inertDefaults = domain
         self.defaults = defaults
         var defaultTransport: (@Sendable () -> any DeliveryTransport)?
         if storage == nil { defaultTransport = { URLSessionDeliveryTransport() } }
@@ -227,23 +264,29 @@ final class AppModel {
             return
         }
         debugLoggingEnabled = defaults.bool(forKey: "debugLoggingEnabled")
+        textSize = AppTextSize(percent: defaults.object(forKey: "interfaceTextSizePercent") as? Int ?? 100)
+        describeArticleImages = defaults.object(forKey: "describeArticleImages") as? Bool ?? true
         libraryReviewRequired = defaults.bool(forKey: "libraryReviewRequired")
         loadDeliverySettings()
         // Isolated lifecycle tests supply storage/providers and never read user preferences or Safari.
-        if storage != nil { return }
+        if storage != nil {
+            if runtimeInstalled != nil { onboarding.assess(installed: speechRuntimeInstalled) }
+            return
+        }
         if let bytes = defaults.data(forKey: "speechPreferences") {
             do {
                 let saved = try JSONDecoder().decode(SpeechPreferences.self, from: bytes)
                 try saved.validate(); preferences = saved
             } catch { self.error = "Saved voice and speed preferences could not be read. Default voice and speed are active." }
         }
-        runtimeProject = SpeechRuntimeSetup.preferredRoot(
+        runtimeProject = NativeSpeechSetup.preferredRoot(
             saved: defaults.string(forKey: "runtimeProject").map { URL(fileURLWithPath: $0) },
             legacy: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Coding/VoiceRelay"))
         autoAdmitEnabled = defaults.object(forKey: "autoAdmitArticles") as? Bool ?? true
         autoProcessEnabled = defaults.object(forKey: "autoProcessArticles") as? Bool ?? true
         useArchivedArticles = defaults.bool(forKey: "useArchivedArticles")
         refreshLibrary()
+        onboarding.assess(installed: speechRuntimeInstalled)
         if speechRuntimeAvailable { checkSpeechRuntime() }
         startAutomationLoop()
         sourceReview.startAutomaticSynchronization()
@@ -566,7 +609,7 @@ final class AppModel {
     }
     var processingFraction: Double? {
         guard showsProcessingProgress else { return nil }
-        if let batch = batchProgress { return batch.fractionCompleted }
+        if let batch = batchProgress { return batch.displayFraction }
         guard let progress, progress.totalChunks > 0 else { return nil }
         if progress.stage == .published, progress.completedChunks >= progress.totalChunks { return 1 }
         return Double(progress.completedChunks) / Double(progress.totalChunks + 1)
@@ -577,7 +620,9 @@ final class AppModel {
             var line = batch.stage == .published && batch.completedArticles < batch.totalArticles
                 ? "Checking saved audio" : batch.stage.friendlyLabel
             if let index = batch.currentArticleIndex { line += " · article \(index) of \(batch.totalArticles)" }
-            return line + " · \(Int((min(1, max(0, batch.fractionCompleted)) * 100).rounded(.down)))%"
+            guard let fraction = batch.displayFraction else { return line }
+            let scope = batch.countsAreFinal ? "" : "current article "
+            return line + " · " + scope + "\(Int((min(1, max(0, fraction)) * 100).rounded(.down)))%"
         }
         if running, let progress {
             var line = progress.stage == .published && progress.completedChunks < progress.totalChunks
@@ -683,10 +728,11 @@ final class AppModel {
     private var speechStorage: ManagedSpeechStorage { storageOverride ?? .appStorage() }
     private func backendFactory() -> @Sendable (Episode) throws -> any TTSBackend {
         if let backendOverride { return backendOverride }
-        let project = runtimeProject, log = deliveryDebugLog
+        let project = runtimeProject
+        let dictionaryStore: PronunciationStore? = pronunciationIsInert ? nil : .init()
         return { episode in
-            try KokoroMLXBackend(configuration: KokoroConfiguration(projectRoot: project,
-                voice: episode.settings.voice ?? "af_heart", speed: episode.settings.backendSettings["speed"]?.numericValue ?? 1), debugLog: log)
+            try NativeMLXBackend(configuration: KokoroConfiguration(projectRoot: project,
+                voice: episode.settings.voice ?? "af_heart", speed: episode.settings.backendSettings["speed"]?.numericValue ?? 1), pronunciations: dictionaryStore?.load().dictionary ?? .empty, gapSeconds: episode.settings.gapSeconds)
         }
     }
     private func resetProgress() {
@@ -952,7 +998,8 @@ final class AppModel {
                 do {
                     let item = try await coordinator.enqueueReadingList(entry.id, storage: next.storage, preferences: next.preferences,
                         fetch: fetch, useArchives: useArchivedArticles && (storageOverride == nil || archiveFetchOverride != nil),
-                        archiveFetch: archiveFetchOverride, debugLog: deliveryDebugLog, shouldCommit: { [weak self] in
+                        archiveFetch: archiveFetchOverride, debugLog: deliveryDebugLog,
+                        describeImages: describeArticleImages, shouldCommit: { [weak self] in
                             await MainActor.run { self != nil && !self!.stopping && self!.pendingTokens[entry.id] == next.token }
                         }, admissionControl: next.control)
                     admissionQueue.removeAll { $0.token == next.token }
@@ -1157,11 +1204,13 @@ final class AppModel {
                 self.result = outcome
             }
         }
+        pronunciationPreview.stop()
         running = true; processingSpeech = true; stopped = false; error = nil
         notices.reset(key: "global")
         self.progress = nil; batchProgress = nil; status = "Preparing queue…"
         task = Task {
             defer { finishProcessing() }
+            await pronunciationPreview.stopAndWait()
             while let mutation = queueMutationTask { await mutation.value }
             do {
                 try Task.checkCancellation()
@@ -1392,6 +1441,7 @@ final class AppModel {
     }
     func waitForAudioMutation() async { if let audioMutationTask { await audioMutationTask.value } }
     func cancel() {
+        pronunciationPreview.stop()
         syncTask?.cancel()
         resetProgress(); error = nil; sourceReview.cancel(); libraryTask?.cancel(); enqueueTask?.cancel()
         queueMutationTask?.cancel()
@@ -1420,6 +1470,8 @@ final class AppModel {
     func waitForSync() async { if let syncTask { await syncTask.value } }
     func shutdown() async {
         stopping = true
+        await pronunciationPreview.stopAndWait()
+        voiceSamplePlayer.stop()
         // Stop owned work before terminating the UI.
         progressID = UUID()
         let current = task, enqueue = enqueueTask, library = libraryTask
@@ -1455,22 +1507,37 @@ final class AppModel {
     }
     func quit() { NSApplication.shared.terminate(nil) }
 
-    var speechRuntimeAvailable: Bool {
-        !runtimeVerificationFailed && (storageOverride != nil || backendOverride != nil ||
-            (FileManager.default.isExecutableFile(atPath: runtimeProject.appendingPathComponent(".runtime/kokoro/.venv/bin/python").path)
-             && ToolRunner.locate("ffmpeg") != nil && ToolRunner.locate("ffprobe") != nil))
+    var speechSetupStatus: SpeechSetupStatus {
+        switch runtimeTestResult {
+        case .untested: speechRuntimeInstalled ? .notChecked : .notInstalled
+        case .success: .ready
+        case .cancelled: .cancelled
+        case .failure(let message): .failure(message)
+        }
     }
+    var pronunciationUnavailableReason: String? {
+        guard pronunciationConfiguration == nil else { return nil }
+        if running || runtimeBusy || stopping { return NarrationSettingsHelp.previewBusy }
+        if runtimeVerificationFailed { return NarrationSettingsHelp.previewCheckNeeded }
+        return speechRuntimeAvailable ? NarrationSettingsHelp.previewBusy : NarrationSettingsHelp.previewModelMissing
+    }
+
+    var speechRuntimeInstalled: Bool {
+        if let runtimeInstalledOverride { return runtimeInstalledOverride(runtimeProject) }
+        return storageOverride != nil || backendOverride != nil || NativeSpeechSetup.isInstalled(at: runtimeProject)
+    }
+    var speechRuntimeAvailable: Bool { !runtimeVerificationFailed && speechRuntimeInstalled }
     var canManageLibrary: Bool {
         !syncBusy && !sourcePruningBusy && !preview && !stopping && !running && !runtimeBusy && !libraryMaintenanceBusy && pendingAdds.isEmpty
             && !queueMutationBusy && !audioMutationBusy && !deliveryBusy && !deliveryTesting
             && !deliveryCredentialBusy && !sourceReview.busy && !sourceReview.maintenanceSuspended && libraryTask == nil
     }
-    /// Speech tools are independent of server operations and short library metadata writes.
+    /// Speech setup is independent of server operations and short library metadata writes.
     var runtimeControlDisabledReason: String? {
         if preview || (storageOverride != nil && runtimeSetupOverride == nil) { return "Unavailable in this isolated model." }
         if stopping { return "VoiceRelay is quitting." }
         if runtimeBusy { return "Speech setup is in progress." }
-        if running || processingSpeech || cancelling { return "Stop audio generation before checking or installing speech tools." }
+        if running || processingSpeech || cancelling { return "Stop audio generation before checking speech setup or installing a model." }
         if libraryMaintenanceBusy { return "Wait for library maintenance to finish." }
         return nil
     }
@@ -1483,7 +1550,8 @@ final class AppModel {
     }
     private func beginRuntimeSetup(install: Bool) {
         guard canManageSpeechRuntime else { return }
-        let root = install ? SpeechRuntimeSetup.managedRoot : runtimeProject
+        let root = install ? NativeSpeechSetup.managedRoot : runtimeProject
+        pronunciationPreview.stop()
         runtimeBusy = true; runtimeInstalling = install; runtimeTestResult = .untested
         let operation: DeliveryDebugLog.Event.RuntimeOperation = install ? .installation : .check
         deliveryDebugLog.record(.speechRuntime(operation, .started))
@@ -1491,10 +1559,11 @@ final class AppModel {
         runtimeTask = Task { [weak self] in
             guard let self else { return }
             defer { runtimeTask = nil; runtimeBusy = false; maybeAutoProcess() }
+            await pronunciationPreview.stopAndWait()
             let worker = Task.detached {
                 if let perform { try perform(install, root) }
-                else if install { try SpeechRuntimeSetup.install(at: root) }
-                else { try SpeechRuntimeSetup.check(at: root) }
+                else if install { try NativeSpeechSetup.install(at: root) }
+                else { try NativeSpeechSetup.check(at: root) }
             }
             do {
                 try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
@@ -1511,7 +1580,10 @@ final class AppModel {
             } catch {
                 guard !stopping else { return }
                 if root.standardizedFileURL == runtimeProject.standardizedFileURL { runtimeVerificationFailed = true }
-                runtimeTestResult = .failure((error as? RelayError)?.localizedDescription ?? "Speech setup failed. Check the required tools and retry.")
+                let guidance = install
+                    ? "The speech model could not be installed. Check your internet connection and available disk space, then retry."
+                    : "Speech setup could not be verified offline. Check that the speech model is installed, or install it again."
+                runtimeTestResult = .failure((error as? RelayError)?.localizedDescription ?? guidance)
                 deliveryDebugLog.record(.speechRuntime(operation, .failed))
             }
         }
@@ -1573,4 +1645,13 @@ final class AppModel {
             }
         }
     }
+}
+
+/// Own only a disposable preference domain. Injected models never inherit or
+/// mutate the user's live settings; explicitly supplied test domains are honored.
+private final class InertDefaultsDomain: @unchecked Sendable {
+    let name = "VoiceRelay.inert.\(UUID().uuidString)"
+    let defaults: UserDefaults
+    init() { defaults = UserDefaults(suiteName: name)! }
+    deinit { defaults.removePersistentDomain(forName: name) }
 }

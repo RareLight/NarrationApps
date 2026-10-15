@@ -1,0 +1,10 @@
+// Native helper resources use their physical Archive location for sandbox reads.
+ARCHS = arm64
+ONLY_ACTIVE_ARCH = YES
+SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated
+COPY_PHASE_STRIP = NO
+ENABLE_USER_SCRIPT_SANDBOXING = YES
+NARRATION_MLX_METAL_ROOT_NO = $(BUILT_PRODUCTS_DIR)
+NARRATION_MLX_METAL_ROOT_YES = $(UNINSTALLED_PRODUCTS_DIR)/$(PLATFORM_NAME)
+NARRATION_MLX_METAL_LIBRARY = $(NARRATION_MLX_METAL_ROOT_$(DEPLOYMENT_LOCATION))/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib
+OTHER_SWIFT_STDLIB_TOOL_FLAGS = $(inherited) --scan-executable "$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/VoiceRelaySpeechWorker"

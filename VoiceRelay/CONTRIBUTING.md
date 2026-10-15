@@ -1,28 +1,26 @@
 # Contributing to VoiceRelay
 
-Read [AGENTS.md](AGENTS.md), [architecture](docs/ARCHITECTURE.md) and the
-[current validation record](docs/VALIDATION.md) before making changes. The
-[development handoff](docs/DEVELOPMENT_HANDOFF.md) maps components; the
-[final polish checklist](docs/FINAL_POLISH.md) tracks approved work.
+Read [AGENTS.md](AGENTS.md), the [documentation index](docs/README.md),
+[architecture](docs/ARCHITECTURE.md) and [current validation](docs/VALIDATION.md)
+before making changes. Shared capability/remaining work is indexed in
+[swift-packages](../swift-packages/docs/README.md).
 
 ## Prerequisites and safe checks
 
 Use Apple Silicon, macOS 27+, Xcode with the macOS 27 SDK and Swift 6.2+.
-Core audio fixtures need ffmpeg/ffprobe on PATH. Python's standard library is
-sufficient for the offline helper and packaging tests; real Kokoro installation
-needs python3 and uv and is an explicit operator action. Dependencies are pinned
-in Package.swift and both Package.resolved files. Do not update pins incidentally.
+Native audio fixtures use Apple frameworks. No Python runtime, uv or external
+FFmpeg/ffprobe tools are required. Pinned native sources are prepared by the shared
+SwiftNarration repository; real model installation remains an explicit app action.
+Do not update dependency pins incidentally.
 
 From the repository root:
 
 ```sh
-CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" \
-SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache" \
-swift test --cache-path "$PWD/.build/swiftpm-cache" \
-  --disable-sandbox --skip-update --no-parallel
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s runtime/kokoro/tests
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests
-python3 scripts/check-docs.py
+bash ../swift-packages/scripts/check.sh
+NARRATION_FIXTURE_WORKER="$PWD/../swift-packages/.build/debug/NarrationFixtureWorker" \
+  swift test --disable-sandbox --no-parallel --jobs 4
+bash scripts/check-docs.sh
+bash scripts/check-packaging.sh
 bash -n scripts/build-app.sh
 git diff --check
 ```
@@ -39,7 +37,7 @@ transports, credential stores and speech providers. Never point a fixture at rea
 Safari, Application Support, published feeds or another application's data. Mock
 and synthetic audio validate mechanics, not voice quality. Record GUI/Canvas,
 protected Safari, real Keychain, server, runtime downloads and listening separately
-in the operator [beta](docs/BETA_TESTING.md) and [UI](docs/UI_ACCEPTANCE.md) checks.
+in the [consolidated operator checklist](../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay).
 
 ## Ownership and concurrency
 
@@ -57,7 +55,7 @@ removal, destination edits or restore. Do not add fire-and-forget mutations.
 
 Preserve one inference worker, one bounded CPU finalizer and existing pronunciation
 lookahead. Keep synthesis replaceable behind TTSBackend. Do not change model math,
-96k AAC-LC/original-level encoding or narration policy as an incidental optimization.
+64 kbps/24 kHz AAC-LC/original-level encoding or narration policy as an incidental optimization.
 Use Apple's [responsiveness guidance](https://developer.apple.com/documentation/xcode/improving-app-responsiveness)
 and keep [Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass)
 in navigation/control chrome, with semantic typography and accessibility fallbacks.
@@ -83,7 +81,7 @@ and server retirement have distinct meanings; cover them with isolated regressio
 
 Keep app presentation in coherent source files with named synthetic inert previews.
 New app sources need unique Xcode file/build references as well as SwiftPM discovery.
-Keep fixture/CLI coverage when retiring UI entrypoints. Remove abandoned prototypes
+Keep relevant core/fixture coverage when retiring UI entrypoints. Remove abandoned prototypes
 rather than bundling dormant executables. Generated products are disposable; live
 runtime installations, configuration and library data are not build artifacts.
 

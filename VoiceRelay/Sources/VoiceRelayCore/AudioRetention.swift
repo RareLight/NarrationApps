@@ -116,7 +116,9 @@ extension FixtureCoordinator {
         try Task.checkCancellation()
         let episodes = try library(storage: storage)
         guard !episodes.isEmpty else { return [] }
-        let store = try NativeStore(url: storage.profile.database)
+        // A prior article may still be committing its final checkpoint. Use the
+        // same bounded, cancellable writer acquisition as other queue metadata.
+        let store = try metadataWriter(storage.stateRoot)
         var changed: [Episode] = []
         for var episode in episodes where episode.stage == .published
             && episode.readingListRemoved != true

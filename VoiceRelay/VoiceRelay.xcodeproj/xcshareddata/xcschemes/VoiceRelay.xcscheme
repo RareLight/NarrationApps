@@ -29,8 +29,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "C10000000000000000000002"
-               BuildableName = "voicerelay"
-               BlueprintName = "VoiceRelayCLI"
+               BuildableName = "VoiceRelaySpeechWorker"
+               BlueprintName = "VoiceRelaySpeechWorker"
                ReferencedContainer = "container:VoiceRelay.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -56,10 +56,10 @@
       </Testables>
    </TestAction>
    <LaunchAction
-      buildConfiguration = "Debug"
+      buildConfiguration = "Release"
       selectedDebuggerIdentifier = ""
       selectedLauncherIdentifier = "Xcode.IDEFoundation.Launcher.PosixSpawn"
-      launchStyle = "0"
+      launchStyle = "1"
       useCustomWorkingDirectory = "NO"
       ignoresPersistentStateOnLaunch = "NO"
       debugDocumentVersioning = "YES"

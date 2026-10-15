@@ -6,30 +6,23 @@ let package = Package(
     platforms: [.macOS("27.0")],
     products: [
         .library(name: "VoiceRelayCore", targets: ["VoiceRelayCore"]),
-        .executable(name: "voicerelay", targets: ["VoiceRelayCLI"]),
         .executable(name: "VoiceRelayApp", targets: ["VoiceRelayApp"])
     ],
     dependencies: [
-        .package(url: "https://github.com/wolfyy970/swift-readability.git", exact: "0.3.3"),
+        .package(path: "../swift-packages"),
+        .package(path: "../swift-packages/AppPresentation"),
         .package(url: "https://github.com/scinfu/SwiftSoup.git", exact: "2.13.6"),
         .package(url: "https://github.com/dduan/TOMLDecoder.git", exact: "0.4.5")
     ],
     targets: [
         .systemLibrary(name: "CSQLite"),
-        .target(name: "VoiceRelayRuntimeResources", path: "runtime", exclude: ["kokoro/tests", "kokoro/__pycache__"],
-            sources: ["RuntimeResources.swift"], resources: [
-                .copy("kokoro/provider.py"), .copy("kokoro/runtime_setup.py"),
-                .copy("kokoro/selection.json"), .copy("kokoro/requirements.lock"),
-                .copy("kokoro/python-downloads.json")
-            ]),
         .target(name: "VoiceRelayCore", dependencies: [
-            "CSQLite", "VoiceRelayRuntimeResources", .product(name: "SwiftReadability", package: "swift-readability"),
+            "CSQLite", .product(name: "Pronunciation", package: "swift-packages"), .product(name: "NarrationCore", package: "swift-packages"), .product(name: "DocumentProcessing", package: "swift-packages"), .product(name: "NativeSpeech", package: "swift-packages"), .product(name: "ProcessingPipeline", package: "swift-packages"), .product(name: "AudioOutput", package: "swift-packages"),
             .product(name: "SwiftSoup", package: "SwiftSoup"),
             .product(name: "TOMLDecoder", package: "TOMLDecoder")
         ], resources: [.copy("Resources/article.html")]),
-        .executableTarget(name: "VoiceRelayCLI", dependencies: ["VoiceRelayCore"]),
-        .executableTarget(name: "VoiceRelayApp", dependencies: ["VoiceRelayCore"]),
+        .executableTarget(name: "VoiceRelayApp", dependencies: ["VoiceRelayCore", .product(name: "PronunciationUI", package: "swift-packages"), .product(name: "NarrationUI", package: "swift-packages"), .product(name: "AppPresentation", package: "apppresentation")]),
         .testTarget(name: "VoiceRelayCoreTests", dependencies: ["VoiceRelayCore", "CSQLite"]),
-        .testTarget(name: "VoiceRelayAppTests", dependencies: ["VoiceRelayApp", "VoiceRelayCore"])
+        .testTarget(name: "VoiceRelayAppTests", dependencies: ["VoiceRelayApp", "VoiceRelayCore", .product(name: "AppPresentation", package: "apppresentation")])
     ]
 )

@@ -1,23 +1,11 @@
-# Kokoro inference runtime
+# Native speech acknowledgements
 
-VoiceRelay's speech adapter executes an explicitly installed, pinned runtime in
-the app-managed SpeechRuntime directory or a selected legacy checkout. Immutable
-setup sources/pins are bundled; model weights and Python distributions are not
-bundled in the app or copied from the historical benchmark.
+VoiceRelay embeds the shared native Swift MLX helper. Its pinned upstream license
+and notice files are bundled in `Contents/Resources/ThirdPartyNotices`, sourced
+from the independent swift-packages repository. Python interpreter, package and
+FFmpeg implementations are not bundled or used.
 
-- mlx-audio 0.5.7: MIT, copyright 2024 Prince Canuma.
-  https://github.com/Blaizzy/mlx-audio/blob/v0.5.7/LICENSE
-- mlx-community/Kokoro-82M-bf16, revision
-  a71e4d38b236d968966a2002c4c895dbd12b1c3c: pinned model card declares Apache-2.0.
-  https://huggingface.co/mlx-community/Kokoro-82M-bf16/blob/a71e4d38b236d968966a2002c4c895dbd12b1c3c/README.md
-
-Explicit setup retains model-card/license/notice files supplied by the selected
-snapshot and installed distribution licenses in `.runtime/kokoro/notices/`.
-`inventory.json` records distribution names, versions, license metadata and copied
-license files. Additional dependencies include MLX, Misaki, spaCy, eSpeak/G2P,
-SoundFile, NumPy and Torch; their licenses must be reviewed independently.
-
-This notice is not a complete redistribution clearance. Packaging an interpreter,
-Python dependencies, G2P/eSpeak components, model and voices requires a complete
-license/source/notice review and signed relocation validation before distribution.
-See [Kokoro setup](../docs/KOKORO_PROVIDER.md) for runtime boundaries and operator gates.
+Model/voice and pronunciation data are explicitly prepared external assets,
+verified against the common native catalogs. See the shared dependency provenance
+and model repositories for those datasets' licensing; the app bundle does not
+redistribute the model weights.

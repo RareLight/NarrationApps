@@ -1,4 +1,6 @@
+import AppPresentation
 import Foundation
+import AudioOutput
 import Testing
 @testable import VoiceRelayCore
 @testable import VoiceRelayApp
@@ -22,9 +24,9 @@ private struct SyntheticProvider: TTSBackend {
     func cancel() {}
     func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
         let wav = directory.appendingPathComponent("synthetic.wav")
-        _ = try ToolRunner.run(PrototypeProfile.fixture(at: directory).ffmpeg,
-            ["-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=300:sample_rate=24000",
-             "-t", "0.25", "-ac", "1", "-c:a", "pcm_s16le", wav.path], timeout: 10, directory: directory)
+        let writer = try AtomicAudioWriter(destination: wav)
+        try writer.append(samples: (0..<6000).map { Float(sin(2 * Double.pi * 300 * Double($0) / 24_000) * 0.1) }, sampleRate: 24_000)
+        try writer.publish()
         return SynthesisResult(artifacts: [LosslessArtifact(url: wav, sampleRate: 24000, channels: 1, format: "wav")])
     }
 }
@@ -38,7 +40,9 @@ private struct SyntheticProvider: TTSBackend {
         if episode.id == second.id { throw RelayError.artifact("Synthetic second-article failure") }
         return SyntheticProvider()
     })
-    model.queueItems = [first, second]; model.runQueue(); await model.waitForProcessing()
+    model.queueItems = [first, second]
+    #expect(model.canGenerateAudio && !model.libraryReviewRequired)
+    model.runQueue(); await model.waitForProcessing()
     #expect(model.result?.episode.id == first.id && model.result?.localFeedCurrent == true)
     #expect(!model.running && model.batchProgress == nil && model.error != nil)
     let deadline = Date().addingTimeInterval(3)
@@ -268,12 +272,14 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
 }
 
 @Test @MainActor func settingsSectionsAreDistinctAndInertViewsConstruct() throws {
-    #expect(SettingsSection.allCases == [.general, .delivery, .troubleshooting])
-    #expect(Set(SettingsSection.allCases.map(\.rawValue)) == ["General", "Publishing", "Troubleshooting"])
+    #expect(SettingsSection.allCases == [.general, .pronunciation, .delivery, .troubleshooting])
+    #expect(Set(SettingsSection.allCases.map(\.rawValue)) == ["General", "Pronunciation", "Publishing", "Troubleshooting"])
     let model = AppModel(preview: true)
     let general = SettingsView(model: model)
     let troubleshooting = SettingsView(model: model, initialSection: .troubleshooting)
     _ = general; _ = troubleshooting
+    #expect(model.pronunciationIsInert && model.pronunciationConfiguration == nil)
+    _ = SettingsView(model: model, initialSection: .pronunciation)
     #expect(!model.running && !model.stopping)
 }
 
@@ -300,14 +306,14 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
 }
 
 @Test @MainActor func settingsPanesShareFixedGlassControlLayout() async throws {
-    #expect(SettingsView.windowWidth == 400 && SettingsView.windowHeight == 680)
-    #expect(SettingsView.paneSelectorWidth == 292 && SettingsView.paneSelectorHeight == 46)
-    #expect(SettingsSection.allCases.map(\.systemImage) == ["gearshape", "antenna.radiowaves.left.and.right", "stethoscope"])
+    #expect(SettingsView.windowWidth == 440 && SettingsView.windowHeight == 680)
+    #expect(SettingsNavigation<SettingsSection>.idealWidth == 392)
+    #expect(SettingsSection.allCases.map(\.systemImage) == ["gearshape", "text.word.spacing", "antenna.radiowaves.left.and.right", "stethoscope"])
     let model = AppModel(preview: true)
     _ = SettingsView(model: model)
     _ = SettingsView(model: model, initialSection: .troubleshooting)
     for section in SettingsSection.allCases {
-        _ = SettingsPaneSelector(selection: .constant(section)).body
+        _ = SettingsNavigation(selection: .constant(section)).body
     }
     await model.waitForProcessing()
     #expect(!model.running && !model.stopping && model.progress == nil && model.batchProgress == nil)
@@ -1160,9 +1166,8 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
 
 @Test @MainActor func typographyAndSelectorConstantsMeetPresentationFloor() {
     #expect(AppTypography.minimumPointSize >= 12)
-    #expect(SettingsView.paneSelectorWidth == 292 && SettingsView.paneSelectorHeight == 46)
-    #expect(SettingsView.paneSymbolSize == 16 && SettingsView.paneLabelSize >= 12)
-    #expect(SettingsView.windowWidth == 400 && SettingsView.windowHeight == 680)
+    #expect(SettingsNavigation<SettingsSection>.idealWidth == 392)
+    #expect(SettingsView.windowWidth == 440 && SettingsView.windowHeight == 680)
 }
 
 @Test @MainActor func autoSyncWithoutChosenSourceNeverReadsPlist() async throws {
@@ -1774,7 +1779,7 @@ private func fetchFixture(url: URL) throws -> FetchedPage {
     model.deliverySettings = appDeliverySettings()
     #expect(model.appHealth == .failure("Reading List not checked", .general))
     model.sourceReview.lastSyncedAt = Date()
-    #expect(model.appHealth == .failure("Speech runtime not checked", .general))
+    #expect(model.appHealth == .failure("Speech setup not checked", .general))
     model.runtimeTestResult = .success
     #expect(model.appHealth == .failure("Publishing not checked", .delivery))
     model.deliveryConnectionVerified = true
@@ -1784,7 +1789,7 @@ private func fetchFixture(url: URL) throws -> FetchedPage {
     #expect(model.appHealth.settingsSection == .general && model.appHealth.symbol == "xmark.circle.fill")
     model.sourceReview.error = nil
     model.runtimeTestResult = .failure("Synthetic speech failure")
-    #expect(model.appHealth == .failure("Speech runtime check failed", .general))
+    #expect(model.appHealth == .failure("Speech setup check failed", .general))
     model.runtimeTestResult = .success
     model.deliveryError = "Synthetic connection failure"
     #expect(model.appHealth == .failure("Publishing needs attention", .delivery))

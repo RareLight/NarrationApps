@@ -42,15 +42,18 @@ public struct QueueBatchProgress: Codable, Sendable, Equatable {
     public let totalArticles: Int
     public let currentArticleIndex: Int?
     public let pendingPreparations: Int
+    public let countsAreFinal: Bool
+    public let currentArticleFraction: Double?
     public init(stage: Stage, completedChunks: Int, totalChunks: Int, completedArticles: Int, totalArticles: Int,
-                currentArticleIndex: Int? = nil, pendingPreparations: Int = 0) {
+                currentArticleIndex: Int? = nil, pendingPreparations: Int = 0, countsAreFinal: Bool = true, currentArticleFraction: Double? = nil) {
         self.stage = stage; self.completedChunks = completedChunks; self.totalChunks = totalChunks
         self.completedArticles = completedArticles; self.totalArticles = totalArticles
         self.currentArticleIndex = currentArticleIndex
         self.pendingPreparations = pendingPreparations
+        self.countsAreFinal = countsAreFinal; self.currentArticleFraction = currentArticleFraction
     }
     private enum CodingKeys: String, CodingKey {
-        case stage, completedChunks, totalChunks, completedArticles, totalArticles, currentArticleIndex, pendingPreparations
+        case stage, completedChunks, totalChunks, completedArticles, totalArticles, currentArticleIndex, pendingPreparations, countsAreFinal, currentArticleFraction
     }
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -61,7 +64,10 @@ public struct QueueBatchProgress: Codable, Sendable, Equatable {
         totalArticles = try container.decode(Int.self, forKey: .totalArticles)
         currentArticleIndex = try container.decodeIfPresent(Int.self, forKey: .currentArticleIndex)
         pendingPreparations = try container.decodeIfPresent(Int.self, forKey: .pendingPreparations) ?? 0
+        countsAreFinal = try container.decodeIfPresent(Bool.self, forKey: .countsAreFinal) ?? true
+        currentArticleFraction = try container.decodeIfPresent(Double.self, forKey: .currentArticleFraction)
     }
+    public var displayFraction: Double? { countsAreFinal ? fractionCompleted : currentArticleFraction }
     public var fractionCompleted: Double {
         let total = totalChunks + totalArticles
         return total > 0 ? Double(completedChunks + completedArticles) / Double(total) : 0
@@ -104,7 +110,7 @@ extension FixtureCoordinator {
     }
     /// Writers are short-lived; a bounded wait lets interactive work (for example queue adds)
     /// proceed between commits while another coordinator briefly holds the lock.
-    private func metadataWriter(_ root: URL) throws -> NativeStore {
+    func metadataWriter(_ root: URL) throws -> NativeStore {
         let deadline = ProcessInfo.processInfo.systemUptime + 2
         while true {
             do {
@@ -219,6 +225,7 @@ extension FixtureCoordinator {
                                    fetch: (@Sendable (URL) async throws -> FetchedPage)? = nil,
                                    useArchives: Bool = false, archiveFetch: ArticleSourceLoader.ArchiveFetch? = nil,
                                    debugLog: DeliveryDebugLog? = nil,
+                                   describeImages: Bool = true,
                                    shouldCommit: @Sendable () async -> Bool = { true },
                                    admissionControl: QueueAdmissionControl? = nil) async throws -> SpeechQueueItem {
         try Task.checkCancellation(); try preferences.validate(); try storage.validate()
@@ -237,7 +244,8 @@ extension FixtureCoordinator {
         }
         let limits = try FetchLimits(maximumBytes: storage.profile.maxArticleBytes,
                                      timeout: Double(storage.profile.httpTimeoutSeconds))
-        let review = try await ArticleSourceLoader(limits: limits, useArchives: useArchives, fetch: fetch, archiveFetch: archiveFetch, debugLog: debugLog)
+        let review = try await ArticleSourceLoader(limits: limits, useArchives: useArchives, fetch: fetch,
+            archiveFetch: archiveFetch, debugLog: debugLog, describeImages: describeImages)
             .load(entry.url, savedAt: entry.addedAt, chunkLimit: storage.profile.chunkMaxCharacters)
         let page = review.page
         try Task.checkCancellation()
@@ -573,7 +581,7 @@ extension FixtureCoordinator {
         defer { activeDrainRoots.remove(root.path) }
         // Refuse interrupted membership before allowing our own two in-flight stages.
         let initial = try waitingBatch(stateRoot: storage.stateRoot, onQueueChange: onQueueChange)
-        let pipeline = SingleWorkerSpeechPipeline(database: storage.profile.database, debugLog: debugLog)
+        let pipeline = SingleWorkerSpeechPipeline(database: storage.profile.database, debugLog: debugLog, audioObserver: beforeAudioProcessing)
         let start = ProcessInfo.processInfo.systemUptime
         defer { pipeline.close(); pipeline.diagnostics.record(.queue, seconds: ProcessInfo.processInfo.systemUptime - start) }
         let progress = SpeechDrainProgress(callback: onProgress)

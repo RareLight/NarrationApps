@@ -1,4 +1,5 @@
 import Foundation
+import NarrationCore
 
 public enum RelayError: Error, LocalizedError, Sendable, Equatable {
     case setup(String), extraction(String), artifact(String), storage(String), tool(String), interrupted, writerBusy
@@ -17,22 +18,7 @@ public enum Stage: String, Codable, Sendable {
     case expired = "EXPIRED"
 }
 
-public struct ContentBlock: Codable, Sendable, Equatable {
-    public enum Kind: String, Codable, Sendable {
-        case heading, paragraph, listItem, quote, code, table, caption, footnote, unsupported
-    }
-    public let kind: Kind
-    public let text: String
-    public let headingLevel: Int?
-    public let narrationText: String?
-    public let footnoteReferences: [String]?
-    public let footnoteID: String?
-    public init(kind: Kind, text: String, headingLevel: Int? = nil, narrationText: String? = nil,
-                footnoteReferences: [String]? = nil, footnoteID: String? = nil) {
-        self.kind = kind; self.text = text; self.headingLevel = headingLevel
-        self.narrationText = narrationText; self.footnoteReferences = footnoteReferences; self.footnoteID = footnoteID
-    }
-}
+public typealias ContentBlock = NarrationCore.ContentBlock
 
 public struct SemanticArticle: Codable, Sendable, Equatable {
     public let title: String
@@ -48,17 +34,8 @@ public struct SemanticArticle: Codable, Sendable, Equatable {
     public var archivedCopy: ArchivedArticleCopy? = nil
 }
 
-public struct NarrationChunk: Codable, Sendable, Equatable {
-    public let index: Int
-    public let text: String
-    public let blockIndices: [Int]
-}
-
-public struct NarrationPlan: Codable, Sendable, Equatable {
-    public let version: String
-    public let chunks: [NarrationChunk]
-    public let notices: [String]
-}
+public typealias NarrationChunk = NarrationCore.NarrationChunk
+public typealias NarrationPlan = NarrationCore.NarrationPlan
 
 public struct AudioInfo: Codable, Sendable, Equatable {
     public let duration: Double

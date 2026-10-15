@@ -1,4 +1,7 @@
 import Foundation
+import AVFoundation
+import AudioToolbox
+import AudioOutput
 import Testing
 @testable import VoiceRelayCore
 
@@ -59,42 +62,32 @@ private final class TrackedSpeech: LookaheadTTSBackend, @unchecked Sendable {
         try Task.checkCancellation()
         let file = directory.appendingPathComponent("segment.wav")
         if pcm16 {
-            _ = try ToolRunner.run("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=24000:duration=0.1", "-c:a", "pcm_s16le", file.path], timeout: 5, directory: directory)
+            let writer = try AVAudioFile(forWriting: file, settings: [AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 24_000, AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false],
+                commonFormat: .pcmFormatFloat32, interleaved: false)
+            let buffer = AVAudioPCMBuffer(pcmFormat: writer.processingFormat, frameCapacity: 2400)!
+            buffer.frameLength = 2400
+            for index in 0..<2400 { buffer.floatChannelData![0][index] = Float(sin(Double(index) * 0.1) * 0.1) }
+            try writer.write(from: buffer)
         } else {
             try Files.write(floatWAV((0..<2400).map { Float(sin(Double($0) * 0.1) * 0.1) }), to: file)
         }
         return SynthesisResult(artifacts: [LosslessArtifact(url: file, sampleRate: 24000, channels: 1, format: "wav")])
     }
 }
-private func gatedTool(root: URL, mode: String) throws -> URL {
-    let tool = try #require(ToolRunner.locate(mode == "encoding" ? "ffmpeg" : "ffprobe"))
-    let project = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    let python = project.appendingPathComponent(".runtime/kokoro/.venv/bin/python")
-    let config = String(decoding: try Files.json(["root": root.path, "tool": tool.path, "mode": mode]), as: UTF8.self)
-    let script = """
-    #!\(python.path)
-    import json, os, pathlib, sys, time
-    config = json.loads(\(String(reflecting: config)))
-    root = pathlib.Path(config['root'])
-    args = sys.argv[1:]
-    matched = ('-c:a' in args and args[args.index('-c:a') + 1] == 'aac') if config['mode'] == 'encoding' else args[-1].endswith('.wav')
-    if matched:
-        with (root/'entered').open('a') as output: output.write(args[-1] + '\\n')
-        deadline = time.monotonic() + 15
-        while not (root/'release').exists() and time.monotonic() < deadline: time.sleep(0.005)
-    os.execv(config['tool'], [config['tool']] + args)
-    """
-    let url = root.appendingPathComponent("gated-tool")
-    try Files.write(Data(script.utf8), to: url)
-    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
-    return url
-}
-private func useTool(_ tool: URL, mode: String, storage: ManagedSpeechStorage) throws {
-    let store = try NativeStore(url: storage.profile.database)
-    for var episode in try store.episodes() {
-        if mode == "encoding" { episode.settings.ffmpeg = tool.path }
-        else { episode.settings.ffprobe = tool.path }
-        try store.save(episode)
+private func gatedAudio(root: URL, mode: String) -> @Sendable (SpeechTimingStage, URL) throws -> Void {
+    { stage, url in
+        let matched = mode == "encoding" ? stage == .encoding : stage == .validation && url.pathExtension == "wav"
+        guard matched else { return }
+        let trace = root.appendingPathComponent("entered")
+        let descriptor = open(trace.path, O_CREAT | O_APPEND | O_WRONLY, 0o600)
+        guard descriptor >= 0 else { throw RelayError.storage("Could not write synthetic stage trace.") }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        try handle.write(contentsOf: Data((url.path + "\n").utf8)); try handle.close()
+        let deadline = Date().addingTimeInterval(15)
+        while !FileManager.default.fileExists(atPath: root.appendingPathComponent("release").path), Date() < deadline {
+            try Task.checkCancellation(); Thread.sleep(forTimeInterval: 0.005)
+        }
     }
 }
 private func entered(_ root: URL) -> [String] {
@@ -108,7 +101,7 @@ func singleWorkerOverlapsEncodingBoundsWorkAndJoinsCancellation(_ action: String
     let first = try await coordinator.enqueue(article(1), storage: storage, preferences: SpeechPreferences())
     let second = try await coordinator.enqueue(article(2), storage: storage, preferences: SpeechPreferences())
     let third = try await coordinator.enqueue(article(3), storage: storage, preferences: SpeechPreferences())
-    try useTool(gatedTool(root: root, mode: "encoding"), mode: "encoding", storage: storage)
+    await coordinator.setBeforeAudioProcessing(gatedAudio(root: root, mode: "encoding"))
     let backend = TrackedSpeech(blockedArticle: action == "complete" ? nil : second.id)
     let control = QueueRunControl(), log = DeliveryDebugLog(); log.enabled = true
     let drain = Task { try await coordinator.drainQueue(storage: storage, backend: { _ in backend }, control: control, debugLog: log) }
@@ -162,7 +155,7 @@ func singleWorkerOverlapsEncodingBoundsWorkAndJoinsCancellation(_ action: String
     let (root, storage) = try workspace(); defer { try? FileManager.default.removeItem(at: root) }
     let coordinator = FixtureCoordinator()
     let first = try await coordinator.enqueue(article(1), storage: storage, preferences: SpeechPreferences())
-    try useTool(gatedTool(root: root, mode: "validation"), mode: "validation", storage: storage)
+    await coordinator.setBeforeAudioProcessing(gatedAudio(root: root, mode: "validation"))
     let backend = TrackedSpeech(pcm16: true)
     let drain = Task { try await coordinator.drainQueue(storage: storage, backend: { _ in backend }) }
     defer { drain.cancel(); try? Files.write(Data(), to: root.appendingPathComponent("release")) }
@@ -178,65 +171,52 @@ func singleWorkerOverlapsEncodingBoundsWorkAndJoinsCancellation(_ action: String
 @Test func floatWaveStreamingPreservesSamplesAndSkipsUnknownPaddedChunks() throws {
     let (root, _) = try workspace(); defer { try? FileManager.default.removeItem(at: root) }
     let samples: [Float] = [0, -0.01234567, 0.12345678, -0.9, 1.25]
-    let file = root.appendingPathComponent("float.wav"), raw = root.appendingPathComponent("raw")
+    let file = root.appendingPathComponent("float.wav")
     try Files.write(floatWAV(samples, extraChunk: true), to: file)
-    let wave = try #require(try FloatWave.inspect(file)); #expect(wave.info.channels == 1 && wave.info.sampleRate == 24000)
-    try Files.write(Data(), to: raw)
-    let output = try FileHandle(forWritingTo: raw); try wave.stream(to: output); try output.close()
-    let actual = try Data(contentsOf: raw)
-    for (index, sample) in samples.enumerated() {
-        let word = actual.withUnsafeBytes { UInt32(littleEndian: $0.loadUnaligned(fromByteOffset: index * 4, as: UInt32.self)) }
-        #expect(word == sample.bitPattern)
-    }
+    let info = try NativeAudio.inspect(file)
+    #expect(info.channels == 1 && info.sampleRate == 24000)
+    var actual: [Float] = []
+    try NativeAudio.decode(file) { actual += $0 }
+    #expect(actual.map(\.bitPattern) == samples.map(\.bitPattern))
     try Files.write(floatWAV([Float.nan]), to: file)
-    #expect(throws: RelayError.self) { try FloatWave.inspect(file)?.stream() }
+    #expect(throws: (any Error).self) { try NativeAudio.decode(file) }
     var truncated = floatWAV(samples); truncated.removeLast()
     try Files.write(truncated, to: file)
-    #expect(throws: RelayError.self) { try FloatWave.inspect(file) }
+    #expect(throws: (any Error).self) { try NativeAudio.decode(file) }
 }
 
+private final class NativeInspectionProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var denied = false
+    private var values = 0
+    var count: Int { lock.withLock { values } }
+    func deny() { lock.withLock { denied = true } }
+    func observe(_ stage: SpeechTimingStage, _ url: URL) throws {
+        try lock.withLock {
+            if denied { throw RelayError.artifact("Synthetic inspection denied.") }
+            if stage == .validation { values += 1 }
+        }
+    }
+}
 @Test func audioInspectionCacheReusesConfirmedBytesAndRejectsChangedBytes() throws {
     let (root, storage) = try workspace(); defer { try? FileManager.default.removeItem(at: root) }
     let file = root.appendingPathComponent("float.wav")
     try Files.write(floatWAV((0..<2400).map { Float(sin(Double($0) * 0.1) * 0.1) }), to: file)
-    let tool = root.appendingPathComponent("inspection-tool")
-    let project = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    let python = project.appendingPathComponent(".runtime/kokoro/.venv/bin/python")
-    let paths = String(decoding: try Files.json(["ffmpeg": try #require(ToolRunner.locate("ffmpeg")).path,
-        "ffprobe": try #require(ToolRunner.locate("ffprobe")).path, "deny": root.appendingPathComponent("deny").path, "calls": root.appendingPathComponent("calls").path]), as: UTF8.self)
-    let script = """
-    #!\(python.path)
-    import json, os, pathlib, sys
-    config = json.loads(\(String(reflecting: paths)))
-    with pathlib.Path(config['calls']).open('a') as output: output.write(json.dumps(sys.argv[1:]) + '\\n')
-    if pathlib.Path(config['deny']).exists(): sys.exit(1)
-    tool = config['ffprobe' if '-show_streams' in sys.argv else 'ffmpeg']
-    os.execv(tool, [tool] + sys.argv[1:])
-    """
-    try Files.write(Data(script.utf8), to: tool)
-    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: tool.path)
-    var profile = storage.profile; profile.ffmpeg = tool.path; profile.ffprobe = tool.path
-    let log = DeliveryDebugLog(); log.enabled = true
-    let encoder = AudioProcessor(settings: profile, toolDirectory: root, diagnostics: SpeechDiagnostics(log: log))
+    let probe = NativeInspectionProbe(), log = DeliveryDebugLog(); log.enabled = true
+    let encoder = AudioProcessor(settings: storage.profile, toolDirectory: root, diagnostics: SpeechDiagnostics(log: log), observer: { stage, url in try probe.observe(stage, url) })
     let artifact = LosslessArtifact(url: file, sampleRate: 24000, channels: 1, format: "wav")
-    try encoder.validate(SynthesisResult(artifacts: [artifact]), within: root)
+    try encoder.validate(.init(artifacts: [artifact]), within: root)
     let (encoded, info) = try encoder.encode([artifact], in: root)
-    #expect(log.text.contains("speech encoding: audio \(String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), info.duration)) s"))
-    #expect(log.text.contains("s per audio minute"))
-    #expect(!log.text.contains(root.path) && !log.text.contains("float.wav"))
-    let calls = try String(contentsOf: root.appendingPathComponent("calls"), encoding: .utf8).split(separator: "\n")
-    #expect(calls.count <= 3)
-    #expect(!calls.contains { $0.contains(file.path) })
-    #expect(calls.contains { $0.contains("-show_streams") } && calls.contains { $0.contains("null") })
-    try Files.write(Data(), to: root.appendingPathComponent("deny"))
-    // After full inspection, tool execution is denied. Only authenticated copies
-    // in this article's processor can reuse that inspection.
-    let fresh = AudioProcessor(settings: profile, toolDirectory: root)
+    #expect(log.text.contains("s per audio minute") && !log.text.contains(root.path))
+    #expect(probe.count == 2)
+    probe.deny()
+    let fresh = AudioProcessor(settings: storage.profile, toolDirectory: root, observer: { stage, url in try probe.observe(stage, url) })
     #expect(throws: RelayError.self) { try fresh.probe(encoded, final: true) }
     let copy = root.appendingPathComponent("copy.m4a")
     try FileManager.default.copyItem(at: encoded, to: copy)
     #expect(try encoder.probe(copy, final: true).byteLength == info.byteLength)
     try encoder.decode(copy)
+    #expect(throws: RelayError.self) { try encoder.probe(copy, final: false) }
     try Files.write(Data("damaged".utf8), to: copy)
     #expect(throws: RelayError.self) { try encoder.probe(copy, final: true) }
     #expect(throws: RelayError.self) { try encoder.decode(copy) }

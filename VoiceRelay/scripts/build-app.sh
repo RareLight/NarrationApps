@@ -35,5 +35,5 @@ ditto "$native_root/DerivedData/Build/Products/$xcode_configuration/VoiceRelay.a
 codesign --verify --deep --strict "$staged_application"
 # Both directories are on the same filesystem. Exchange existing bundles atomically;
 # the previous package becomes staging and is removed only after a successful swap.
-/usr/bin/python3 "$native_root/scripts/install-app.py" "$staged_application" "$application"
+/usr/bin/swift "$native_root/../swift-packages/scripts/install-app.swift" "$staged_application" "$application"
 echo "$application"

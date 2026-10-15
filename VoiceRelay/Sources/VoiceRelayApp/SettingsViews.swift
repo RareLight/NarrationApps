@@ -1,3 +1,6 @@
+import AppPresentation
+import PronunciationUI
+import NarrationUI
 import SwiftUI
 import AppKit
 import Observation
@@ -5,22 +8,32 @@ import VoiceRelayCore
 
 struct ConfigurationView: View {
     @Bindable var model: AppModel
-    @State private var confirmingInstallation = false
     var body: some View {
         Form {
             if !model.speechRuntimeAvailable { speechSetup }
+            AppearanceSettingsSection(textSize: $model.textSize)
             Section {
-                Picker("Language & Region", selection: $model.preferences.languageRegion) {
+                Picker("Language and region", selection: $model.preferences.languageRegion) {
                     ForEach(SpeechLanguageRegion.allCases) { region in Text(region.label).tag(region) }
                 }
                 Picker("Voice", selection: $model.preferences.voice) {
                     ForEach(model.preferences.languageRegion.voices) { voice in Text(voice.label).tag(voice) }
                 }
-                Stepper("Speed: \(model.preferences.speed, specifier: "%.2f")×", value: $model.preferences.speed, in: 0.75...1.5, step: 0.05)
+                SpeechSpeedControl(speed: $model.preferences.speed)
             } header: {
                 SectionHelpHeader(title: "Speech",
                     explanation: "Voice and speed apply to newly added articles. Queued articles keep their original settings.")
             }.disabled(model.running)
+            Section {
+                VoiceSampleButton(playing: model.voiceSamplePlayer.playingID != nil) { model.playVoiceSample() }
+                    .disabled(!model.canPlayVoiceSample)
+                if let error = model.voiceSamplePlayer.error { InlineNotice(message: error) }
+            } header: {
+                SectionHelpHeader(title: "Voice sample", explanation: "Plays the bundled sample at its recorded speed. It does not generate new audio.")
+            }
+            ImageDescriptionSettingsSection(enabled: $model.describeArticleImages,
+                additionalHelp: "Applies to newly added articles. Existing queued articles keep their prepared text. Web images may be fetched from public sites to create descriptions.")
+                .disabled(model.preview || model.stopping)
             Section {
                 LabeledContent("Source", value: model.sourceReview.plist?.lastPathComponent ?? "Not chosen")
                     .help(model.sourceReview.plist?.path ?? "No Reading List source chosen")
@@ -38,57 +51,66 @@ struct ConfigurationView: View {
                     .disabled(model.preview || model.stopping)
             } header: {
                 SectionHelpHeader(title: "Reading List",
-                    explanation: "Safari’s Bookmarks.plist is the default source, checked every five minutes and never modified. Choose another file if needed. Optional archive recovery sends eligible public article URLs to Archive.ph or Wayback; copies may be older.")
+                    explanation: "Safari’s source is checked every five minutes and never modified. PDFs use local text extraction and OCR. Image descriptions use available Apple Intelligence locally and may be inaccurate; web images may be fetched. Archive recovery sends eligible public article URLs to Archive.ph or Wayback.")
             }
             if model.speechRuntimeAvailable { speechSetup }
         }.formStyle(.grouped)
-            .confirmationDialog("Install speech runtime?", isPresented: $confirmingInstallation) {
-                Button("Install Speech Runtime") { model.installSpeechRuntime() }
-            } message: {
-                Text("Download the pinned Python environment, packages and Kokoro model into VoiceRelay’s private runtime folder? Existing installations remain active until this installation succeeds.")
-            }
     }
     private var speechSetup: some View {
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Button(model.runtimeBusy && !model.runtimeInstalling ? "Checking…" : "Check Speech Runtime") { model.checkSpeechRuntime() }
-                            .disabled(!model.canManageSpeechRuntime)
-                            .help(model.runtimeControlDisabledReason ?? "Verify speech tools and model offline")
-                        if model.runtimeBusy {
-                            ProgressView().controlSize(.small)
-                            Button("Cancel") { model.cancelRuntimeSetup() }
-                        }
-                    }
-                    SpeechRuntimeTestIndicator(model: model)
-                    if let reason = model.runtimeControlDisabledReason, !model.preview, !model.runtimeBusy {
-                        Text(reason).font(AppTypography.secondary).foregroundStyle(.secondary)
-                    }
-                }
-                Button(model.runtimeBusy && model.runtimeInstalling ? "Installing…" : "Install Speech Runtime…") { confirmingInstallation = true }
-                    .disabled(!model.canManageSpeechRuntime)
-                    .help(model.runtimeControlDisabledReason ?? "Install speech tools and model")
-            } header: {
-                SectionHelpHeader(title: "Speech setup",
-                    explanation: "Install downloads the speech tools and model; existing installations stay active until setup succeeds. Requires python3, uv, ffmpeg and ffprobe. Check works offline.")
-            }
+        Section {
+            SpeechSetupControls(activity: model.runtimeBusy ? (model.runtimeInstalling ? .installing : .checking) : nil,
+                status: model.speechSetupStatus, canManage: model.canManageSpeechRuntime,
+                disabledReason: model.runtimeControlDisabledReason,
+                installMessage: "Download the pinned Kokoro model and pronunciation assets into VoiceRelay’s private model folder? Speech runs locally with the bundled native engine.",
+                install: model.installSpeechRuntime, check: model.checkSpeechRuntime, cancel: model.cancelRuntimeSetup)
+        } header: { SectionHelpHeader(title: "Speech setup", explanation: NarrationSettingsHelp.speechSetup) }
     }
 
+}
+
+/// Launch-only setup uses the same cancellable installation as General settings.
+struct SpeechRuntimeOnboardingView: View {
+    @Bindable var model: AppModel
+    @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.appTextSize) private var textSize
+    @Environment(\.dynamicTypeSize) private var dynamicType
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Set up local speech", systemImage: "waveform.circle").appFont(.headline)
+            Text("VoiceRelay needs to download its speech model and pronunciation assets before it can generate audio. After setup, speech runs locally on your Mac.")
+                .fixedSize(horizontal: false, vertical: true)
+            Text("An internet connection is needed for installation. You can also install later in Settings → General.")
+                .appFont(.secondary).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if model.runtimeBusy {
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text(model.runtimeInstalling ? "Installing speech model…" : "Checking speech setup…")
+                }
+            }
+            SpeechRuntimeTestIndicator(model: model)
+            HStack {
+                Spacer()
+                if model.runtimeBusy {
+                    Button(model.runtimeInstalling ? "Cancel Installation" : "Cancel Check") { model.cancelRuntimeSetup() }
+                } else {
+                    Button("Not Now") { dismissWindow() }.keyboardShortcut(.cancelAction)
+                    Button("Install Speech Model") { model.installSpeechRuntime() }
+                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                        .disabled(!model.canManageSpeechRuntime)
+                }
+            }
+        }.padding(24).frame(width: 460 * max(1, AppTypography.scale(size: textSize, dynamic: dynamicType)))
+            .onChange(of: model.runtimeTestResult) { _, result in
+                if result == .success { dismissWindow() }
+            }
+    }
 }
 
 struct SpeechRuntimeTestIndicator: View {
     @Bindable var model: AppModel
     var body: some View {
-        if !model.runtimeBusy {
-            switch model.runtimeTestResult {
-            case .untested: Text("Not tested").foregroundStyle(.secondary)
-            case .success: Label("Runtime verified", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-            case .cancelled: Text("Cancelled; test again when ready").foregroundStyle(.secondary)
-            case .failure(let message):
-                Label(message, systemImage: "xmark.circle.fill").foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        if !model.runtimeBusy { SpeechSetupStatusView(status: model.speechSetupStatus) }
     }
 }
 
@@ -156,9 +178,9 @@ struct DeliveryPaneView: View {
                     .onSubmit { commitURLs() }
                     .help("Public address serving your uploaded files")
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Subscription URL").font(.headline)
+                    Text("Subscription URL").appFont(.headline)
                     Text(draftSubscriptionURL?.absoluteString ?? "Enter a public folder URL")
-                        .textSelection(.enabled).font(AppTypography.secondary)
+                        .textSelection(.enabled).appFont(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Copy", systemImage: "doc.on.doc") {
                         if commitURLs() { model.copyDeliverySubscriptionURL() }
@@ -230,14 +252,17 @@ struct DeliveryPaneView: View {
     }
 }
 
-enum SettingsSection: String, CaseIterable, Identifiable {
+enum SettingsSection: String, SettingsPane {
     case general = "General"
+    case pronunciation = "Pronunciation"
     case delivery = "Publishing"
     case troubleshooting = "Troubleshooting"
     var id: Self { self }
+    var title: String { rawValue }
     var systemImage: String {
         switch self {
         case .general: "gearshape"
+        case .pronunciation: "text.word.spacing"
         case .delivery: "antenna.radiowaves.left.and.right"
         case .troubleshooting: "stethoscope"
         }
@@ -245,89 +270,18 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var help: String {
         switch self {
         case .general: "Speech, Reading List and automation"
+        case .pronunciation: "Shared word pronunciations and live voice previews"
         case .delivery: "Podcast connection, publishing and subscription URL"
         case .troubleshooting: "Library backup and logs"
         }
     }
 }
 
-struct SettingsPaneSelector: View {
-    @Binding var selection: SettingsSection
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Namespace private var selectedTile
-    @FocusState private var focusedPane: SettingsSection?
-    @State private var keyboardNavigation = false
-    var body: some View {
-        GlassEffectContainer(spacing: 8) {
-            HStack(spacing: 8) {
-                ForEach(SettingsSection.allCases) { section in
-                    Button {
-                        if NSApp.currentEvent?.type == .keyDown {
-                            keyboardNavigation = true
-                        } else {
-                            focusedPane = nil; keyboardNavigation = false
-                        }
-                        if reduceMotion { selection = section }
-                        else { withAnimation(.smooth(duration: 0.2)) { selection = section } }
-                    } label: {
-                        paneLabel(section)
-                    }
-                    .buttonStyle(.plain)
-                    .focused($focusedPane, equals: section)
-                    .focusEffectDisabled()
-                    .accessibilityLabel(section.rawValue)
-                    .accessibilityAddTraits(selection == section ? .isSelected : [])
-                    .help(section.help)
-                }
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Settings panes")
-        .frame(width: SettingsView.paneSelectorWidth, height: SettingsView.paneSelectorHeight)
-        .onChange(of: focusedPane) { _, focused in
-            if focused != nil, NSApp.currentEvent?.type == .keyDown { keyboardNavigation = true }
-        }
-    }
-    @ViewBuilder private func paneLabel(_ section: SettingsSection) -> some View {
-        let selected = selection == section
-        let label = VStack(spacing: 4) {
-            Image(systemName: section.systemImage).font(.system(size: SettingsView.paneSymbolSize))
-            Text(section.rawValue).font(.system(size: SettingsView.paneLabelSize)).lineLimit(1)
-        }
-        .frame(width: (SettingsView.paneSelectorWidth - 8 * CGFloat(SettingsSection.allCases.count - 1))
-               / CGFloat(SettingsSection.allCases.count), height: SettingsView.paneSelectorHeight)
-        .contentShape(Rectangle())
-        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
-        .overlay {
-            if keyboardNavigation && focusedPane == section {
-                RoundedRectangle(cornerRadius: 8).stroke(.tint, lineWidth: 1.5)
-                    .padding(-2).allowsHitTesting(false)
-            }
-        }
-        if selected {
-            if reduceTransparency {
-                label.background(.background, in: .rect(cornerRadius: 8))
-            } else {
-                label
-                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 8))
-                    .glassEffectID("selected-settings-pane", in: selectedTile)
-            }
-        } else {
-            label
-        }
-    }
-}
-
 struct SettingsView: View {
-    static let windowWidth: CGFloat = 400
+    static let windowWidth: CGFloat = 440
     static let windowHeight: CGFloat = 680
     static let minWindowWidth: CGFloat = 360
     static let minWindowHeight: CGFloat = 540
-    static let paneSelectorWidth: CGFloat = 292 // 3 tiles × 92 + 2 × 8 spacing
-    static let paneSelectorHeight: CGFloat = 46
-    static let paneSymbolSize: CGFloat = 16
-    static let paneLabelSize: CGFloat = 12
     @Bindable var model: AppModel
     private let initialSection: SettingsSection?
     private var section: SettingsSection { model.settingsSection }
@@ -337,7 +291,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 8) {
-                SettingsPaneSelector(selection: $model.settingsSection)
+                SettingsNavigation(selection: $model.settingsSection).padding(.horizontal, 12)
             }
             .padding(.vertical, 12)
             Divider()
@@ -345,6 +299,10 @@ struct SettingsView: View {
                 switch section {
                 case .general:
                     ConfigurationView(model: model).padding(.horizontal, 8)
+                case .pronunciation:
+                    PronunciationSettingsView(preview: model.pronunciationPreview, configuration: model.pronunciationConfiguration,
+                        unavailableReason: model.pronunciationUnavailableReason,
+                        editor: model.pronunciationIsInert ? .init(inertEntries: []) : .init(), beforePreview: { model.voiceSamplePlayer.stop() })
                 case .delivery:
                     DeliveryPaneView(model: model).padding(.horizontal, 8)
                 case .troubleshooting:
@@ -354,7 +312,7 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .onAppear { if let initialSection { model.settingsSection = initialSection } }
-        .font(AppTypography.body)
+        .appFont(.body)
         .frame(minWidth: Self.minWindowWidth, idealWidth: Self.windowWidth, maxWidth: .infinity,
                minHeight: Self.minWindowHeight, idealHeight: Self.windowHeight, maxHeight: .infinity)
     }
@@ -388,4 +346,27 @@ struct SettingsView: View {
     return SettingsView(model: model, initialSection: .delivery)
 }
 
+#endif
+
+#if DEBUG
+#Preview("Settings — large text at minimum window") {
+    SettingsView(model: AppModel(preview: true)).appTextSizing(AppTextSize(percent: 200))
+        .frame(width: 360, height: 540)
+}
+#endif
+
+#if DEBUG
+#Preview("Speech onboarding — inert first launch") {
+    SpeechRuntimeOnboardingView(model: AppModel(preview: true))
+}
+#Preview("Speech onboarding — inert installation") {
+    let model = AppModel(preview: true)
+    model.runtimeBusy = true; model.runtimeInstalling = true
+    return SpeechRuntimeOnboardingView(model: model)
+}
+#Preview("Speech onboarding — inert retry, large text") {
+    let model = AppModel(preview: true)
+    model.runtimeTestResult = .failure("The model download could not finish. Check your connection and retry.")
+    return SpeechRuntimeOnboardingView(model: model).appTextSizing(AppTextSize(percent: 200))
+}
 #endif

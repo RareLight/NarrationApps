@@ -1,9 +1,34 @@
 # VoiceRelay development
 
-This directory is the canonical root for the Swift/macOS application. Inspect the
-architecture guide, implementation plan, and validation record in `docs/` before
-extending the application. Keep the independently testable Swift core shared by the Xcode
-app, diagnostic CLI, and Swift package tests.
+The authorized native unification plan in the sibling `swift-packages/docs/IMPLEMENTATION_PLAN.md`
+supersedes previous Python/product CLI work. Shared implementation belongs there;
+VoiceRelay owns discovery, retained article identity, SQLite and publication.
+Speech uses one resident native helper, with no serial/parallel mode or automatic
+fallback replay. VoiceRelay requests background admission through the shared lease
+and yields between chunks to pending Libro work. Do not change team/Keychain
+signing settings merely to produce local ad-hoc test artifacts.
+No maintained Python support remains. Audio is never normalized or volume leveled.
+
+October 13 additions: all app scenes use shared semantic typography with persisted
+80–200% text sizing, Dynamic Type category scaling and a 12pt floor. General has the
+setting; View commands provide ⌘+/⌘−/⌘0. Scale navigation and use a compact selector
+fallback at large sizes; avoid view transforms. PDF URLs use local PDFKit text and
+bounded Vision OCR. Web ALT and tagged PDF Figure/Alt text take precedence; repeated
+image credits are suppressed in narration, without dropping source prose. Missing
+descriptions may use available on-device Foundation Models, never cloud fallback or
+automatic model downloads. The generated-description preference defaults on and can
+be disabled; authored ALT/OCR remain active. Inline web image retrieval is bounded,
+public HTTPS only, ephemeral and credential-free; this is separate from external
+RSS artwork. Image failures retain article text. Injected/inert loaders must use
+explicit fake image providers and never contact image hosts or native models.
+Preserve verified snapshots, source identity/save dates and published audio. Native
+OCR fixtures may require sandbox escalation for Apple's system ML runtime; actual
+image-description quality, GUI and listening acceptance remain operator-owned.
+
+This directory is the canonical root for the Swift/macOS application. Inspect
+`docs/README.md`, `docs/ARCHITECTURE.md`, `docs/VALIDATION.md` and the shared
+current roadmap before extending the application. Keep the independently testable Swift core shared by the Xcode
+app, native helper, and Swift package tests.
 
 Current user-confirmed lifecycle: processing and delivery are owned by the
 running VoiceRelay app, and the app's purpose is set-and-forget automation.
@@ -39,11 +64,11 @@ old-host deletes to a new destination. Failures use sanitized status text.
 
 Current UX direction: a compact MenuBarExtra window-style popover and one sidebar library window
 (Articles with All Articles/Queue scopes, Uploads, Server Audio). Settings uses native pane navigation for
-General, Publishing and Troubleshooting, with no global Cancel. Generate/Stop
+General, Pronunciation, Publishing and Troubleshooting, with no global Cancel. Generate/Stop
 live with audio work.
 Keep voice, speed and source choice as user preferences;
 technical encoding/runtime/feed details stay internal or diagnostic.
-Audio encoding uses 96 kbps AAC-LC/M4A at mono 24 kHz, with floating-point
+Audio encoding uses 64 kbps AAC-LC/M4A at mono 24 kHz, with floating-point
 intermediates and original levels/dynamics: no normalization, gain, limiter or
 DRC. The legacy loudness profile field is inert decoding/import metadata.
 Unfinished managed work adopts the current bitrate and encoding policy, reusing
@@ -51,13 +76,13 @@ valid speech chunks; encoded scratch is versioned independently. Preserve
 published or integrity-confirmed already-placed final audio files.
 Use standard macOS controls, toolbars, sidebar and semantic typography/colors. Liquid Glass
 belongs to navigation/control chrome, not content backgrounds. Remove retired
-active UI, state, callbacks, scene wiring and previews; retain core fixture/CLI
+active UI, state, callbacks, scene wiring and previews; retain core fixture
 coverage. Remove abandoned prototypes rather than bundling inactive executables.
 
-Current storage/UI direction: General, Publishing and Troubleshooting share one
+Current storage/UI direction: General, Pronunciation, Publishing and Troubleshooting share one
 resizable
-400×680-ideal Settings window (360×540 minimum) switched by a centered compact icon-navigation strip
-(292×46 selector — three 92pt tiles plus spacing, 16pt SF symbols, 12pt labels,
+440×680-ideal Settings window (360×540 minimum) switched by a centered compact icon-navigation strip
+(392×46 selector — four 92pt tiles plus spacing, 16pt SF symbols, 12pt labels,
 the selected tile using a real
 SwiftUI glassEffect); selection state is the glass tile, and keyboard focus is
 shown by a rounded keyboard-only focus cue, not a persistent tinted box. All visible app text
@@ -114,7 +139,7 @@ already-started finalization finish while abandoning only interrupted speech;
 Quit cancels and joins both stages while retaining recovery checkpoints. Waiting
 rows remain Ready/removable until their speech turn starts. Debug logging includes
 sanitized stage timings. Kokoro pronunciation lookahead uses one CPU thread,
-retains authenticated voice tensors and bounds allocator reuse at 256 MiB; do not
+retains authenticated voice tensors and bounds MLX cache reuse at 64 MiB and working memory at a soft 1 GiB threshold; do not
 alter pinned model math or introduce a second inference worker without request. Batched runs reuse one
 prepared speech-helper session across identity-compatible items; helper failures
 surface privacy-safe, role-specific errors without paths or content. Safari
@@ -162,7 +187,7 @@ Processing and inference-helper scratch use app-owned macOS system temporary sto
 Persistent runtime/model/cache assets and explicit installer scratch remain confined
 to the selected runtime root: legacy project-local installations remain supported;
 explicit General installation uses the private app-managed SpeechRuntime directory.
-Bundle immutable setup sources/pins; never download on build/startup/readiness.
+Bundle the native helper and Metal resources; never download models on build/startup/readiness.
 Library backups use SQLite backup, include retained text and delivery bookkeeping,
 exclude credentials/preferences/audio/runtime/scratch, and remain private. Restore
 validates and stages before atomic replacement, preserves the previous library,
@@ -200,7 +225,7 @@ user-approved backed-up native queue/generated-history reset was completed; do n
 repeat it or re-query its frozen result as part of validation. No audio files or Safari
 input files were deleted by that reset.
 
-- Preserve the Python reference and all customized configuration, state, feeds,
+- Preserve private legacy environments and all customized configuration, state, feeds,
   and published audio in their existing locations. Do not copy live data into
   this project or silently adopt its schema. Use explicit isolated fixtures.
 - Keep private endpoints, credentials, model assets, and generated artifacts out
@@ -333,5 +358,13 @@ App presentation is split into AppPresentation, SettingsViews and MenuBarViews w
 named inert previews. Packaging stages and verifies before atomic exchange; fake
 packaging fixtures never build, sign or launch an application. CONTRIBUTING.md and
 docs/RELEASE_CHECKLIST.md describe engineering and distribution gates; historical
-validation lives separately in docs/VALIDATION_HISTORY.md. Do not bump to 1.0 or
+validation lives separately in docs/history/VALIDATION.md. Do not bump to 1.0 or
 operate Developer ID/notarization accounts before operator acceptance/approval.
+
+
+October 15 shared Settings: use independent AppPresentation navigation, section help,
+notices and Appearance controls, plus SwiftNarration.NarrationUI narration controls.
+Keep preference keys, source/automation, Publishing, backup and session log ownership
+here. Speech setup appears once; Install Speech Model explicitly downloads and
+Check Speech Setup initializes offline with joined cleanup. Generic offline failures
+must not suggest a network requirement. See the shared SETTINGS_ALIGNMENT.md plan.

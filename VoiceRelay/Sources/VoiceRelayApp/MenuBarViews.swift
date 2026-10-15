@@ -1,3 +1,4 @@
+import AppPresentation
 import SwiftUI
 import AppKit
 import Observation
@@ -7,6 +8,8 @@ struct RelayMenu: View {
     @Bindable var model: AppModel
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.appTextSize) private var textSize
+    @Environment(\.dynamicTypeSize) private var dynamicType
     @State private var popoverWindow = MenuPopoverWindowReference()
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -14,7 +17,7 @@ struct RelayMenu: View {
             if let section = health.settingsSection {
                 Button { showSettings(section) } label: {
                     Label(health.title, systemImage: health.symbol)
-                }.buttonStyle(PopoverMenuButtonStyle(foreground: .red))
+                }.buttonStyle(PopoverMenuButtonStyle(foreground: health.symbol == "xmark.circle.fill" ? .red : .primary))
                     .disabled(model.preview || model.stopping)
             } else {
                 Label(health.title, systemImage: health.symbol)
@@ -37,7 +40,7 @@ struct RelayMenu: View {
                 item("Quit VoiceRelay") { model.quit() }.disabled(model.preview)
             }.buttonStyle(PopoverMenuButtonStyle(verticalPadding: 4))
         }.buttonStyle(PopoverMenuButtonStyle())
-            .padding(6).frame(width: 280)
+            .padding(6).frame(width: 280 * max(1, AppTypography.scale(size: textSize, dynamic: dynamicType)))
             .background(MenuPopoverWindowCapture(reference: popoverWindow, inert: model.preview).frame(width: 0, height: 0))
     }
     private func item(_ title: String, action: @escaping () -> Void) -> some View {
@@ -90,7 +93,7 @@ struct SyncMenuProgress: View {
     @Bindable var model: AppModel
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(model.syncProgressLabel).font(AppTypography.secondary)
+            Text(model.syncProgressLabel).appFont(.secondary)
             if let fraction = model.syncProgressFraction {
                 ProgressView(value: fraction).progressViewStyle(.linear).controlSize(.small)
                     .accessibilityLabel(model.syncPhase == .generating ? "Audio generation progress" : "Current audio file upload progress")
@@ -131,23 +134,31 @@ struct VoiceRelayApp: App {
     }
     var body: some Scene {
         Group {
-            MenuBarExtra("VoiceRelay", systemImage: "waveform") {
-                RelayMenu(model: model)
+            MenuBarExtra("VoiceRelay", systemImage: "waveform.circle") {
+                RelayMenu(model: model).appTextSizing(model.textSize)
             }
             .menuBarExtraStyle(.window)
+            Window("Set Up VoiceRelay Speech", id: "speech-setup") {
+                SpeechRuntimeOnboardingView(model: model).appTextSizing(model.textSize)
+                    .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
+            }
+            .windowResizability(.contentSize)
+            .defaultLaunchBehavior(model.runtimeSetupNeededAtLaunch ? .presented : .suppressed)
+            .restorationBehavior(.disabled)
             Settings {
-                SettingsView(model: model).background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
+
+                SettingsView(model: model).appTextSizing(model.textSize).background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
             }
             .windowResizability(.contentMinSize)
             Window("VoiceRelay", id: "articles") {
-                WorkspaceView(model: model)
+                WorkspaceView(model: model).appTextSizing(model.textSize)
                     .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
                     .frame(minWidth: 760, minHeight: 480)
             }
             .defaultSize(width: 980, height: 640)
             WindowGroup("Article Preview", for: URL.self) { $url in
                 if let url {
-                    ArticlePreviewView(url: url, inert: model.preview)
+                    ArticlePreviewView(url: url, inert: model.preview).appTextSizing(model.textSize)
                         .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
                         .frame(minWidth: 560, minHeight: 420)
                 }
@@ -156,12 +167,12 @@ struct VoiceRelayApp: App {
             .commands { LibraryCommands(model: model) }
             WindowGroup("VoiceRelay Help", for: AppHelpTopic.self) { $topic in
                 if let topic {
-                    AppHelpView(topic: topic)
+                    AppHelpView(topic: topic).appTextSizing(model.textSize)
                         .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
                         .frame(minWidth: 420, minHeight: 320)
                 }
             }.defaultSize(width: 560, height: 500)
-        }.commands { AppHelpCommands(model: model) }
+        }.commands { AppHelpCommands(model: model); TextSizeCommands(model: model) }
     }
 }
 
@@ -190,5 +201,11 @@ struct VoiceRelayApp: App {
 #Preview("Menu — inert sync checks") {
     let model = menuPreviewModel(); model.syncBusy = true; model.syncPhase = .reconciling
     return RelayMenu(model: model)
+}
+#endif
+
+#if DEBUG
+#Preview("Menu — large text, inert") {
+    RelayMenu(model: menuPreviewModel()).appTextSizing(AppTextSize(percent: 200))
 }
 #endif

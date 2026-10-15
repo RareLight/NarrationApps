@@ -27,7 +27,7 @@ import Testing
     #expect(!spoken.contains("First table") && !spoken.contains("first code"))
     #expect(article.blocks == blocks && plan.notices.filter { $0.contains("repeated omission") }.count == 3)
     #expect(plan.chunks.allSatisfy { $0.text.count <= 120 })
-    let oldVersion = String(Narration.version.dropLast("/omission-runs-1".count))
+    let oldVersion = "conservative-2/footnotes-1/sentence-chunks-1/decorative-quotes-1/article-boundaries-1/decorative-separators-1"
     #expect(Narration.chunkFingerprintVersion(oldVersion) == Narration.chunkFingerprintVersion(plan.version))
 }
 
@@ -120,7 +120,8 @@ private final class SourceReviewProtocol: URLProtocol, @unchecked Sendable {
         #expect(try dom.select("img, picture, source, svg").isEmpty())
         #expect(result.cleanedHTML.contains("I’ll") && !result.cleanedHTML.contains("â€™"))
         #expect(result.article.blocks.filter { $0.kind == .caption && $0.text == "One caption. Credit: Example" }.count == 1)
-        #expect(try dom.select("figcaption").count == 1)
+        #expect(try dom.select("figcaption:not([data-voicerelay-image])").count == 1)
+        #expect(result.article.blocks.contains { $0.imageURL != nil && $0.narrationText == "" })
         #expect(result.article.blocks.filter { $0.text == paragraph.trimmingCharacters(in: .whitespaces) }.count <= 2)
         #expect(!result.article.blocks.map(\.text).joined().contains("Decorative image text"))
     }
@@ -376,7 +377,7 @@ private final class SourceReviewProtocol: URLProtocol, @unchecked Sendable {
 
     @Test(arguments: ["status", "pdf", "empty", "oversize", "declared-size", "encoding", "error", "transport-policy"])
     func selectedFetchClassifiesFailuresWithoutPrivateDetails(_ path: String) async throws {
-        let expected: [String: SourceFetchError] = ["status": .status(403), "pdf": .unsupportedType, "empty": .empty,
+        let expected: [String: SourceFetchError] = ["status": .status(403), "pdf": .invalidPDF, "empty": .empty,
             "oversize": .tooLarge, "declared-size": .tooLarge, "encoding": .unsupportedEncoding, "error": .network, "transport-policy": .transportPolicy]
         do {
             _ = try await PageFetcher(limits: FetchLimits(maximumBytes: 128)).fetch(

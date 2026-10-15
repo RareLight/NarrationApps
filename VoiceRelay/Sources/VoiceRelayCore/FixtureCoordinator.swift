@@ -1,3 +1,4 @@
+import NarrationCore
 import Foundation
 
 public enum FixtureBoundary: String, CaseIterable, Sendable {
@@ -64,7 +65,7 @@ struct StoredExtraction: Codable {
         let article = try JSONDecoder().decode(SemanticArticle.self, from: articleData)
         let narration = try JSONDecoder().decode(NarrationPlan.self, from: narrationData)
         let page = FetchedPage(originalURL: article.originalURL, finalURL: article.finalURL, bytes: source,
-                               html: "", contentType: "text/html", encoding: "saved-response", fetchedAt: .distantPast,
+                               html: "", contentType: source.starts(with: Data("%PDF-".utf8)) ? "application/pdf" : "text/html", encoding: "saved-response", fetchedAt: .distantPast,
                                archivedCopy: article.archivedCopy)
         return ReviewedSource(page: page, document: ExtractedDocument(article: article, cleanedHTML: html), narration: narration, issue: nil)
     }
@@ -138,6 +139,8 @@ enum FixtureWorkspace {
 
 public actor FixtureCoordinator {
     public init() {}
+    var beforeAudioProcessing: (@Sendable (SpeechTimingStage, URL) throws -> Void)?
+    func setBeforeAudioProcessing(_ hook: (@Sendable (SpeechTimingStage, URL) throws -> Void)?) { beforeAudioProcessing = hook }
     var activeDrainRoots: Set<String> = []
     var activeDeliveryRoots: Set<String> = []
     var beforeEnqueueCommit: (@Sendable () -> Void)?
@@ -248,7 +251,7 @@ public actor FixtureCoordinator {
         let document = ExtractedDocument(article: article, cleanedHTML: try String(contentsOf: paths[2], encoding: .utf8))
         // Resumption uses the reviewed semantic snapshot and exact response bytes; no fetch/HTML decode.
         let page = FetchedPage(originalURL: article.originalURL, finalURL: article.finalURL,
-                               bytes: try Data(contentsOf: paths[0]), html: "", contentType: "text/html",
+                               bytes: try Data(contentsOf: paths[0]), html: "", contentType: article.extractorVersion == PDFArticleExtractor.version ? "application/pdf" : "text/html",
                                encoding: "saved-response", fetchedAt: .distantPast)
         let review = ReviewedSource(page: page, document: document, narration: narration, issue: nil)
         return try await runReviewed(root: root, review: review, backend: backend,
@@ -292,10 +295,11 @@ public actor FixtureCoordinator {
                              speechVoice: String? = nil, speechSpeed: Double? = nil,
                              context: SpeechArticleContext? = nil, interruptAfter: FixtureBoundary?, onBoundary: @escaping @Sendable (FixtureBoundary) -> Void,
                              onProgress: @escaping @Sendable (PipelineProgress) -> Void) async throws -> FixtureResult {
+        let audioObserver = beforeAudioProcessing
         let child = Task.detached(priority: .userInitiated) {
             try await Self.execute(root: root, imported: imported, backend: backend, review: review,
                              storage: storage, delivery: delivery, speechVoice: speechVoice, speechSpeed: speechSpeed,
-                             context: context, interruptAfter: interruptAfter, onBoundary: onBoundary, onProgress: onProgress)
+                             context: context, audioObserver: audioObserver, interruptAfter: interruptAfter, onBoundary: onBoundary, onProgress: onProgress)
         }
         return try await withTaskCancellationHandler {
             try await child.value
@@ -306,7 +310,7 @@ public actor FixtureCoordinator {
     private nonisolated static func execute(root: URL, imported: PrototypeProfile?, backend: any TTSBackend, review: ReviewedSource? = nil,
                                             storage: ManagedSpeechStorage? = nil, delivery: DeliverySettings? = nil,
                                             speechVoice: String? = nil, speechSpeed: Double? = nil,
-                                            context: SpeechArticleContext? = nil, interruptAfter: FixtureBoundary?, onBoundary: @Sendable (FixtureBoundary) -> Void,
+                                            context: SpeechArticleContext? = nil, audioObserver: (@Sendable (SpeechTimingStage, URL) throws -> Void)? = nil, interruptAfter: FixtureBoundary?, onBoundary: @Sendable (FixtureBoundary) -> Void,
                                             onProgress: @Sendable (PipelineProgress) -> Void) async throws -> FixtureResult {
         try Task.checkCancellation()
         let root = root.resolvingSymlinksInPath().standardizedFileURL
@@ -326,9 +330,6 @@ public actor FixtureCoordinator {
         selected.channelTitle = review == nil ? "VoiceRelay Speech Fixture" : "VoiceRelay Articles"
         selected.channelDescription = "Private local speech; remote delivery disabled"
         try selected.validate()
-        guard ToolRunner.locate(selected.ffmpeg) != nil, ToolRunner.locate(selected.ffprobe) != nil else {
-            throw RelayError.setup("Install ffmpeg/ffprobe or select their executable paths in the imported profile.")
-        }
         let lease: PipelineLease?
         if let context { try context.pipeline.ensureLease(selected.database); lease = nil }
         else { lease = try PipelineLease(database: selected.database) }
@@ -406,7 +407,7 @@ public actor FixtureCoordinator {
             throw RelayError.setup("Episode work must remain inside its fixture without symlinks.")
         }
         try Files.directory(directory)
-        let processor = AudioProcessor(settings: p, toolDirectory: directory, diagnostics: diagnostics)
+        let processor = AudioProcessor(settings: p, toolDirectory: directory, diagnostics: diagnostics, observer: context?.pipeline.audioObserver ?? audioObserver)
         func boundary(_ point: FixtureBoundary) throws {
             onBoundary(point)
             try Task.checkCancellation()
@@ -421,13 +422,18 @@ public actor FixtureCoordinator {
         let cleanedFile = directory.appendingPathComponent("cleaned.html")
         let extractionFile = directory.appendingPathComponent("extraction-checkpoint.json")
         let sourceBytes = try review?.page.bytes ?? FixtureResource.html(); let sourceHash = Files.hash(sourceBytes)
+        let placedDestination = p.audio.appendingPathComponent(e.id + ".m4a")
+        let preservingPlacedAudio = e.stage == .encoded && e.encodedHash != nil
+            && !Files.hasSymlink(placedDestination, below: p.audio)
+            && (try? Files.hash(placedDestination)) == e.encodedHash
+            && (try? processor.probe(placedDestination, final: true)) != nil
         if storage != nil, let data = try store.snapshot(articleID: e.id) {
             let saved = try JSONDecoder().decode(StoredExtraction.self, from: data)
             let savedReview = try saved.review()
             if Files.hash(savedReview.page.bytes) == sourceHash { try saved.restore(to: directory) }
-            else if e.stage == .published { throw RelayError.setup("This article already has audio from a different source snapshot. Existing audio is preserved.") }
+            else if e.stage == .published || preservingPlacedAudio { throw RelayError.setup("This article already has audio from a different source snapshot. Existing audio is preserved.") }
         }
-        if review != nil, e.stage == .published,
+        if review != nil, e.stage == .published || preservingPlacedAudio,
            let bytes = try? Data(contentsOf: extractionFile),
            let cp = try? JSONDecoder().decode(ExtractionCheckpoint.self, from: bytes), cp.sourceHash != sourceHash {
             throw RelayError.setup("This article already has audio from a different source snapshot. Existing audio is preserved.")
@@ -437,15 +443,15 @@ public actor FixtureCoordinator {
         if let bytes = try? Data(contentsOf: extractionFile),
            let cp = try? JSONDecoder().decode(ExtractionCheckpoint.self, from: bytes),
            cp.sourceHash == sourceHash,
-           (e.stage == .published || (cp.extractorVersion == (review?.document?.article.extractorVersion ?? ArticleExtractor.version)
-                                      && cp.narrationVersion == Narration.version)),
+           (e.stage == .published || preservingPlacedAudio || (cp.extractorVersion == (review?.document?.article.extractorVersion ?? ArticleExtractor.version)
+                                      && cp.narrationVersion == ((backend as? any PreparedTTSBackend)?.narrationVersion ?? Narration.version(pronunciations: backend.pronunciations)))),
            (try? Files.hash(source)) == sourceHash, (try? Files.hash(articleFile)) == cp.articleHash,
            (try? Files.hash(narrationFile)) == cp.narrationHash, (try? Files.hash(cleanedFile)) == cp.cleanedHash {
             article = try? JSONDecoder().decode(SemanticArticle.self, from: Data(contentsOf: articleFile))
             plan = try? JSONDecoder().decode(NarrationPlan.self, from: Data(contentsOf: narrationFile))
         }
         if article == nil || plan == nil {
-            guard e.stage != .published else { throw RelayError.artifact("Published semantic checkpoint is damaged; inspect private artifacts before repair.") }
+            guard e.stage != .published && !preservingPlacedAudio else { throw RelayError.artifact("Finished audio is preserved, but its semantic checkpoint needs inspection before publication can continue.") }
             e.stage = .fetching; try store.save(e); progress(.fetching)
             guard sourceBytes.count <= p.maxArticleBytes else {
                 throw RelayError.extraction("Fixture HTML exceeds configured bounds or has an unsupported encoding.")
@@ -458,11 +464,21 @@ public actor FixtureCoordinator {
                 let page = URL(string: "https://articles.example/fixture")!
                 document = try ArticleExtractor.extract(html: html, originalURL: page, finalURL: page)
             }
-            let narration = try Narration.prepare(document.article, limit: p.chunkMaxCharacters)
+            let native = backend as? any PreparedTTSBackend
+            let purpose = native?.preparationPurpose ?? .preview
+            let projection = try Narration.prepare(document.article, limit: p.chunkMaxCharacters,
+                pronunciations: backend.pronunciations, settings: native?.speechSettings, purpose: purpose)
+            if native != nil, let previous = context?.previous { try await previous.wait() }
+            var narration = try native?.prepareNarration(projection) ?? projection
+            if native != nil, let oldData = try? Data(contentsOf: narrationFile),
+               let old = try? JSONDecoder().decode(NarrationPlan.self, from: oldData), old.version != narration.version {
+                narration = NarrationPlan(version: narration.version, chunks: narration.chunks,
+                    notices: narration.notices + ["Unfinished narration was prepared with the current speech pipeline. Completed and published audio is preserved."])
+            }
             try Files.write(try Files.json(document.article), to: articleFile)
             try Files.write(try Files.json(narration), to: narrationFile)
             try Files.write(Data(document.cleanedHTML.utf8), to: cleanedFile)
-            let cp = ExtractionCheckpoint(sourceHash: sourceHash, extractorVersion: document.article.extractorVersion, narrationVersion: Narration.version,
+            let cp = ExtractionCheckpoint(sourceHash: sourceHash, extractorVersion: document.article.extractorVersion, narrationVersion: narration.version,
                                           articleHash: try Files.hash(articleFile, description: "prepared article text"),
                                           narrationHash: try Files.hash(narrationFile, description: "prepared narration"),
                                           cleanedHash: try Files.hash(cleanedFile, description: "cleaned article"))
@@ -486,9 +502,9 @@ public actor FixtureCoordinator {
             let placedAudioValid = e.stage == .encoded && e.encodedHash != nil
                 && (try? Files.hash(destination)) == e.encodedHash
                 && (try? processor.probe(destination, final: true)) != nil
-            let encodedValid = e.encodedHash != nil && (try? Files.hash(encoded)) == e.encodedHash
-                && (e.synthesisFingerprint == inputFingerprint || placedAudioValid)
-                && (try? processor.probe(encoded, final: true)) != nil
+            let encodedValid = placedAudioValid || (e.encodedHash != nil && (try? Files.hash(encoded)) == e.encodedHash
+                && e.synthesisFingerprint == inputFingerprint
+                && (try? processor.probe(encoded, final: true)) != nil)
             if !encodedValid {
                 e.stage = .synthesizing; try store.save(e); progress(.synthesizing, 0, plan.chunks.count)
                 var prepared = false
@@ -513,7 +529,7 @@ public actor FixtureCoordinator {
                         try Files.directory(chunkDirectory)
                         func requestFor(_ chunk: NarrationChunk) -> SynthesisRequest {
                             SynthesisRequest(text: chunk.text, language: p.language, voice: p.voice, articleID: e.id,
-                                chunkIndex: chunk.index, blockIndices: chunk.blockIndices, settings: p.backendSettings)
+                                chunkIndex: chunk.index, blockIndices: chunk.blockIndices, settings: p.backendSettings, preparedUtterance: chunk.preparedUtterance)
                         }
                         let request = requestFor(chunk)
                         let fingerprint = Files.hash(try Files.json(Fingerprint(request: request, backend: backend.identity,
@@ -573,13 +589,14 @@ public actor FixtureCoordinator {
                 e.synthesisFingerprint = inputFingerprint
             }
             try await handoffSpeech()
-            try processor.decode(encoded)
+            let publicationSource = placedAudioValid ? destination : encoded
+            try processor.decode(publicationSource)
             e.stage = .encoded
             if e.publicationDate == nil { e.publicationDate = Date() }
             try store.save(e); try boundary(.encoded)
             guard let encodedHash = e.encodedHash else { throw RelayError.artifact("Encoded checkpoint has no integrity record.") }
             try diagnostics.measure(.publication) {
-                try processor.publish(encoded, destination: destination, expectedHash: encodedHash, inMediaDirectory: storage != nil)
+                try processor.publish(publicationSource, destination: destination, expectedHash: encodedHash, inMediaDirectory: storage != nil)
             }
             try boundary(.audioPlaced)
             // Origin metadata is captured at the commit whether or not delivery is enabled.

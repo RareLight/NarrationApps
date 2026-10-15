@@ -1,56 +1,55 @@
 import Foundation
 import Darwin
+import AudioOutput
+import NarrationCore
 
 struct AudioProcessor: Sendable {
-    static let encodingVersion = "float32-unprocessed-aac-1"
+    static let encodingVersion = "native-float32-aac-2"
     let settings: PrototypeProfile
     let toolDirectory: URL
     private let inspection = AudioInspectionCache()
     private let diagnostics: SpeechDiagnostics
-    init(settings: PrototypeProfile, toolDirectory: URL, diagnostics: SpeechDiagnostics = SpeechDiagnostics(log: nil)) {
-        self.settings = settings; self.toolDirectory = toolDirectory; self.diagnostics = diagnostics
+    private let observer: (@Sendable (SpeechTimingStage, URL) throws -> Void)?
+    init(settings: PrototypeProfile, toolDirectory: URL, diagnostics: SpeechDiagnostics = SpeechDiagnostics(log: nil), observer: (@Sendable (SpeechTimingStage, URL) throws -> Void)? = nil) {
+        self.settings = settings; self.toolDirectory = toolDirectory; self.diagnostics = diagnostics; self.observer = observer
     }
     func probe(_ url: URL, final: Bool) throws -> AudioInfo {
         try Task.checkCancellation()
-        if !final, let wave = try FloatWave.inspect(url) { return wave.info }
-        let hash = final ? try Files.hash(url) : nil
-        if let hash, let cached = inspection.info(hash) { return cached }
-        let data = try ToolRunner.run(settings.ffprobe,
-            ["-v", "error", "-show_streams", "-show_format", "-of", "json", url.path],
-            timeout: settings.toolTimeoutSeconds, directory: toolDirectory, invalidInputIsArtifact: true)
-        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let streams = obj["streams"] as? [[String: Any]], streams.count == 1,
-              let stream = streams.first, stream["codec_type"] as? String == "audio",
-              let codec = stream["codec_name"] as? String,
-              let channels = stream["channels"] as? Int,
-              let rateText = stream["sample_rate"] as? String, let rate = Int(rateText),
-              let format = obj["format"] as? [String: Any], let durationText = format["duration"] as? String,
-              let duration = Double(durationText), duration.isFinite, duration > 0,
-              let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0 else {
-            throw RelayError.artifact("Audio inspection rejected an empty or invalid artifact.")
+        let hash = try Files.hash(url)
+        let native: NativeAudioInfo
+        if let cached = inspection.info(hash) { native = cached }
+        else {
+            try observer?(.validation, url)
+            do { native = try NativeAudio.inspect(url) }
+            catch is CancellationError { throw CancellationError() }
+            catch { throw RelayError.artifact("Audio inspection rejected an empty or invalid artifact.") }
         }
+        if final, native.container != "m4a" { throw RelayError.artifact("Final audio is not an M4A container.") }
+        let info = AudioInfo(duration: native.duration, byteLength: native.byteLength, sampleRate: native.sampleRate,
+                             channels: native.channels, codec: native.codec)
+        try validatePolicy(info, final: final, url: url)
+        inspection.save(native, hash: hash)
+        return info
+    }
+    private func validatePolicy(_ info: AudioInfo, final: Bool, url: URL) throws {
         if final {
-            guard codec == "aac", stream["profile"] as? String == "LC", channels == 1, rate == settings.sampleRate,
-                  (format["format_name"] as? String)?.contains("mp4") == true else {
+            guard info.codec == "aac", info.channels == 1, info.sampleRate == settings.sampleRate,
+                  ["m4a", "m4b"].contains(url.pathExtension.lowercased()) || url.lastPathComponent.hasSuffix(".m4a.tmp") else {
                 throw RelayError.artifact("Final output must be mono AAC-LC/M4A at the configured sample rate.")
             }
         } else {
-            guard codec.hasPrefix("pcm_") || ["flac", "alac"].contains(codec) else {
+            guard info.codec.hasPrefix("pcm_") || ["flac", "alac"].contains(info.codec) else {
                 throw RelayError.artifact("Backend audio must be lossless PCM, FLAC, or ALAC.")
             }
         }
-        let info = AudioInfo(duration: duration, byteLength: Int64(size), sampleRate: rate, channels: channels, codec: codec)
-        if let hash { inspection.save(info, hash: hash) }
-        return info
     }
     func decode(_ url: URL) throws {
         try Task.checkCancellation()
-        if let wave = try FloatWave.inspect(url) { try wave.stream(); return }
         let hash = try Files.hash(url)
         if inspection.isDecoded(hash) { return }
-        _ = try ToolRunner.run(settings.ffmpeg,
-            ["-nostdin", "-v", "error", "-xerror", "-i", url.path, "-map", "0:a:0", "-f", "null", "-"],
-            timeout: settings.toolTimeoutSeconds, directory: toolDirectory, invalidInputIsArtifact: true)
+        do { try NativeAudio.decode(url) }
+        catch is CancellationError { throw CancellationError() }
+        catch { throw RelayError.artifact("Audio decoding rejected an incomplete or invalid artifact.") }
         inspection.markDecoded(hash)
     }
     func validate(_ result: SynthesisResult, within directory: URL) throws {
@@ -64,46 +63,39 @@ struct AudioProcessor: Sendable {
             try decode(a.url)
         }
     }
+    static func scheduledGaps(_ artifacts: [LosslessArtifact]) throws -> [Double]? {
+        let policies = artifacts.compactMap(\.assemblyPolicy)
+        guard !policies.isEmpty else {
+            guard artifacts.allSatisfy({ $0.gapAfterSeconds == nil }) else { throw RelayError.artifact("Invalid legacy audio assembly checkpoint.") }
+            return nil // explicit legacy 0.15s policy
+        }
+        guard policies.count == artifacts.count, Set(policies) == [NarrationPausePolicy.candidateVersion],
+              artifacts.allSatisfy({ $0.gapAfterSeconds != nil && $0.gapAfterSeconds!.isFinite && (0...10).contains($0.gapAfterSeconds!) }) else {
+            throw RelayError.artifact("Incompatible audio assembly checkpoints must be prepared again; completed media is preserved.")
+        }
+        return artifacts.map { $0.gapAfterSeconds! }
+    }
+
     func encode(_ artifacts: [LosslessArtifact], in directory: URL) throws -> (URL, AudioInfo) {
         guard !artifacts.isEmpty else { throw RelayError.artifact("No lossless audio to encode.") }
-        let assemblyStart = ProcessInfo.processInfo.systemUptime
-        let combined = directory.appendingPathComponent("combined.pcm")
-        try Files.write(Data(), to: combined)
-        let output = try FileHandle(forWritingTo: combined); defer { try? output.close() }
-        for (index, artifact) in artifacts.enumerated() {
-            try Task.checkCancellation()
-            if let wave = try FloatWave.inspect(artifact.url), wave.channels == 1, wave.rate == settings.sampleRate {
-                try wave.stream(to: output)
-            } else {
-                let pcm = directory.appendingPathComponent("pcm-\(index).raw")
-                _ = try ToolRunner.run(settings.ffmpeg,
-                    ["-nostdin", "-v", "error", "-y", "-xerror", "-i", artifact.url.path, "-map", "0:a:0", "-vn", "-map_metadata", "-1", "-ac", "1", "-ar", String(settings.sampleRate), "-c:a", "pcm_f32le", "-f", "f32le", pcm.path],
-                    timeout: settings.toolTimeoutSeconds, directory: toolDirectory)
-                let input = try FileHandle(forReadingFrom: pcm)
-                defer { try? input.close() }
-                while let data = try input.read(upToCount: 65_536), !data.isEmpty {
-                    try Task.checkCancellation(); try output.write(contentsOf: data)
-                }
-            }
-            if index < artifacts.count - 1 {
-                try output.write(contentsOf: Data(repeating: 0, count: Int(Double(settings.sampleRate) * settings.gapSeconds) * 4))
-            }
-        }
-        try output.synchronize(); try output.close()
-        diagnostics.record(.pcmAssembly, seconds: ProcessInfo.processInfo.systemUptime - assemblyStart)
         let partial = directory.appendingPathComponent("episode.partial.m4a")
-        let encodingStart = ProcessInfo.processInfo.systemUptime
-        _ = try diagnostics.measure(.encoding) { try ToolRunner.run(settings.ffmpeg,
-            ["-nostdin", "-v", "error", "-y", "-xerror", "-f", "f32le", "-ar", String(settings.sampleRate), "-ac", "1", "-i", combined.path,
-             "-map", "0:a:0", "-vn", "-map_metadata", "-1", "-map_chapters", "-1",
-             "-c:a", "aac", "-profile:a", "aac_low", "-b:a", settings.bitrate, "-ac", "1", "-ar", String(settings.sampleRate), "-movflags", "+faststart", partial.path],
-            timeout: settings.toolTimeoutSeconds, directory: toolDirectory)
-        }
-        let encodingSeconds = ProcessInfo.processInfo.systemUptime - encodingStart
+        let start = ProcessInfo.processInfo.systemUptime
+        try observer?(.encoding, partial)
+        let numericBitrate = Int(settings.bitrate.replacingOccurrences(of: "k", with: ""))
+        guard let numericBitrate else { throw RelayError.setup("The AAC bitrate is invalid.") }
+        do {
+            try diagnostics.measure(.encoding) {
+                try NativeAudio.encode(artifacts.map(\.url), destination: partial,
+                                       profile: .init(sampleRate: settings.sampleRate, bitRate: numericBitrate * 1_000, gapSeconds: settings.gapSeconds),
+                                       scheduledGaps: try Self.scheduledGaps(artifacts))
+            }
+        } catch is CancellationError { throw CancellationError() }
+        catch { throw RelayError.artifact("Native AAC encoding could not finish this recording.") }
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
         let info = try diagnostics.measure(.validation) {
             let info = try probe(partial, final: true); try decode(partial); return info
         }
-        diagnostics.recordEncoding(seconds: encodingSeconds, audioDuration: info.duration)
+        diagnostics.recordEncoding(seconds: elapsed, audioDuration: info.duration)
         let complete = directory.appendingPathComponent("episode.m4a")
         try Files.moveValidatedScratch(partial, to: complete)
         return (complete, info)

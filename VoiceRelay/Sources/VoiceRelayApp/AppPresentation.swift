@@ -1,4 +1,5 @@
 import SwiftUI
+import AppPresentation
 import AppKit
 import Observation
 import VoiceRelayCore
@@ -67,18 +68,19 @@ extension AppModel {
         if libraryReviewRequired { return .failure("Library review required", .troubleshooting) }
         if sourceReview.plist == nil { return .failure("Reading List needs setup", .general) }
         if sourceReview.error != nil && !sourceReview.synchronizing { return .failure("Reading List unavailable", .general) }
-        if !runtimeBusy && ((!preview && !speechRuntimeAvailable) || runtimeVerificationFailed) { return .failure("Speech runtime unavailable", .general) }
-        if case .failure = runtimeTestResult, !runtimeBusy { return .failure("Speech runtime check failed", .general) }
+        if !runtimeBusy && runtimeVerificationFailed { return .failure("Speech setup needs attention", .general) }
+        if !runtimeBusy && !preview && !speechRuntimeInstalled { return .needsSetup("Set up speech", .general) }
+        if case .failure = runtimeTestResult, !runtimeBusy { return .failure("Speech setup check failed", .general) }
         if !deliverySettings.enabled { return .failure("Publishing is off", .delivery) }
         if (try? deliverySettings.validate()) == nil { return .failure("Publishing needs setup", .delivery) }
         if deliveryError != nil && !deliveryPreflightBusy { return .failure("Publishing needs attention", .delivery) }
         if case .failure = deliveryTestResult, !deliveryTesting { return .failure("Publishing check failed", .delivery) }
         if deliveryPasswordChecked && !deliveryPasswordStored && !deliveryCredentialBusy { return .failure("Publishing password missing", .delivery) }
         if sourceReview.synchronizing { return .checking("Checking Reading List…") }
-        if runtimeBusy { return .checking("Checking speech runtime…") }
+        if runtimeBusy { return .checking(runtimeInstalling ? "Installing speech model…" : "Checking speech setup…") }
         if deliveryPreflightBusy || deliveryTesting { return .checking("Checking Publishing…") }
         if sourceReview.lastSyncedAt == nil { return .failure("Reading List not checked", .general) }
-        if runtimeTestResult != .success { return .failure("Speech runtime not checked", .general) }
+        if runtimeTestResult != .success { return .failure("Speech setup not checked", .general) }
         if !deliveryConnectionVerified { return .failure("Publishing not checked", .delivery) }
         if syncBusy { return .checking("Syncing…") }
         if processingSpeech { return .checking("Generating audio…") }
@@ -150,7 +152,7 @@ struct WorkspaceReadinessView: View {
         } else {
             if !model.preview && (!model.speechRuntimeAvailable || model.runtimeBusy) {
                 notice(model.runtimeBusy ? "Speech setup is in progress" : "Speech setup required",
-                    detail: model.runtimeBusy ? "Wait for setup, or cancel it in General." : "Install or check the speech runtime in General before generating audio.",
+                    detail: model.runtimeBusy ? "Wait for setup, or cancel it in General." : "Install the speech model or check speech setup in General before generating audio.",
                     symbol: "gearshape", action: "Open General", pane: .general)
             }
             if model.publishingReadiness == .checking {
@@ -166,8 +168,8 @@ struct WorkspaceReadinessView: View {
             }
             if model.uploadsNeedAttention {
                 VStack(alignment: .leading, spacing: 8) {
-                    Label("Uploads need attention", systemImage: "exclamationmark.triangle").font(.headline)
-                    Text("Review the affected files and their verification details in Uploads.").font(AppTypography.secondary).foregroundStyle(.secondary)
+                    Label("Uploads need attention", systemImage: "exclamationmark.triangle").appFont(.headline)
+                    Text("Review the affected files and their verification details in Uploads.").appFont(.secondary).foregroundStyle(.secondary)
                     if model.workspaceSection != .uploads {
                         Button("Review Uploads") { model.workspaceSection = .uploads }.disabled(model.preview || model.stopping)
                     }
@@ -178,8 +180,8 @@ struct WorkspaceReadinessView: View {
     }
     private func notice(_ title: String, detail: String, symbol: String, action: String, pane: SettingsSection) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: symbol).font(.headline)
-            Text(detail).font(AppTypography.secondary).foregroundStyle(.secondary)
+            Label(title, systemImage: symbol).appFont(.headline)
+            Text(detail).appFont(.secondary).foregroundStyle(.secondary)
             Button(action) {
                 model.settingsSection = pane
                 WindowPresence.shared.prepareToOpen(); openSettings()
@@ -217,10 +219,11 @@ extension Stage {
     }
 }
 
-enum AppTypography {
-    static let body = Font.body
-    static let secondary = Font.system(size: 12)
-    static let minimumPointSize: CGFloat = 12
+struct TextSizeCommands: Commands {
+    @Bindable var model: AppModel
+    var body: some Commands {
+        AppTextSizeCommands(size: Binding(get: { model.textSize }, set: { model.textSize = $0 }))
+    }
 }
 
 struct ArticleOriginMetadata: Equatable {
@@ -237,7 +240,7 @@ struct ArticleOriginLine: View {
             HStack(spacing: 6) {
                 if let host = metadata.host { Text(host) }
                 if let date = metadata.savedDateText { Text(date) }
-            }.font(AppTypography.secondary).foregroundStyle(.secondary)
+            }.appFont(.secondary).foregroundStyle(.secondary)
         }
     }
 }
@@ -295,14 +298,14 @@ struct AppHelpView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text(topic.title).font(.title2)
+                Text(topic.title).appFont(.title2)
                 ForEach(topic.sections) { section in
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(section.title).font(.headline)
+                        Text(section.title).appFont(.headline)
                         Text(section.text).fixedSize(horizontal: false, vertical: true)
                     }
                 }
-            }.font(AppTypography.body).textSelection(.enabled)
+            }.appFont(.body).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(24)
         }.navigationTitle(topic.title)
     }
@@ -313,32 +316,10 @@ struct SectionHelpHeader: View {
     var explanation: String?
     var helpTopic: AppHelpTopic? = nil
     @Environment(\.openWindow) private var openWindow
-    @State private var showingInfo = false
     var body: some View {
-        HStack(spacing: 6) {
-            Text(title).font(.headline)
-            if let explanation {
-                Button { showingInfo = true } label: {
-                    Image(systemName: "info.circle").font(AppTypography.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("About \(title)")
-                .accessibilityLabel("About \(title)")
-                .accessibilityHint("Show a brief explanation")
-                .popover(isPresented: $showingInfo, arrowEdge: .bottom) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(explanation).textSelection(.enabled)
-                        if let helpTopic {
-                            Button("More Help…") {
-                                showingInfo = false
-                                WindowPresence.shared.prepareToOpen(); openWindow(value: helpTopic)
-                            }
-                        }
-                    }.font(AppTypography.secondary)
-                        .frame(idealWidth: 280, maxWidth: 320, alignment: .leading).padding(10)
-                }
-            }
-        }
+        SettingsSectionHeader(title: title, explanation: explanation, moreHelp: helpTopic.map { topic in
+            { WindowPresence.shared.prepareToOpen(); openWindow(value: topic) }
+        })
     }
 }
 
@@ -351,31 +332,7 @@ final class NoticeDismissalState {
     func reset(key: String) { dismissed = dismissed.filter { !$0.hasPrefix("\(key)\u{1F}") } }
 }
 
-struct InlineNotice: View {
-    let message: String
-    var onDismiss: (() -> Void)? = nil
-    @State private var hovering = false
-    @FocusState private var dismissFocused: Bool
-    var body: some View {
-        HStack(spacing: 8) {
-            Label(message, systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.orange).textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if let onDismiss {
-                Button(action: onDismiss) { Image(systemName: "xmark.circle") }
-                    .buttonStyle(.borderless)
-                    .focused($dismissFocused)
-                    .opacity(hovering || dismissFocused ? 1 : 0)
-                    .accessibilityHidden(false)
-                    .accessibilityLabel("Dismiss error")
-                    .help("Hide this message")
-                    .frame(width: 18)
-            }
-        }
-        .onHover { hovering = $0 }
-        .font(AppTypography.body)
-    }
-}
+typealias InlineNotice = SettingsNotice
 
 struct ProcessingSummary: View {
     let model: AppModel
@@ -415,7 +372,7 @@ struct WorkspaceView: View {
             detail
         }
         .frame(minWidth: 760, minHeight: 480)
-        .font(AppTypography.body)
+        .appFont(.body)
         .disabled(model.libraryMaintenanceBusy)
         .onAppear { model.refreshLibrary() }
     }
@@ -529,13 +486,13 @@ struct BatchProgressView: View {
     var body: some View {
         let pending = pendingOverride ?? progress.pendingPreparations
         VStack(alignment: .leading, spacing: 5) {
-            if progress.totalChunks + progress.totalArticles > 0 {
-                ProgressView(value: min(1, max(0, progress.fractionCompleted)))
+            if let fraction = progress.displayFraction, progress.totalChunks + progress.totalArticles > 0 {
+                ProgressView(value: min(1, max(0, fraction)))
             } else { ProgressView() }
             Text("\(phase) · \(progress.completedArticles)/\(progress.totalArticles) articles complete")
                 .monospacedDigit()
             if pending > 0 {
-                Text("Preparing \(pending) additional articles…").font(AppTypography.secondary).monospacedDigit()
+                Text("Preparing \(pending) additional articles…").appFont(.secondary).monospacedDigit()
             }
         }
     }
@@ -587,9 +544,9 @@ struct AudioVerificationIndicator: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Label(item.phase.title, systemImage: symbol)
-                .font(AppTypography.secondary)
+                .appFont(.secondary)
                 .foregroundStyle(item.phase.needsAttention ? Color.orange : item.phase == .published ? Color.green : Color.secondary)
-            if let detail = item.detail { Text(detail).font(AppTypography.secondary).foregroundStyle(.secondary).textSelection(.enabled) }
+            if let detail = item.detail { Text(detail).appFont(.secondary).foregroundStyle(.secondary).textSelection(.enabled) }
         }
     }
     private var symbol: String {
@@ -607,7 +564,7 @@ struct UploadsView: View {
                 HStack {
                     ProgressView().controlSize(.small)
                     Text(model.uploadProgress.isEmpty ? "Reconciling server and local records…" : "Publishing pending items…")
-                        .font(AppTypography.secondary)
+                        .appFont(.secondary)
                     Spacer()
                 }.padding(12)
                 Divider()
@@ -621,16 +578,16 @@ struct UploadsView: View {
                 List(model.visibleUploads) { item in
                     HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(item.episode.title).font(.headline).lineLimit(2)
+                        Text(item.episode.title).appFont(.headline).lineLimit(2)
                         ArticleOriginLine(metadata: model.savedAudioOrigin(item.episode))
                         AudioVerificationIndicator(item: item)
-                        if let meta = model.savedAudioMeta(item.episode) { Text(meta).font(AppTypography.secondary).foregroundStyle(.secondary) }
+                        if let meta = model.savedAudioMeta(item.episode) { Text(meta).appFont(.secondary).foregroundStyle(.secondary) }
                         if item.phase.active {
                             if let fraction = item.progress?.fraction {
                                 ProgressView(value: fraction)
                                 if let text = item.sentBytesText {
                                     Text(text)
-                                        .font(AppTypography.secondary).monospacedDigit().foregroundStyle(.secondary)
+                                        .appFont(.secondary).monospacedDigit().foregroundStyle(.secondary)
                                 }
                             } else { ProgressView().controlSize(.small) }
                         }
@@ -682,12 +639,12 @@ struct LibraryView: View {
                     ForEach(model.visibleServerAudio, id: \.id) { episode in
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(episode.title).font(.headline).lineLimit(2)
+                            Text(episode.title).appFont(.headline).lineLimit(2)
                             ArticleOriginLine(metadata: model.savedAudioOrigin(episode))
                             let meta = model.savedAudioMeta(episode)
                             let removal = model.savedAudioRemovalStatus(episode)
                             Text(removal.map { "\($0)\(meta.map { " · " + $0 } ?? "")" }
-                                 ?? meta ?? "Speech ready").font(AppTypography.secondary).foregroundStyle(.secondary)
+                                 ?? meta ?? "Speech ready").appFont(.secondary).foregroundStyle(.secondary)
                             if removal == nil {
                                 AudioVerificationIndicator(item: model.audioState(episode))
                             }

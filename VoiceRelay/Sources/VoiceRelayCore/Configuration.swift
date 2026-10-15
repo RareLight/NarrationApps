@@ -1,5 +1,7 @@
 import Foundation
 import TOMLDecoder
+import NarrationCore
+import NativeSpeech
 
 public enum SettingValue: Codable, Sendable, Equatable {
     case string(String), integer(Int), number(Double), bool(Bool), array([SettingValue]), object([String: SettingValue])
@@ -73,21 +75,9 @@ public enum SpeechVoice: String, Codable, CaseIterable, Identifiable, Sendable {
     case lewis = "bm_lewis", alice = "bf_alice", daniel = "bm_daniel", lily = "bf_lily"
     public var id: String { rawValue }
     public var languageRegion: SpeechLanguageRegion { rawValue.hasPrefix("a") ? .usEnglish : .ukEnglish }
-    public var label: String {
-        let name = rawValue.dropFirst(3).capitalized
-        return "\(name) · \(rawValue.dropFirst().hasPrefix("f") ? "Female" : "Male")"
-    }
-    public var qualityGrade: String {
-        switch self {
-        case .heart: "A"
-        case .bella: "A−"
-        case .nicole, .emma: "B−"
-        case .aoede, .fenrir, .kore, .michael, .puck, .sarah: "C+"
-        case .alloy, .fable, .george, .isabella: "C"
-        case .lewis: "D+"
-        case .alice, .daniel, .lily: "D"
-        }
-    }
+    public var label: String { VoiceCatalogPresentation.displayName(rawValue) }
+    public var qualityGrade: String { (VoiceCatalogPresentation.overallGrade(rawValue) ?? "Unrated").replacingOccurrences(of: "-", with: "−") }
+
 }
 
 /// User-facing choices; technical pipeline defaults remain internal.
@@ -102,8 +92,8 @@ public struct SpeechPreferences: Codable, Sendable, Equatable {
     }
     public init(voice: SpeechVoice = .heart, speed: Double = 1) { self.voice = voice; self.speed = speed }
     public func validate() throws {
-        guard speed.isFinite, (0.75...1.5).contains(speed) else {
-            throw RelayError.setup("Choose a speech speed between 0.75 and 1.5.")
+        guard SpeechSpeedPolicy.contains(speed) else {
+            throw RelayError.setup("Choose a speech speed between 0.5 and 2.0.")
         }
     }
 }
@@ -235,11 +225,12 @@ public struct PrototypeProfile: Codable, Sendable, Equatable {
     public var voice: String?
     public var backendSettings: [String: SettingValue] = [:]
     public var chunkMaxCharacters = 1800
-    public var bitrate = "96k"
+    public var bitrate = "64k"
     public var sampleRate = 24000
     // Retained only for decoding/importing historical profiles; audio never uses it.
     public var loudnessLUFS = -16.0
     public var gapSeconds = 0.15
+    // Historical profile fields are inert; native audio never launches these tools.
     public var ffmpeg = "ffmpeg"
     public var ffprobe = "ffprobe"
     public var toolTimeoutSeconds = 1800
@@ -297,7 +288,7 @@ public struct PrototypeProfile: Codable, Sendable, Equatable {
             p.backendSettings = v
         }
         p.chunkMaxCharacters = try integer("chunk_max_chars", 1800)
-        p.bitrate = try string("aac_bitrate", "96k")
+        p.bitrate = try string("aac_bitrate", "64k")
         p.sampleRate = try integer("sample_rate", 24000)
         p.loudnessLUFS = try number("loudness_lufs", -16)
         if values["loudness_lufs"] != nil {
@@ -409,7 +400,7 @@ public enum Diagnostics {
         return [
             SetupDiagnostic(id: "configuration", ready: true, message: "Profile imported read-only. Live state adoption is deferred."),
             SetupDiagnostic(id: "storage", ready: fm.fileExists(atPath: p.audio.path), message: fm.fileExists(atPath: p.audio.path) ? "Configured media destination exists; write and mount acceptance remain outstanding." : "Media storage is unavailable. Mount the configured volume; native setup does not create it."),
-            SetupDiagnostic(id: "tools", ready: ToolRunner.locate(p.ffmpeg) != nil && ToolRunner.locate(p.ffprobe) != nil, message: "ffmpeg and ffprobe must be available to the app's process."),
+            SetupDiagnostic(id: "tools", ready: true, message: "Native audio encoding and inspection are bundled; no external audio tools are required."),
             SetupDiagnostic(id: "safari", ready: false, message: "Safari access depends on the running app. Full Disk Access may be required."),
             SetupDiagnostic(id: "backend", ready: false, message: "Native speech uses the project-local Kokoro runtime. Installation and listening acceptance are separate checks."),
             SetupDiagnostic(id: "delivery", ready: false, message: "This read-only configuration diagnostic does not probe remote publishing or processing.")

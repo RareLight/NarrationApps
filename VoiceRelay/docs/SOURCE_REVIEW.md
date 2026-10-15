@@ -1,180 +1,83 @@
-# Article handling and source diagnostics
+# VoiceRelay source handling
 
-Updated October 10, 2026. Everyday queue/processing instructions are in
-[README](../README.md#everyday-use); native interaction checks are in
-[UI_ACCEPTANCE.md](UI_ACCEPTANCE.md). This guide covers article preparation,
-optional archived copies and explicit source diagnostics.
+Current application policy, October 15, 2026. Shared parsing/OCR/image/narration
+algorithms belong to [DocumentProcessing and NarrationCore](../../swift-packages/docs/DOCUMENT_PROCESSING.md).
+VoiceRelay owns the authorized source fetch, archive lookup, retained article
+identity/saved date and integrity-checked snapshots.
 
-## Discovery, preview and saved text
+## Discovery, preview and retained text
 
-Choose the Reading List source in **General → Reading List**. The app checks it
-at startup, every five minutes, on Articles appearance/source change and through
-pull-down refresh. Safari input is strictly read-only. Transient failures retain
-known inventory. Articles shows newest saved entries first, stable discovery
-order for ties, and undated entries last.
+Safari Reading List is read-only. Source selection belongs to General; the default
+is Safari's Bookmarks.plist when no preference exists. Refresh failures retain known
+inventory. Adding an article prepares it asynchronously, reports a per-entry error
+if unusable and retains verified source plus semantic text for offline narration.
+Original URLs/hosts/save dates remain the episode identity even after redirects or
+archive recovery; generation time does not replace a missing saved date.
 
-After a successful read, entries removed from Safari disappear from Articles and
-Queue. Their cached pages, narration plans, chunk checkpoints and unfinished
-generation files are cleared after owned work stops. Failed reads preserve data.
-Published episode metadata and server media stay in Server Audio until manually
-removed; unconfirmed finished audio stays locally until publishing succeeds.
-Previously exported backups are not rewritten. Today and This Week use local
-calendar periods and saved dates; undated entries do not match those filters.
+Double-click/Preview Article opens the dedicated, cancellable preview window.
+Preview fetches intentionally and does not implicitly add queue membership.
+Compare title/source, beginning/end, paragraph/list order, notes, omission notices
+and generated-description provenance before narrating sensitive or complex inputs.
+A login page, challenge or teaser is not successful complete extraction.
 
-Selecting rows fetches nothing. Add to Queue prepares them in displayed order in
-the background, showing Preparing and collecting per-entry issues. Already-queued
-sources are omitted from manual Add. Existing saved text is reused offline;
-removing queue membership does not delete the snapshot or source. New admissions
-capture voice, region and speed; changing preferences does not rewrite existing
-captured choices. Failure of one admission does not stop later selected entries.
+PDF responses use native PDFKit text and bounded structured Vision OCR, including
+mixed/scanned pages. Locked/unreadable/oversized inputs fail individually. HTML
+uses existing pinned extraction with semantic source provenance. Saved text resumes
+offline without reopening URLs or repeating OCR/image models.
 
-Double-click or Preview Article in either scope opens the dedicated preview window.
-For a retained job, its URL is resolved read-only from saved metadata, then the
-window fetches the page. Inert previews never fetch. Troubleshooting shows source
-status and diagnostics, not another saved-article list, URL importer or preview.
+## Images and narration
 
-Original website and Reading List saved date follow the article through Queue and
-Server Audio independently of RSS canonical-link metadata and publication time.
-Narration starts with title and publisher (host fallback), preserves source blocks,
-and closes with a separate “End of article.” paragraph. Unreadable, login/challenge,
-missing or incomplete article results remain inspectable failures, not silent
-success. Source rendering is plain text; raw HTML is retained privately, not shown
-as a runnable page.
+Authored ALT and tagged PDF descriptions take precedence. Empty/decorative imagery
+is not narrated. Conservative caption/credit/image dedup avoids repetition without
+deduplicating ordinary article prose. Generated descriptions are brief, labeled,
+on-device and optional; there is no cloud or automatic-model-download fallback.
+
+General's Describe images with Apple Intelligence preference defaults on for future
+admissions; retained text and finished media remain unchanged. Disable it to avoid
+generated descriptions and their web-image retrieval; authored ALT and OCR remain
+active. Web images use bounded credential-free public HTTPS retrieval. An unavailable
+model or failed image leaves article text usable. PDF page imagery is not assumed
+to have isolated figure geometry. Exact UI labels/ownership are in
+[shared Settings guidance](../../swift-packages/docs/SETTINGS_ALIGNMENT.md).
+
+Known local footnote links retain markers in source and resolve narration at their
+first reference with explicit note cues. Repeated references do not repeat a note;
+unresolved/unreferenced material produces visible notices rather than invented
+text. Consecutive table/code omissions are announced once per run. Decorative
+separators can remain in source while omitted from speech. Actual reading order,
+OCR and caption quality still require operator review.
 
 ## Optional archived-article recovery
 
-Under **Settings → General → Reading List**, enable **Try archived copies when
-articles fail**. This preference defaults off. A new admission or Article Preview
-first tries the original site. Recoverable HTTP/network errors and rejected
-login, subscription, missing-page, browser-check or extraction results can then
-try Archive.ph, followed by the Wayback Machine. Re-select previously unsuccessful
-Articles and use **Add to Queue** after enabling it; automatic admission does not
-retry a failed entry again in the same session. Already saved text remains offline.
+General → Reading List → Try archived copies when articles fail is off by default.
+When enabled, new preparation/preview first tries the original page. Eligible
+network/HTTP or rejected-content failures may try Archive.ph, then Wayback. Already
+retained text remains reusable; failed automatic admissions are not repeatedly
+retried in the same session. Re-add explicitly after changing recovery preference.
 
-Lookup discloses the public article URL to the archive provider. Known tracking
-parameters and fragments are removed; other queries, embedded credentials,
-local/private host names, IP literals and nonstandard ports are excluded. This
-reads existing captures only. There are no archive submissions, browser cookies,
-JavaScript execution, authentication tricks or CAPTCHA solving. A provider error
-or unusable snapshot falls through once; failed recovery keeps the original issue
-and adds a safe unavailable message. Unsupported document types/size-limit failures
-remain failures. Each provider has at most one index and one HTML request, bounded
-by ten seconds per request and the existing byte limits. Archive requests and
-redirects stay on the provider's HTTPS hosts with standard certificate validation.
+Lookup sends eligible public article URLs to the archive provider. Known tracking
+parameters/fragments are removed; other queries, embedded credentials, local/private
+hosts, IP literals and nonstandard ports are excluded. There are no new archive
+submissions, browser cookies, JavaScript execution, authentication tricks or CAPTCHA
+solving. Requests/redirects stay bounded on provider HTTPS hosts with normal TLS
+validation; rate limits/unusable responses fail safely. Prefer captures near the
+saved date when available, otherwise the available latest capture.
 
-When available, captures closest to the Reading List saved date are preferred;
-otherwise the latest listed capture is used. Original URL, queue identity, saved
-date and publisher narration are retained. Snapshot URL, provider and capture date
-stay in the private integrity-checked article snapshot; Article Preview displays
-that provenance. Archive chrome is omitted from extraction where identifiable.
-Publisher-hosted HTTPS artwork can remain; archive-hosted replacements are omitted.
-Nothing about archive provenance is added to RSS. Debug logging records only fixed
-provider/outcome events, never lookup URLs or article contents. Cached text can be
-older, incomplete, or unavailable; live acceptance remains an operator check.
+Preview/snapshots record provider, capture date and source provenance. Archive
+chrome is omitted where identifiable; original publisher narration/RSS identity is
+retained. Archive lookup cannot recover source text that was never retained when
+no eligible readable capture is available. Logs use sanitized provider/outcome
+categories, never private URLs or bodies.
 
-Research before implementation:
+## Validation and diagnostics
 
-- [archivetoday](https://github.com/HRDepartment/archivetoday) is an unofficial
-  JavaScript client exposing TimeMap lookup and capture creation separately.
-- [@agntn/archives](https://github.com/agntn/archives), formerly omnichron, is a
-  TypeScript adapter over multiple archives and requires Node.js.
-- [Memento RFC 7089](https://www.rfc-editor.org/rfc/rfc7089.html) describes TimeMap
-  link serialization; Archive.ph's public example.com response confirmed its
-  timestamped replay links and `application/link-format` MIME type.
-- [Wayback Availability API](https://archive.org/help/wayback_api.php) documents
-  read-only lookup, timestamp selection and available snapshot results.
-- The supplied RemovePaywall search page could not be retrieved during research;
-  no supported automation API was verified, so it is not an automatic provider.
+The product CLI and its reading-list/review-url export commands are retired. Use
+the app's Article Preview and sanitized Troubleshooting log for real-source
+investigation. Use supplied synthetic files/providers for automated tests; never
+point them at Safari or a live library. Do not publish source snapshots, private
+URLs or full article text in bug reports.
 
-VoiceRelay uses these existing protocols with its bounded Foundation client and
-SwiftSoup, without adding a JavaScript runtime or copying third-party library code.
-
-## Explicit diagnostic CLI
-
-These commands are optional and do not run in the normal app workflow. Build the
-CLI once from the project root:
-
-```sh
-swift build --product voicerelay
-native_bin="$(swift build --show-bin-path)"
-"$native_bin/voicerelay" reading-list --plist "$PWD/Fixtures/reading-list.synthetic.plist"
-```
-
-The synthetic fixture reports two entries, zero skipped, without printing titles
-or URLs. Reading a real Bookmarks.plist requires an explicit path and the launching
-Terminal/CLI's protected-file permission, which is separate from the app's context.
-Doctor is read-only and does not read Safari input.
-
-To fetch/export one deliberately selected article into private ignored storage:
-
-```sh
-"$native_bin/voicerelay" review-url --url 'https://example.com/selected-article' \
-  --directory "$PWD/var/source-review"
-```
-
-Use `--use-archives` only to opt into archive lookup for that diagnostic, and an
-optional `--saved-at` ISO8601 timestamp to inform capture selection. An explicit
-`--config /absolute/config.toml` imports limits and destination-overlap protection;
-no config is implicitly imported by review-url. The command produces no audio,
-feed, server changes or live-library adoption. A review-needed outcome is a
-completed private diagnostic export, not article acceptance. Operational failures
-return exit 1 with sanitized text. Exported files/paths and article content remain
-private; do not publish them with a bug report.
-
-## Caption, encoding and footnote policy
-
-Cleaned HTML exports are complete documents with an explicit UTF-8 charset.
-Inline media and embedded content are removed from this review artifact. The
-immutable source snapshot retains original image markup, URLs and alt/caption
-material. Explicit caption classes are converted to caption elements before
-extraction; adjacent identical caption blocks are retained once. Repeated body
-paragraphs and captions separated by other content are preserved. Captions are
-read once as authored text; no AI image interpretation runs.
-Header publication-time/permalink markup is omitted from the derived review to
-avoid metadata and URL readouts; it remains in the original snapshot.
-
-Semantic blocks preserve original reference-marker text. Optional
-`narrationText`, `footnoteReferences` and `footnoteID` fields distinguish spoken
-wording and target/provenance from that text; old artifacts without these fields
-still decode. Recognized local footnote/citation links (numbered or symbol
-markers, explicit roles/relations/classes, and common target IDs) omit their
-marker/backlink from speech. At the first reference, narration inserts the
-resolved note's paragraphs after the referring block:
-
-```text
-Referring paragraph without its reference marker.
-Footnote:
-First footnote paragraph.
-Second footnote paragraph.
-End Footnote
-Next article paragraph.
-```
-
-Repeated references do not repeat the note. Definitions discarded by the
-extractor are recovered from the private source for referenced targets; unrelated
-source-page notes are not imported. Unreferenced notes retained by the extractor
-remain at the end with a notice. Unresolved marked references produce a notice,
-with no invented note text. Ordinary numbers, mathematical superscripts and
-unmarked citations are not guessed or stripped. Decorative symbol separators
-are retained semantically and omitted from speech.
-Repeated adjacent table/code omission announcements are spoken once per run,
-including across silent separators. Spoken prose or footnote boundary cues end
-a run. Original blocks and per-block omission notices remain available for review;
-authored prose is not deduplicated.
-
-Extraction/narration fingerprints preserve versioned requests. Existing exported
-snapshots remain unchanged; use the explicit diagnostic CLI to create a new export.
-Published fixture checkpoints keep their validated saved versions;
-they are not re-extracted or regenerated merely because a version changed.
-Use a new empty fixture folder to test the current policy. Browser rendering
-and listening still need operator validation.
-
-## Acceptance
-
-Use a private representative corpus and compare completeness, title/source,
-paragraph/list order, captions, notes and archive provenance with the original.
-Saved text can be older than the live page; recovery availability is not guaranteed.
-Listening is separate from extraction assertions. See
-[BETA_TESTING.md](BETA_TESTING.md#1-normal-run-and-real-article-corpus) for the
-operator report and [SERVER_RECOVERY.md](SERVER_RECOVERY.md) for server history
-reconciliation, which does not restore lost article text.
+Current operator cases are V05–V08 in the
+[consolidated checklist](../../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay).
+[Server reconciliation](SERVER_RECOVERY.md) restores matching audio history, not
+lost article text. Previous implementation evidence is [historical](history/VALIDATION.md).
