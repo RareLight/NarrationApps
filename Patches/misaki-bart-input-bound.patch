@@ -1,0 +1,13 @@
+--- a/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/FallbackNetwork/EnglishFallbackNetwork.swift
++++ b/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/FallbackNetwork/EnglishFallbackNetwork.swift
+@@ -82,6 +82,10 @@
+ 
+     func callAsFunction(_ word: MToken) -> (phoneme: String, rating: Int) {
+         let tokenIds = graphemesToTokens(word.text)
++        // No positional-table overrun or grapheme truncation. The aligned
++        // frontend exposes this sentinel; strict preparation rejects it with
++        // source location before synthesis.
++        guard tokenIds.count <= configuration.maxPositionEmbeddings else { return ("❓", 0) }
+         let inputIds = MLXArray(tokenIds).reshaped([1, tokenIds.count])
+         let generatedIds = model.generate(inputIds: inputIds)
+         let outputText = tokensToPhonemes(generatedIds.asArray(Int.self))

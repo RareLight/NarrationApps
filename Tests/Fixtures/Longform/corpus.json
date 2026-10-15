@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "id": "longform-synthetic-1",
+  "provenance": "Original synthetic text written for this repository; distributed under the repository license. No private documents or third-party prose. Homographs are evaluation cases, not promised frontend corrections.",
+  "title": "The Riverside Reading Room",
+  "blocks": [
+    {
+      "kind": "heading",
+      "text": "The Riverside Reading Room",
+      "headingLevel": 1
+    },
+    {
+      "kind": "paragraph",
+      "text": "Every Tuesday, the reading room opened before the first ferry reached the riverbank. Maya arranged the chairs in a wide circle, checked the lamps, and placed a fresh notebook beside the door. Visitors could bring a book, an article, or a letter from a friend. Nobody had to finish a chapter before joining the conversation. The room offered time to listen, to think, and to return to a difficult sentence without feeling hurried. On this particular morning, a small storm had passed over the hills; the windows reflected a clear sky, while the path outside remained dark with rain. A reader paused at the entrance, shook the water from his coat, and asked whether the meeting had already begun."
+    },
+    {
+      "kind": "quote",
+      "text": "“Not yet,” Maya replied. “We have a few minutes. Would you like the chair by the window?” “Yes, thank you,” he said (quietly, so that he would not disturb the others). She moved a stack of newspapers; he sat down, opened his notebook, and began to read."
+    },
+    {
+      "kind": "paragraph",
+      "text": "Dr. Green arrived at 9:30 a.m. on October 15, 2026. The repair cost $12.50, the parcel weighed 2.4 kg, and the thermometer read 18°C. The U.S. visitor described the elevator; her British friend called it a lift. They compared the colour of the theatre curtains with the color in a photograph. I read the record yesterday; today I will read it again and record a short account. Please lead the group past the lead pipe. The wind will wind around the corner. These sentences require context, and any uncertain pronunciation belongs in the evaluation notes."
+    },
+    {
+      "kind": "heading",
+      "text": "A careful ending",
+      "headingLevel": 2
+    },
+    {
+      "kind": "listItem",
+      "text": "First, keep the original words and punctuation."
+    },
+    {
+      "kind": "listItem",
+      "text": "Next, allow a pause between sections without changing the volume."
+    },
+    {
+      "kind": "caption",
+      "text": "The reading room beside the river. Photo credit: The Riverside Society."
+    },
+    {
+      "kind": "paragraph",
+      "text": "A final visitor brought a page with line\nbreaks, a soft hyphen in co­operation, an em dash—followed by a question—and the word café. She read it slowly, then turned to the final paragraph. By noon, every chair was occupied. The voices remained steady through the closing lines, and the listeners left with one clear thought: a good reading gives each idea enough space to be understood.",
+      "footnoteReferences": [
+        "room"
+      ]
+    },
+    {
+      "kind": "footnote",
+      "text": "The reading room is an invented setting used only for these tests.",
+      "footnoteID": "room"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+--- a/Sources/MLXAudioTTS/Models/StyleTTS2/Kokoro/KokoroModel.swift
++++ b/Sources/MLXAudioTTS/Models/StyleTTS2/Kokoro/KokoroModel.swift
+@@ -6,6 +6,7 @@
+ import MLXNN
+ 
+ public final class KokoroModel: Module, SpeechGenerationModel, @unchecked Sendable {
++    public var supportedPhonemeVocabulary: Set<String> { Set(config.vocab.keys) }
+     public let config: KokoroConfig
+     public let sampleRate: Int
+     public let defaultGenerationParameters: GenerateParameters

@@ -1,0 +1,11 @@
+--- a/Sources/MLXAudioTTS/Models/StyleTTS2/Kokoro/KokoroModel.swift
++++ b/Sources/MLXAudioTTS/Models/StyleTTS2/Kokoro/KokoroModel.swift
+@@ -230,7 +230,7 @@
+         let embedding = try loadVoice(named: voice)
+         // Converted voice tensors preserve the reference's [510,1,256] row
+         // storage exactly. KPipeline indexes pack[len(phonemes)-1].
+-        guard embedding.shape == [510, 1, 256] else {
++        guard embedding.shape == [510, 256] else {
+             throw AudioGenerationError.invalidInput("Unexpected Kokoro voice tensor")
+         }
+         let row = tokens.count - 1

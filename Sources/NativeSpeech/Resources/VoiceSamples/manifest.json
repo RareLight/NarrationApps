@@ -1,0 +1,1743 @@
+{
+  "inputText" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+  "plannerVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1",
+  "pronunciationRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+  "samples" : [
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-af_alloy",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Alloy",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "7172824e37b664c21499f82d9e8793d5afadbd2ccb45efdc3b0f8c5b31b441b7",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "af_alloy"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "7172824e37b664c21499f82d9e8793d5afadbd2ccb45efdc3b0f8c5b31b441b7",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "1d3eeb0b8c1ba8e1b03bbbfd398f7ec068d2dc7ea936a4dd45fd4806e355a6fc",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "57b2856babb89b57a6941c8274b54858a5e2f77f370b4a56988b0dd8e223439d",
+      "speed" : 1,
+      "voice" : "af_alloy"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-af_aoede",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Aoede",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "61bed8c3c9530bfb260da836b7c7237b38711cc5c22c0a9ae88fc6e211ca2d39",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "af_aoede"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "61bed8c3c9530bfb260da836b7c7237b38711cc5c22c0a9ae88fc6e211ca2d39",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "690a31095a6bba90c7c1bf0d9da4cc73134ab35fa89d765236e79f92e5de8a0c",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "388f0bc380312ac14e890f74639b482bfd23a451dbb2a59472511196980e39d8",
+      "speed" : 1,
+      "voice" : "af_aoede"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-af_bella",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Bella",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "440b3bf1fd4abfa08921fc1315801af92d8495a65a9f15e6f8882b196e6a9400",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "af_bella"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "440b3bf1fd4abfa08921fc1315801af92d8495a65a9f15e6f8882b196e6a9400",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "6fa8ab9eef156ad9bce6e306b1f155c9c251ec32583cc89a76cae21aa6df5738",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "5e78134e10d3a46d5d79d0e1f2f37671082c253e77261fac3a0d05295deaabdb",
+      "speed" : 1,
+      "voice" : "af_bella"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-af_heart",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Heart",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "d677cbc15c0e45b4daacf37db1ac714c8d6665fbcff4460693d33c89cd9a1942",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "af_heart"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "d677cbc15c0e45b4daacf37db1ac714c8d6665fbcff4460693d33c89cd9a1942",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "763d2448b71628046458417365762c085a90b985a18de7a48c97800528b26af9",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "2e32ca1b7c11441df9e231d712a338c681eaac8b761327aa9f89bc8eb8ba5e29",
+      "speed" : 1,
+      "voice" : "af_heart"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-af_jessica",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Jessica",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "ae5246eead885ba66be55830746fd3aba67e60586d97a6de8bc0effddbfd19b7",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "af_jessica"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "ae5246eead885ba66be55830746fd3aba67e60586d97a6de8bc0effddbfd19b7",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "cd97e40f05995aa2f5e27d5e609f63fb70f569ac3669a1208113c3c41a26c2e4",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "70c400bf1453876e2b4b8aa3ba8c6885b1240866f9c104d8d147dd82d14ae045",
+      "speed" : 1,
+      "voice" : "af_jessica"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-af_kore",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Kore",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "918a75ff4948b7fed989b256ad758a348fee2f402bd285f33117071a8fbc1fe9",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "af_kore"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "918a75ff4948b7fed989b256ad758a348fee2f402bd285f33117071a8fbc1fe9",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "a95cff4a43de2858366cbe979be644b645b33efdd9ddf3c45aaa476baadb75ea",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "44f4984d93c9551b63cefff25c1138be493773ab4bc9f90c48816360b7192608",
+      "speed" : 1,
+      "voice" : "af_kore"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-af_nicole",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Nicole",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "788dbbcdd8a7a71e38f617f07367ac04634d149ba880f6d1d3a42d1e528f3216",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "af_nicole"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "788dbbcdd8a7a71e38f617f07367ac04634d149ba880f6d1d3a42d1e528f3216",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "7cd882f84d8f9c09083de8d409628cae323156c0dc826dcd100448d303bd896e",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "71d322404f7a308d0eb6e43459fc51987a04931bdfed642e14523a7273dd1f64",
+      "speed" : 1,
+      "voice" : "af_nicole"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-af_nova",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Nova",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "81e9bd92c60ff289b040f25e9a3de9e7352cad5e2e9621343474e72b8d3770d6",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "af_nova"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "81e9bd92c60ff289b040f25e9a3de9e7352cad5e2e9621343474e72b8d3770d6",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "02fdab3b136519dd6cfd851b87346b949e152458bed512e916bff049c02603ee",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "17ad7d044549fe34ce637c08cb4160f06db352dcdbdac324aaf1e0b2ff4e59f1",
+      "speed" : 1,
+      "voice" : "af_nova"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-af_river",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "River",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "01e24948e58884ebdfa084dfd42fae44f92a47e501a25c3316a537e656cb1f16",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "af_river"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "01e24948e58884ebdfa084dfd42fae44f92a47e501a25c3316a537e656cb1f16",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "0ea781df451319fe4d187e6c49312190180439640fa7a174a1f07965559b6d2d",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "4e84feedd1935e83c1af61c185263d171becf61ed338c8b73749a8cbcbab76a1",
+      "speed" : 1,
+      "voice" : "af_river"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-af_sarah",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Sarah",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "8428bf6d57d668c9381bfda9c85dfa65df673b79dfb01d12556fc4c380df7115",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "af_sarah"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "8428bf6d57d668c9381bfda9c85dfa65df673b79dfb01d12556fc4c380df7115",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "d74b673582648a5f8ef01a9e58b437d00860ea5015c65063d9c6b39fdf1676b0",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "63b3566f33af43fbc2eaa53d6eea8723026dd861027911b7e1a38c4b605100d3",
+      "speed" : 1,
+      "voice" : "af_sarah"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-af_sky",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Sky",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "030e0d8dd2ed7f16b151050c16b5745779fd16018bdf2863510b450d264cda4f",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "af_sky"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "030e0d8dd2ed7f16b151050c16b5745779fd16018bdf2863510b450d264cda4f",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "8237a1f21bdf0e3c0045f150e07ad3d13d879d92d1fe8f574f20556c1f447f1e",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "d8422b5b1e053e7caa3e9cb328e3ca50fc683dbb8f88fca4eb2e513083f90241",
+      "speed" : 1,
+      "voice" : "af_sky"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-am_adam",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Adam",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "71103192c6182dadb4e528682cff715f5f4fc869948a9f584421e96630ec0022",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "am_adam"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "71103192c6182dadb4e528682cff715f5f4fc869948a9f584421e96630ec0022",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "83f73d9f20ac29664ae3cb7c79a67d3edcee60ee2a2917cdac9f2a453de272b2",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "aebfa6b26b464eb05432d1d2b40f6de0a7839dfc12a4115b6c9aa3447d6083e9",
+      "speed" : 1,
+      "voice" : "am_adam"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-am_echo",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Echo",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "ca6795550d06a369a200721c170beac32e14108cae1b644a6559b191ee48274f",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "am_echo"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "ca6795550d06a369a200721c170beac32e14108cae1b644a6559b191ee48274f",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "47b7b34b2696c11f129694ac6ec021b7fdeff554050077f4e4fcaae8123b8238",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "e9cb5426c812c1d2983f8ab3ed484cb7f55d03dea5af337cfd0f1ae984d9ef6d",
+      "speed" : 1,
+      "voice" : "am_echo"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-am_eric",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Eric",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "4728e8731756d577ac0017a4f9d6f98ce4a0cf9a9a444cc6da1992c1374412b7",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "am_eric"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "4728e8731756d577ac0017a4f9d6f98ce4a0cf9a9a444cc6da1992c1374412b7",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "073cf8e77c2bb28afe96126f4d6518a2cfcc47f50df3a307eb4bb32e03ddb43e",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "bf1f40c099235b5e44548ec2100921dc3eeef9ec2919d3456f96040421fefd6d",
+      "speed" : 1,
+      "voice" : "am_eric"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-am_fenrir",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Fenrir",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "2edb17ea37fbd478515960554df37f6009d13242242b785f9d7c7ac065100748",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "am_fenrir"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "2edb17ea37fbd478515960554df37f6009d13242242b785f9d7c7ac065100748",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "d6a657d0ab0cdd6b39eb991676bf0320f9cfb96b732a72baf7b84e63f0e09893",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "9de6c5f11e2c8152d2dbb2fade0865bc4a090d368a9b12e11a8e611ab1424f30",
+      "speed" : 1,
+      "voice" : "am_fenrir"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-am_liam",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Liam",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "42cecbe0164aed5c981fa9595579f32ebe83effe66680fb80dd8517df54c51f1",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "am_liam"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "42cecbe0164aed5c981fa9595579f32ebe83effe66680fb80dd8517df54c51f1",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "e6435b3d4016e8b0fac7e2f55da798c679e745461514d14167d07d0649506b10",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "1f4683295c48fc448b964aa2f6620fe1e0f3a3953c8af35d0920a2de67c25c77",
+      "speed" : 1,
+      "voice" : "am_liam"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-am_michael",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Michael",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "dc2a72fb17a15bdbe946db2eadc798efde5dd2b447e50b7862b6ac5a044230e0",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "am_michael"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "dc2a72fb17a15bdbe946db2eadc798efde5dd2b447e50b7862b6ac5a044230e0",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "f23c649c8e9b3eba5ad3d0a92944e6903c8ce30863d48a99a2028b7678a76a88",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "eb05edb8a78f0ade7a3c2aac4fe6e4dd39bcc6f2920c18090b4ce5b42ed9802a",
+      "speed" : 1,
+      "voice" : "am_michael"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-am_onyx",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Onyx",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "38d6083bcd5f36ecb4768e33be870397e3d60fbab8145836f10e1a129f311a43",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "am_onyx"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "38d6083bcd5f36ecb4768e33be870397e3d60fbab8145836f10e1a129f311a43",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "ee65e673af4353a37d87101735841af17086f2fffcea79a64d4e03cbc289a568",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "722b0a5738ac2fb4caf4d392e67246a3a7d1d5eb9d49e172a0db887b905e4a10",
+      "speed" : 1,
+      "voice" : "am_onyx"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-am_puck",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Puck",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "dad96fb9d8d6962df46152499520ac2cd3ed8063b79e3521f207c11fb82c78a1",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "am_puck"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "dad96fb9d8d6962df46152499520ac2cd3ed8063b79e3521f207c11fb82c78a1",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "da0b7a9d2848b470198bb43bed3fd8492d344b2182d4270d786baa1695037d52",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "aca1e8a4cea16f3e9140dafa911967440009e95ff52815407810863299842c32",
+      "speed" : 1,
+      "voice" : "am_puck"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-am_santa",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Santa",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "86690c5b41c191e1c89c0002ba65c51ce1fd7fb60cbc6bce8afecbcec2c9c033",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-US",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "am_santa"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "86690c5b41c191e1c89c0002ba65c51ce1fd7fb60cbc6bce8afecbcec2c9c033",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "8db4e0f2fcfc45bec978078efe76630df8f76a398c0abe92db341145c69c28ef",
+            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 117
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "59c8222c402389b62694f3fd3af77c3d4547d87b04bcc1d5087d765e33bd1f8f",
+      "speed" : 1,
+      "voice" : "am_santa"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-bf_alice",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Alice",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "cb7d30c39bc8bd5b74cb43c93eb2c02307c4de7aff3f8e4ef5830806dbd67248",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-GB",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "bf_alice"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "cb7d30c39bc8bd5b74cb43c93eb2c02307c4de7aff3f8e4ef5830806dbd67248",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "cdbcf55a9bedbcfcd9edfeb815e155f2b521b4ee8175bb98ae1e0deb519a4232",
+            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 114
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "ac82a7c94716def0fe6526f72ded9840085cf741dd3425c6f2a18e7377b3c30c",
+      "speed" : 1,
+      "voice" : "bf_alice"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-bf_emma",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Emma",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "74fbf01fe0922fe1519df83074b7300f05a5d6b3e2955a77cae0393ccc9faaed",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-GB",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "bf_emma"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "74fbf01fe0922fe1519df83074b7300f05a5d6b3e2955a77cae0393ccc9faaed",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "9d47a53d71dd63413cbd451b347e2be594e88cf1e04fab25ffcf103af174838a",
+            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 114
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "6d8bf758cc5b51468bdba77f7b74c24fd34bd6b066772a4fd00f37d11b5cff67",
+      "speed" : 1,
+      "voice" : "bf_emma"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-bf_isabella",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Isabella",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "b65f94873bb65e07ca1cb0780526a8f93832bedf6991800d1d72c68e057f952d",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-GB",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "bf_isabella"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "b65f94873bb65e07ca1cb0780526a8f93832bedf6991800d1d72c68e057f952d",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "068269d2ca09b47c7bfb2ecd9abb1ccb59b1bc623aa220d3216ef7ba6efd66b1",
+            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 114
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "d71b73769faf071d7384bb1487d94967ee25ddb76bfb56b56c88cea0489af1f3",
+      "speed" : 1,
+      "voice" : "bf_isabella"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-bf_lily",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Lily",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "a40fc3b98f2307ad7bb5cfeb14e788eb14d42960b62dc4e9c6f2f37f5043012e",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-GB",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "bf_lily"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "a40fc3b98f2307ad7bb5cfeb14e788eb14d42960b62dc4e9c6f2f37f5043012e",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "3d6bcc7f485c4d0b008c56421b90dfd0824c6cbbf9de34ac60d8fae591231c95",
+            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 114
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "01c29f2e870a4d818037453030eab8cde171cf24da4248f96a3a17cb1805d3b4",
+      "speed" : 1,
+      "voice" : "bf_lily"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-bm_daniel",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Daniel",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "85441a077baf6c525f4ce681e68bc35a547a0c8d32e029a2fc388ba49a3867cf",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-GB",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "bm_daniel"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "85441a077baf6c525f4ce681e68bc35a547a0c8d32e029a2fc388ba49a3867cf",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "508351079358018b8682e808bb3c7371c3cad0a22befded2a85f365c57236485",
+            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 114
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "c0a47dc8bd39a7a7817eb8fe2b29a11f04fa4d2ebf991dd3df8536e7ebf7aa84",
+      "speed" : 1,
+      "voice" : "bm_daniel"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-bm_fable",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Fable",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "54176e897c0d12896524d4b2296c0d132d91c13a786e69389efa8e92540dadd6",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-GB",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "bm_fable"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "54176e897c0d12896524d4b2296c0d132d91c13a786e69389efa8e92540dadd6",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "8c9931e0cf84356b7838ba4f9cd744d696bfb176113f4561022bec7273e014be",
+            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 114
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "bb23b5d2b738ea4ee56fc6d484e730a7f9857feb72ceec8a82a230c4bdea09a3",
+      "speed" : 1,
+      "voice" : "bm_fable"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-bm_george",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "George",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "76f8c44d8a290a49c44b4343a3f5a71802cc284bdc893cd97fd51e5d7de0f3cf",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-GB",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "bm_george"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "76f8c44d8a290a49c44b4343a3f5a71802cc284bdc893cd97fd51e5d7de0f3cf",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "fc5d6c7b72d8ee91bc9d59ac49a246d95b10d1c69368690ed324705c01f2f00e",
+            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 114
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "cb11910ef85b925fa0a8052deeb5b42e796ea75b1ea4e50ac3890830727423d4",
+      "speed" : 1,
+      "voice" : "bm_george"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "kokoro-bm_lewis",
+      "model" : "kokoro",
+      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name" : "Lewis",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "c5338960090303465442a404f1882073b3c6e1c656eb89b1e98d6aee9d79ead3",
+        "notices" : [
+
+        ],
+        "policy" : "phoneme-200-pauses-candidate-1",
+        "provenance" : {
+          "assembly" : "structural-exact-zero-candidate-1",
+          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
+          "locale" : "en-GB",
+          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing" : "phoneme-200-candidate-1",
+          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection" : "length-minus-one-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
+        "settings" : {
+          "model" : "kokoro",
+          "speed" : 1,
+          "voice" : "bm_lewis"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "c5338960090303465442a404f1882073b3c6e1c656eb89b1e98d6aee9d79ead3",
+            "boundaryAfter" : "paragraph",
+            "fingerprint" : "6509a155424669ad223d24f127b364c90f68c49c46a8e222b7b3e91c679302cb",
+            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0,
+              "origin" : "authored",
+              "pronunciationApplications" : [
+
+              ]
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 114
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "21adffb68d863aef6c5fe92fe5a73535d4142fdf11d013903d1fb49b0355b46f",
+      "speed" : 1,
+      "voice" : "bm_lewis"
+    },
+    {
+      "bitRate" : 64000,
+      "codec" : "AAC-LC",
+      "id" : "soprano-soprano",
+      "model" : "soprano",
+      "modelRevision" : "745350c27f356c3910eebcb49e29760dcf6a643c",
+      "name" : "Soprano",
+      "narrationChunks" : [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech" : {
+        "acousticIdentity" : "f02d4522d2b865c7f72f5378a0285c44f318c0310a27e63106e13c48f331502d",
+        "notices" : [
+
+        ],
+        "policy" : "legacy-character-1",
+        "provenance" : {
+          "assembly" : "legacy-unchanged-pcm-1",
+          "frontend" : "soprano-text-1",
+          "locale" : "en",
+          "modelRevision" : "745350c27f356c3910eebcb49e29760dcf6a643c",
+          "packing" : "legacy-character-1",
+          "resourceRevision" : "745350c27f356c3910eebcb49e29760dcf6a643c",
+          "styleSelection" : "soprano-native-1"
+        },
+        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1",
+        "settings" : {
+          "model" : "soprano",
+          "speed" : 1,
+          "voice" : "soprano"
+        },
+        "utterances" : [
+          {
+            "acousticIdentity" : "f02d4522d2b865c7f72f5378a0285c44f318c0310a27e63106e13c48f331502d",
+            "boundaryAfter" : "continuation",
+            "fingerprint" : "d6af456d3e530b448dc4f928429113b79832ac7265f5dde19c63deabe46eb415",
+            "source" : {
+              "blockIndices" : [
+                0
+              ],
+              "length" : 111,
+              "location" : 0
+            },
+            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount" : 0
+          }
+        ],
+        "version" : 1
+      },
+      "sampleRate" : 24000,
+      "sha256" : "4e59e1b0fed866d8c123eccf8a082ddd528bd2d22c4503596310e0db511d14b0",
+      "speed" : 1,
+      "voice" : "soprano"
+    }
+  ],
+  "version" : 3
+}

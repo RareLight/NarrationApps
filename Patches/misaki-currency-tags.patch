@@ -1,0 +1,38 @@
+--- a/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/EnglishG2P.swift
++++ b/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/EnglishG2P.swift
+@@ -319,6 +319,12 @@
+     }
+   }
+   
++  // Apple tags decimal amounts as OtherWord on current macOS. Reuse the
++  // lexicon's existing numeric grammar instead of assuming spaCy/CD tags.
++  private func isNumberToken(_ token: MToken) -> Bool {
++    token.tag == .number || lexicon.isNumber(word: token.text, is_head: token.`_`.is_head)
++  }
++
+   func retokenize(_ tokens: [MToken]) -> [Any] {
+     var words: [Any] = []
+     var currency: String? = nil
+@@ -361,9 +367,9 @@
+           }
+           token.`_`.rating = 4
+         } else if currency != nil {
+-          if token.tag != .number {
++          if !isNumberToken(token) {
+             currency = nil
+-          } else if j + 1 == subtokens.count && (i + 1 == tokens.count || tokens[i + 1].tag != .number) {
++          } else if j + 1 == subtokens.count && (i + 1 == tokens.count || !isNumberToken(tokens[i + 1])) {
+             token.`_`.currency = currency
+           }
+         } else if j > 0 && j < subtokens.count - 1 && token.text == "2" {
+--- a/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/Lexicon/Lexicon.swift
++++ b/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/Lexicon/Lexicon.swift
+@@ -432,7 +432,7 @@
+     return phoneme
+   }
+   
+-  private func isNumber(word: String, is_head: Bool) -> Bool {
++  func isNumber(word: String, is_head: Bool) -> Bool {
+     if word.allSatisfy({ !$0.isNumber }) { return false }    
+     let suffixes: [String] = ["ing", "'d", "ed", "'s"] + Lexicon.ordinals + ["s"]
+     var core = word

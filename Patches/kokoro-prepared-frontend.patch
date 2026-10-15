@@ -1,0 +1,102 @@
+--- a/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/MisakiTextProcessor.swift
++++ b/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/MisakiTextProcessor.swift
+@@ -36,6 +36,24 @@
+         return phonemes
+     }
+ 
++    /// Source-aligned frontend values for bounded native narration preparation.
++    /// Disables the optional Markdown phoneme directives: callers supply prose,
++    /// never an untrusted raw-phoneme escape hatch. No inferred alignment.
++    public struct AlignedToken: Sendable {
++        public let sourceRange: NSRange
++        public let phonemes: String
++        public let whitespace: String
++    }
++
++    public func processAligned(text: String, language: String?) throws -> [AlignedToken] {
++        let g2p = try getG2P(british: language?.lowercased().contains("gb") == true)
++        let (_, tokens) = g2p.phonemize(text: text, performPreprocess: false)
++        return tokens.map { token in
++            AlignedToken(sourceRange: NSRange(token.tokenRange, in: text),
++                         phonemes: token.phonemes ?? "❓", whitespace: token.whitespace)
++        }
++    }
++
+     private func getG2P(british: Bool) throws -> EnglishG2P {
+         lock.lock()
+         defer { lock.unlock() }
+--- a/Sources/MLXAudioTTS/Models/StyleTTS2/Kokoro/KokoroModel.swift
++++ b/Sources/MLXAudioTTS/Models/StyleTTS2/Kokoro/KokoroModel.swift
+@@ -215,6 +215,31 @@
+         return (audio.reshaped([-1]), phonemized, predDur)
+     }
+ 
++    /// Explicit validated phoneme input. The caller obtained these from the
++    /// aligned frontend; ordinary user text still uses generate(text:...).
++    /// Reject unsupported scalars instead of silently dropping pronunciation.
++    public func generatePrepared(phonemes: String, voice: String, speed: Float) async throws -> MLXArray {
++        let scalars = phonemes.unicodeScalars
++        guard !scalars.isEmpty, scalars.count <= maxTokenCount,
++              speed.isFinite, speed > 0,
++              scalars.allSatisfy({ config.vocab[String($0)] != nil }) else {
++            throw AudioGenerationError.invalidInput("Invalid prepared Kokoro phonemes")
++        }
++        let tokens = scalars.map { Int32(config.vocab[String($0)]!) }
++        let embedding = try loadVoice(named: voice)
++        // Converted voice tensors preserve the reference's [510,1,256] row
++        // storage exactly. KPipeline indexes pack[len(phonemes)-1].
++        guard embedding.shape == [510, 1, 256] else {
++            throw AudioGenerationError.invalidInput("Unexpected Kokoro voice tensor")
++        }
++        let row = tokens.count - 1
++        let ids = MLXArray([Int32(0)] + tokens + [0]).reshaped([1, -1])
++        try Task.checkCancellation()
++        let (audio, _) = self.callAsFunction(inputIds: ids, refS: embedding[row..<(row + 1)], speed: speed)
++        try Task.checkCancellation()
++        return audio.reshaped([-1])
++    }
++
+     public func generateStream(
+         text: String,
+         voice: String?,
+--- a/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/FallbackNetwork/EnglishFallbackNetwork.swift
++++ b/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/FallbackNetwork/EnglishFallbackNetwork.swift
+@@ -91,10 +91,7 @@
+ 
+     private static func loadConfig(british: Bool, directory: URL) -> BARTConfig? {
+         let fileName = "\(british ? "gb" : "us")_bart_config"
+-        var url = directory.appendingPathComponent("\(fileName).json")
+-        if !FileManager.default.fileExists(atPath: url.path), british {
+-            url = directory.appendingPathComponent("us_bart_config.json")
+-        }
++        let url = directory.appendingPathComponent("\(fileName).json")
+         guard let data = try? Data(contentsOf: url),
+               let config = try? JSONDecoder().decode(BARTConfig.self, from: data) else {
+             return nil
+@@ -104,10 +101,7 @@
+ 
+     private static func loadWeights(british: Bool, directory: URL) -> [String: MLXArray]? {
+         let fileName = "\(british ? "gb" : "us")_bart"
+-        var url = directory.appendingPathComponent("\(fileName).safetensors")
+-        if !FileManager.default.fileExists(atPath: url.path), british {
+-            url = directory.appendingPathComponent("us_bart.safetensors")
+-        }
++        let url = directory.appendingPathComponent("\(fileName).safetensors")
+         guard let weights = try? MLX.loadArrays(url: url) else {
+             return nil
+         }
+--- a/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/Lexicon/DataResourcesUtil.swift
++++ b/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/Lexicon/DataResourcesUtil.swift
+@@ -14,11 +14,7 @@
+     }
+ 
+     private static func loadJSON(filename: String, directory: URL, british: Bool) -> [String: Any] {
+-        var url = directory.appendingPathComponent("\(filename).json")
+-        if !FileManager.default.fileExists(atPath: url.path), british {
+-            let fallback = filename.replacingOccurrences(of: "gb_", with: "us_")
+-            url = directory.appendingPathComponent("\(fallback).json")
+-        }
++        let url = directory.appendingPathComponent("\(filename).json")
+         guard let data = try? Data(contentsOf: url),
+               let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+             return [:]

@@ -1,0 +1,251 @@
+--- a/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/Lexicon/Lexicon.swift
++++ b/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/Lexicon/Lexicon.swift
+@@ -198,7 +198,8 @@
+       return lookup(target, tag: nil, stress: -0.5, ctx: ctx)
+     } else if let sym = Lexicon.symbolSet[word] {
+       return lookup(sym, tag: nil, stress: nil, ctx: ctx)
+-    } else if word.trimmingCharacters(in: CharacterSet(charactersIn: ".")).contains(".") {
++    } else if word.trimmingCharacters(in: CharacterSet(charactersIn: ".")).contains("."),
++              word.replacingOccurrences(of: ".", with: "").allSatisfy({ $0.isLetter }) {
+       let parts = word.split(separator: ".")
+       if parts.map({ $0.count }).max() ?? 0 < 3 {
+         return getNNP(word)
+@@ -463,12 +464,12 @@
+     func extend_num(_ num: String, first: Bool = true, escape: Bool = false) {
+       let splits: [String]
+       if escape {
+-        splits = num.split(whereSeparator: { !$0.isLetter }).map(String.init)
++        splits = num.split(whereSeparator: { !$0.isLetter }).map { String($0).lowercased() }
+       } else {
+         if let val = Decimal(string: num) {
+-          splits = num2Words.convert(val).split(separator: " ").map(String.init)
++          splits = num2Words.convert(val).split(whereSeparator: { !$0.isLetter }).map { String($0).lowercased() }
+         } else {
+-          splits = num.split(whereSeparator: { !$0.isLetter }).map(String.init)
++          splits = num.split(whereSeparator: { !$0.isLetter }).map { String($0).lowercased() }
+         }
+       }
+       
+@@ -570,7 +571,7 @@
+                 let tail = num.dropFirst().compactMap { Int(String($0)) }.map { num2Words.convert(Decimal($0)) }.joined(separator: " ")
+                 word = "point " + tail
+             } else {
+-              if let d = Double(num) { word = num2Words.convert(Decimal(d)) }
++              if let d = Decimal(string: num, locale: Locale(identifier: "en_US_POSIX")) { word = num2Words.convert(d) }
+             }
+         }
+         
+--- a/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/EnglishNum2Word.swift
++++ b/Sources/MLXAudioTTS/Models/StyleTTS2/G2P/EnglishNum2Word.swift
+@@ -9,75 +9,29 @@
+     case year
+   }
+   
+-  private let negWord = "minus "
+-  private let pointWord = "point"
+-  private let excludeTitle = ["and", "point", "minus"]
+-  
+-  private let midNumWords: [(Int, String)] = [
+-    (1000, "thousand"), (100, "hundred"),
+-    (90, "ninety"), (80, "eighty"), (70, "seventy"),
+-    (60, "sixty"), (50, "fifty"), (40, "forty"),
+-    (30, "thirty")
+-  ]
+-  
+-  private let lowNumWords = [
+-    "twenty", "nineteen", "eighteen", "seventeen",
+-    "sixteen", "fifteen", "fourteen", "thirteen",
+-    "twelve", "eleven", "ten", "nine", "eight",
+-    "seven", "six", "five", "four", "three", "two",
+-    "one", "zero"
+-  ]
+-  
+-  private let ords: [String: String] = [
+-    "one": "first", "two": "second", "three": "third",
+-    "four": "fourth", "five": "fifth", "six": "sixth",
+-    "seven": "seventh", "eight": "eighth", "nine": "ninth",
+-    "ten": "tenth", "eleven": "eleventh", "twelve": "twelfth"
+-  ]
+-  
+-  private var cards: [Int: String] = [:]
+-  
+-  init() {
+-    // Initialize high number words
+-    var cards: [Int: String] = [:]
+-    let highWords = ["m", "b", "tr", "quadr", "quint", "sext", "sept", "oct", "non", "dec"]
+-    for (index, word) in highWords.enumerated() {
+-      let power = 6 + (index * 3)
+-      let val = pow(10.0, Double(power))
+-      if val <= Double(Int.max) {
+-        let intVal: Int = Int(val)
+-        cards[intVal] = word + "illion"
+-      } else {
+-        // Currently really, really large numbers are not handled
+-      }      
+-    }
+-    self.cards = cards
++  // Foundation/ICU already handles English cardinal and decimal spelling,
++  // including twenties, scale words and negative fractions. Keep the frontend's
++  // existing year/ordinal presentation rules, without maintaining another
++  // incomplete cardinal-number grammar.
++  private func spellOut(_ number: NSNumber) -> String {
++    let formatter = NumberFormatter()
++    formatter.locale = Locale(identifier: "en_US")
++    formatter.numberStyle = .spellOut
++    formatter.maximumFractionDigits = 38
++    return formatter.string(from: number) ?? ""
+   }
+-  
+-  private func merge(_ lPair: (String, Int), _ rPair: (String, Int)) -> (String, Int) {
+-    let (lText, lNum) = lPair
+-    let (rText, rNum) = rPair
+-    
+-    if lNum == 1 && rNum < 100 {
+-      return (rText, rNum)
+-    } else if 100 > lNum && lNum > rNum {
+-      return ("\(lText)-\(rText)", lNum + rNum)
+-    } else if lNum >= 100 && rNum < 100 {
+-      return ("\(lText) and \(rText)", lNum + rNum)
+-    } else if rNum > lNum {
+-      return ("\(lText) \(rText)", lNum * rNum)
+-    }
+-    return ("\(lText), \(rText)", lNum + rNum)
+-  }
+-  
++
+   private func toOrdinal(_ decimalNumber: Decimal) -> String {
+-    let number = NSDecimalNumber(decimal: decimalNumber).intValue
+-    guard number > 0 else { return "" }
++    let value = NSDecimalNumber(decimal: decimalNumber)
++    guard !decimalNumber.isNaN, value.compare(NSDecimalNumber(value: 0)) != .orderedAscending,
++          value.compare(NSDecimalNumber(value: Int.max)) != .orderedDescending else { return "" }
++    let number = value.intValue
+     
+     var outWords = toCardinal(number).components(separatedBy: " ")
+     var lastWords = outWords[outWords.count - 1].components(separatedBy: "-")
+     var lastWord = lastWords[lastWords.count - 1].lowercased()
+     
++    let ords = ["one": "first", "two": "second", "three": "third", "four": "fourth", "five": "fifth", "six": "sixth", "seven": "seventh", "eight": "eighth", "nine": "ninth", "ten": "tenth", "eleven": "eleventh", "twelve": "twelfth"]
+     if let ordinalWord = ords[lastWord] {
+       lastWord = ordinalWord
+     } else {
+@@ -87,7 +41,7 @@
+       lastWord += "th"
+     }
+     
+-    lastWords[lastWords.count - 1] = lastWord.capitalized
++    lastWords[lastWords.count - 1] = lastWord
+     outWords[outWords.count - 1] = lastWords.joined(separator: "-")
+     return outWords.joined(separator: " ")
+   }
+@@ -103,73 +57,13 @@
+     }
+   }
+   
+-  private func toCardinal(_ number: Int) -> String {
+-    if number < 0 {
+-      return negWord + toCardinal(abs(number))
+-    }
+-    
+-    if number < 21 {
+-      return lowNumWords[20 - number]
+-    }
+-    
+-    // Handle numbers from 21-99
+-    if number < 100 {
+-      let tens = (number / 10) * 10
+-      let ones = number % 10
+-      if ones == 0 {
+-        return midNumWords.first { $0.0 == tens }?.1 ?? ""
+-      } else {
+-        let tensWord = midNumWords.first { $0.0 == tens }?.1 ?? ""
+-        let onesWord = lowNumWords[20 - ones]
+-        return "\(tensWord)-\(onesWord)"
+-      }
+-    }
+-    
+-    // Handle hundreds
+-    if number < 1000 {
+-      let hundreds = number / 100
+-      let remainder = number % 100
+-      let hundredsWord = toCardinal(hundreds) + " hundred"
+-      if remainder == 0 {
+-        return hundredsWord
+-      } else {
+-        return "\(hundredsWord) and \(toCardinal(remainder))"
+-      }
+-    }
+-    
+-    // Handle thousands and higher
+-    for (value, word) in midNumWords.sorted(by: { $0.0 > $1.0 }) {
+-      if number >= value {
+-        let quotient = number / value
+-        let remainder = number % value
+-        let quotientWord = toCardinal(quotient)
+-        if remainder == 0 {
+-          return "\(quotientWord) \(word)"
+-        } else {
+-          return "\(quotientWord) \(word), \(toCardinal(remainder))"
+-        }
+-      }
+-    }
+-    
+-    // Handle very large numbers using cards
+-    for (value, word) in cards.sorted(by: { $0.key > $1.key }) {
+-      if number >= value {
+-        let quotient = number / value
+-        let remainder = number % value
+-        let quotientWord = toCardinal(quotient)
+-        if remainder == 0 {
+-          return "\(quotientWord) \(word)"
+-        } else {
+-          return "\(quotientWord) \(word), \(toCardinal(remainder))"
+-        }
+-      }
+-    }
+-    
+-    return ""
+-  }
+-  
++  private func toCardinal(_ number: Int) -> String { spellOut(NSNumber(value: number)) }
++
+   private func toYear(_ yearDecimal: Decimal, suffix: String? = nil, longVal: Bool = true) -> String {
+-    let year = NSDecimalNumber(decimal: yearDecimal).intValue
++    let value = NSDecimalNumber(decimal: yearDecimal)
++    guard !yearDecimal.isNaN, value.compare(NSDecimalNumber(value: Int.min)) == .orderedDescending,
++          value.compare(NSDecimalNumber(value: Int.max)) != .orderedDescending else { return toDecimal(yearDecimal) }
++    let year = value.intValue
+     var val = year
+     var finalSuffix = suffix
+     
+@@ -206,22 +100,16 @@
+   }
+   
+   private func toDecimal(_ number: Decimal) -> String {
+-    let integerPart = NSDecimalNumber(decimal: number).intValue
+-    let fractionalPart = number - Decimal(integerPart)
+-    
+-    if fractionalPart == 0 {
+-      return toCardinal(integerPart)
++    guard !number.isNaN else { return "" }
++    let value = NSDecimalNumber(decimal: number)
++    if value.compare(NSDecimalNumber(value: Int.min)) != .orderedAscending,
++       value.compare(NSDecimalNumber(value: Int.max)) != .orderedDescending,
++       Decimal(value.intValue) == number {
++      return toCardinal(value.intValue)
+     }
+-    
+-    let integerWords = toCardinal(integerPart)
+-    
+-    // Remove "0."
+-    let fractionalString = "\(fractionalPart)".dropFirst(2)
+-    let fractionalWords = fractionalString.map { toCardinal(Int(String($0)) ?? 0) }.joined(separator: " ")
+-    
+-    return "\(integerWords) \(pointWord) \(fractionalWords)"
++    return spellOut(value)
+   }
+-  
++
+   /// Converts a number representing year, oridnal number or a decimal (integer numbers included) to words
+   func convert(_ number: Decimal, to format: ConversionFormat = .decimal) -> String {
+     switch format {

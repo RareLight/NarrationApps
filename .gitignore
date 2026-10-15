@@ -1,0 +1,37 @@
+# macOS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# SwiftPM and Xcode generated builds/caches (including nested packages)
+.build/
+build/
+DerivedData/
+.swiftpm/cache/
+.swiftpm/security/
+
+# Per-user Xcode state; keep shared projects, workspaces and schemes
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Distribution, debugging and coverage artifacts
+*.xcarchive/
+*.xcresult/
+*.dSYM/
+*.dSYM.zip
+*.ipa
+*.profraw
+*.profdata
+
+# Local editor scratch
+*.swp
+*.swo
+*~
+
+# Package.swift, Package.resolved, Sources/, Tests/ and shared Xcode
+# project/workspace configuration intentionally remain trackable.
+
+# Private source-asset generation staging (removed after success/cancellation)
+Sources/NativeSpeech/Resources/.voice-samples-*/

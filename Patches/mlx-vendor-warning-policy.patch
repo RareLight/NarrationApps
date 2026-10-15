@@ -1,0 +1,13 @@
+--- a/Package.swift
++++ b/Package.swift
+@@ -205,6 +205,10 @@
+         .headerSearchPath("mlx-c"),
+     ],
+     cxxSettings: cxxSettings + [
++        // Xcode enables this extra diagnostic for vendored MLX; upstream's
++        // CMake build does not. Preserve its numerical/index code and scope
++        // this exception to Cmlx on macOS, leaving other diagnostics enabled.
++        .unsafeFlags(["-Wno-shorten-64-to-32"], .when(platforms: [.macOS])),
+         .headerSearchPath("mlx"),
+         .headerSearchPath("mlx-c"),
+         .headerSearchPath("json/single_include/nlohmann"),
