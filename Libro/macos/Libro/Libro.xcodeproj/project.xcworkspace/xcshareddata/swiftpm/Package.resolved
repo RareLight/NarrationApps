@@ -1,5 +1,5 @@
 {
-  "originHash" : "2ffbb75c938193c5e51132a2a71358ebaf3ccce9892bcf012d217a85d236e685",
+  "originHash" : "070552bdf149538b2b5421da8554087be7bc7aaa192808e9d76332631bfa920e",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -191,6 +191,15 @@
       }
     },
     {
+      "identity" : "swift-readability",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/wolfyy970/swift-readability.git",
+      "state" : {
+        "revision" : "531c4adbb342def2904440df13da06ee2258d697",
+        "version" : "0.3.3"
+      }
+    },
+    {
       "identity" : "swift-service-context",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-service-context.git",
@@ -236,12 +245,30 @@
       }
     },
     {
+      "identity" : "swift-url",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/karwa/swift-url.git",
+      "state" : {
+        "revision" : "9306a962396a50d7d88e924afcd7ec67226763db",
+        "version" : "0.4.2"
+      }
+    },
+    {
       "identity" : "swift-xet",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mattt/swift-xet.git",
       "state" : {
         "revision" : "341bfd4172f6a57119bfd49bafa11cf5d21fab75",
         "version" : "0.2.3"
+      }
+    },
+    {
+      "identity" : "swiftsoup",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/scinfu/SwiftSoup.git",
+      "state" : {
+        "revision" : "ead56133a693d0184d8c2db1a6d6394410cacfd6",
+        "version" : "2.13.6"
       }
     },
     {

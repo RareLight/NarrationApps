@@ -8,17 +8,17 @@
 
 /* Begin PBXBuildFile section */
 		10B51A969E4F242F17B88406 /* App/LibroApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC1C6FF747A9524174F17C4 /* App/LibroApp.swift */; };
-		214FB77AAF3B7CA140476B8B /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = 08D33503EE27D4C13055D0CE /* HuggingFace */; };
-		2212ECDBE91966FA32A8B5B2 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 339A1EAC565D4DBF7C4389E7 /* MLX */; };
 		22B575B1728FB1B8F951F66A /* Worker/WorkerMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F16744B7350406D43A58FF /* Worker/WorkerMain.swift */; };
 		2ECF33268C9C7214ED56E0AA /* LibroCore in Frameworks */ = {isa = PBXBuildFile; productRef = 33D69C9690A9998D8D4A1229 /* LibroCore */; };
-		582C9B2579A4272BA971D311 /* MLXAudioCore in Frameworks */ = {isa = PBXBuildFile; productRef = 00E864B46F248F343F5516E8 /* MLXAudioCore */; };
-		67670FAD887CFD06B4145948 /* MLXAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = 1FF16CFC8314FDBF4C49B7C3 /* MLXAudioTTS */; };
 		9267B4B7756817FA057F51FE /* LibroCore in Frameworks */ = {isa = PBXBuildFile; productRef = CD133579BA2FB1354850D8F3 /* LibroCore */; };
-		BC41B4788E4B5BABA0822D1C /* LibroCore in Frameworks */ = {isa = PBXBuildFile; productRef = 2832751374142324D4375E3D /* LibroCore */; };
+		B20000000000000000000001 /* AppPresentation in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000001 /* AppPresentation */; };
+		B20000000000000000000002 /* NativeSpeechEngine in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000002 /* NativeSpeechEngine */; };
+		B90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices in Resources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices */; };
 		C81C019B76B042E1B2EF1101 /* Resources/AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C81C019B76B042E1B2EF1102 /* Resources/AppIcon.icon */; };
-		E9BB6229E1674CFF8A79B501 /* ../.build/codecs/lame/lib/libmp3lame.0.dylib in Embed MP3 Encoder */ = {isa = PBXBuildFile; fileRef = E9BB6229E1674CFF8A79B502 /* ../.build/codecs/lame/lib/libmp3lame.0.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		E9BB6229E1674CFF8A79B501 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib in Embed MP3 Encoder */ = {isa = PBXBuildFile; fileRef = E9BB6229E1674CFF8A79B502 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		F5F7DE2B7047390DE36C91C9 /* LibroSpeechWorker in Embed Native Worker */ = {isa = PBXBuildFile; fileRef = F7507973396415592C8F0DD8 /* LibroSpeechWorker */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+        B20000000000000000000003 /* PronunciationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000003 /* PronunciationUI */; };
+        B20000000000000000000004 /* NarrationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000004 /* NarrationUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,7 +49,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				E9BB6229E1674CFF8A79B501 /* ../.build/codecs/lame/lib/libmp3lame.0.dylib in Embed MP3 Encoder */,
+				E9BB6229E1674CFF8A79B501 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib in Embed MP3 Encoder */,
 			);
 			name = "Embed MP3 Encoder";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -63,9 +63,10 @@
 		C7F16744B7350406D43A58FF /* Worker/WorkerMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Worker/WorkerMain.swift; sourceTree = "<group>"; };
 		C81C019B76B042E1B2EF1102 /* Resources/AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = Resources/AppIcon.icon; sourceTree = "<group>"; };
 		DCC1C6FF747A9524174F17C4 /* App/LibroApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/LibroApp.swift; sourceTree = "<group>"; };
-		E9BB6229E1674CFF8A79B502 /* ../.build/codecs/lame/lib/libmp3lame.0.dylib */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; path = ../.build/codecs/lame/lib/libmp3lame.0.dylib; sourceTree = "<group>"; };
+		E9BB6229E1674CFF8A79B502 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; path = "../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib"; sourceTree = "<group>"; };
 		F39DB396A68008CF77BCB592 /* Configuration/App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/App.xcconfig; sourceTree = "<group>"; };
 		F7507973396415592C8F0DD8 /* LibroSpeechWorker */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = LibroSpeechWorker; sourceTree = BUILT_PRODUCTS_DIR; };
+		F90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "../../../swift-packages/ThirdPartyNotices"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -77,11 +78,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BC41B4788E4B5BABA0822D1C /* LibroCore in Frameworks */,
-				582C9B2579A4272BA971D311 /* MLXAudioCore in Frameworks */,
-				67670FAD887CFD06B4145948 /* MLXAudioTTS in Frameworks */,
-				2212ECDBE91966FA32A8B5B2 /* MLX in Frameworks */,
-				214FB77AAF3B7CA140476B8B /* HuggingFace in Frameworks */,
+				B20000000000000000000002 /* NativeSpeechEngine in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -97,6 +94,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000001 /* AppPresentation in Frameworks */,
+                B20000000000000000000003 /* PronunciationUI in Frameworks */,
+                B20000000000000000000004 /* NarrationUI in Frameworks */,
 				2ECF33268C9C7214ED56E0AA /* LibroCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -114,7 +114,8 @@
 				7A2242B09BA5CE9CA8DD66E7 /* Configuration/Shared.xcconfig */,
 				0A3E27B8CA818264D75C8D81 /* Products */,
 				F39DB396A68008CF77BCB592 /* Configuration/App.xcconfig */,
-				E9BB6229E1674CFF8A79B502 /* ../.build/codecs/lame/lib/libmp3lame.0.dylib */,
+				E9BB6229E1674CFF8A79B502 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib */,
+				95A644CC307FEEE100CF9C60 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -126,6 +127,14 @@
 				A425048EFBC181F45D8343FD /* LibroCoreTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		95A644CC307FEEE100CF9C60 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				F90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -145,11 +154,7 @@
 			);
 			name = LibroSpeechWorker;
 			packageProductDependencies = (
-				2832751374142324D4375E3D /* LibroCore */,
-				00E864B46F248F343F5516E8 /* MLXAudioCore */,
-				1FF16CFC8314FDBF4C49B7C3 /* MLXAudioTTS */,
-				339A1EAC565D4DBF7C4389E7 /* MLX */,
-				08D33503EE27D4C13055D0CE /* HuggingFace */,
+				D20000000000000000000002 /* NativeSpeechEngine */,
 			);
 			productName = LibroSpeechWorker;
 			productReference = F7507973396415592C8F0DD8 /* LibroSpeechWorker */;
@@ -196,6 +201,9 @@
 			);
 			name = Libro;
 			packageProductDependencies = (
+				D20000000000000000000001 /* AppPresentation */,
+                D20000000000000000000003 /* PronunciationUI */,
+                D20000000000000000000004 /* NarrationUI */,
 				33D69C9690A9998D8D4A1229 /* LibroCore */,
 			);
 			productName = Libro;
@@ -229,10 +237,9 @@
 			);
 			mainGroup = 0035FE99EA2940F7FA633A58;
 			packageReferences = (
+				A20000000000000000000001 /* XCLocalSwiftPackageReference "../../../swift-packages" */,
 				62389C075E76AF4A0B3DAE2B /* XCLocalSwiftPackageReference "../LibroCore" */,
-				4D66EE673667E9770C819366 /* XCLocalSwiftPackageReference "../.build/dependencies/mlx-audio-swift" */,
-				ED6B4E63797EBD749423822C /* XCLocalSwiftPackageReference "../.build/dependencies/mlx-swift" */,
-				F0EC01878E8128903CF7D703 /* XCLocalSwiftPackageReference "../.build/dependencies/swift-huggingface" */,
+				A20000000000000000000004 /* XCLocalSwiftPackageReference "../../../swift-packages/AppPresentation" */,
 			);
 			productRefGroup = 0A3E27B8CA818264D75C8D81 /* Products */;
 			projectDirPath = "";
@@ -264,6 +271,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices in Resources */,
 				C81C019B76B042E1B2EF1101 /* Resources/AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -526,50 +534,21 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		4D66EE673667E9770C819366 /* XCLocalSwiftPackageReference "../.build/dependencies/mlx-audio-swift" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "../.build/dependencies/mlx-audio-swift";
-		};
 		62389C075E76AF4A0B3DAE2B /* XCLocalSwiftPackageReference "../LibroCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../LibroCore;
 		};
-		ED6B4E63797EBD749423822C /* XCLocalSwiftPackageReference "../.build/dependencies/mlx-swift" */ = {
+		A20000000000000000000001 /* XCLocalSwiftPackageReference "../../../swift-packages" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../.build/dependencies/mlx-swift";
+			relativePath = "../../../swift-packages";
 		};
-		F0EC01878E8128903CF7D703 /* XCLocalSwiftPackageReference "../.build/dependencies/swift-huggingface" */ = {
+		A20000000000000000000004 /* XCLocalSwiftPackageReference "../../../swift-packages/AppPresentation" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../.build/dependencies/swift-huggingface";
+			relativePath = "../../../swift-packages/AppPresentation";
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		00E864B46F248F343F5516E8 /* MLXAudioCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 4D66EE673667E9770C819366 /* XCLocalSwiftPackageReference "../.build/dependencies/mlx-audio-swift" */;
-			productName = MLXAudioCore;
-		};
-		08D33503EE27D4C13055D0CE /* HuggingFace */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F0EC01878E8128903CF7D703 /* XCLocalSwiftPackageReference "../.build/dependencies/swift-huggingface" */;
-			productName = HuggingFace;
-		};
-		1FF16CFC8314FDBF4C49B7C3 /* MLXAudioTTS */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 4D66EE673667E9770C819366 /* XCLocalSwiftPackageReference "../.build/dependencies/mlx-audio-swift" */;
-			productName = MLXAudioTTS;
-		};
-		2832751374142324D4375E3D /* LibroCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 62389C075E76AF4A0B3DAE2B /* XCLocalSwiftPackageReference "../LibroCore" */;
-			productName = LibroCore;
-		};
-		339A1EAC565D4DBF7C4389E7 /* MLX */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = ED6B4E63797EBD749423822C /* XCLocalSwiftPackageReference "../.build/dependencies/mlx-swift" */;
-			productName = MLX;
-		};
 		33D69C9690A9998D8D4A1229 /* LibroCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 62389C075E76AF4A0B3DAE2B /* XCLocalSwiftPackageReference "../LibroCore" */;
@@ -580,6 +559,18 @@
 			package = 62389C075E76AF4A0B3DAE2B /* XCLocalSwiftPackageReference "../LibroCore" */;
 			productName = LibroCore;
 		};
+		D20000000000000000000001 /* AppPresentation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000004 /* XCLocalSwiftPackageReference "../../../swift-packages/AppPresentation" */;
+			productName = AppPresentation;
+		};
+		D20000000000000000000002 /* NativeSpeechEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000001 /* XCLocalSwiftPackageReference "../../../swift-packages" */;
+			productName = NativeSpeechEngine;
+		};
+        D20000000000000000000003 /* PronunciationUI */ = {isa = XCSwiftPackageProductDependency; package = A20000000000000000000001; productName = PronunciationUI; };
+        D20000000000000000000004 /* NarrationUI */ = {isa = XCSwiftPackageProductDependency; package = A20000000000000000000001; productName = NarrationUI; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 244210E48437B6556980A702 /* Project object */;

@@ -1,5 +1,5 @@
 // Local development only. Developer ID / notarization is a separate delivery gate.
-MACOSX_DEPLOYMENT_TARGET = 15.0
+MACOSX_DEPLOYMENT_TARGET = 27.0
 SDKROOT = macosx
 ARCHS = arm64
 ONLY_ACTIVE_ARCH = YES

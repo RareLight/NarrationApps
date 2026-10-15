@@ -28,46 +28,7 @@ final class WorkflowPresentationTests: XCTestCase {
         XCTAssertEqual(VoicePresentation.name("bm_george"), "George")
         XCTAssertEqual(VoicePresentation.name("future_voice"), "future_voice")
         XCTAssertEqual(SpeechSettings().voice, "af_heart")
-        XCTAssertEqual(SpeechSettings().speed, 1.1)
-    }
-
-    func testVoiceQualityOrderRecommendationsAndAvailableSubsets() {
-        let available = NativePrimaryCatalog.specification(for: .kokoro).voices
-        let expected = [
-            "af_heart", "af_bella", "bf_emma", "af_nicole",
-            "af_aoede", "am_fenrir", "af_kore", "am_michael", "am_puck", "af_sarah",
-            "af_alloy", "bm_fable", "bm_george", "bf_isabella", "af_nova",
-            "af_sky", "bm_lewis", "bf_alice", "bm_daniel", "am_echo", "am_eric",
-            "af_jessica", "am_liam", "bf_lily", "am_onyx", "af_river", "am_santa", "am_adam",
-        ]
-        XCTAssertEqual(VoicePresentation.ranked(available.reversed()), expected)
-        XCTAssertEqual(Set(expected), Set(available))
-        XCTAssertTrue(available.allSatisfy { VoicePresentation.overallGrade($0) != nil })
-        XCTAssertEqual(expected.filter { VoicePresentation.isRecommended($0) }, ["af_heart", "af_bella", "bf_emma", "af_nicole"])
-        XCTAssertEqual(VoicePresentation.name("af_heart"), "Heart")
-        XCTAssertEqual(VoicePresentation.overallGrade("af_aoede"), "C+")
-        XCTAssertEqual(VoicePresentation.name("future_voice"), "future_voice")
-        XCTAssertFalse(VoicePresentation.isRecommended("future_voice"))
-        XCTAssertEqual(VoicePresentation.ranked(["future_voice", "bm_george", "af_aoede", "af_bella"]),
-                       ["af_bella", "af_aoede", "bm_george", "future_voice"])
-        XCTAssertEqual(VoicePresentation.ranked([]), [])
-        XCTAssertTrue(VoicePresentation.help("af_heart").contains("Recommended"))
-    }
-
-    func testSerialOverrideRestoresWithoutChangingOtherPreferences() throws {
-        let suite = "LibroWorkflowTests.\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let preference = SerialGenerationPreference(defaults: defaults)
-        XCTAssertFalse(preference.load())
-        defaults.set("m4b", forKey: "LibroOutputFormat")
-        preference.save(true)
-        XCTAssertTrue(SerialGenerationPreference(defaults: defaults).load())
-        XCTAssertEqual(OutputFormatPreference(defaults: defaults).load(), .m4b)
-        preference.save(false)
-        XCTAssertFalse(preference.load())
-        defaults.set("invalid", forKey: "LibroSerialGeneration")
-        XCTAssertFalse(preference.load())
+        XCTAssertEqual(SpeechSettings().speed, 1.0)
     }
 
     func testRecoverySequenceAndImmutableActiveBatchGate() {

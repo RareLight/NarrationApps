@@ -1,6 +1,7 @@
 # Shared macOS design and UX reference
 
-Version 1.0 · October 9, 2026 · macOS 27 / Xcode 27 baseline
+Design baseline: October 9, 2026 · macOS 27 / Xcode 27.
+Current implementation ownership and terminology: October 15, 2026.
 
 Use this document when designing or developing our Mac applications. The goal is
 recognizable behavior, restrained native presentation and clear workflows across
@@ -145,7 +146,7 @@ their values persist. A remembered output format is still a task choice.
 | Where will this result go? | Visible result/destination region | Save audio to + Browse + Reveal |
 | What content am I acting on? | Main working area/selection controls | Documents, output names, preview |
 | What changes the whole app or prepares its environment? | Settings | Workspace, explicit model preparation |
-| What is useful mainly for diagnosis? | Advanced Settings | Serial override, debug logging, worker check |
+| What is useful mainly for diagnosis? | Troubleshooting | Debug logging and embedded-helper check |
 | What technical detail supports an informed choice? | Nearby help or disclosure | Format fidelity; pinned model revision |
 | What changes only later work during processing? | Explicit next-operation editor | Next Batch Settings… sheet |
 
@@ -324,7 +325,7 @@ The implemented refinement supersedes these study details:
   app menu and accessible by Command-comma.
 
 For Libro's actual implementation/evidence, see the separate
-[UX checklist](native-gui-ux-checklist.md). Its operator appearance and VoiceOver
+[UX checklist](history/native-gui-ux-checklist.md). Its operator appearance and VoiceOver
 checks remain open as of this reference; the mockup is not acceptance evidence.
 
 ## 9. Agent handoff and acceptance checklist

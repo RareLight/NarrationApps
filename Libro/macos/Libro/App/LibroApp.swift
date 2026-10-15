@@ -1,7 +1,12 @@
 import SwiftUI
+import AppPresentation
+import PronunciationUI
+import NarrationUI
+import ProcessingPipeline
 import AppKit
 import UniformTypeIdentifiers
 import LibroCore
+import NarrationCore
 import Darwin
 import AVFoundation
 import OSLog
@@ -11,16 +16,23 @@ import OSLog
 struct LibroApp: App {
     @NSApplicationDelegateAdaptor(LibroDelegate.self) private var delegate
     @State private var model = IntakeModel.shared
+    @AppStorage("LibroTextSizePercent") private var textSizePercent = 100
+    private var textSize: Binding<AppTextSize> {
+        Binding(get: { AppTextSize(percent: textSizePercent) }, set: { textSizePercent = $0.percent })
+    }
 
     var body: some Scene {
         Window("Libro", id: "main") {
             IntakeView(model: model)
+                .appTextSizing(textSize.wrappedValue)
                 .frame(minWidth: 780, minHeight: 580)
                 .background(WindowAutosave())
                 .onOpenURL { model.add([$0]) }
+                .background(LibroSpeechSetupLauncher(model: model).frame(width: 0, height: 0))
         }
         .defaultSize(width: 1000, height: 680)
         .commands {
+            AppTextSizeCommands(size: textSize)
             CommandGroup(replacing: .newItem) {
                 Button("Add Files and Folders…") { model.openInputs() }.keyboardShortcut("o")
                 Button("Add Folder…") { model.openInputs(foldersOnly: true) }
@@ -39,8 +51,13 @@ struct LibroApp: App {
                 Button("Cancel Processing") { model.cancel() }.keyboardShortcut(".").disabled(!model.cancellable)
             }
         }
+        Window("Set Up Libro Speech", id: "speech-setup") {
+            LibroSpeechSetupView(model: model).appTextSizing(textSize.wrappedValue)
+        }.windowResizability(.contentSize).defaultLaunchBehavior(.suppressed).restorationBehavior(.disabled)
         Settings {
-            LibroSettingsView(model: model)
+
+            LibroSettingsView(model: model, textSize: textSize)
+                .appTextSizing(textSize.wrappedValue)
         }
     }
 }
@@ -73,7 +90,7 @@ private final class LibroDelegate: NSObject, NSApplicationDelegate, UNUserNotifi
         }
         model.cancel()
         model.stopPlayback()
-        guard model.hasOwnedProbe || model.isGenerating || model.isPreparingModel else { return .terminateNow }
+        guard model.pronunciationPreview.hasOwnedWork || model.hasOwnedProbe || model.isGenerating || model.isPreparingModel else { return .terminateNow }
         Task {
             await model.stopGeneration()
             await model.stopPreparation()
@@ -127,7 +144,7 @@ private final class IntakeModel {
     var busy = false
     var settings = SpeechSettings() {
         didSet {
-            if oldValue.model != settings.model || oldValue.voice != settings.voice { refreshReadiness() }
+            if oldValue.model != settings.model || oldValue.voice != settings.voice { voiceSamplePlayer.stop(); refreshReadiness() }
         }
     }
     var outputFormat = OutputFormatPreference().load() {
@@ -137,18 +154,38 @@ private final class IntakeModel {
             replan()
         }
     }
-    var serial = SerialGenerationPreference().load() {
-        didSet { SerialGenerationPreference().save(serial) }
-    }
-    var settingsTab = SettingsTab.models
+    var settingsTab = SettingsTab.general
     var readiness = "Checking prepared model assets…"
     var assetsReady = false
     var checkingAssets = false
     var isPreparingModel = false
+    var preparationIsCheck = false
+    var setupResult: SpeechSetupStatus = .notChecked
+    var setupVerificationFailed = false
+    var speechSetupStatus: SpeechSetupStatus { setupResult == .notChecked && !assetsReady ? .notInstalled : setupResult }
+    var pronunciationUnavailableReason: String? {
+        guard pronunciationConfiguration == nil else { return nil }
+        if isPreparingModel || isGenerating || hasOwnedProbe { return NarrationSettingsHelp.previewBusy }
+        if setupVerificationFailed { return NarrationSettingsHelp.previewCheckNeeded }
+        return NarrationSettingsHelp.previewModelMissing
+    }
     var preparationStatus = ""
     var preparationProgress: ModelPreparationProgress?
     var voices = [SpeechSettings.defaultKokoroVoice]
+    let voiceSamplePlayer = AudioPreviewPlayer()
+    let pronunciationPreview = PronunciationPreview()
+    var pronunciationConfiguration: PronunciationPreviewConfiguration? {
+        guard assetsReady, !setupVerificationFailed, !isGenerating, !isPreparingModel, !hasOwnedProbe, let root = workspace?.url else { return nil }
+        return .init(worker: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), workspace: root, settings: settings, priority: .interactive)
+    }
+    private var onboarding = SpeechSetupOnboarding()
+    var needsSpeechSetup: Bool { onboarding.needsSetup }
+    func claimSpeechSetup() -> Bool { onboarding.claimPresentation() }
+    var describeImages = UserDefaults.standard.object(forKey: "LibroDescribeImages") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(describeImages, forKey: "LibroDescribeImages") }
+    }
     var activeBatch: BatchRequest?
+    var activityProgress: BatchActivityProgress?
     var speechProgress: SpeechProgress?
     var generationStatus = ""
     var batchSummary: BatchSummary?
@@ -171,15 +208,24 @@ private final class IntakeModel {
     var hasSelectedAudio: Bool { selectedDocument.map { outcomes[$0.id]?.state == .published } ?? false }
     var hasSelectedFailure: Bool { selectedDocument.map { outcomes[$0.id]?.state == .failed || outcomes[$0.id]?.state == .cancelled } ?? false }
     var generationBlocker: GenerationBlocker? {
-        .evaluate(isGenerating: isGenerating, isPreparing: isPreparingModel, busy: busy, planning: planning,
+        .evaluate(isGenerating: isGenerating, isPreparing: isPreparingModel, busy: busy || debugToolsBusy, planning: planning,
                   workspaceAvailable: workspace?.url != nil, outputAvailable: output?.url != nil,
-                  checkingAssets: checkingAssets, assetsReady: assetsReady, queuedCount: candidates.count,
+                  checkingAssets: checkingAssets, assetsReady: assetsReady && !setupVerificationFailed, queuedCount: candidates.count,
                   plannedCount: planned.count, hasPlanningError: planningError != nil)
     }
     var canGenerate: Bool { generationBlocker == nil }
-    var canPrepareModel: Bool { workspace?.url != nil && !isGenerating && !isPreparingModel && !busy && !checkingAssets && !hasOwnedProbe }
-    var cancellable: Bool { scanner != nil || reader != nil || hasOwnedProbe || isGenerating || isPreparingModel }
-    var inputCancelLabel: String { scanner != nil ? "Cancel Scan" : (reader != nil ? "Cancel Read" : "Cancel Probe") }
+    var speechSetupDisabledReason: String? {
+        if isGenerating { return "Wait for audio generation to finish before checking or installing a speech model." }
+        if isPreparingModel { return "Speech setup is in progress." }
+        if checkingAssets { return "Checking local model files." }
+        if busy || hasOwnedProbe { return "Wait for the current document or diagnostic operation to finish." }
+        if debugToolsBusy { return "Wait for the debug log action to finish." }
+        return nil
+    }
+    var canManageSpeechSetup: Bool { speechSetupDisabledReason == nil }
+    var canPrepareModel: Bool { workspace?.url != nil && canManageSpeechSetup }
+    var cancellable: Bool { pronunciationPreview.hasOwnedWork || scanner != nil || reader != nil || hasOwnedProbe || isGenerating || isPreparingModel }
+    var inputCancelLabel: String { scanner != nil ? "Cancel Scan" : (reader != nil ? "Cancel Read" : "Cancel Check") }
     var hasOwnedProbe: Bool { probeProcess != nil }
     var activityStatus: String { scanner != nil ? "Scanning inputs… \(scanCount) entries checked." : status }
     var planning: Bool { planner != nil }
@@ -191,6 +237,8 @@ private final class IntakeModel {
     }
     var debugLogURL: URL?
     var debugLogStatus: String?
+    var debugToolsBusy = false
+    var canManageDebugLog: Bool { workspace?.url != nil && !isGenerating && !isPreparingModel && !hasOwnedProbe && !debugToolsBusy }
     struct FailureDetails: Identifiable {
         let id: UUID
         let name: String
@@ -229,7 +277,7 @@ private final class IntakeModel {
 
     private init() {
         coordinator = QueueCoordinator(configuration: WorkerConfiguration(executable:
-            Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker")))
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), inferencePriority: .interactive, pronunciationStore: .init()))
         output = preferences.load(.output)
         workspace = preferences.load(.workspace)
         if let root = workspace?.url { debugLogURL = DebugLog.existingURL(workspace: root) }
@@ -251,7 +299,7 @@ private final class IntakeModel {
     }
 
     func browse(_ role: DirectoryRole) {
-        guard role != .workspace || !isPreparingModel else { return }
+        guard role != .workspace || (!isPreparingModel && !debugToolsBusy) else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false; panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
@@ -393,9 +441,10 @@ private final class IntakeModel {
     }
 
     func cancel() {
+        pronunciationPreview.stop()
         cancelIntake()
         if isPreparingModel { preparationStatus = "Cancelling preparation… waiting for the helper to stop."; preparationTask?.cancel() }
-        if isGenerating { generationStatus = "Cancelling… waiting for native workers to stop."; generationTask?.cancel() }
+        if isGenerating { generationStatus = "Cancelling… waiting for the native worker to stop."; generationTask?.cancel() }
     }
 
     func cancelIntake() {
@@ -422,10 +471,14 @@ private final class IntakeModel {
         let token = UUID(); operation = token; busy = true
         status = "Reading document text…"
         states[document.id] = "Reading…"
+        let imageDescriptions = describeImages, selectedSettings = settings
         let task = Task.detached(priority: .userInitiated) {
             let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Reading a Libro document")
             defer { ProcessInfo.processInfo.endActivity(activity) }
-            return try DocumentReader.read(document)
+            let semantic = try await InferenceLease.withPriority(.interactive) {
+                try await DocumentReader.readSemantic(document, describeImages: imageDescriptions)
+            }
+            return try NarrationPlanner.prepare(semantic, settings: selectedSettings, pronunciations: PronunciationStore().load().dictionary).chunks.map(\.text).joined(separator: "\n\n")
         }
         reader = task
         Task {
@@ -445,7 +498,7 @@ private final class IntakeModel {
     }
 
     func probe() {
-        guard !busy, !isGenerating, !isPreparingModel, probeProcess == nil else { return }
+        guard !busy, !debugToolsBusy, !isGenerating, !isPreparingModel, probeProcess == nil else { return }
         let token = UUID(); operation = token
         busy = true; probeCancelled = false; status = "Checking embedded Metal runtime…"; probeStatus = status
         do {
@@ -462,13 +515,15 @@ private final class IntakeModel {
         }
     }
 
-    func refreshReadiness() {
+    func refreshReadiness(preserveSetupResult: Bool = false) {
         guard !isPreparingModel else { return }
+        if !preserveSetupResult { setupResult = .notChecked; setupVerificationFailed = false }
         readinessTask?.cancel(); readinessTask = nil
         let token = UUID(); readinessOperation = token
         assetsReady = false; checkingAssets = false; readinessScopes = []
         guard let root = workspace?.url else {
             readiness = workspace?.error ?? "Choose the Libro workspace containing models."
+            onboarding.assess(installed: false)
             return
         }
         readinessScopes = [DirectoryAccess(root)]
@@ -486,46 +541,86 @@ private final class IntakeModel {
                 }.sorted()
             }
             try Task.checkCancellation()
-            return ("\(selected.model.rawValue.capitalized) ready for local generation.", voices)
+            return ("\(selected.model.rawValue.capitalized) model files available.", voices)
         }
         readinessTask = task
         Task {
             do {
                 let (message, available) = try await task.value
                 guard readinessOperation == token else { return }
-                readiness = message; assetsReady = true
+                readiness = message; assetsReady = true; onboarding.assess(installed: true)
                 if selected.model == .kokoro { voices = available }
             } catch is CancellationError {}
-            catch { if readinessOperation == token { readiness = error.localizedDescription } }
+            catch { if readinessOperation == token { readiness = error.localizedDescription; onboarding.assess(installed: false) } }
             if readinessOperation == token { checkingAssets = false; readinessTask = nil; readinessScopes = [] }
         }
     }
 
-    func prepareModel() {
+    func installSpeechRuntime() {
+        guard canManageSpeechSetup else { return }
+        do {
+            if workspace?.url == nil {
+                let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("Libro/SpeechRuntime", isDirectory: true)
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                workspace = try preferences.select(root, role: .workspace)
+            }
+            prepareModel()
+        } catch { preparationStatus = error.localizedDescription }
+    }
+
+    func playVoiceSample() {
+        guard let sample = VoiceSamples.sample(model: settings.model, voice: settings.voice) else { return }
+        if voiceSamplePlayer.playingID == sample.id { voiceSamplePlayer.stop(); return }
+        stopPlayback()
+        voiceSamplePlayer.toggle(url: sample.url, id: sample.id)
+    }
+
+    func checkSpeechSetup() { prepareModel(checkOnly: true) }
+
+    func prepareModel(checkOnly: Bool = false) {
         guard canPrepareModel, let root = workspace?.url else { return }
         let selected = settings
         let token = UUID(); preparationOperation = token
-        isPreparingModel = true; assetsReady = false; preparationProgress = nil
+        isPreparingModel = true; preparationIsCheck = checkOnly; setupResult = .notChecked
+        assetsReady = false; preparationProgress = nil
         preparationStatus = "Checking \(selected.model.rawValue.capitalized) assets in \(root.path)."
         preparationScopes = [DirectoryAccess(root)]
         let log = makeDebugLog(root)
         log?.record("preparation started model=\(selected.model.rawValue) revision=\(NativePrimaryCatalog.specification(for: selected.model).revision)")
-        let configuration = WorkerConfiguration(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), requestTimeout: .seconds(1_800), debugLog: log)
+        let configuration = WorkerConfiguration(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), requestTimeout: .seconds(1_800), debugLog: log, inferencePriority: .interactive)
         let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Preparing user-requested Libro models")
+        pronunciationPreview.stop()
         preparationTask = Task { [self] in
+            await pronunciationPreview.stopAndWait()
             do {
-                try await ModelPreparation.run(configuration: configuration, workspace: root, settings: selected) { [weak self] value in
-                    Task { @MainActor in
-                        guard let self, self.isPreparingModel, self.preparationOperation == token else { return }
-                        self.preparationProgress = value
-                        let scope = value.scope == .primary ? selected.model.rawValue.capitalized : "English pronunciation assets"
-                        self.preparationStatus = "\(value.phase.rawValue.capitalized) \(scope)…"
+                if checkOnly {
+                    try await SpeechSetupCheck.run(configuration: configuration, workspace: root, settings: selected)
+                } else {
+                    try await ModelPreparation.run(configuration: configuration, workspace: root, settings: selected) { [weak self] value in
+                        Task<Void, Never> { @MainActor in
+                            guard let self, self.isPreparingModel, !self.preparationIsCheck, self.preparationOperation == token else { return }
+                            self.preparationProgress = value
+                            let scope = value.scope == .primary ? selected.model.rawValue.capitalized : "English pronunciation assets"
+                            self.preparationStatus = "\(value.phase.rawValue.capitalized) \(scope)…"
+                        }
                     }
                 }
-                preparationStatus = "\(selected.model.rawValue.capitalized) preparation complete. Generation uses local assets."
+                // Installation validates/downloads assets; verify actual offline initialization too.
+                if !checkOnly {
+                    preparationIsCheck = true; preparationProgress = nil
+                    preparationStatus = "Checking installed speech model offline…"
+                    try await SpeechSetupCheck.run(configuration: configuration, workspace: root, settings: selected)
+                }
+                setupResult = .ready; setupVerificationFailed = false
+                preparationStatus = "Speech setup ready. Generation uses local assets."
             } catch is CancellationError {
-                preparationStatus = "Preparation cancelled. Completed asset files remain available for reuse."
-            } catch { preparationStatus = error.localizedDescription }
+                setupResult = .cancelled
+                preparationStatus = checkOnly ? "Speech setup check cancelled." : "Installation cancelled. Completed asset files remain available for reuse."
+            } catch {
+                preparationStatus = error.localizedDescription
+                setupResult = .failure(preparationStatus); setupVerificationFailed = true
+            }
             log?.record("preparation settled: \(preparationStatus)")
             if log?.writeFailed == true { debugLogStatus = "Debug logging stopped because its file could not be written. Processing was unaffected." }
             ProcessInfo.processInfo.endActivity(activity)
@@ -533,7 +628,31 @@ private final class IntakeModel {
             preparationProgress = nil
             status = preparationStatus
             announce(preparationStatus)
-            refreshReadiness()
+            refreshReadiness(preserveSetupResult: true)
+        }
+    }
+
+    func copyDebugLog() { manageDebugLog(clear: false) }
+    func clearDebugLog() { manageDebugLog(clear: true) }
+    private func manageDebugLog(clear: Bool) {
+        guard canManageDebugLog, let root = workspace?.url else { return }
+        debugToolsBusy = true
+        Task {
+            let access = DirectoryAccess(root)
+            defer { withExtendedLifetime(access) {}; debugToolsBusy = false }
+            do {
+                let text = try await Task.detached {
+                    if clear { try DebugLog.clear(workspace: root); return "" }
+                    return try DebugLog.read(workspace: root)
+                }.value
+                guard workspace?.url == root else { return }
+                if clear { debugLogURL = nil; debugLogStatus = "Debug log cleared." }
+                else {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    debugLogStatus = "Debug log copied. It may contain private document text or paths."
+                }
+            } catch { debugLogStatus = "Debug log action failed: " + error.localizedDescription }
         }
     }
 
@@ -557,9 +676,10 @@ private final class IntakeModel {
             approved = true
         }
         let request = BatchRequest(documents: plans, outputDirectory: destination, workspace: root,
-                                   settings: settings, serial: serial, replaceExisting: approved, outputFormat: outputFormat)
+                                   settings: settings, describeImages: describeImages, replaceExisting: approved, outputFormat: outputFormat)
         let log = makeDebugLog(root)
-        log?.record("batch=\(request.id) started documents=\(plans.count) model=\(settings.model.rawValue) voice=\(settings.voice) speed=\(settings.speed) format=\(request.outputFormat.rawValue) serial=\(serial) app=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown") os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
+        log?.record("batch=\(request.id) started documents=\(plans.count) model=\(settings.model.rawValue) voice=\(settings.voice) speed=\(settings.speed) format=\(request.outputFormat.rawValue) app=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown") os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
+        activityProgress = .init(batch: request.id, jobs: request.documents.map(\.id))
         activeBatch = request; speechProgress = nil; batchSummary = nil; notificationSummary = nil
         retryQueued.subtract(request.documents.map(\.id))
         for document in request.documents { outcomes[document.id] = nil; states[document.id] = "Waiting" }
@@ -569,18 +689,22 @@ private final class IntakeModel {
             reason: "Generating user-requested Libro audio")
         generationStatus = "Preparing batch. Closing the window keeps processing; quitting offers cancellation."
         Self.logger.info("Starting batch \(request.id.uuidString, privacy: .public), documents \(request.documents.count)")
-        let updates = LatestSpeechProgress()
+        let updates = LatestBatchProgress()
         progressTask = Task {
             while !Task.isCancelled {
+                if let value = updates.takeText() { receive(.textPreparation(value)) }
                 if let value = updates.take() { receive(.speech(value)) }
                 do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
             }
         }
         requestNotificationAuthorization()
+        pronunciationPreview.stop()
         generationTask = Task { [self] in
+            await pronunciationPreview.stopAndWait()
             do {
                 let summary = try await coordinator.run(request, debugLog: log) { [weak self] event in
                     if case .speech(let value) = event, value.phase == .chunkWritten { updates.store(value) }
+                    else if case .textPreparation(let value) = event { updates.storeText(value) }
                     else { Task { @MainActor in self?.receive(event) } }
                 }
                 for outcome in summary.documents {
@@ -612,7 +736,7 @@ private final class IntakeModel {
             log?.record("batch=\(request.id) settled: \(generationStatus)")
             if log?.writeFailed == true { debugLogStatus = "Debug logging stopped because its file could not be written. Processing was unaffected." }
             progressTask?.cancel(); progressTask = nil
-            activeBatch = nil; speechProgress = nil; batchScopes = []
+            activeBatch = nil; activityProgress = nil; speechProgress = nil; batchScopes = []
             if let activity { ProcessInfo.processInfo.endActivity(activity); self.activity = nil }
             generationTask = nil; status = generationStatus
             replan()
@@ -621,27 +745,33 @@ private final class IntakeModel {
     }
 
     private func receive(_ event: BatchEvent) {
-        guard let batch = activeBatch else { return }
+        guard let batch = activeBatch, generationTask?.isCancelled != true else { return }
         switch event {
         case .preparing(let id, let job) where id == batch.id:
+            guard outcomes[job] == nil, activityProgress?.beginPreparation(job: job) == true else { return }
             states[job] = "Preparing text…"
             speechProgress = nil
             generationStatus = "Preparing \(batch.documents.first { $0.id == job }?.input.source.lastPathComponent ?? "document")…"
+        case .textPreparation(let value) where value.batch == batch.id:
+            guard outcomes[value.job] == nil, activityProgress?.receive(value) == true else { return }
+            speechProgress = nil
+            states[value.job] = value.progress.status
+            let name = batch.documents.first { $0.id == value.job }?.input.source.lastPathComponent ?? "document"
+            generationStatus = "\(name) · \(value.progress.status)"
         case .speech(let value) where value.identity.batch == batch.id:
+            guard activityProgress?.beginSpeech(job: value.identity.job) == true else { return }
+
             guard outcomes[value.identity.job] == nil else { return }
             if let current = speechProgress, current.identity.job == value.identity.job {
-                guard value.attemptNumber >= current.attemptNumber else { return }
-                if value.attemptNumber == current.attemptNumber, value.completedChunks < current.completedChunks { return }
+                guard value.completedChunks >= current.completedChunks else { return }
             }
             speechProgress = value
             let name = batch.documents.first { $0.id == value.identity.job }?.input.source.lastPathComponent ?? "document"
             if value.phase == .publishing {
                 states[value.identity.job] = "Saving…"; generationStatus = "Saving \(name)…"
             } else {
-                let attempt = value.attemptNumber == 2 ? "Serial retry" : (value.workerCount == 2 ? "Automatic" : "Serial")
-                states[value.identity.job] = "\(attempt): \(value.completedChunks)/\(value.totalChunks) chunks"
-                generationStatus = "\(name) — \(attempt), \(value.completedChunks) of \(value.totalChunks) chunks."
-                if value.phase == .attemptStarted, value.attemptNumber == 2 { announce("Retrying the current document serially.") }
+                states[value.identity.job] = "Generating: \(value.completedChunks)/\(value.totalChunks) chunks"
+                generationStatus = "Generating \(name): \(value.completedChunks) of \(value.totalChunks) chunks."
             }
         case .document(let id, let outcome) where id == batch.id:
             outcomes[outcome.id] = outcome
@@ -652,6 +782,7 @@ private final class IntakeModel {
     }
 
     func stopGeneration() async {
+        await pronunciationPreview.stopAndWait()
         generationTask?.cancel()
         await coordinator.cancelAndWait()
         await generationTask?.value
@@ -741,7 +872,7 @@ private final class IntakeModel {
         } catch { status = "Could not play the saved output: " + error.localizedDescription }
     }
 
-    func stopPlayback() { playbackTask?.cancel(); playbackTask = nil; player?.stop(); player = nil; playingDocument = nil }
+    func stopPlayback() { pronunciationPreview.stop(); voiceSamplePlayer.stop(); playbackTask?.cancel(); playbackTask = nil; player?.stop(); player = nil; playingDocument = nil }
 
     private func requestNotificationAuthorization() {
         guard notificationAuthorizationTask == nil else { return }
@@ -797,16 +928,39 @@ private final class IntakeModel {
     }
 }
 
-private final class LatestSpeechProgress: @unchecked Sendable {
+// Keep at most one pending update per stream; page callbacks never enqueue UI tasks.
+private final class LatestBatchProgress: @unchecked Sendable {
     private let lock = NSLock()
     private var value: SpeechProgress?
+    private var textValue: TextPreparationProgress?
+    func storeText(_ incoming: TextPreparationProgress) {
+        lock.withLock {
+            if let current = textValue, current.batch == incoming.batch, current.job == incoming.job,
+               current.sequence >= incoming.sequence { return }
+            textValue = incoming
+        }
+    }
+    func takeText() -> TextPreparationProgress? {
+        lock.withLock { let result = textValue; textValue = nil; return result }
+    }
+
     func store(_ value: SpeechProgress) { lock.withLock { self.value = value } }
     func take() -> SpeechProgress? { lock.withLock { let result = value; value = nil; return result } }
 }
 
 private struct Preview: Identifiable { let id: UUID; let title: String; let text: String; let isPDF: Bool }
 
-private enum SettingsTab: Hashable { case models, advanced }
+private enum SettingsTab: String, SettingsPane {
+    case general = "General", models = "Models", pronunciation = "Pronunciation", troubleshooting = "Troubleshooting"
+    var id: Self { self }
+    var title: String { rawValue }
+    var systemImage: String {
+        switch self { case .general: "gearshape"; case .models: "shippingbox"; case .pronunciation: "text.word.spacing"; case .troubleshooting: "stethoscope" }
+    }
+    var help: String {
+        switch self { case .general: "Appearance, narration and completion alerts"; case .models: "Speech models, storage and setup"; case .pronunciation: "Shared word pronunciations and live voice previews"; case .troubleshooting: "Debug logs and helper diagnostics" }
+    }
+}
 
 private struct DirectoryRow: View {
     let model: IntakeModel
@@ -817,12 +971,12 @@ private struct DirectoryRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(label).font(.caption).foregroundStyle(.secondary)
+                Text(label).appFont(.caption).foregroundStyle(.secondary)
                 Text(selection?.displayPath ?? "Choose a folder…")
                     .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
                     .help(selection?.displayPath ?? "No folder selected")
                 if let error = selection?.error {
-                    Label(error, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.red)
+                    Label(error, systemImage: "exclamationmark.triangle").appFont(.callout).foregroundStyle(.red)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
             if let url = selection?.url {
@@ -830,7 +984,7 @@ private struct DirectoryRow: View {
                     .labelStyle(.iconOnly).help("Reveal \(label.lowercased()) in Finder")
             }
             Button("Browse…") { model.browse(role) }
-                .disabled(model.busy || (role == .workspace && model.isPreparingModel))
+                .disabled(model.busy || (role == .workspace && (model.isPreparingModel || model.debugToolsBusy)))
                 .help("Browse for \(role.rawValue) folder")
         }
     }
@@ -845,82 +999,112 @@ private struct PreparationProgressView: View {
                 ProgressView(value: Double(value.completedBytes), total: Double(max(1, value.totalBytes))) {
                     Text("\(ByteCountFormatter.string(fromByteCount: value.completedBytes, countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: value.totalBytes, countStyle: .file))")
                 }
-            } else if model.isPreparingModel { ProgressView("Preparing model assets…").controlSize(.small) }
+            } else if model.isPreparingModel { ProgressView(model.preparationIsCheck ? "Checking speech setup…" : "Installing speech model…").controlSize(.small) }
         }
     }
 }
 
 private struct LibroSettingsView: View {
     @Bindable var model: IntakeModel
+    @Binding var textSize: AppTextSize
 
     var body: some View {
-        TabView(selection: $model.settingsTab) {
-            Form {
-                Section("Model storage") {
-                    DirectoryRow(model: model, label: "Libro workspace", selection: model.workspace, role: .workspace)
-                    Text("Models, pronunciation assets, staging and local caches stay in this workspace, outside the app bundle. Compatible CLI models are reused read-only.")
-                        .font(.callout).foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            SettingsNavigation(selection: $model.settingsTab).padding(12)
+            Divider()
+            Group {
+                switch model.settingsTab {
+                case .general: general
+                case .models: models
+                case .pronunciation:
+                    PronunciationSettingsView(preview: model.pronunciationPreview, configuration: model.pronunciationConfiguration,
+                        unavailableReason: model.pronunciationUnavailableReason, beforePreview: { model.stopPlayback() })
+                case .troubleshooting: troubleshooting
                 }
-                Section("Model preparation") {
-                    Picker(model.isGenerating ? "Next batch model" : "Model", selection: $model.settings.model) {
-                        Text("Kokoro").tag(SpeechModel.kokoro)
-                        Text("Soprano").tag(SpeechModel.soprano)
-                    }.disabled(model.isPreparingModel)
-                    Label(model.readiness, systemImage: model.assetsReady ? "checkmark.circle" : "exclamationmark.triangle")
-                    HStack {
-                        Button(model.assetsReady ? "Verify / Prepare Model…" : "Prepare Model…") { model.prepareModel() }
-                            .disabled(!model.canPrepareModel)
-                        if model.isPreparingModel { Button("Cancel Preparation") { model.cancel() } }
-                    }
-                    Text("Preparation explicitly verifies or downloads the selected model and its required assets. Generation itself uses local assets.")
-                        .font(.callout).foregroundStyle(.secondary)
-                    if model.isPreparingModel || !model.preparationStatus.isEmpty { PreparationProgressView(model: model) }
-                    DisclosureGroup("Model details") {
-                        let specification = NativePrimaryCatalog.specification(for: model.settings.model)
-                        LabeledContent("Repository") { Text(specification.repository).textSelection(.enabled) }
-                        LabeledContent("Pinned revision") { Text(specification.revision).textSelection(.enabled) }
-                        Text("Native metadata and assets: models/.native/ in the selected workspace.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }.formStyle(.grouped)
-                .tabItem { Label("Models", systemImage: "shippingbox") }.tag(SettingsTab.models)
-            Form {
-                Section("Generation") {
-                    Toggle("Use serial generation", isOn: $model.serial)
-                    Text("Automatic is the default: two isolated workers at three or more chunks. Serial mode is useful for troubleshooting. Changes apply to the next batch.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                Section("Debug logging") {
-                    Toggle("Enable debug logging", isOn: $model.debugLogging)
-                        .disabled(model.isGenerating || model.isPreparingModel)
-                    Text("Records local worker diagnostics. Library messages may include document text or paths. Nothing is uploaded. Up to two 1 MB log files are retained in the selected Libro workspace. Enable before generating or preparing a model.")
-                        .font(.callout).foregroundStyle(.secondary)
-                    if let url = model.debugLogURL {
-                        Text(url.path).font(.caption).textSelection(.enabled)
-                        HStack {
-                            Button("Open Debug Log") { NSWorkspace.shared.open(url) }
-                            Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                        }
-                    }
-                    if let message = model.debugLogStatus { Text(message).textSelection(.enabled) }
-                }
-                Section("Diagnostics") {
-                    HStack {
-                        Button("Verify Embedded Worker") { model.probe() }
-                            .disabled(model.busy || model.hasOwnedProbe || model.isGenerating || model.isPreparingModel)
-                        if model.hasOwnedProbe { ProgressView().controlSize(.small); Button("Cancel Check") { model.cancelIntake() } }
-                    }
-                    if !model.probeStatus.isEmpty { Text(model.probeStatus).textSelection(.enabled) }
-                }
-                Section("Completion alerts") {
-                    Text(model.notificationStatus ?? "Libro requests macOS notification permission when you first generate audio. One private summary follows each completed batch; cancelled batches do not send a success alert.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-            }.formStyle(.grouped)
-                .tabItem { Label("Advanced", systemImage: "gearshape") }.tag(SettingsTab.advanced)
-        }.frame(width: 640, height: 620)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }.frame(minWidth: 560, idealWidth: 640, minHeight: 540, idealHeight: 620)
             .task { await model.refreshNotificationStatus() }
+    }
+
+    private var general: some View {
+        Form {
+            AppearanceSettingsSection(textSize: $textSize)
+            ImageDescriptionSettingsSection(enabled: $model.describeImages,
+                additionalHelp: "Applies to the next batch. The current batch keeps its settings.")
+                .disabled(model.isGenerating || model.isPreparingModel)
+            Section {
+                Text(model.notificationStatus ?? "Notification permission is requested when you first generate audio.")
+                    .appFont(.secondary)
+            } header: {
+                SettingsSectionHeader(title: "Completion alerts", explanation: "Libro requests macOS notification permission when you first generate audio. One private summary follows each completed batch; cancelled batches do not send a success alert.")
+            }
+        }.formStyle(.grouped)
+    }
+
+    private var models: some View {
+        Form {
+            Section {
+                DirectoryRow(model: model, label: "Libro workspace", selection: model.workspace, role: .workspace)
+            } header: {
+                SettingsSectionHeader(title: "Model storage", explanation: "Models, pronunciation assets, staging and local caches stay in this workspace, outside the app bundle. Existing compatible model files are reused read-only.")
+            }
+            Section {
+                Picker(model.isGenerating ? "Next batch model" : "Model", selection: $model.settings.model) {
+                    Text("Kokoro").tag(SpeechModel.kokoro)
+                    Text("Soprano").tag(SpeechModel.soprano)
+                }.disabled(model.isPreparingModel)
+                Text(model.readiness).appFont(.secondary).textSelection(.enabled)
+                SpeechSetupControls(activity: model.isPreparingModel ? (model.preparationIsCheck ? .checking : .installing) : nil,
+                    status: model.speechSetupStatus, canManage: model.canManageSpeechSetup,
+                    canCheck: model.workspace?.url != nil, disabledReason: model.speechSetupDisabledReason,
+                    installMessage: "Download or verify the selected \(model.settings.model.rawValue.capitalized) model and its pronunciation assets in the Libro workspace? Generation uses local assets.",
+                    install: model.installSpeechRuntime, check: model.checkSpeechSetup, cancel: model.cancel)
+                if model.isPreparingModel || !model.preparationStatus.isEmpty { PreparationProgressView(model: model) }
+                DisclosureGroup("Model details") {
+                    let specification = NativePrimaryCatalog.specification(for: model.settings.model)
+                    LabeledContent("Repository") { Text(specification.repository).textSelection(.enabled) }
+                    LabeledContent("Pinned revision") { Text(specification.revision).textSelection(.enabled) }
+                    Text("Native metadata and assets: models/.native/ in the selected workspace.")
+                        .appFont(.caption).foregroundStyle(.secondary)
+                }
+            } header: { SettingsSectionHeader(title: "Speech setup", explanation: NarrationSettingsHelp.speechSetup) }
+        }.formStyle(.grouped)
+    }
+
+    private var troubleshooting: some View {
+        Form {
+            Section {
+                Toggle("Enable debug logging", isOn: $model.debugLogging)
+                    .disabled(model.isGenerating || model.isPreparingModel)
+                if let url = model.debugLogURL {
+                    Text(url.path).appFont(.caption).textSelection(.enabled)
+                    ViewThatFits(in: .horizontal) {
+                        HStack { logActions(url) }
+                        VStack(alignment: .leading) { logActions(url) }
+                    }
+                }
+                if let message = model.debugLogStatus { Text(message).appFont(.secondary).textSelection(.enabled) }
+            } header: {
+                SettingsSectionHeader(title: "Debug logging", explanation: "Records local worker diagnostics. Library messages may include document text or paths. Nothing is uploaded. Up to two 1 MB log files are retained in the selected Libro workspace. Enable before generating or setting up a model. Copy uses the current log; Clear removes both retained logs while processing is idle.")
+            }
+            Section {
+                HStack {
+                    Button("Check Embedded Helper") { model.probe() }
+                        .disabled(model.busy || model.debugToolsBusy || model.hasOwnedProbe || model.isGenerating || model.isPreparingModel)
+                    if model.hasOwnedProbe { ProgressView().controlSize(.small); Button("Cancel Check") { model.cancelIntake() } }
+                }
+                if !model.probeStatus.isEmpty { Text(model.probeStatus).textSelection(.enabled) }
+            } header: {
+                SettingsSectionHeader(title: "Diagnostics", explanation: "Checks that the bundled helper and Metal runtime can start. This does not load a speech model. Use Check Speech Setup in Models to check the selected model offline.")
+            }
+        }.formStyle(.grouped)
+    }
+
+    @ViewBuilder private func logActions(_ url: URL) -> some View {
+        Button("Copy Debug Log") { model.copyDebugLog() }.disabled(!model.canManageDebugLog)
+        Button("Clear Log") { model.clearDebugLog() }.disabled(!model.canManageDebugLog)
+        Button("Open Debug Log") { NSWorkspace.shared.open(url) }
+        Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     }
 }
 
@@ -940,7 +1124,7 @@ private struct NarrationControls: View {
 
     @ViewBuilder private var speechOptions: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Model").font(.caption).foregroundStyle(.secondary)
+            Text("Model").appFont(.caption).foregroundStyle(.secondary)
             Picker("Model", selection: $model.settings.model) {
                 Text("Kokoro").tag(SpeechModel.kokoro)
                 Text("Soprano").tag(SpeechModel.soprano)
@@ -948,33 +1132,36 @@ private struct NarrationControls: View {
         }
         if model.settings.model == .kokoro {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Voice").font(.caption).foregroundStyle(.secondary)
+                Text("Voice").appFont(.caption).foregroundStyle(.secondary)
                 Picker("Voice", selection: $model.settings.voice) {
                     let ranked = VoicePresentation.ranked(model.voices)
                     Section("Recommended") {
                         ForEach(ranked.filter { VoicePresentation.isRecommended($0) }, id: \.self) { voice in
-                            Label(VoicePresentation.name(voice), systemImage: "star.fill").tag(voice)
+                            Label(VoicePresentation.displayName(voice), systemImage: "star.fill").tag(voice)
                         }
                     }
                     Section {
                         ForEach(ranked.filter { !VoicePresentation.isRecommended($0) }, id: \.self) { voice in
-                            Text(VoicePresentation.name(voice)).tag(voice)
+                            Text(VoicePresentation.displayName(voice)).tag(voice)
                         }
                     }
                 }.labelsHidden().frame(width: 160).help(VoicePresentation.help(model.settings.voice))
             }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Speed").font(.caption).foregroundStyle(.secondary)
-                Stepper(value: $model.settings.speed, in: 0.5...2, step: 0.1) {
-                    Text("\(model.settings.speed, format: .number.precision(.fractionLength(1)))×").monospacedDigit()
-                }.fixedSize()
+            SpeechSpeedControl(speed: Binding(get: { Double(model.settings.speed) }, set: { model.settings.speed = Float($0) }))
+                .fixedSize()
+        }
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Voice sample").appFont(.caption).foregroundStyle(.secondary)
+            VoiceSampleButton(playing: model.voiceSamplePlayer.playingID != nil) { model.playVoiceSample() }
+            if let error = model.voiceSamplePlayer.error {
+                Text(error).appFont(.caption).foregroundStyle(.red)
             }
         }
     }
 
     private var formatOption: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Output format").font(.caption).foregroundStyle(.secondary)
+            Text("Output format").appFont(.caption).foregroundStyle(.secondary)
             HStack(spacing: 6) {
                 Picker("Output format", selection: $model.outputFormat) {
                     ForEach(AudioOutputFormat.allCases, id: \.self) { format in Text(format.label).tag(format) }
@@ -983,7 +1170,7 @@ private struct NarrationControls: View {
                     .labelStyle(.iconOnly).buttonStyle(.plain).help("Audio format and fidelity details")
                     .popover(isPresented: $showingFormatHelp) {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Audio formats").font(.headline)
+                            Text("Audio formats").appFont(.headline)
                             Text("WAV preserves the model's original Float32 samples at its original sample rate. AAC and MP3 are lossy. Libro applies no volume normalization, dynamic range compression or re-leveling.")
                             Text("M4A uses AAC-LC. M4B uses AAC-LC in an audiobook container for Apple Books. MP3 is intended for broad player compatibility.")
                             Text("The format is remembered. Changes during processing apply to the next batch.").foregroundStyle(.secondary)
@@ -1003,7 +1190,7 @@ private struct DocumentQueueView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack {
-                Text("Documents").font(.headline)
+                Text("Documents").appFont(.headline)
                 Text("\(model.displayedDocuments.count)").foregroundStyle(.secondary).monospacedDigit()
                 Spacer()
                 Button("Preview Selected", systemImage: "doc.text.magnifyingglass") { model.previewSelected() }
@@ -1016,7 +1203,7 @@ private struct DocumentQueueView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(document.source.lastPathComponent).lineLimit(1)
                             let folder = (document.relativePath as NSString).deletingLastPathComponent
-                            if !folder.isEmpty { Text(folder).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                            if !folder.isEmpty { Text(folder).appFont(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         }
                     }.help(document.source.path)
                 }.width(min: 170, ideal: 260, max: 600)
@@ -1081,7 +1268,7 @@ private struct DocumentQueueView: View {
             .onDeleteCommand { if editingOutput == nil { model.removeSelected() } }
             .onExitCommand { editingOutput = nil; tableFocused = true }
             Text("Drop files or folders to add documents. Double-click a document to preview its text.")
-                .font(.caption).foregroundStyle(.secondary).padding(.bottom, 8)
+                .appFont(.caption).foregroundStyle(.secondary).padding(.bottom, 8)
         }
     }
 
@@ -1107,11 +1294,11 @@ private struct IntakeView: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 if let batch = model.activeBatch {
-                    Label("Current batch · \(batch.documents.count) documents", systemImage: "waveform").font(.headline)
-                    Text(batchDescription(batch)).font(.callout).foregroundStyle(.secondary)
+                    Label("Current batch · \(batch.documents.count) documents", systemImage: "waveform").appFont(.headline)
+                    Text(batchDescription(batch)).appFont(.callout).foregroundStyle(.secondary)
                     HStack {
                         Text("\(model.candidates.count) documents waiting for the next batch")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .appFont(.caption).foregroundStyle(.secondary)
                         Spacer()
                         Button("Next Batch Settings…") { showingNextBatchSettings = true }
                     }
@@ -1137,7 +1324,7 @@ private struct IntakeView: View {
                 if let batch = model.activeBatch {
                     HStack {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("Current batch saves to").font(.caption).foregroundStyle(.secondary)
+                            Text("Current batch saves to").appFont(.caption).foregroundStyle(.secondary)
                             Text(batch.outputDirectory.path).lineLimit(2).truncationMode(.middle)
                                 .textSelection(.enabled).help(batch.outputDirectory.path)
                         }
@@ -1154,9 +1341,9 @@ private struct IntakeView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         if !model.isGenerating {
                             Text("\(model.candidates.count) \(model.candidates.count == 1 ? "document" : "documents") queued")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .appFont(.caption).foregroundStyle(.secondary)
                             if let blocker = model.generationBlocker, blocker != .preparation, blocker != .intake, blocker != .planning {
-                                Text(blocker.message).font(.caption).foregroundStyle(.secondary)
+                                Text(blocker.message).appFont(.caption).foregroundStyle(.secondary)
                             }
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
@@ -1192,14 +1379,14 @@ private struct IntakeView: View {
         .onAppear { model.reopenWindow = { openWindow(id: "main") }; model.replan() }
         .sheet(isPresented: $showingNextBatchSettings) {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Next batch settings").font(.headline)
+                Text("Next batch settings").appFont(.headline)
                 NarrationControls(model: model)
                 DirectoryRow(model: model, label: "Next batch saves to", selection: model.output, role: .output)
                 Text("Changes apply when you start the next batch. The current batch keeps its original settings and destination.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .appFont(.callout).foregroundStyle(.secondary)
                 HStack {
                     Text("Closing the main window keeps processing. Quitting offers cancellation.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .appFont(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("Done") { showingNextBatchSettings = false }.keyboardShortcut(.defaultAction)
                 }
@@ -1207,14 +1394,14 @@ private struct IntakeView: View {
         }
         .sheet(item: $model.failureDetails) { details in
             VStack(alignment: .leading, spacing: 16) {
-                Text("Generation failed: \(details.name)").font(.headline)
+                Text("Generation failed: \(details.name)").appFont(.headline)
                 Text(details.message).textSelection(.enabled)
                 DisclosureGroup("Diagnostics") {
-                    Text("Job: \(details.id.uuidString)").font(.caption).textSelection(.enabled)
+                    Text("Job: \(details.id.uuidString)").appFont(.caption).textSelection(.enabled)
                     if let url = model.debugLogURL { Button("Open Debug Log") { NSWorkspace.shared.open(url) } }
-                    Button("Debug Settings…") { model.settingsTab = .advanced; model.failureDetails = nil; openSettings() }
+                    Button("Troubleshooting Settings…") { model.settingsTab = .troubleshooting; model.failureDetails = nil; openSettings() }
                     Text("Enable debug logging before generating again. The log stays in the selected workspace.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .appFont(.caption).foregroundStyle(.secondary)
                 }
                 HStack {
                     Button("Queue Again") {
@@ -1228,8 +1415,8 @@ private struct IntakeView: View {
         }
         .sheet(item: $model.preview) { preview in
             VStack(alignment: .leading, spacing: 12) {
-                Text(preview.title).font(.headline)
-                if preview.isPDF { Text("PDF reading order and repeated headers may need review.").font(.caption).foregroundStyle(.secondary) }
+                Text(preview.title).appFont(.headline)
+                if preview.isPDF { Text("PDF reading order and repeated headers may need review.").appFont(.caption).foregroundStyle(.secondary) }
                 ScrollView { Text(preview.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
                 Button("Done") { model.preview = nil }.keyboardShortcut(.defaultAction)
             }.padding().frame(minWidth: 560, minHeight: 420).onExitCommand { model.preview = nil }
@@ -1240,26 +1427,26 @@ private struct IntakeView: View {
         if model.workspace?.url == nil {
             HStack {
                 Label(model.workspace?.error ?? "Choose a Libro workspace to use local models.", systemImage: "exclamationmark.triangle")
-                    .font(.callout)
+                    .appFont(.callout)
                 Spacer()
                 Button("Model Settings…") { model.settingsTab = .models; openSettings() }
             }
         } else if model.isPreparingModel {
-            HStack { Text("Preparing model assets…"); Spacer(); Button("Cancel Preparation") { model.cancel() } }
+            HStack { Text(model.preparationIsCheck ? "Checking speech setup…" : "Installing speech model…"); Spacer(); Button(model.preparationIsCheck ? "Cancel Check" : "Cancel Installation") { model.cancel() } }
         } else if model.checkingAssets {
-            HStack { ProgressView().controlSize(.small); Text(model.readiness).font(.callout) }
-        } else if !model.assetsReady {
+            HStack { ProgressView().controlSize(.small); Text(model.readiness).appFont(.callout) }
+        } else if !model.assetsReady || model.setupVerificationFailed {
             HStack(alignment: .center) {
-                Label(model.readiness, systemImage: "exclamationmark.triangle").font(.callout).lineLimit(2).help(model.readiness)
+                Label(model.setupVerificationFailed ? model.preparationStatus : model.readiness, systemImage: "exclamationmark.triangle")
+                    .appFont(.callout).lineLimit(2)
                 Spacer()
-                Button("Prepare Model…") { model.prepareModel() }.disabled(!model.canPrepareModel)
-                    .help("Explicitly verify or download the selected model and its required pronunciation assets")
+                Button("Speech Setup…") { model.settingsTab = .models; openSettings() }
+                    .help("Install a model or check speech setup in Models settings")
             }
         } else {
             HStack {
-                Label("Ready for offline generation", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+                Label("Ready for offline generation", systemImage: "checkmark.circle").appFont(.caption).foregroundStyle(.secondary)
                 Spacer()
-                if model.serial { Text("Serial generation").font(.caption).foregroundStyle(.secondary) }
             }
         }
     }
@@ -1273,11 +1460,11 @@ private struct IntakeView: View {
         if model.planning { ProgressView("Checking output destinations…").controlSize(.small) }
         if model.planned.contains(where: \.replacesExisting) {
             Label("\(model.planned.filter(\.replacesExisting).count) existing outputs. Libro will ask before replacing them.", systemImage: "doc.on.doc")
-                .font(.caption).foregroundStyle(.secondary)
+                .appFont(.caption).foregroundStyle(.secondary)
         }
         if let summary = model.importSummary {
             DisclosureGroup(model.issues.isEmpty ? "Import details" : "Input errors · \(model.issues.count)") {
-                Text(summary).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(summary).appFont(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 if !model.issues.isEmpty {
                     ScrollView {
                         ForEach(Array(model.issues.enumerated()), id: \.offset) { _, issue in
@@ -1286,22 +1473,28 @@ private struct IntakeView: View {
                         }
                     }.frame(maxHeight: 100)
                 }
-            }.font(.callout)
+            }.appFont(.callout)
         }
     }
 
     @ViewBuilder private var activity: some View {
         if model.isGenerating {
             VStack(alignment: .leading, spacing: 6) {
-                Text(model.generationStatus).font(.callout).lineLimit(2).truncationMode(.middle)
+                Text(model.generationStatus).appFont(.callout).lineLimit(2).truncationMode(.middle)
                     .help(model.generationStatus).textSelection(.enabled)
-                if let progress = model.speechProgress, progress.phase != .publishing {
+                if let progress = model.activityProgress?.preparation?.progress {
+                    if let fraction = progress.fractionCompleted {
+                        ProgressView(value: fraction) {
+                            Text(progress.countLabel ?? "Preparing document…").appFont(.caption)
+                        }.accessibilityLabel(progress.countLabel ?? "Document preparation")
+                    } else { ProgressView().controlSize(.small) }
+                } else if let progress = model.speechProgress, progress.phase != .publishing {
                     ProgressView(value: Double(progress.completedChunks), total: Double(max(1, progress.totalChunks))) {
-                        Text("\(progress.completedChunks) of \(progress.totalChunks) chunks").font(.caption)
+                        Text("\(progress.completedChunks) of \(progress.totalChunks) chunks").appFont(.caption)
                     }
                     DisclosureGroup("Generation details") {
-                        Text("Attempt \(progress.attemptNumber) · \(progress.workerCount) \(progress.workerCount == 1 ? "worker" : "workers") · \(progress.completedChunks) of \(progress.totalChunks) chunks")
-                            .font(.caption).foregroundStyle(.secondary)
+                        Text("\(progress.completedChunks) of \(progress.totalChunks) chunks")
+                            .appFont(.caption).foregroundStyle(.secondary)
                     }
                 } else { ProgressView().controlSize(.small) }
             }
@@ -1310,15 +1503,15 @@ private struct IntakeView: View {
         } else if model.busy && !model.hasOwnedProbe {
             HStack {
                 ProgressView().controlSize(.small)
-                Text(model.activityStatus).font(.callout)
+                Text(model.activityStatus).appFont(.callout)
                 Spacer(); Button(model.inputCancelLabel) { model.cancelIntake() }
             }
         } else if let summary = model.batchSummary {
             Label(model.generationStatus, systemImage: summary.cancelled ? "stop.circle" : (summary.failedCount > 0 ? "exclamationmark.circle" : "checkmark.circle"))
-                .font(.callout).textSelection(.enabled)
+                .appFont(.callout).textSelection(.enabled)
             idleFeedback
         } else {
-            if let summary = model.notificationSummary { Text(summary).font(.callout) }
+            if let summary = model.notificationSummary { Text(summary).appFont(.callout) }
             idleFeedback
         }
     }
@@ -1326,15 +1519,15 @@ private struct IntakeView: View {
     @ViewBuilder private var idleFeedback: some View {
         if model.status != "Add documents or drop files and folders here.", model.status != model.importSummary,
            model.status != model.generationStatus, model.status != model.probeStatus {
-            Text(model.status).font(.callout).textSelection(.enabled)
+            Text(model.status).appFont(.callout).textSelection(.enabled)
         } else if model.batchSummary == nil, !model.generationStatus.isEmpty {
-            Text(model.generationStatus).font(.callout).textSelection(.enabled)
+            Text(model.generationStatus).appFont(.callout).textSelection(.enabled)
         }
     }
 
     private func batchDescription(_ batch: BatchRequest) -> String {
-        let narration = batch.settings.model == .kokoro ? "Kokoro · \(VoicePresentation.name(batch.settings.voice)) · \(String(format: "%.1f", batch.settings.speed))×" : "Soprano"
-        return "\(narration) · \(batch.outputFormat.rawValue.uppercased()) · \(batch.serial ? "Serial" : "Automatic")"
+        let narration = batch.settings.model == .kokoro ? "Kokoro · \(VoicePresentation.name(batch.settings.voice)) · \(String(format: "%.2f", batch.settings.speed))×" : "Soprano"
+        return "\(narration) · \(batch.outputFormat.rawValue.uppercased())"
     }
 }
 
@@ -1384,4 +1577,49 @@ private func finishProbe(_ process: Process, output: Pipe, ended: DispatchSemaph
     guard data.count <= 65_536 else { return "Worker probe returned an invalid record." }
     guard process.terminationStatus == 0 else { return "Worker probe failed (\(process.terminationStatus))." }
     return "Embedded worker: Metal ready\n" + (String(data: data, encoding: .utf8) ?? "")
+}
+
+private struct LibroSpeechSetupLauncher: View {
+    @Bindable var model: IntakeModel
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Color.clear.onChange(of: model.needsSpeechSetup, initial: true) { _, _ in
+            if model.claimSpeechSetup() { openWindow(id: "speech-setup") }
+        }
+    }
+}
+
+private struct LibroSpeechSetupView: View {
+    @Bindable var model: IntakeModel
+    @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.appTextSize) private var textSize
+    @Environment(\.dynamicTypeSize) private var dynamicType
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Set up local speech", systemImage: "waveform.circle").appFont(.headline)
+            Text("Libro needs a speech model before it can generate audio. Download the selected model and pronunciation assets, or choose a folder with models you have already prepared. Speech runs locally on your Mac.")
+                .fixedSize(horizontal: false, vertical: true)
+            Text(model.workspace?.displayPath ?? "New models will be stored in Libro’s Application Support folder.")
+                .appFont(.secondary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if model.isPreparingModel || model.checkingAssets {
+                HStack { ProgressView().controlSize(.small); Text(model.isPreparingModel ? model.preparationStatus : model.readiness) }
+            } else if !model.preparationStatus.isEmpty {
+                Text(model.preparationStatus).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                if model.isPreparingModel {
+                    Button(model.preparationIsCheck ? "Cancel Check" : "Cancel Installation") { Task { await model.stopPreparation() } }
+                } else {
+                    Button("Choose Existing Models…") { model.browse(.workspace) }
+                        .disabled(model.checkingAssets)
+                    Spacer()
+                    Button("Not Now") { dismissWindow() }.keyboardShortcut(.cancelAction)
+                    Button("Install Speech Model") { model.installSpeechRuntime() }
+                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                        .disabled(model.checkingAssets || model.busy || model.isGenerating || model.hasOwnedProbe)
+                }
+            }
+        }.padding(24).frame(width: 620 * max(1, AppTypography.scale(size: textSize, dynamic: dynamicType)))
+            .onChange(of: model.assetsReady) { _, ready in if ready && !model.setupVerificationFailed { dismissWindow() } }
+    }
 }
