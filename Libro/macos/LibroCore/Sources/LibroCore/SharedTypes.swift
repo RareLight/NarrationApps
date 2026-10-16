@@ -32,6 +32,7 @@ public typealias VoiceSamples = NativeSpeech.VoiceSamples
 public typealias AudioPreviewPlayer = AudioOutput.AudioPreviewPlayer
 public typealias DocumentReader = DocumentProcessing.DocumentReader
 public typealias DocumentKind = DocumentProcessing.DocumentKind
+public typealias TextFileEncoding = DocumentProcessing.TextFileEncoding
 public typealias InputDocument = DocumentProcessing.InputDocument
 public typealias IntakeIssue = DocumentProcessing.IntakeIssue
 public typealias IntakeResult = DocumentProcessing.IntakeResult

@@ -9,6 +9,7 @@ import LibroCore
 import NarrationCore
 import Darwin
 import AVFoundation
+import AudioOutput
 import OSLog
 @preconcurrency import UserNotifications
 
@@ -90,8 +91,9 @@ private final class LibroDelegate: NSObject, NSApplicationDelegate, UNUserNotifi
         }
         model.cancel()
         model.stopPlayback()
-        guard model.pronunciationPreview.hasOwnedWork || model.hasOwnedProbe || model.isGenerating || model.isPreparingModel else { return .terminateNow }
+        guard model.hasCoverWork || model.pronunciationPreview.hasOwnedWork || model.hasOwnedProbe || model.isGenerating || model.isPreparingModel else { return .terminateNow }
         Task {
+            await model.stopCoverWork()
             await model.stopGeneration()
             await model.stopPreparation()
             await model.stopProbe()
@@ -153,6 +155,80 @@ private final class IntakeModel {
             names = names.mapValues { outputFormat.replacingExtension($0) }
             replan()
         }
+    }
+    var narrationOptions = UserDefaults.standard.data(forKey: "LibroNarrationOptions").flatMap { try? JSONDecoder().decode(NarrationOptions.self, from: $0) } ?? NarrationOptions() {
+        didSet { if let data = try? JSONEncoder().encode(narrationOptions) { UserDefaults.standard.set(data, forKey: "LibroNarrationOptions") } }
+    }
+    private var coverTask: Task<Void, Never>?
+    var hasCoverWork: Bool { coverTask != nil }
+    func stopCoverWork() async { coverTask?.cancel(); await coverTask?.value }
+    var coverDigests = DocumentCoverPreferences().load() {
+        didSet { DocumentCoverPreferences().save(coverDigests) }
+    }
+    let coverStore = CoverArtworkStore.application("Libro")
+    var selectedCoverDigest: String? {
+        guard let document = selectedDocument else { return nil }
+        return coverDigests[DocumentCoverPreferences.key(document.source)]
+    }
+    var selectedCoverURL: URL? { selectedCoverDigest.flatMap { try? coverStore.url(for: $0) } }
+    var selectionHasCover: Bool { documents.contains { selection.contains($0.id) && coverDigests[DocumentCoverPreferences.key($0.source)] != nil } }
+    func chooseCover(_ url: URL) {
+        guard !busy, !isGenerating else { return }
+        let sources = documents.filter { selection.contains($0.id) }.map(\.source)
+        guard !sources.isEmpty else { return }
+        busy = true
+        let store = coverStore
+        coverTask = Task {
+            defer { busy = false; coverTask = nil }
+            do {
+                let work = Task.detached(priority: .userInitiated) {
+                    let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
+                    return try store.save(CoverArtwork.read(url))
+                }
+                let digest = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+                try Task.checkCancellation()
+                for source in sources { coverDigests[DocumentCoverPreferences.key(source)] = digest }
+                replan()
+                status = "Cover selected for \(sources.count) document(s)."
+            } catch { planningError = error.localizedDescription }
+        }
+    }
+    func useBookCover(_ document: InputDocument) {
+        guard !busy, !isGenerating else { return }
+        busy = true
+        let store = coverStore
+        coverTask = Task {
+            defer { busy = false; coverTask = nil }
+            do {
+                let work = Task.detached(priority: .userInitiated) {
+                    let bytes = try DocumentReader.bookCover(document)
+                    guard let bytes else { throw NarrationError.invalidInput("This EPUB does not declare a supported JPEG or PNG cover. Choose an image instead.") }
+                    return try store.save(CoverArtwork(data: bytes))
+                }
+                let digest = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+                try Task.checkCancellation()
+                coverDigests[DocumentCoverPreferences.key(document.source)] = digest
+                replan()
+            } catch { planningError = error.localizedDescription }
+        }
+    }
+    func cleanCoverAssets() {
+        let store = coverStore, keeping = Set(coverDigests.values)
+        busy = true
+        coverTask = Task {
+            defer { busy = false; coverTask = nil }
+            do {
+                let work = Task.detached(priority: .utility) { try store.removeUnreferenced(keeping: keeping) }
+                try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+            } catch is CancellationError { }
+            catch { status = "Cover removed. Some unused cover files could not be cleaned up." }
+        }
+    }
+    func removeCover() {
+        guard !busy, !isGenerating else { return }
+        for source in documents.filter({ selection.contains($0.id) }).map(\.source) { coverDigests[DocumentCoverPreferences.key(source)] = nil }
+        cleanCoverAssets()
+        replan()
     }
     var settingsTab = SettingsTab.general
     var readiness = "Checking prepared model assets…"
@@ -224,7 +300,7 @@ private final class IntakeModel {
     }
     var canManageSpeechSetup: Bool { speechSetupDisabledReason == nil }
     var canPrepareModel: Bool { workspace?.url != nil && canManageSpeechSetup }
-    var cancellable: Bool { pronunciationPreview.hasOwnedWork || scanner != nil || reader != nil || hasOwnedProbe || isGenerating || isPreparingModel }
+    var cancellable: Bool { hasCoverWork || pronunciationPreview.hasOwnedWork || scanner != nil || reader != nil || hasOwnedProbe || isGenerating || isPreparingModel }
     var inputCancelLabel: String { scanner != nil ? "Cancel Scan" : (reader != nil ? "Cancel Read" : "Cancel Check") }
     var hasOwnedProbe: Bool { probeProcess != nil }
     var activityStatus: String { scanner != nil ? "Scanning inputs… \(scanCount) entries checked." : status }
@@ -250,7 +326,7 @@ private final class IntakeModel {
     private var removed = Set<String>()
     private var scopes: [String: DirectoryAccess] = [:]
     private var scanner: Task<IntakeResult, Error>?
-    private var reader: Task<String, Error>?
+    private var reader: Task<(text: String, warnings: [String], document: SemanticDocument), Error>?
     private var planner: Task<[PlannedDocument], Error>?
     private var planOperation = UUID()
     private var operation = UUID()
@@ -350,10 +426,11 @@ private final class IntakeModel {
             do {
                 let result = try await task.value
                 guard operation == token else { return }
-                let existing = Dictionary(uniqueKeysWithValues: documents.map { ($0.source.path, $0.id) })
+                let existing = Dictionary(uniqueKeysWithValues: documents.map { ($0.source.path, $0) })
                 let discovered = result.documents.filter { !removed.contains($0.source.path) }.map {
                     InputDocument(source: $0.source, kind: $0.kind, relativePath: $0.relativePath,
-                                  id: existing[$0.source.path] ?? $0.id)
+                                  id: existing[$0.source.path]?.id ?? $0.id,
+                                  textEncoding: existing[$0.source.path]?.textEncoding ?? .automatic)
                 }
                 let discoveredPaths = Set(discovered.map { $0.source.path })
                 let retainedActive = activeBatch?.documents.map(\.input).filter { !discoveredPaths.contains($0.source.path) } ?? []
@@ -448,6 +525,7 @@ private final class IntakeModel {
     }
 
     func cancelIntake() {
+        coverTask?.cancel()
         scanner?.cancel(); reader?.cancel()
         if let process = probeProcess, process.isRunning { probeCancelled = true; process.terminate() }
     }
@@ -471,21 +549,22 @@ private final class IntakeModel {
         let token = UUID(); operation = token; busy = true
         status = "Reading document text…"
         states[document.id] = "Reading…"
-        let imageDescriptions = describeImages, selectedSettings = settings
+        let imageDescriptions = describeImages, selectedSettings = settings, options = narrationOptions
         let task = Task.detached(priority: .userInitiated) {
             let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Reading a Libro document")
             defer { ProcessInfo.processInfo.endActivity(activity) }
             let semantic = try await InferenceLease.withPriority(.interactive) {
                 try await DocumentReader.readSemantic(document, describeImages: imageDescriptions)
             }
-            return try NarrationPlanner.prepare(semantic, settings: selectedSettings, pronunciations: PronunciationStore().load().dictionary).chunks.map(\.text).joined(separator: "\n\n")
+            let plan = try NarrationPlanner.prepare(semantic, settings: selectedSettings, pronunciations: PronunciationStore().load().dictionary, options: options)
+            return (text: plan.chunks.map(\.text).joined(separator: "\n\n"), warnings: Array(Set(semantic.warnings + plan.notices)).sorted(), document: semantic)
         }
         reader = task
         Task {
             do {
-                let text = try await task.value
+                let content = try await task.value
                 guard operation == token else { return }
-                preview = Preview(id: document.id, title: document.source.lastPathComponent, text: text, isPDF: document.kind == .pdf)
+                preview = Preview(id: document.id, title: document.source.lastPathComponent, text: content.text, isPDF: document.kind == .pdf, warnings: content.warnings, document: content.document)
                 states[document.id] = "Text ready"
                 status = "Text preview ready."
             } catch is CancellationError {
@@ -495,6 +574,18 @@ private final class IntakeModel {
             }
             if operation == token { busy = false; reader = nil }
         }
+    }
+
+    func setTextEncoding(_ encoding: TextFileEncoding, for document: InputDocument) {
+        guard !busy, !activeIDs.contains(document.id), [.text, .markdown].contains(document.kind),
+              outcomes[document.id]?.state != .published || retryQueued.contains(document.id),
+              let index = documents.firstIndex(where: { $0.id == document.id }) else { return }
+        documents[index].textEncoding = encoding
+        if preview?.id == document.id { preview = nil }
+        if outcomes[document.id] != nil { retryQueued.insert(document.id) }
+        states[document.id] = "Ready · \(encoding.label)"
+        status = "Text encoding set to \(encoding.label). Preview the document to check its text."
+        replan()
     }
 
     func probe() {
@@ -662,21 +753,40 @@ private final class IntakeModel {
     }
 
     func generate() {
+        guard canGenerate else { return }
+        let inputs = planned.map(\.input), references = coverDigests, store = coverStore
+        let supportsArt = outputFormat.supportsCoverArtwork
+        busy = true
+        coverTask = Task {
+            defer { coverTask = nil }
+            do {
+                let work = Task.detached(priority: .userInitiated) {
+                    supportsArt ? try DocumentCoverPreferences.snapshot(inputs, references: references, store: store) : [:]
+                }
+                let covers = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+                try Task.checkCancellation()
+                busy = false
+                beginGeneration(covers: covers)
+            } catch { busy = false; planningError = error.localizedDescription }
+        }
+    }
+
+    private func beginGeneration(covers: [UUID: CoverArtwork]) {
         guard canGenerate, let destination = output?.url, let root = workspace?.url else { return }
         let plans = planned
         let replacements = plans.filter(\.replacesExisting)
         var approved = false
         if !replacements.isEmpty {
             let alert = NSAlert()
-            alert.messageText = "Replace \(replacements.count) existing audio outputs?"
-            alert.informativeText = "These destinations already contain audio. Libro will replace them only after complete recordings are ready. Failed or cancelled documents preserve their previous outputs."
+            alert.messageText = "Replace existing audio?"
+            alert.informativeText = replacements.map(\.relativeOutput).joined(separator: "\n")
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Replace and Generate")
             guard alert.runModal() == .alertSecondButtonReturn else { return }
             approved = true
         }
         let request = BatchRequest(documents: plans, outputDirectory: destination, workspace: root,
-                                   settings: settings, describeImages: describeImages, replaceExisting: approved, outputFormat: outputFormat)
+                                   settings: settings, describeImages: describeImages, replaceExisting: approved, outputFormat: outputFormat, coverArtwork: covers, narrationOptions: narrationOptions)
         let log = makeDebugLog(root)
         log?.record("batch=\(request.id) started documents=\(plans.count) model=\(settings.model.rawValue) voice=\(settings.voice) speed=\(settings.speed) format=\(request.outputFormat.rawValue) app=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown") os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
         activityProgress = .init(batch: request.id, jobs: request.documents.map(\.id))
@@ -948,7 +1058,33 @@ private final class LatestBatchProgress: @unchecked Sendable {
     func take() -> SpeechProgress? { lock.withLock { let result = value; value = nil; return result } }
 }
 
-private struct Preview: Identifiable { let id: UUID; let title: String; let text: String; let isPDF: Bool }
+private struct LibroDocumentPreview: View {
+    let preview: Preview
+    @State private var showingSource = false
+    var body: some View {
+        ScrollViewReader { proxy in
+            VStack(alignment: .leading) {
+                HStack {
+                    Picker("Preview", selection: $showingSource) { Text("Narration").tag(false); Text("Original Source").tag(true) }.pickerStyle(.segmented)
+                    DocumentNavigationMenu(entries: preview.document.navigationEntries) { entry in
+                        guard let index = entry.blockIndex, preview.document.blocks.indices.contains(index) else { return }
+                        showingSource = true
+                        Task { @MainActor in await Task.yield(); proxy.scrollTo(index, anchor: .top) }
+                    }
+                }
+                ScrollView {
+                    if showingSource {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            ForEach(Array(preview.document.blocks.enumerated()), id: \.offset) { index, block in Text(block.text).textSelection(.enabled).id(index) }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    } else { Text(preview.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                }
+            }
+        }
+    }
+}
+
+private struct Preview: Identifiable { let id: UUID; let title: String; let text: String; let isPDF: Bool; let warnings: [String]; let document: SemanticDocument }
 
 private enum SettingsTab: String, SettingsPane {
     case general = "General", models = "Models", pronunciation = "Pronunciation", troubleshooting = "Troubleshooting"
@@ -1029,6 +1165,11 @@ private struct LibroSettingsView: View {
     private var general: some View {
         Form {
             AppearanceSettingsSection(textSize: $textSize)
+            Section {
+                NarrationOptionsControls(options: $model.narrationOptions)
+            } header: {
+                SettingsSectionHeader(title: "Document Narration", explanation: "Controls explicitly marked notes and auxiliary sections in future batches. Unclassified prose and bibliographies are retained. Preview shows the resulting narration.")
+            }
             ImageDescriptionSettingsSection(enabled: $model.describeImages,
                 additionalHelp: "Applies to the next batch. The current batch keeps its settings.")
                 .disabled(model.isGenerating || model.isPreparingModel)
@@ -1173,7 +1314,7 @@ private struct NarrationControls: View {
                             Text("Audio formats").appFont(.headline)
                             Text("WAV preserves the model's original Float32 samples at its original sample rate. AAC and MP3 are lossy. Libro applies no volume normalization, dynamic range compression or re-leveling.")
                             Text("M4A uses AAC-LC. M4B uses AAC-LC in an audiobook container for Apple Books. MP3 is intended for broad player compatibility.")
-                            Text("The format is remembered. Changes during processing apply to the next batch.").foregroundStyle(.secondary)
+                            Text("Choose Cover Art for selected documents when exporting MP3, M4A or M4B. EPUB documents also offer Use Book Cover in their context menu. Covers do not change audio levels. The format is remembered; changes apply to the next batch.").foregroundStyle(.secondary)
                         }.padding().frame(width: 330)
                     }
             }
@@ -1199,9 +1340,10 @@ private struct DocumentQueueView: View {
             Table(model.displayedDocuments, selection: $model.selection) {
                 TableColumn("Document") { document in
                     HStack(spacing: 8) {
-                        Image(systemName: document.kind == .pdf ? "doc.richtext" : "doc.text").foregroundStyle(.secondary)
+                        Image(systemName: document.kind == .epub ? "book.closed" : document.kind == .pdf ? "doc.richtext" : "doc.text").foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(document.source.lastPathComponent).lineLimit(1)
+                            if document.textEncoding != .automatic { Text(document.textEncoding.label).appFont(.caption).foregroundStyle(.secondary) }
                             let folder = (document.relativePath as NSString).deletingLastPathComponent
                             if !folder.isEmpty { Text(folder).appFont(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         }
@@ -1249,6 +1391,20 @@ private struct DocumentQueueView: View {
             .contextMenu(forSelectionType: UUID.self) { ids in
                 if ids.count == 1, let document = model.displayedDocuments.first(where: { ids.contains($0.id) }) {
                     Button("Preview Text") { model.showPreview(document) }.disabled(model.busy)
+                    if [.text, .markdown].contains(document.kind) {
+                        Menu("Text Encoding") {
+                            Picker("Text Encoding", selection: Binding(
+                                get: { model.documents.first(where: { $0.id == document.id })?.textEncoding ?? document.textEncoding },
+                                set: { model.setTextEncoding($0, for: document) })) {
+                                ForEach(TextFileEncoding.allCases, id: \.self) { encoding in Text(encoding.label).tag(encoding) }
+                            }.pickerStyle(.inline)
+                        }
+                        .disabled(model.busy || model.activeIDs.contains(document.id) ||
+                                  (model.outcomes[document.id]?.state == .published && !model.retryQueued.contains(document.id)))
+                    }
+                    if document.kind == .epub {
+                        Button("Use Book Cover") { model.useBookCover(document) }.disabled(model.busy || model.isGenerating)
+                    }
                     if let outcome = model.outcomes[document.id] {
                         if outcome.state == .published {
                             Button(model.playingDocument == document.id ? "Stop Audio" : "Play Audio") { model.play(document) }
@@ -1267,6 +1423,24 @@ private struct DocumentQueueView: View {
             }
             .onDeleteCommand { if editingOutput == nil { model.removeSelected() } }
             .onExitCommand { editingOutput = nil; tableFocused = true }
+            if !model.selection.isEmpty {
+                if model.outputFormat.supportsCoverArtwork {
+                    CoverArtworkPicker(title: model.selection.count > 1 ? "Cover Art for Selected Documents" : "Cover Art",
+                        url: model.selectedCoverURL, selected: model.selectionHasCover,
+                        choose: model.chooseCover, remove: model.removeCover,
+                        failure: { model.planningError = $0 })
+                        .disabled(model.busy || model.isGenerating)
+                } else {
+                    Text(model.selectionHasCover
+                        ? "The selected cover is kept for MP3, M4A and M4B exports. WAV does not embed it."
+                        : "Choose MP3, M4A or M4B to add cover art.")
+                        .appFont(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if model.selection.isEmpty && !model.displayedDocuments.isEmpty {
+                Text("Select an item to add cover art for MP3, M4A or M4B.")
+                    .appFont(.caption).foregroundStyle(.secondary)
+            }
             Text("Drop files or folders to add documents. Double-click a document to preview its text.")
                 .appFont(.caption).foregroundStyle(.secondary).padding(.bottom, 8)
         }
@@ -1417,7 +1591,10 @@ private struct IntakeView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(preview.title).appFont(.headline)
                 if preview.isPDF { Text("PDF reading order and repeated headers may need review.").appFont(.caption).foregroundStyle(.secondary) }
-                ScrollView { Text(preview.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                ForEach(preview.warnings, id: \.self) { warning in
+                    Text(warning).appFont(.caption).foregroundStyle(.secondary)
+                }
+                LibroDocumentPreview(preview: preview)
                 Button("Done") { model.preview = nil }.keyboardShortcut(.defaultAction)
             }.padding().frame(minWidth: 560, minHeight: 420).onExitCommand { model.preview = nil }
         }

@@ -13,12 +13,12 @@
 		9267B4B7756817FA057F51FE /* LibroCore in Frameworks */ = {isa = PBXBuildFile; productRef = CD133579BA2FB1354850D8F3 /* LibroCore */; };
 		B20000000000000000000001 /* AppPresentation in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000001 /* AppPresentation */; };
 		B20000000000000000000002 /* NativeSpeechEngine in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000002 /* NativeSpeechEngine */; };
+		B20000000000000000000003 /* PronunciationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000003 /* PronunciationUI */; };
+		B20000000000000000000004 /* NarrationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000004 /* NarrationUI */; };
 		B90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices in Resources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices */; };
 		C81C019B76B042E1B2EF1101 /* Resources/AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C81C019B76B042E1B2EF1102 /* Resources/AppIcon.icon */; };
 		E9BB6229E1674CFF8A79B501 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib in Embed MP3 Encoder */ = {isa = PBXBuildFile; fileRef = E9BB6229E1674CFF8A79B502 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		F5F7DE2B7047390DE36C91C9 /* LibroSpeechWorker in Embed Native Worker */ = {isa = PBXBuildFile; fileRef = F7507973396415592C8F0DD8 /* LibroSpeechWorker */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-        B20000000000000000000003 /* PronunciationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000003 /* PronunciationUI */; };
-        B20000000000000000000004 /* NarrationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000004 /* NarrationUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -95,8 +95,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				B20000000000000000000001 /* AppPresentation in Frameworks */,
-                B20000000000000000000003 /* PronunciationUI in Frameworks */,
-                B20000000000000000000004 /* NarrationUI in Frameworks */,
+				B20000000000000000000003 /* PronunciationUI in Frameworks */,
+				B20000000000000000000004 /* NarrationUI in Frameworks */,
 				2ECF33268C9C7214ED56E0AA /* LibroCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -202,8 +202,8 @@
 			name = Libro;
 			packageProductDependencies = (
 				D20000000000000000000001 /* AppPresentation */,
-                D20000000000000000000003 /* PronunciationUI */,
-                D20000000000000000000004 /* NarrationUI */,
+				D20000000000000000000003 /* PronunciationUI */,
+				D20000000000000000000004 /* NarrationUI */,
 				33D69C9690A9998D8D4A1229 /* LibroCore */,
 			);
 			productName = Libro;
@@ -374,7 +374,10 @@
 			baseConfigurationReference = F39DB396A68008CF77BCB592 /* Configuration/App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = 49Q8Z24JCT;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 49Q8Z24JCT;
 				ENABLE_TESTABILITY = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Libro Text-to-Speech";
@@ -383,6 +386,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.librotts.Libro;
 				PRODUCT_NAME = Libro;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 			};
 			name = Release;
@@ -466,7 +470,10 @@
 			baseConfigurationReference = F39DB396A68008CF77BCB592 /* Configuration/App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = 49Q8Z24JCT;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 49Q8Z24JCT;
 				ENABLE_TESTABILITY = YES;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Libro Text-to-Speech";
@@ -475,6 +482,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.librotts.Libro;
 				PRODUCT_NAME = Libro;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
@@ -569,8 +577,16 @@
 			package = A20000000000000000000001 /* XCLocalSwiftPackageReference "../../../swift-packages" */;
 			productName = NativeSpeechEngine;
 		};
-        D20000000000000000000003 /* PronunciationUI */ = {isa = XCSwiftPackageProductDependency; package = A20000000000000000000001; productName = PronunciationUI; };
-        D20000000000000000000004 /* NarrationUI */ = {isa = XCSwiftPackageProductDependency; package = A20000000000000000000001; productName = NarrationUI; };
+		D20000000000000000000003 /* PronunciationUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000001 /* XCLocalSwiftPackageReference "../../../swift-packages" */;
+			productName = PronunciationUI;
+		};
+		D20000000000000000000004 /* NarrationUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000001 /* XCLocalSwiftPackageReference "../../../swift-packages" */;
+			productName = NarrationUI;
+		};
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 244210E48437B6556980A702 /* Project object */;

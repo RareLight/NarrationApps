@@ -1,7 +1,17 @@
 import Foundation
 import XCTest
+import LibroCore
 
 final class ProjectResourcesTests: XCTestCase {
+    func testEPUBIsRegisteredForFinderAndImportPanels() throws {
+        let macOS = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: macOS.appendingPathComponent("Libro/App/Info.plist"))
+        let info = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        let documents = try XCTUnwrap(info["CFBundleDocumentTypes"] as? [[String: Any]])
+        XCTAssertTrue(documents.contains { ($0["LSItemContentTypes"] as? [String])?.contains("org.idpf.epub-container") == true })
+        XCTAssertTrue(DocumentKind.contentTypes.contains { $0.identifier == "org.idpf.epub-container" })
+    }
+
     func testCommonNoticesBelongToTheGUIResourcePhase() throws {
         let macOS = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let data = try Data(contentsOf: macOS.appendingPathComponent("Libro/Libro.xcodeproj/project.pbxproj"))
