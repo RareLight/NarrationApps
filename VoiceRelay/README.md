@@ -1,5 +1,8 @@
 # VoiceRelay
 
+Active development layout: this repository is an independent Git repository nested under `/path/to/NarrationApps`.
+See the [layout and archival record](../docs/REPOSITORY_LAYOUT.md).
+
 VoiceRelay turns Safari Reading List articles into a private podcast using local
 Kokoro speech and WebDAV publishing. While the macOS app runs, it discovers
 articles, prepares saved text, processes the queue and publishes episodes according
@@ -7,7 +10,7 @@ to your preferences. Failed items remain available for manual Retry. Safari
 bookmarks and Reading List flags are never modified.
 
 The app targets Apple Silicon and macOS 27.0+. Building from source requires
-Xcode with the macOS 27 SDK (Swift 6.2+) and the sibling `swift-packages` checkout. Speech uses a bundled native Swift MLX
+Xcode with the macOS 27 SDK (Swift 6.2+) and the sibling `swift-packages` directory. Speech uses a bundled native Swift MLX
 helper with explicitly prepared pinned model assets; Python/uv/FFmpeg are not required.
 Audio is mono 24 kHz AAC-LC/M4A at 64 kbps, with original levels and dynamics: no
 normalization, gain, limiter or dynamic range compression. Narration opens with
@@ -19,7 +22,21 @@ save dates when available; optional publisher artwork stays external.
 Prepare the common sources with `bash ../swift-packages/scripts/prepare-dependencies.sh`.
 Xcode consumes two local packages: SwiftNarration at `../swift-packages` and the
 independent AppPresentation package at `../swift-packages/AppPresentation`. Neither
-depends on Libro's repository. See [package boundaries and release management](../swift-packages/docs/PACKAGE_BOUNDARIES.md).
+depends on Libro's repository. See [package boundaries and release management](../docs/PACKAGE_BOUNDARIES.md).
+
+For simultaneous Libro/VoiceRelay development, close both standalone project
+windows and separately opened package windows, then open
+[../NarrationApps.xcworkspace](../NarrationApps.xcworkspace).
+Use its **VoiceRelay** scheme to run this app or **Build Both Apps** to build both.
+Xcode cannot load the same local package in separate project/workspace windows;
+that causes “already opened” and missing-product errors. Both Debug and Release
+use the combined workspace. Installed apps can still run independently.
+See [shared workspace instructions](../docs/PACKAGE_BOUNDARIES.md#develop-both-apps-in-one-xcode-workspace).
+
+For standalone-project recovery only, close Xcode and run
+`bash scripts/resolve-xcode-packages.sh`. For the combined workspace use
+`bash ../scripts/resolve-xcode-workspace.sh`, then reopen that
+workspace. Neither procedure deletes caches, models or settings.
 
 Copy `Packaging/Signing.example.xcconfig` to the ignored `Signing.local.xcconfig`
 at the project root and set your team there. Debug and Release load the local file
@@ -117,6 +134,22 @@ In **Settings → Publishing**, supply complete HTTPS **Feed folder URL** and
 addresses need not be identical. VoiceRelay puts `feed.xml` and lowercase `audio/`
 under each folder. **Subscription URL** is read-only with **Copy** for Overcast
 or another podcatcher.
+
+**Podcast Cover** in Publishing accepts a square, opaque JPEG/PNG of at least
+1400 pixels per side; larger images are reduced to at most 3000 pixels. Choose,
+Replace or Remove applies to the overall show. Episode pictures still come from
+article preview/social metadata. Artwork is verified before the feed references
+it; a failed change preserves the previous feed. Cover-only changes do not
+regenerate episode audio. The cover is Publishing configuration, separate from
+library backups; restoring a library keeps the current cover configuration.
+
+In article previews, **Contents** navigates authored headings or PDF bookmarks;
+page-only destinations remain page-only. **General → Document Narration** offers
+Notes (Current Placement, End of Document, Omit) and Include auxiliary sections.
+These apply to newly queued articles with explicit source semantics. Bibliographies
+and unclassified prose remain, source omissions are visible, and existing queued
+articles keep their captured preferences. Shared implementation is recorded in the
+[cover/navigation stages](../docs/COVER_ART_AND_NAVIGATION_PLAN.md).
 
 Pasted URLs normalize on commit: whitespace, missing HTTPS, spaces/percent escapes,
 redundant slashes, dot segments, default ports and trailing slashes are handled.
@@ -218,7 +251,7 @@ commits. Backups exclude credentials, preferences, audio, scratch and models.
 They contain private source content and server information: keep them private.
 Restore validates/stages before replacing the library, preserves the previous
 library and disables automation/publishing behind **Finish Library Review**.
-It does not change Safari, local audio or server files. See [backup/restore checks](../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay).
+It does not change Safari, local audio or server files. See [backup/restore checks](../docs/OPERATOR_VALIDATION.md#voicerelay).
 
 **Troubleshooting → Enable debug logging** retains the newest 200 events in memory.
 The toggle persists; events do not survive Quit. Copy Debug Log and Clear Log
@@ -236,11 +269,11 @@ Settings → Pronunciation edits one shared Libro/VoiceRelay spelling dictionary
 Use English phonetic spellings and Play to hear a native preview at the selected
 voice/speed. Saved samples do not incorporate new overrides. Ordinary narration
 captures rules for its work; editing a rule does not rewrite finished recordings.
-See [pronunciation](../swift-packages/docs/PRONUNCIATION.md) and
-[sample regeneration](../swift-packages/docs/VOICE_SAMPLES.md).
+See [pronunciation](../docs/PRONUNCIATION.md) and
+[sample regeneration](../docs/VOICE_SAMPLES.md).
 
 The accepted Kokoro pacing is implemented. Some units/temperatures and contextual
-homographs remain [known frontend limitations](../swift-packages/docs/TEXT_NORMALIZATION_RESEARCH.md);
+homographs remain [known frontend limitations](../docs/TEXT_NORMALIZATION_RESEARCH.md);
 changing speed or voice is not a general correction for those cases.
 
 ## Development and validation
@@ -260,7 +293,7 @@ bash scripts/check-docs.sh
 [Contributing](CONTRIBUTING.md) records engineering conventions. Start with the
 [documentation index](docs/README.md), [architecture](docs/ARCHITECTURE.md) and
 [current validation](docs/VALIDATION.md). All manual tests and current candidate
-paths are in the [single operator checklist](../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay).
+paths are in the [single operator checklist](../docs/OPERATOR_VALIDATION.md#voicerelay).
 [Release gates](docs/RELEASE_CHECKLIST.md) separate local ad-hoc packaging from
 normal team/Keychain, clean-Mac and public distribution acceptance. Automated
 fixtures/builds do not establish GUI, listening or real-service behavior.

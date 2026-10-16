@@ -1,7 +1,7 @@
 # VoiceRelay development
 
-The authorized native unification plan in the sibling `swift-packages/docs/IMPLEMENTATION_PLAN.md`
-supersedes previous Python/product CLI work. Shared implementation belongs there;
+The authorized native unification plan in the parent `../docs/IMPLEMENTATION_PLAN.md`
+supersedes previous Python/product CLI work. Shared implementation belongs in ../swift-packages;
 VoiceRelay owns discovery, retained article identity, SQLite and publication.
 Speech uses one resident native helper, with no serial/parallel mode or automatic
 fallback replay. VoiceRelay requests background admission through the shared lease
@@ -358,7 +358,7 @@ App presentation is split into AppPresentation, SettingsViews and MenuBarViews w
 named inert previews. Packaging stages and verifies before atomic exchange; fake
 packaging fixtures never build, sign or launch an application. CONTRIBUTING.md and
 docs/RELEASE_CHECKLIST.md describe engineering and distribution gates; historical
-validation lives separately in docs/history/VALIDATION.md. Do not bump to 1.0 or
+validation remains in Git history. Do not bump to 1.0 or
 operate Developer ID/notarization accounts before operator acceptance/approval.
 
 

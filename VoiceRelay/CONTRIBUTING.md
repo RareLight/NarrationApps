@@ -3,7 +3,7 @@
 Read [AGENTS.md](AGENTS.md), the [documentation index](docs/README.md),
 [architecture](docs/ARCHITECTURE.md) and [current validation](docs/VALIDATION.md)
 before making changes. Shared capability/remaining work is indexed in
-[swift-packages](../swift-packages/docs/README.md).
+[NarrationApps](../docs/README.md).
 
 ## Prerequisites and safe checks
 
@@ -37,7 +37,7 @@ transports, credential stores and speech providers. Never point a fixture at rea
 Safari, Application Support, published feeds or another application's data. Mock
 and synthetic audio validate mechanics, not voice quality. Record GUI/Canvas,
 protected Safari, real Keychain, server, runtime downloads and listening separately
-in the [consolidated operator checklist](../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay).
+in the [consolidated operator checklist](../docs/OPERATOR_VALIDATION.md#voicerelay).
 
 ## Ownership and concurrency
 

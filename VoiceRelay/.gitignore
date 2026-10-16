@@ -1,84 +1,26 @@
-# Xcode
-#
-# gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
-
-## User settings
-xcuserdata/
-
-## Obj-C/Swift specific
-*.hmap
-
-## App packaging
-*.ipa
-*.dSYM.zip
-*.dSYM
-
-## Playgrounds
-timeline.xctimeline
-playground.xcworkspace
-
-# Swift Package Manager
-#
-# Add this line if you want to avoid checking in source code from Swift Package Manager dependencies.
-# Packages/
-# Package.pins
-# Package.resolved
-# *.xcodeproj
-#
-# Xcode automatically generates this directory with a .xcworkspacedata file and xcuserdata
-# hence it is not needed unless you have added a package configuration file to your project
-# .swiftpm
-
-.build/
-
-# CocoaPods
-#
-# We recommend against adding the Pods directory to your .gitignore. However
-# you should judge for yourself, the pros and cons are mentioned at:
-# https://guides.cocoapods.org/using/using-cocoapods.html#should-i-check-the-pods-directory-into-source-control
-#
-# Pods/
-#
-# Add this line if you want to avoid checking in source code from the Xcode workspace
-# *.xcworkspace
-
-# Carthage
-#
-# Add this line if you want to avoid checking in source code from Carthage dependencies.
-# Carthage/Checkouts
-
-Carthage/Build/
-
-# fastlane
-#
-# It is recommended to not store the screenshots in the git repo.
-# Instead, use fastlane to re-generate the screenshots whenever they are needed.
-# For more information about the recommended setup visit:
-# https://docs.fastlane.tools/best-practices/source-control/#source-control
-
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots/**/*.png
-fastlane/test_output
-
-# VoiceRelay: local build products, caches, runtime assets and private state.
-.swiftpm/
-DerivedData/
-dist/
-var/
-models/
-.runtime/
-.cache/
-.venv/
-.codex/
+# macOS / Xcode / SwiftPM generated state
 .DS_Store
+.build/
+DerivedData/
+.swiftpm/
+xcuserdata/
 *.xcuserstate
-*.xcresult
-__pycache__/
-*.voicerelaybackup/
-*.py[cod]
+*.xcarchive/
+*.xcresult/
+*.dSYM/
+*.dSYM.zip
+*.hmap
+*.profraw
+*.profdata
+dist/
+icons/Exports/
+icons/Previews/
 
-# Private configuration and signing material. Commit only synthetic examples.
+# Private configuration, models, library state and generated media
+models/
+var/
+.local/
+.devin/
 config.toml
 .env
 .env.*
@@ -89,8 +31,6 @@ config.toml
 *.provisionprofile
 *.key
 *.pem
-
-# Generated library state, media, feeds and diagnostics.
 *.sqlite
 *.sqlite3
 *.db
@@ -100,24 +40,20 @@ config.toml
 *.sqlite3-shm
 *.db-wal
 *.db-shm
+*.voicerelaybackup/
 *.wav
 *.m4a
+*.m4b
 *.mp3
 *.aac
 *.flac
 *.safetensors
-*.onnx
-*.pt
-*.pth
 *.npz
 Bookmarks.plist
 Screenshot*.png
 *.har
 *.log
 *.app/
-*.xcarchive/
 *.zip
 *.bundle
 feed.xml
-
-# Dependency lockfiles and redistribution notices remain tracked.

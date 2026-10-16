@@ -77,7 +77,7 @@ Public-folder mapping and actual podcatcher playback still require operator test
 
 ## Operator acceptance
 
-Use V11–V14 and V15 in the [consolidated checklist](../../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay)
+Use V11–V14 and V15 in the [consolidated checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay)
 for credentials, normal reconciliation/readback, a new test episode, retry,
 feed-first removal and restored-library review. Do not create conflicts/reset the
 production share to exercise error cases; isolated automated fixtures cover those.

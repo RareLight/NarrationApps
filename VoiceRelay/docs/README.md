@@ -9,12 +9,10 @@
 | [Server recovery](SERVER_RECOVERY.md) | Identity, reconciliation, proofs, conflicts and cleanup behavior |
 | [Contributing](../CONTRIBUTING.md) | Safe engineering checks and source conventions |
 | [Current validation](VALIDATION.md) | Automated evidence, operator ownership and source-only checks |
-| [Consolidated operator checklist](../../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay) | Only current manual test list |
+| [Consolidated operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay) | Only current manual test list |
 | [Release checklist](RELEASE_CHECKLIST.md) | Engineering/package and conditional distribution gates |
-| [Shared docs](../../swift-packages/docs/README.md) | Canonical packages, parsing, pronunciation, samples, audio and remaining work |
-| [Historical validation](history/VALIDATION.md) | Dated results from earlier implementations; commands/defaults may be retired |
+| [Shared docs](../../docs/README.md) | Canonical packages, parsing, pronunciation, samples, audio and remaining work |
 
-Older [final-polish](history/FINAL_POLISH.md) and
-[text/image intake handoff](history/TEXT_AND_IMAGE_INTAKE_HANDOFF.md) records are
-historical references. Their active functionality is described in current guides;
-their old commands are not an additional setup path.
+The earlier handoffs, validation snapshots and polish notes are retained in Git
+history and the original repository. The guides above describe the native app;
+retired records are not a second setup path.

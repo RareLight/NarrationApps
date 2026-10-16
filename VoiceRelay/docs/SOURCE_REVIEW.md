@@ -1,7 +1,7 @@
 # VoiceRelay source handling
 
 Current application policy, October 15, 2026. Shared parsing/OCR/image/narration
-algorithms belong to [DocumentProcessing and NarrationCore](../../swift-packages/docs/DOCUMENT_PROCESSING.md).
+algorithms belong to [DocumentProcessing and NarrationCore](../../docs/DOCUMENT_PROCESSING.md).
 VoiceRelay owns the authorized source fetch, archive lookup, retained article
 identity/saved date and integrity-checked snapshots.
 
@@ -19,6 +19,11 @@ Preview fetches intentionally and does not implicitly add queue membership.
 Compare title/source, beginning/end, paragraph/list order, notes, omission notices
 and generated-description provenance before narrating sensitive or complex inputs.
 A login page, challenge or teaser is not successful complete extraction.
+Preview captures the selected voice and shared pronunciation dictionary once and
+uses the same mapped quantity/time decisions as narration from that context, with
+visible notices. Native markup retains inline-code protection. Older retained
+markup without trustworthy classification can abstain from automatic spoken forms;
+it is not silently refetched or rewritten.
 
 PDF responses use native PDFKit text and bounded structured Vision OCR, including
 mixed/scanned pages. Locked/unreadable/oversized inputs fail individually. HTML
@@ -38,7 +43,7 @@ generated descriptions and their web-image retrieval; authored ALT and OCR remai
 active. Web images use bounded credential-free public HTTPS retrieval. An unavailable
 model or failed image leaves article text usable. PDF page imagery is not assumed
 to have isolated figure geometry. Exact UI labels/ownership are in
-[shared Settings guidance](../../swift-packages/docs/SETTINGS_ALIGNMENT.md).
+[shared Settings guidance](../../docs/SETTINGS_ALIGNMENT.md).
 
 Known local footnote links retain markers in source and resolve narration at their
 first reference with explicit note cues. Repeated references do not repeat a note;
@@ -78,6 +83,6 @@ point them at Safari or a live library. Do not publish source snapshots, private
 URLs or full article text in bug reports.
 
 Current operator cases are V05–V08 in the
-[consolidated checklist](../../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay).
+[consolidated checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay).
 [Server reconciliation](SERVER_RECOVERY.md) restores matching audio history, not
-lost article text. Previous implementation evidence is [historical](history/VALIDATION.md).
+lost article text. Previous implementation evidence is [historical](ARCHITECTURE.md).

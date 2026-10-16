@@ -1,7 +1,7 @@
 # VoiceRelay architecture
 
 Current application contract, October 15, 2026. Shared processing lives in the
-independent [SwiftNarration packages](../../swift-packages/docs/ARCHITECTURE.md).
+independent [SwiftNarration packages](../../docs/ARCHITECTURE.md).
 VoiceRelay owns Safari discovery, source authorization, retained identity/text,
 SQLite queue/recovery, Publishing/Keychain, backup and GUI lifecycle.
 
@@ -130,6 +130,6 @@ and Troubleshooting, window/Dock presence and Help topics. Help is inert/offline
 
 Use [CONTRIBUTING.md](../CONTRIBUTING.md) for safe checks,
 [VALIDATION.md](VALIDATION.md) for current evidence and the
-[single operator checklist](../../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay)
+[single operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay)
 for GUI, live services, listening and restoration. Those are not established by
-compile/fixture success. Older stage results are [history](history/VALIDATION.md).
+compile/fixture success. Older stage results are [history](ARCHITECTURE.md).

@@ -5,9 +5,9 @@ native_root="$(cd "$(dirname "$0")/.." && pwd)"
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/voicerelay-package.XXXXXX")"
 trap 'rm -rf "$test_root"' EXIT
 fixture="$test_root/VoiceRelay"
-mkdir -p "$fixture/scripts" "$test_root/swift-packages/scripts" "$test_root/tools"
+mkdir -p "$fixture/scripts" "$test_root/scripts" "$test_root/tools"
 cp "$native_root/scripts/build-app.sh" "$fixture/scripts/"
-cp "$native_root/../swift-packages/scripts/install-app.swift" "$test_root/swift-packages/scripts/"
+cp "$native_root/../scripts/install-app.swift" "$test_root/scripts/"
 for tool in xcodebuild codesign; do
   cat > "$test_root/tools/$tool" <<'TOOL'
 #!/bin/bash

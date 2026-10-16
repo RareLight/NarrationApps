@@ -18,10 +18,12 @@ app-specific chunker or G2P pass. SingleWorkerSpeechPipeline retains a compatibl
 helper across articles, joins failures/cancellation and safely yields to Libro.
 
 The accepted policy, memory guard, bounded IPC, structural gaps and acoustic identity
-are documented in [shared architecture](../../swift-packages/docs/ARCHITECTURE.md).
+are documented in [shared architecture](../../docs/ARCHITECTURE.md).
 Legacy character preparation survives for archived developer comparisons, not a
-user mode. Known numeric-unit/temperature and contextual pronunciation defects
-remain [normalization follow-up](../../swift-packages/docs/TEXT_NORMALIZATION_RESEARCH.md).
+user mode. Shared mapped spoken forms now correct explicit kilograms, Celsius/
+Fahrenheit quantities and 12-hour AM/PM times, with source preservation and preview
+notices. New forms await operator listening; contextual homographs remain
+[follow-up work](../../docs/TEXT_NORMALIZATION_RESEARCH.md).
 
 Native podcast audio is mono AAC-LC 64 kbps/24 kHz, with original levels/dynamics
 and no normalization, gain, limiter or DRC. VoiceRelay's saved gap preference is a
@@ -29,6 +31,6 @@ structural minimum; explicit zero remains zero. Semantic/acoustic and encoding
 fingerprints are independent; published/verified already-placed media is preserved.
 The helper is native Swift/MLX, with no Python or external FFmpeg/ffprobe fallback.
 
-Exact pins/licenses/patches are maintained in the [shared dependency record](../../swift-packages/docs/DEPENDENCIES.md).
-Use the [single operator checklist](../../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay)
+Exact pins/licenses/patches are maintained in the [shared dependency record](../../docs/DEPENDENCIES.md).
+Use the [single operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay)
 for real setup, listening, lifecycle and live services.

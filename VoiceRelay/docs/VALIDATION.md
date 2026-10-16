@@ -1,8 +1,12 @@
 # Native validation
 
+The operator confirmed on October 16, 2026 that both relocated apps build and run.
+This accepts the basic workspace/build/launch smoke check; detailed document,
+listening, setup, persistence and live-service cases below remain separate.
+
 Use isolated synthetic fixtures, native Swift tests and Xcode builds. Prior
 implementation results and retired commands are preserved as historical evidence
-in [historical validation](history/VALIDATION.md).
+in [historical validation](ARCHITECTURE.md).
 
 ```sh
 bash ../swift-packages/scripts/check.sh
@@ -25,13 +29,25 @@ current-file integrity, resampling/rate/gaps, atomic output preservation and nat
 AAC absolute quiet/loud levels without normalization or volume leveling.
 
 The remaining operator tests, current app paths and reporting IDs are maintained
-only in the [consolidated checklist](../../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay).
+only in the [consolidated checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay).
 It covers setup, samples/pronunciation, real source/OCR/image quality, lifecycle,
 live Publishing/Keychain, restore and conditional distribution. Historical results
-remain in [historical validation](history/VALIDATION.md); automated passes do not
+remain in [historical validation](ARCHITECTURE.md); automated passes do not
 mark operator acceptance complete.
 
 The latest accepted-policy results and current artifacts are maintained in the
-[shared status](../../swift-packages/docs/IMPLEMENTATION_STATUS.md), including 296
+[shared status](../../docs/IMPLEMENTATION_STATUS.md), including 296
 VoiceRelay core and 141 app tests, complete ad-hoc archives and actual offline
 packaged-worker checks. Documentation refreshes are not new app acceptance.
+
+Delivery A's current isolated suites passed 297 core + 141 app tests, followed
+by the final affected adapter/recovery checks. Both packaged helpers passed the
+shared offline regional-reference gate. New spoken forms still need operator B05;
+see [Delivery A evidence](../../docs/TEXT_PROCESSING_IMPROVEMENT_PLAN.md#delivery-a-evidence).
+
+Cover/navigation engineering is recorded in the shared current status. Validate
+Podcast Cover and unchanged per-episode images through V17, Contents through V18,
+and captured note/auxiliary settings through V19. Library backup excludes the
+Publishing cover/configuration. Automated artwork transport tests never upload to
+your real server; use the normal team-signed build and a disposable destination
+for Keychain, feed publication and podcast-cache acceptance.

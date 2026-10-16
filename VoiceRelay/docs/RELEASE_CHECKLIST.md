@@ -1,13 +1,13 @@
 # VoiceRelay 1.0 release checklist
 
 This is the engineering/distribution gate, separate from the
-[consolidated app validation checklist](../../swift-packages/docs/OPERATOR_VALIDATION.md).
+[consolidated app validation checklist](../../docs/OPERATOR_VALIDATION.md).
 Verify the version/build of the actual candidate; this document does not authorize
 publishing, notarization, developer-account operations or live state changes.
 
 ## Source and automated gates
 
-- [ ] Review [current shared status](../../swift-packages/docs/IMPLEMENTATION_STATUS.md), operator results and remaining accepted issues.
+- [ ] Review [current shared status](../../docs/IMPLEMENTATION_STATUS.md), operator results and remaining accepted issues.
 - [ ] Run the [contributor regression commands](../CONTRIBUTING.md#prerequisites-and-safe-checks).
 - [ ] Build Debug and Release in Xcode; verify all app sources/resources and runtime pins.
 - [ ] Inspect the candidate's Git changes/history for private URLs, source content,
@@ -18,7 +18,7 @@ publishing, notarization, developer-account operations or live state changes.
 ## Operator acceptance
 
 Complete and record VoiceRelay V01–V16, shared B01–B04 and applicable D01–D02
-from the [single operator checklist](../../swift-packages/docs/OPERATOR_VALIDATION.md#voicerelay).
+from the [single operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay).
 Operator results are separate from fixture/build/signature evidence.
 
 ## Distribution and signing decision
