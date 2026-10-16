@@ -1,17 +1,25 @@
 # Libro
 
+Active development layout: this repository is an independent Git repository nested under `/path/to/NarrationApps`.
+See the [layout and archival record](../docs/REPOSITORY_LAYOUT.md).
+
 Native batch document narration for Apple Silicon Macs running macOS 27.0+.
-Import text, Markdown, RTF or PDF documents and generate WAV, AAC/M4A/M4B or MP3
+Import text, Markdown, RTF, PDF or DRM-free EPUB documents and generate WAV, AAC/M4A/M4B or MP3
 using native Kokoro/Soprano speech. This repository owns the GUI, batch/export
-workflow and app preferences; common capability lives in the independent sibling
-[swift-packages](../swift-packages/README.md) repository.
+workflow and app preferences; common capability lives in the parent repository's
+[shared packages](../swift-packages/README.md).
 
 ## Build
 
 Building from source requires Xcode with the macOS 27 SDK and Swift 6.2+.
-Keep `Libro-TTS` beside `swift-packages`; VoiceRelay's repository is not needed.
+Keep `Libro` beside `swift-packages`; VoiceRelay's repository is not needed.
 Xcode references SwiftNarration at the shared root and the separate zero-dependency
 AppPresentation package in its subdirectory.
+
+To work on both apps at once, close their standalone project/package windows and
+open [NarrationApps.xcworkspace](../NarrationApps.xcworkspace).
+Select **Libro** or **VoiceRelay** to run either app, or **Build Both Apps** to
+compile both with Debug or Release. See [shared workspace setup](../docs/PACKAGE_BOUNDARIES.md#develop-both-apps-in-one-xcode-workspace).
 
 ```sh
 bash macos/scripts/prepare-dependencies.sh
@@ -24,7 +32,7 @@ Or open `macos/Libro/Libro.xcodeproj` and use the Libro scheme. Source preparati
 pins/patches native dependencies; it does not install model weights. Each app embeds
 its own signed helper, Metal and notices. Keep model/cache state outside the bundle;
 never copy `.build` or DerivedData between machines. See the [native build guide](macos/README.md)
-for Xcode package recovery and [dependency provenance](../swift-packages/docs/DEPENDENCIES.md).
+for Xcode package recovery and [dependency provenance](../docs/DEPENDENCIES.md).
 
 ## Use
 
@@ -46,10 +54,17 @@ for Xcode package recovery and [dependency provenance](../swift-packages/docs/DE
    Stop preserves completed files; failed/requeued items require the normal next
    batch action. Quit joins owned work. Check Details for actionable errors.
 
+Text/Markdown accepts legacy encodings through non-lossy native conversion.
+If accents or punctuation look wrong, right-click the imported row → Text Encoding
+and choose its code page before previewing again; original files are never changed.
+EPUB 2/3 follows the book's spine, retaining chapter structure, notes and authored
+image descriptions. Protected content is rejected; fixed-layout reading order needs
+review. See the shared guide for bounded intake and supported content.
+
 PDFKit text is preferred; unusable/scanned pages use structured Vision OCR.
 Authored ALT/captions take precedence; optional brief Apple Intelligence descriptions
 run locally when available. Source prose/provenance remain in previews. See
-[shared document handling](../swift-packages/docs/DOCUMENT_PROCESSING.md).
+[shared document handling](../docs/DOCUMENT_PROCESSING.md).
 
 Speech has one worker per app. Libro requests interactive priority over background
 VoiceRelay at safe boundaries; idle windows do not block background work. Allocator
@@ -59,10 +74,25 @@ private PDF/Markdown freeze retest remains an operator gate.
 Audio is never normalized, volume leveled, gain-adjusted, limited or dynamically
 compressed. WAV retains native Float32 samples/rates. AAC podcast/samples use mono
 64 kbps/24 kHz; Libro's native-rate Soprano exports retain the model's rate. Completed
-recordings are preserved. Known unit/temperature/homograph limitations and their
-[next correction stage](../swift-packages/docs/TEXT_NORMALIZATION_RESEARCH.md) are
-separate from the accepted speed/pause behavior.
+recordings are preserved. Mapped kilogram, temperature and explicit-AM/PM spoken forms are now included for
+Kokoro, with visible preview notices and unchanged original source. Contextual
+homographs remain [follow-up work](../docs/TEXT_NORMALIZATION_RESEARCH.md);
+new spoken forms require listening acceptance separately from the accepted pacing.
+
+Select one or more queued documents to choose **Cover Art** for MP3, M4A or M4B.
+Each document keeps its own cover; selecting multiple documents explicitly applies
+one image to that selection. Choose/Replace/Remove uses app-owned copies, leaving
+original images and finished exports intact. WAV retains the selection but does
+not embed it. EPUB context menus offer **Use Book Cover** for a declared JPEG/PNG
+cover; no PDF cover-page guess or online cover search is performed.
+
+Preview **Contents** navigates authored EPUB navigation, PDF bookmarks and actual
+Markdown headings in **Original Source**. Switch to **Narration** to review spoken
+content and omission notices. **Settings → General → Document Narration** controls
+marked notes and auxiliary sections for future batches; current note placement and
+inclusion are the defaults. Bibliography and unclassified prose stay intact.
+See the [implemented shared stages](../docs/COVER_ART_AND_NAVIGATION_PLAN.md).
 
 Start with the [documentation index](docs/README.md), [current validation](docs/VALIDATION.md)
-and [consolidated operator checklist](../swift-packages/docs/OPERATOR_VALIDATION.md#libro).
+and [consolidated operator checklist](../docs/OPERATOR_VALIDATION.md#libro).
 The current application has no product CLI or maintained Python runtime.

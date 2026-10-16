@@ -298,35 +298,13 @@ all-caps labels. Friendly names may be shown instead of technical IDs, but keep
 IDs available in help/details where useful. Avoid “Error occurred” when the cause
 is known. Prefer “This document contains no narration text after cleanup.”
 
-## 8. Visual examples and their limits
+## 8. Current native implementation
 
-[Open the original interactive Libro layout study](design-reference/examples/libro-layout-study.html).
-[Editable mockup source](design-reference/examples/libro-layout-source.html).
-
-The study includes **Compact controls** (the selected direction) and **Narration
-inspector** (an alternative, not the default). It demonstrates a restrained
-window, grouped task choices, three-column queue, destination, primary action and
-secondary Settings/preview presentations. Controls simulate behavior; they do
-not open real files, modify settings, download assets or generate audio.
-
-This is an HTML design study, **not a screenshot of native macOS 27 controls**.
-Its icon/font/material approximations are not production specifications. The
-standalone viewer uses CDN resources for icons/tooltip support, so complete
-rendering can require internet access. The source fragment expects a visualization
-host; use the standalone study for ordinary browser viewing.
-
-The implemented refinement supersedes these study details:
-
-- During work, show immutable current choices and a **Next Batch Settings…** sheet.
-- Hide unsupported Soprano voice/speed controls rather than presenting them as
-  ordinary enabled choices.
-- Use native Models/Advanced Settings with real readiness, preparation and logs.
-- Use a secondary queue-actions toolbar menu; native app Settings remains in the
-  app menu and accessible by Command-comma.
-
-For Libro's actual implementation/evidence, see the separate
-[UX checklist](history/native-gui-ux-checklist.md). Its operator appearance and VoiceOver
-checks remain open as of this reference; the mockup is not acceptance evidence.
+Use the shared [AppPresentation conventions](../../docs/SETTINGS_ALIGNMENT.md)
+and [operator checklist](../../docs/OPERATOR_VALIDATION.md#libro)
+for the implemented controls and manual appearance/VoiceOver checks. The retired
+HTML mockups and exported style-reference archive remain in the original
+repository and Git history; they are not native runtime specifications.
 
 ## 9. Agent handoff and acceptance checklist
 

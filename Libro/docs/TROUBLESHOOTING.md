@@ -2,11 +2,21 @@
 
 Use the current project and the sibling `swift-packages` checkout. This is operating
 guidance; earlier Metal/build/memory investigations are clearly labeled in
-[history](README.md#historical-evidence).
+[history](README.md#current-and-historical-records).
 
 ## Missing Xcode package products
 
-Save work and quit Xcode completely. From the Libro-TTS root:
+If the error also says a package is “already opened from another project or
+workspace”, close standalone Libro/VoiceRelay and package windows, then open
+[the combined NarrationApps workspace](../../NarrationApps.xcworkspace).
+Use the per-app schemes there for both Debug and Release. See
+[workspace setup](../../docs/PACKAGE_BOUNDARIES.md#develop-both-apps-in-one-xcode-workspace).
+This is a local-package ownership conflict in Xcode, not an app runtime lock or a
+reason to reinstall Xcode/delete dependencies.
+
+For a standalone Libro project without that ownership conflict:
+
+Save work and quit Xcode completely. From the Libro root:
 
 ```sh
 bash macos/scripts/resolve-xcode-packages.sh
@@ -28,11 +38,11 @@ British voices require their own pinned resources; select the voice and install/
 update if requested. No implicit download, US fallback or alternate engine replay
 occurs. Existing models/settings/finished output should not be deleted to diagnose
 an installation problem. Source pins/patches are maintained in the
-[shared dependency record](../../swift-packages/docs/DEPENDENCIES.md).
+[shared dependency record](../../docs/DEPENDENCIES.md).
 
 The preparation stage can reject unsupported/overlong text explicitly rather than
 silently truncating it. Combined unit/temperature and some homograph readings
-are [known frontend defects](../../swift-packages/docs/TEXT_NORMALIZATION_RESEARCH.md),
+are [known frontend defects](../../docs/TEXT_NORMALIZATION_RESEARCH.md),
 not a reason to change accepted pacing or normalize audio levels.
 
 Contents pages with dotted leaders exposed a native subtoken-range bug fixed on
@@ -50,7 +60,7 @@ memory pressure and whether it settles after completion/Stop. For a true UI free
 capture Activity Monitor's Sample Process for the affected process. Keep private
 inputs/logs local. Model allocator thresholds and sampled worker limits are not hard
 caps; Apple OCR/Intelligence can also allocate in system services. The synthetic
-mixed-input measurements are in [current status](../../swift-packages/docs/IMPLEMENTATION_STATUS.md);
+mixed-input measurements are in [current status](../../docs/IMPLEMENTATION_STATUS.md);
 they do not close the original private-document GUI retest.
 
 ## Diagnostics and output safety

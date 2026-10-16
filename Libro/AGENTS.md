@@ -1,7 +1,7 @@
 # Libro development
 
-Follow the current architecture/status and remaining roadmap in the sibling
-swift-packages repository, indexed by its docs/README.md. It supersedes previous CLI/Python work. Both Libro and VoiceRelay use
+Follow the current architecture/status and remaining roadmap in the parent NarrationApps
+repository, indexed by ../docs/README.md. It supersedes previous CLI/Python work. Both Libro and VoiceRelay use
 that independent package; keep this repository's app-specific GUI/workflow here.
 Target macOS 27.0 and native Swift/Apple APIs. Initial native engines are Kokoro and
 Soprano. Keep MLX linked only into the private native helper, never the GUI. Speech has one
@@ -22,7 +22,7 @@ Run `bash scripts/check.sh` for shared and app-specific fixtures. Prepare native
 sources with `bash macos/scripts/prepare-dependencies.sh`. Build/Archive with
 `macos/scripts/build.sh`; use LIBRO_CONFIGURATION=Release for release checks.
 Read shared dependency provenance before changing pins/patches. Never copy .build
-or DerivedData between machines. Shared package bugs/tests belong in swift-packages;
+or DerivedData between machines. Shared package bugs/tests belong in ../swift-packages;
 app-specific workflow/preferences tests belong in macos/LibroCore/Tests.
 
 Continue successive stages after automated gates pass. Add meaningful regressions

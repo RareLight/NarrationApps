@@ -56,9 +56,11 @@ system's adaptation.
   AppIntents.framework dependency found" warning. No speech/runtime changes.
 - Project plist syntax and `git diff --check` passed.
 
-Reproduce a preview from the repository root:
+Generated review PNGs are omitted from the active checkout. Reproduce a preview
+from the repository root (create the output directory first):
 
 ```bash
+mkdir -p macos/Design/LibroIcon/Previews
 '/Applications/Icon Composer.app/Contents/Executables/ictool' \
   macos/Libro/Resources/AppIcon.icon --export-image \
   --output-file macos/Design/LibroIcon/Previews/default.png \
@@ -79,6 +81,6 @@ Material workflow references: Apple's
 the installed Icon Composer 2.0 controls and `ictool --help`, and the supplied
 [Icon Composer tutorial](https://antongubarenko.substack.com/p/wwdc26-icon-composer-for-beginners).
 
-The PNGs are review exports. The `.icon` package remains the authoritative app
+Any generated PNGs are review exports. The `.icon` package remains the authoritative app
 icon; Affinity/SVG masters remain the authoritative shape sources. Aesthetic
 approval is separate from successful compilation and visual inspection.

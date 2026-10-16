@@ -13,13 +13,13 @@ Libro recommends Heart, Bella, Emma and Nicole, uses friendly names/stars and ke
 the actual voice ID in requests. No normalization or gain is used to make voices match.
 
 The accepted Heart/Michael/Emma comparisons, exact profile and final sample
-provenance are in [the longform record](../../swift-packages/docs/KOKORO_LONGFORM_IMPLEMENTATION.md).
+provenance are in [the longform record](../../docs/KOKORO_LONGFORM_IMPLEMENTATION.md).
 All 29 current samples use the common phrase selected after listening; they do not
 introduce each voice by name. Samples play at recorded 1.0× without a model and do
 not apply current speed/dictionary edits. Pronunciation Play is a separate live render.
-See [shared samples](../../swift-packages/docs/VOICE_SAMPLES.md) and
-[pronunciation](../../swift-packages/docs/PRONUNCIATION.md).
+See [shared samples](../../docs/VOICE_SAMPLES.md) and
+[pronunciation](../../docs/PRONUNCIATION.md).
 
-The [original ranking investigation](history/native-kokoro-voices-2026-10-09.md)
-is historical; its earlier 1.1× default is superseded. Current manual checks are
-L03/L09 in the [consolidated checklist](../../swift-packages/docs/OPERATOR_VALIDATION.md#libro).
+Current manual checks are L03/L09 in the
+[consolidated checklist](../../docs/OPERATOR_VALIDATION.md#libro).
+The earlier ranking report is retained in Git history; its 1.1× default is retired.
