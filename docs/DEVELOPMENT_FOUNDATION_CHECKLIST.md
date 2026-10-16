@@ -1,7 +1,7 @@
 # Development foundation implementation checklist
 
 Updated October 16, 2026. This plan turns the organization/maintenance assessment
-into bounded engineering stages. DF0 is complete; DF1–DF8 are for the next agent.
+into bounded engineering stages. DF0 and DF1 are complete; DF2–DF8 are in progress.
 It supplements the [product roadmap](IMPLEMENTATION_PLAN.md), not a request to
 implement deferred product features. The ready-to-paste
 [agent handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) defines execution scope.
@@ -66,26 +66,26 @@ checklist; do not infer completion of listening, document quality or live servic
 
 ## DF1 — Reproducible setup and contributor workflow
 
-- [ ] Inventory existing root/package/app scripts and retain one owner for each
+- [x] Inventory existing root/package/app scripts and retain one owner for each
   operation. Reuse dependency preparation and workspace resolution already present.
-- [ ] Add a short root CONTRIBUTING.md: repository ownership, package boundaries,
+- [x] Add a short root CONTRIBUTING.md: repository ownership, package boundaries,
   setup, focused checks, commit/manifest workflow, private-data rules and acceptance.
   Link app-specific guidance rather than duplicating its lifecycle/storage rules.
-- [ ] Define and implement a small read-only health check for app checkout presence,
+- [x] Define and implement a small read-only health check for app checkout presence,
   baseline revision/dirty-state reporting, Xcode selection, SDK/deployment support,
   arm64 execution, required tools and prepared dependency/Metal readiness.
-- [ ] Interpret DevelopmentBaseline.json with Foundation JSON/Codable and validate
+- [x] Interpret DevelopmentBaseline.json with Foundation JSON/Codable and validate
   schema/paths/revisions. Branch names are informational; commit IDs identify a
   checkpoint. A dirty/mismatched app must produce useful diagnostics without checkout,
   reset, stash, migration or overwriting. Allow deliberate development divergence.
-- [ ] Provide one explicit setup entry point. Preparing pinned source dependencies
+- [x] Provide one explicit setup entry point. Preparing pinned source dependencies
   may use the network; ordinary health checks must not. Clone/fetch missing app
   source only through an explicitly requested setup action using recorded remotes.
   Never auto-clone over an existing folder or auto-download speech/model assets.
-- [ ] Explain root cloning does not bring the two ignored app repositories or
+- [x] Explain root cloning does not bring the two ignored app repositories or
   private settings/models. The recorded app commits currently exist locally;
   verify remote availability before promising a fresh clone can retrieve them.
-- [ ] Verify setup from a disposable sibling layout with its own generated state,
+- [x] Verify setup from a disposable sibling layout with its own generated state,
   not from the original archived directories. Do not duplicate large working caches.
 
 Acceptance: existing working checkouts are unchanged by health checks; missing
@@ -93,6 +93,12 @@ repositories, unsupported toolchains, dirty state, malformed manifests and unava
 revisions have tested actionable diagnostics. Setup is repeatable, preserves unexpected
 edits, and does not install models or touch an account. Defer provider/credential
 activation while completing local implementation.
+
+DF1 evidence: `bash scripts/test-development.sh` passes 27 assertions using tiny
+independent repositories in an owned disposable sibling, fake source acquisition
+and diagnostic tools (no network/cache copy/models). `bash scripts/develop.sh health`
+passes on the current native toolchain without changing app checkouts. Remote
+checkpoint availability is explicitly unverified; setup refuses unavailable commits.
 
 ## DF2 — Tiered, repeatable validation entry points
 
