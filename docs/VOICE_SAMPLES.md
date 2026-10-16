@@ -28,7 +28,7 @@ assembly provenance.
 
 ## Regenerating assets
 
-From this repository, run:
+From `NarrationApps/swift-packages` (the package directory), run:
 
 ```sh
 ./scripts/regenerate-voice-samples.sh "Dr. Smith paid twelve dollars for a new book. Let's read it together!"
@@ -57,7 +57,7 @@ from its compile-time source path. It is an unshipped developer tool, not an app
 command-line interface, and neither GUI embeds it.
 
 For each engine, it automatically finds an already prepared workspace in sibling
-`Libro-TTS`, `~/Library/Application Support/Libro/SpeechRuntime`, or
+`Libro`, `~/Library/Application Support/Libro/SpeechRuntime`, or
 `~/Library/Application Support/VoiceRelayPrototype/SpeechRuntime` (in that order).
 The selected Kokoro workspace must contain all 28 supported voices and the pinned
 pronunciation assets; Soprano must also be installed in one of these locations.

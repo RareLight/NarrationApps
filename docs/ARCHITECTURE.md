@@ -6,10 +6,12 @@ GUI/workflow, preferences, source authorization and app-specific persistence.
 
 ## Processing boundaries
 
-`document intake → semantic blocks → captured spelling rules → spoken projection
-→ bounded native G2P → immutable prepared utterances → synthesis → assembly → encoding`
+`document intake → semantic blocks → captured spelling rules → mapped spoken forms
+→ spoken projection → bounded native G2P → immutable prepared utterances → synthesis → assembly → encoding`
 
-NarrationCore retains original blocks, page/source origin and spoken ranges.
+NarrationCore retains original blocks, page/source origin, optional EPUB resource
+paths and spoken ranges. Resource paths describe archive provenance; they do not
+redefine spoken UTF-16 offsets or the original file bytes.
 Omissions and image-caption deduplication are visible in previews; ordinary prose
 is preserved. User rules apply once, before final phonemization. Prepared plans
 carry settings, acoustic identity, utterance fingerprints and frontend/resource/
@@ -17,7 +19,9 @@ packing/assembly provenance. Display/preparation counts are provisional until th
 native frontend freezes acoustic utterances.
 
 DocumentProcessing uses Foundation, PDFKit, Vision RecognizeDocumentsRequest,
-Foundation Models and pinned HTML extraction. See [document handling](DOCUMENT_PROCESSING.md).
+Foundation Models, ZIPFoundation for bounded EPUB container reads, and pinned HTML
+extraction. Foundation decodes legacy text with an optional per-input override;
+source files are never rewritten. See [document handling](DOCUMENT_PROCESSING.md).
 Pronunciation owns shared dictionary storage; PronunciationUI owns editing and
 on-demand preview lifecycle. See [pronunciation](PRONUNCIATION.md).
 
@@ -36,10 +40,40 @@ Unsupported vocabulary, alignment or over-limit input fails explicitly rather
 than truncating text. Soprano retains its native text frontend and planner.
 Historical policies exist for developer comparison and compatibility only.
 
-The current frontend still mishandles some combined numeric-unit forms,
-temperatures and contextual homographs. Supported phonemes do not prove semantic
-pronunciation correctness. The researched next increment is documented in
-[TEXT_NORMALIZATION_RESEARCH.md](TEXT_NORMALIZATION_RESEARCH.md); it is not enabled.
+Kokoro's versioned `spoken-forms-2-en_US/en_GB` projection corrects explicit
+capital-A labels (Package A, Plan A) and expands `kg`,
+degree-Celsius/Fahrenheit quantities and valid 12-hour AM/PM times before its native
+frontend. Foundation MeasurementFormatter retains the provided unit and numeric
+precision; the frontend still owns number/currency spelling. Explicit negative
+quantities say “minus”; `9:05 pm` becomes `9 oh 5 p.m.`, and `12:00 pm` becomes
+`12 p.m.`. URLs, code, paths, equations, identifiers, ambiguous forms and captured
+user replacements are protected. Native Markdown/HTML/EPUB retain an optional
+inline-code flag: affected paragraphs stay unchanged. Legacy markup with neither
+that metadata nor authored/OCR provenance abstains; no implicit refetch occurs.
+Unverifiable source alternatives also abstain.
+Soprano retains its native frontend and numeric forms. Common `text-flow-1` adds
+mapped discretionary hyphens and source-preserving document flow to both engines;
+acoustic packing/pause/audio policy is unchanged. Underlying raw G2P
+and contextual homographs retain the limitations in the
+[research record](TEXT_NORMALIZATION_RESEARCH.md). Phoneme/reference equality is
+not operator listening acceptance.
+
+Optional PDFTextLayout values retain bounded native line evidence; optional
+NarrationOmission records retain source spans and omission reasons. Known margin
+labels/folios and conservative page continuations use that evidence once before
+G2P; uncertain geometry/columns and old artifacts abstain. Optional layout budgets
+never discard prose or bypass mandatory intake limits.
+
+Optional ProjectionMapping runs connect block-local extracted UTF-16 coordinates
+to chunk-local spoken coordinates; prepared ranges remain spoken coordinates.
+Whitespace, canonical Unicode, known note-marker removal, user replacements and
+automatic expansions compose without rewriting source blocks. Generated/unaligned
+cues have no fabricated source range. Old artifacts decode absent maps as nil.
+Unchanged runs coalesce; no-change inputs carry no new mapping payload. Candidates,
+edits and mappings are bounded at 100,000, with an 8× + 256 per-stage expansion
+ceiling. Policy/locale enter semantic/preparation identity; unchanged text keeps
+compatible acoustic fingerprints. Host maps survive windowing/preparation and
+checkpoints, but are stripped from the helper's 64 KiB control messages.
 
 ## Helpers, admission and memory
 
@@ -78,6 +112,16 @@ Soprano exports as 24 kHz. MP3 uses the prepared native LAME library with Replay
 disabled. Lossy formats are not bit-identical to WAV. There is no normalization,
 volume leveling, dynamic compression, limiter or automatic gain.
 
+CoverArtwork prepares bounded JPEG derivatives through ImageIO/CoreGraphics.
+Book covers preserve aspect ratio and fit the pinned LAME album-art budget;
+podcast covers use a separate square/opaque profile. AudioOutput embeds MP3 ID3
+art with LAME and M4A/M4B art with native passthrough before the existing atomic
+rename. Tagging does not re-encode or level audio. Cover inputs remain host-side;
+packaging identity is separate from acoustic preparation. Libro owns per-document
+choices; VoiceRelay owns channel-art configuration and verified publication.
+Episode artwork remains an independent external publisher URL. See the
+[implemented cover/navigation stages](COVER_ART_AND_NAVIGATION_PLAN.md).
+
 ## Recovery and shared UI
 
 Semantic/acoustic and encoding identities are separate. Unfinished incompatible
@@ -89,3 +133,21 @@ AppPresentation is independent of narration and owns typography, text-size
 commands, pane navigation/help/notices and Appearance controls. NarrationUI owns
 speech controls; apps retain pane inventory, preferences and lifecycle. See
 [Settings ownership](SETTINGS_ALIGNMENT.md) and [sample generation](VOICE_SAMPLES.md).
+
+## Authored navigation and narration choices
+
+SemanticDocument optionally retains bounded outline entries and source destinations.
+Content blocks retain source IDs/ancestor anchors and reliable auxiliary/bibliography
+roles. EPUB nav/NCX and PDFKit bookmarks supply authored navigation; heading
+fallbacks use actual HTML/Markdown structure. Page-only PDF destinations remain
+page-only. Generated-image insertion updates outline indices without reordering
+prose. UI Contents menus navigate source and never schedule a new speech segment.
+
+NarrationOptions is a shared typed policy with app-owned persistence. Defaults keep
+current note placement and auxiliary text. Future Libro batches/new VoiceRelay
+queue captures may move notes to the end or omit them, and omit explicitly marked
+auxiliary sections. Bibliographies and unclassified prose remain. Whole-block
+omissions retain original UTF-16 spans, optional PDF page and visible reasons;
+local structural heading deduplication uses the same mechanism. Optional PDF
+layout-budget fallback preserves these explicit policy decisions. Source/metadata
+upgrades retain compatible unchanged chunk fingerprints and finished recordings.

@@ -7,7 +7,7 @@ intake, pronunciation, preparation and audio implementations are maintained here
 once, with synthetic shared regressions. Source-only migration baselines remain
 private ignored evidence, not additional maintained implementations.
 
-Project code is under the repository [AGPL-3.0 license](../LICENSE). Dependencies,
+Project code is under the repository [AGPL-3.0 license](../swift-packages/LICENSE). Dependencies,
 models/voices and pronunciation data retain their original terms. Exact pinned
 sources, patches, resource hashes, codec provenance and notice collection are in
 [DEPENDENCIES.md](DEPENDENCIES.md); original texts in `ThirdPartyNotices/` must not

@@ -34,4 +34,11 @@ xcuserdata/
 # project/workspace configuration intentionally remain trackable.
 
 # Private source-asset generation staging (removed after success/cancellation)
-Sources/NativeSpeech/Resources/.voice-samples-*/
+swift-packages/Sources/NativeSpeech/Resources/.voice-samples-*/
+
+# Private local validation assets and migration evidence
+.local/
+
+# Independent app repositories (their Git histories stay separate)
+/Libro/
+/VoiceRelay/

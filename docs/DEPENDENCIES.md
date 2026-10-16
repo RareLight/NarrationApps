@@ -1,8 +1,13 @@
 # Native dependency record
 
+Package-relative paths in this record (`scripts/`, `Patches/`, `Sources/`,
+`Package.resolved` and `.build/`) are relative to `NarrationApps/swift-packages`,
+which contains the maintained packages and their preparation tools. The parent
+repository owns the workspace and this documentation.
+
 This is a native Swift runtime. Python, the CLI environment and Homebrew are not native build or runtime dependencies.
 
-- Xcode: 27.2 beta (27B5028f), macOS 27.2 SDK, Swift 6.4 (swiftlang-6.4.0.34.1).
+- Current development toolchain: stable Xcode 27.1 (27A9275), macOS 27.0 SDK, Swift 6.4 (swiftlang-6.4.0.34.1). Earlier automated evidence used Xcode 27.2 beta (27B5028f)/macOS 27.2 SDK. Current workspace validation is recorded separately; earlier results are not silently attributed to the replacement toolchain.
 - Apple Silicon (`arm64`), Swift 6 language mode and complete concurrency checks in Libro targets. The app and embedded worker target macOS 27.0. Shared library and app fixtures target macOS 27.0.
 - MLX Audio Swift: `8d86630ade569728aaea3dc1a29fc44e2efa719b`, https://github.com/Blaizzy/mlx-audio-swift.
 - MLX Swift: 0.31.4 (`dc43e62d7055353c7f99fa071a4e71d29dfddc44`), root-local checkout with the recorded Metal backport below. Its MLX core remains `ce45c52505c8158ea48d2a54e8caae05efd86bfe`; MLX C remains `0726ca922fc902c4c61ef9c27d94132be418e945`.
@@ -10,6 +15,33 @@ This is a native Swift runtime. Python, the CLI environment and Homebrew are not
 - Swift Transformers: 1.1.9 (`150169bfba0889c229a2ce7494cf8949f18e6906`).
 - Swift Hugging Face: 0.8.1 (`de01c0ab8fd537bbd8216cea7f774275178501a2`), root-local checkout with the workspace-download adaptation below.
 - Remote pins are retained in this repository’s `Package.resolved`; each consumer also retains its own resolved graph. MLX Audio, MLX Swift, MLX Swift LM and Swift Hugging Face are local checkouts pinned by preparation scripts. Their manifests use the same sibling locations throughout the graph, avoiding SwiftPM's conflicting local/remote identity warning. Controlled Hub SDK fixtures now live in the shared HubDownloadTests target.
+
+## EPUB container dependency
+
+[ZIPFoundation](https://github.com/weichsel/ZIPFoundation) is pinned exactly to
+**0.9.20**, commit `22787ffb59de99e5dc1fbfe80b19c97a904ad48d` (MIT).
+`scripts/prepare-zipfoundation.sh` prepares that exact revision at
+`.build/dependencies/ZIPFoundation`; the root manifest consumes this local checkout.
+`Patches/zipfoundation-watchos-minimum.patch` raises only the manifest's unsupported
+watchOS 2/4 declarations to 9.0, removing the stable-Xcode deprecation warning.
+Archive source, the macOS minimum, Compression and public APIs are unchanged.
+The audited preparation helper rejects unrelated changes and is idempotent.
+ZIPFoundation's revision is now recorded by the preparation script, rather than a
+remote Package.resolved entry. Existing upstream notices remain applicable.
+
+DocumentProcessing uses its native archive reader with Apple's Compression on
+macOS; no subprocess, archive extraction to disk or new transitive dependency is
+added. The upstream license is retained in `ThirdPartyNotices/ZIPFoundation/` and
+collected into app notices. Other remote dependency pins remain in consumer resolution files.
+
+The small EPUB adapter uses existing Foundation XMLParser and SwiftSoup for
+[EPUB 2/3 OCF/package/spine semantics](https://www.w3.org/TR/epub-33/).
+EPUBKit 0.5.0 was evaluated but requires `spine.toc`/NCX and extracts the whole
+archive through additional parser/ZIP dependencies. Its stable API therefore did
+not fit valid EPUB 3 nav-only books or this bounded, memory-only intake boundary.
+The adapter implements reading-order narration, notes and embedded descriptions;
+it does not add a general ebook renderer or DRM implementation. Existing PDF and
+HTML dependencies/pins are unchanged.
 
 ## Narrow upstream adaptation
 
@@ -111,13 +143,20 @@ lock intentionally and run `bash macos/scripts/check-downloads.sh`, core
 fixtures, both packaged builds, interrupted real acquisition with
 `--workspace-writes-only`, offline inventory reuse and real K/S speech. SDK
 fixture HTTP never leaves the process; initial package setup may fetch source
-dependencies. See [historical Metal recovery evidence](../../Libro-TTS/docs/history/native-gui-debugging.md).
+dependencies. See [historical Metal recovery evidence](../Libro/docs/TROUBLESHOOTING.md).
 
 ## Native MP3 codec
 
 AAC-LC uses Apple's system encoder through AVFoundation. The local `AudioFormatGetProperty(kAudioFormatProperty_EncodeFormatIDs)` probe confirmed that macOS supplies no MP3 encoder, so MP3 uses [LAME 3.100](https://lame.sourceforge.io/download.php) as an arm64 dynamic library. This is a native C dependency, with no Python or external encoder process.
 
 `scripts/prepare-codecs.sh` acquires the official `lame-3.100.tar.gz` release from SourceForge and verifies SHA-256 `ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e`. It builds under `.build/codecs/` with the selected Xcode compiler and macOS 15 deployment target. `Patches/lame-export-symbols.patch` removes only the obsolete `lame_init_old` export that prevents the release's shared library from linking; no codec implementation is changed. Decoder symbols remain enabled to satisfy the upstream export list; Libro disables on-the-fly decoding and ReplayGain. The frontend and static library are disabled.
+
+`Patches/lame-front-cover.patch` changes only the APIC picture-kind byte emitted
+by the existing album-art API from Other (0) to Front Cover (3). It adds no tag
+serializer and changes no audio sample, encoder math, bitrate, ReplayGain or
+codec API. The pinned archive/release is unchanged. Preparation applies both
+patches reproducibly and includes both digests in the cached build signature.
+Audio regressions inspect the APIC MIME/type and compare MPEG packets/seek data.
 
 Preparation stamps the compiler/script/patch identity and verifies the cached library's digest. Xcode's standard Copy Files phase embeds and signs `libmp3lame.0.dylib` under `Contents/Frameworks/`. Libro opens that exact path lazily for MP3; there is no global-library search. Each output owns its codec state. Unity scale, the IEEE Float32 API, original sample rate, mono 128 kbps and disabled ReplayGain preserve the submitted levels without an integer intermediate. MP3 itself is lossy.
 

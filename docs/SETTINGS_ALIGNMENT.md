@@ -1,6 +1,6 @@
 # Settings ownership and shared presentation
 
-Settings alignment is implemented. The [original stage plan and automated evidence](history/SETTINGS_ALIGNMENT.md)
+Settings alignment is implemented. The [original stage plan and automated evidence](SETTINGS_ALIGNMENT.md)
 are historical; the only current manual tests are in the
 [consolidated checklist](OPERATOR_VALIDATION.md).
 
@@ -29,3 +29,18 @@ Text-size preferences stay app-owned; the pronunciation dictionary is shared.
 Image-description choices affect future preparation, preserve authored ALT/OCR and
 do not rewrite existing recordings. Source/Publishing, completion alerts, storage,
 backup and diagnostic privacy remain appropriate to each app.
+
+## Cover and document controls
+
+NarrationUI now supplies the common CoverArtworkPicker presentation and typed
+NarrationOptionsControls. Both apps call the note setting Notes, with Current
+Placement / End of Document / Omit, and use Include auxiliary sections in Document
+Narration. Defaults preserve current behavior. Libro persists choices for future
+batches; VoiceRelay captures them when adding queue records. These preferences
+remain app-specific, unlike the shared pronunciation dictionary.
+
+Libro's per-document Cover Art selection lives with its document queue/export
+workflow. VoiceRelay's Podcast Cover lives beside channel details in Publishing.
+Both offer Choose/Replace/Remove; validation/storage remain in shared AudioOutput
+and app-owned state. Podcast cover import errors are separate from server delivery
+errors. AppPresentation remains independent of narration, documents and audio.

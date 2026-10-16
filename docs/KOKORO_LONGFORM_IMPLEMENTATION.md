@@ -1,7 +1,7 @@
 # Kokoro longform implementation record
 
 Implementation authorized October 15, 2026, after Settings automated validation.
-The plan is [KOKORO_LONGFORM_PLAN.md](KOKORO_LONGFORM_PLAN.md). Automated evidence
+The plan is [KOKORO_LONGFORM_PLAN.md](KOKORO_LONGFORM_IMPLEMENTATION.md). Automated evidence
 and operator acceptance are separate. Nothing has been committed, pushed,
 published, installed or notarized by this work.
 
@@ -336,7 +336,7 @@ Intel objects; the final invocation explicitly sets ARCHS/ONLY_ACTIVE_ARCH and
 includes the category metadata fix.
 
 ```sh
-# From Libro-TTS:
+# From Libro:
 LIBRO_CONFIGURATION=Release bash macos/scripts/build.sh \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
   CODE_SIGN_ENTITLEMENTS= PROVISIONING_PROFILE_SPECIFIER= \

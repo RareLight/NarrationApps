@@ -1,21 +1,30 @@
-# SwiftNarration and AppPresentation
+# NarrationApps
 
-Shared native Swift libraries for document, book and article narration on Apple
-Silicon Macs running macOS 27.0+. Libro and VoiceRelay consume these packages
-independently; neither app needs the other app's source repository to build.
+This repository owns the combined Xcode workspace, shared documentation/project
+scripts, and the SwiftNarration and AppPresentation packages under `swift-packages/`.
+Libro and VoiceRelay are independent nested Git repositories ignored here. Each
+app can build against the shared packages without the other app's source.
+See the [layout and archival record](docs/REPOSITORY_LAYOUT.md).
+
+The apps provide native document, book and article narration on Apple Silicon
+Macs running macOS 27.0+. Open [NarrationApps.xcworkspace](NarrationApps.xcworkspace)
+from this root for simultaneous Xcode development.
 
 The current Kokoro baseline is **Heart (`af_heart`), 1.0×**, actual phoneme packing
 with a 200-token target and structural pauses. This profile passed operator A/B
 listening. Existing saved speeds and admitted jobs retain their captured settings.
-Soprano retains its own text frontend. Unit/temperature and contextual homograph
-corrections remain [follow-up work](docs/TEXT_NORMALIZATION_RESEARCH.md).
+Soprano retains its own text frontend. Kokoro now expands explicit kilogram,
+temperature, AM/PM and letter-A label forms through a source-mapped projection;
+that matched listening is operator accepted. Paragraph/soft-hyphen and conservative
+PDF layout/flow stages are implemented with B06 operator validation pending. Contextual homographs remain
+[follow-up work](docs/TEXT_NORMALIZATION_RESEARCH.md).
 
 ## Packages and ownership
 
 | Package/product | Responsibility |
 | --- | --- |
 | SwiftNarration / NarrationCore | Semantic documents, narration policy, source mappings, prepared speech contracts |
-| DocumentProcessing | Text/Markdown/RTF/HTML/PDF intake, native structured OCR, image descriptions/dedup |
+| DocumentProcessing | Text/Markdown/RTF/HTML/PDF/EPUB intake, native structured OCR, image descriptions/dedup |
 | NativeSpeech | Pinned asset inventories, speech contracts, voice metadata and bundled samples |
 | AudioOutput | Exact Float32 WAV, native encoding/conversion, pause assembly and sample playback |
 | ProcessingPipeline | Speech-specific helper supervision, preparation, progress and cross-app admission |
@@ -33,15 +42,31 @@ DRC, trimming or crossfade is added. Speech samples retain their Float32 values.
 The podcast/sample AAC-LC profile is mono 64 kbps/24 kHz; Libro's native-rate
 exports are described in [architecture](docs/ARCHITECTURE.md).
 
+## Coordinated source baseline
+
+[DevelopmentBaseline.json](DevelopmentBaseline.json) records compatible app revisions,
+their clone locations and the verified toolchain. The root revision is the Git commit
+containing that manifest; it is not embedded in itself. Libro and VoiceRelay retain
+independent histories and are excluded from root Git, so save/restore each app at its
+recorded revision separately. Branch names describe development lines; commit IDs
+identify the baseline. Model assets, private settings and generated evidence remain
+outside versioned source. The root repository currently has no configured remote;
+these are local commits, not a remote backup or publication.
+
 ## Local development
 
-Keep the shared checkout named `swift-packages`, beside either app repository.
-Add its root and `AppPresentation/` as separate local package dependencies in
+For simultaneous Libro/VoiceRelay development, close their standalone project
+windows and open [NarrationApps.xcworkspace](NarrationApps.xcworkspace). It loads
+shared local packages once and exposes both app schemes plus **Build Both Apps**.
+See [workspace setup and Debug/Release commands](docs/PACKAGE_BOUNDARIES.md#develop-both-apps-in-one-xcode-workspace).
+
+Keep package sources under `swift-packages/`, beside `Libro/` and `VoiceRelay/`.
+Add `swift-packages/` and `swift-packages/AppPresentation/` as local dependencies in
 Xcode; link only the products needed by each target. This is Swift Package Manager
 source integration, not a global library installation.
 
 ```sh
-bash scripts/prepare-dependencies.sh
+bash swift-packages/scripts/prepare-dependencies.sh
 bash scripts/check.sh
 ```
 
@@ -55,7 +80,7 @@ Both apps use the same [pronunciation dictionary](docs/PRONUNCIATION.md) and
 exactly one text argument and regenerates that shared resource set atomically:
 
 ```sh
-./scripts/regenerate-voice-samples.sh "Your replacement sample text."
+./swift-packages/scripts/regenerate-voice-samples.sh "Your replacement sample text."
 ```
 
 It reuses the same planner, dictionary, supervised native engine and audio pipeline.

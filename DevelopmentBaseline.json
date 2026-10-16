@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "baseline": "native-unification-2026-10-16",
+  "rootRevisionPolicy": "containing-git-commit",
+  "components": [
+    {
+      "name": "Libro",
+      "path": "Libro",
+      "cloneURL": "git@github.com:RareLight/Libro-TTS.git",
+      "branch": "unification",
+      "revision": "3641eaf5fad8a87cb162808c66b25761614b76a0"
+    },
+    {
+      "name": "VoiceRelay",
+      "path": "VoiceRelay",
+      "cloneURL": "git@github.com:RareLight/VoiceRelay.git",
+      "branch": "unification",
+      "revision": "681b8f6b09cecea870acdf472b2ee9b74840248b"
+    }
+  ],
+  "verifiedToolchain": {
+    "xcodeVersion": "27.1",
+    "xcodeBuild": "27A9275",
+    "swiftVersion": "6.4",
+    "swiftBuild": "swiftlang-6.4.0.34.1",
+    "macOSSDK": "27.0",
+    "architecture": "arm64",
+    "deploymentTarget": "27.0"
+  },
+  "validationRecord": "docs/IMPLEMENTATION_STATUS.md"
+}

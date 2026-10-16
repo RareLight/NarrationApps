@@ -1,18 +1,37 @@
 # Consolidated app validation checklist
 
-Updated October 15, 2026. This is the single current operator checklist for Libro
+Updated October 16, 2026. This is the single current operator checklist for Libro
 and VoiceRelay. Earlier UI, beta, Settings, pronunciation and longform handoffs
 are consolidated here; their implementation/build evidence remains in the
 [implementation status](IMPLEMENTATION_STATUS.md) and
 [longform record](KOKORO_LONGFORM_IMPLEMENTATION.md).
 
+The operator confirmed both apps build and run on October 16, 2026. Basic
+relocation/build/launch smoke is accepted; individual feature, quality, data and
+live-service cases below remain unconfirmed unless explicitly recorded elsewhere.
+
 ## Before starting
 
+Use the active workspace at
+`/path/to/NarrationApps/NarrationApps.xcworkspace`.
+First complete the [relocation smoke and archival gate](REPOSITORY_LAYOUT.md#migration-validation-and-archival-gate).
+
+Earlier feature validation used synthetic generated fixtures at
+`.build/cover-navigation/fixtures` (EPUB notes/appendix/bibliography/duplicate
+headings, Markdown headings and covers). Those generated outputs were not migrated;
+maintained Swift fixtures/tests remain. Use equivalent disposable documents and
+artwork for the operator checks below. Actual-document/player acceptance remains
+separate from automated fixture tests.
+
 - Quit older copies of each app. Current ad-hoc Release apps, relative to the
-  `swift-packages` folder, are
-  `../Libro-TTS/macos/.build/DerivedData/Build/Products/Release/Libro.app` and
-  `../VoiceRelay/DerivedData/Build/Products/Release/VoiceRelay.app`. These include
-  the PDF subtoken-range fix; earlier `accepted/` exports predate it. Rebuild and
+  NarrationApps root, are
+  `.build/WorkspaceDerivedData/Build/Products/Release/Libro.app` and
+  `.build/WorkspaceDerivedData/Build/Products/Release/VoiceRelay.app`, built together
+  with stable Xcode 27.1. Use the [combined workspace](../NarrationApps.xcworkspace)
+  for simultaneous GUI development; select each app scheme to run it. These include
+  the EPUB/encoding changes and PDF subtoken-range fix; earlier `accepted/` exports
+  predate these. Current sources also include cover art, authored navigation and
+  explicit note/auxiliary narration controls. Rebuild and
   re-archive current sources before testing a new exported copy.
 - Use a separate output folder and disposable test articles. Keep existing models,
   finished audio and the live library intact. For fresh-install tests, use a
@@ -25,10 +44,10 @@ are consolidated here; their implementation/build evidence remains in the
   passed. The twelve-pair A/B listening decision is complete; you do not need to
   repeat it. New Kokoro settings use Heart at 1.0× with the accepted pause profile;
   existing saved speeds and admitted jobs keep their values.
-- Known pending corrections: `kg`, combined temperature forms such as `18°C`,
-  and some contextual `lead`/`read` pronunciations remain frontend limitations.
-  Record additional examples separately from pacing. See the
-  [normalization research and follow-up](TEXT_NORMALIZATION_RESEARCH.md).
+- New Kokoro spoken forms expand explicit kilograms, Celsius/Fahrenheit and
+  AM/PM times; use B05 for their listening/preview acceptance. Contextual `lead`/`read`
+  and unsupported/ambiguous forms remain limitations. See the
+  [normalization record](TEXT_NORMALIZATION_RESEARCH.md).
 
 ## Libro
 
@@ -49,7 +68,7 @@ are consolidated here; their implementation/build evidence remains in the
   containing both `SQLite` and `SQLites`: only the complete key should change,
   while original source prose stays intact. Check busy/missing-model guidance.
 - [ ] **L05 — Import and queue.** Use Open and Finder drag/drop for text, Markdown,
-  RTF and PDFs, including folders. Check duplicate imports, long names, editable
+  RTF, PDFs and DRM-free EPUBs, including folders. Check duplicate imports, long names, editable
   output names, selection/removal and keyboard shortcuts without disrupting typing.
 - [ ] **L06 — PDF/OCR quality.** Compare selectable-text, scanned, mixed and
   multi-column PDFs, including contents pages with dotted leaders, with their
@@ -57,7 +76,7 @@ are consolidated here; their implementation/build evidence remains in the
   beginnings/endings, and visible table/code omissions. An unusable PDF should
   fail clearly without discarding other documents. Footnotes follow the preview's policy.
 - [ ] **L07 — Preparation progress.** On a longer mixed PDF, check file/structure,
-  page/OCR counters and the separate image-review pass when available. Pronunciation
+  page/native-layout/OCR counters and the separate image-review pass when available. Pronunciation
   preparation reports passages before the final speech count. Cancel during a
   pass and queue two PDFs: stale updates must not overwrite cancellation or the next job.
 - [ ] **L08 — Images and captions.** Test authored descriptions, repeated credits,
@@ -87,6 +106,40 @@ are consolidated here; their implementation/build evidence remains in the
 - [ ] **L14 — Alerts and diagnostics.** Check completion alerts with permission
   allowed/denied. Try Check Embedded Helper and log Copy/Open/Reveal/Clear if wanted;
   controls explain unavailable/busy states. Keep diagnostic text/paths private.
+
+- [ ] **L15 — Legacy text encodings.** Import older Windows-1252 and Mac Roman
+  text/Markdown. Preview smart quotes, accents and paragraph contents; automatic
+  detection may be ambiguous. Right-click → Text Encoding, choose the actual code
+  page, then preview/generate again. Rescanning the same imported row preserves its
+  choice; active batches cannot change encoding. Binary/damaged Unicode fails
+  clearly, original files stay unchanged, and completed audio survives Queue Again.
+- [ ] **L16 — EPUB books.** Import DRM-free EPUB 2 and EPUB 3 books through Open,
+  folders and Finder/drop. Compare chapter order, beginnings/endings, headings,
+  cross-chapter notes and repeated local note IDs against the book. Check section
+  progress, authored ALT, duplicate images, optional local descriptions and Stop.
+  External resources must not be fetched. A protected/malformed/unsupported book
+  fails clearly without reporting partial narration as complete. SVG/fixed-layout
+  text needs reading-order review; image-only page OCR/media overlays are not added.
+
+- [ ] **L17 — Export covers.** Select one document, choose the portrait fixture or
+  your JPEG/PNG, and export MP3, M4A and M4B. Confirm artwork, duration and seeking
+  in your players; audio levels must remain unchanged. Test Replace/Remove,
+  relaunch, selecting a different document, and explicit multi-selection. WAV
+  keeps the choice but explains it is not embedded. Choose an EPUB's Use Book
+  Cover; missing/unsupported cover metadata offers a clear message. Bad images,
+  cancellation and failed export preserve previous output and original images.
+- [ ] **L18 — Contents and source.** Preview the synthetic EPUB/Markdown and an
+  authored-bookmark PDF. Contents should navigate the correct Original Source
+  section/page, retain nesting and explain page precision. Switch back to Narration;
+  chapter order remains unchanged. No inferred plaintext chapters or audio chapter
+  markers are promised. Compare the adjacent duplicate heading with its visible
+  omission and retained original source.
+- [ ] **L19 — Document Narration settings.** Compare Current Placement, End of
+  Document and Omit for marked notes. Turn Include auxiliary sections off/on.
+  Preview and generate a new batch: the note/appendix treatment should agree,
+  bibliography/unclassified prose stay present, and omissions are explained.
+  Changes must not alter an active batch or finished output. Listen for intact
+  body text, note boundaries and the accepted unchanged vocal pacing.
 
 ## VoiceRelay
 
@@ -158,6 +211,25 @@ are consolidated here; their implementation/build evidence remains in the
   messages and busy states are clear. Source/setup/publishing failures route to the
   relevant Settings pane. Keep real URLs, credentials and source text out of reports.
 
+- [ ] **V17 — Podcast Cover.** In Publishing, choose the square fixture or an
+  opaque JPEG/PNG of at least 1400 pixels per side. Reject the transparent fixture
+  and portrait image clearly. Test Replace/Remove/relaunch. On a disposable live
+  destination, confirm show-cover upload precedes RSS, podcast display refreshes,
+  and episode pictures remain article-specific. Failed cover upload preserves
+  the previous feed and retries. Cover-only edits must not regenerate/re-upload
+  episode audio or change GUIDs/dates. Destination changes preserve old files.
+  Publishing configuration/art remains separate from library backup/restore.
+- [ ] **V18 — Article Contents.** Open an article with real headings and a PDF
+  with authored bookmarks. Contents navigates the corresponding semantic source
+  block/page, while narration order stays intact. Missing destinations must not
+  open an unrelated section. Check the retained source and visible duplicate-
+  heading notices against the narration preview.
+- [ ] **V19 — Captured narration choices.** In General → Document Narration,
+  change Notes and Include auxiliary sections, then add new articles with marked
+  notes/appendices. Confirm preview and generated content agree, bibliography and
+  unclassified text remain, and queued articles keep their captured settings
+  when preferences change. Already published audio remains unchanged.
+
 ## Both apps together
 
 - [ ] **B01 — Shared dictionary.** Save a pronunciation change in one app and
@@ -175,6 +247,43 @@ are consolidated here; their implementation/build evidence remains in the
   labels, help, errors, voice/sample controls and text sizing. Existing app-specific
   preferences remain intact. Preview/sample playback should stop conflicting playback within each app.
 
+- [ ] **B05 — New spoken forms (both apps).** In Libro, import the synthetic
+  `spoken-forms.txt` beside the `.build/text-processing/delivery-a/listening/index.html` (archived listening fixtures).
+  In VoiceRelay, preview a disposable authorized article containing equivalent
+  quantities/times. The operator accepted the matched listening and
+  `.build/text-processing/letter-a/listening/index.html` (archived corrected letter A clips).
+  The app preview checks below remain unreported. “Package A” and
+  “Plan A” should say the letter name (“ay”); “A car” / “a book” remain articles.
+  Compare original source and preview: `2.4 kg` → `2.4 kilograms`,
+  `1kg` → `1 kilogram`, `18°C` → `18 degrees Celsius`, `−4 °F` →
+  `minus 4 degrees Fahrenheit`, `9:30 am` → `9 30 a.m.`, `9:05 pm` →
+  `9 oh 5 p.m.`, `12:00 pm` → `12 p.m.`. Check change notices, US/British voice
+  context and a temporary user override (which must win). Fresh markup previews
+  capture inline-code protection; older retained markup without this metadata
+  may abstain with a notice. URLs/code/equations
+  and Soprano should retain their existing behavior. Matched Heart/Michael/Emma
+  listening at 1.0× is accepted; check app-generated equivalents: numbers, sign,
+  unit, AM/PM and sentence cadence must be clear, without level changes. Restore
+  temporary overrides afterward. Do not begin Delivery B until this review.
+
+- [ ] **B06 — Paragraph and PDF reading flow (both apps).** Use the
+  `.build/text-processing/delivery-b/listening/index.html` (archived Delivery B fixture page).
+  In Libro, preview `paragraphs.txt` and `reading-flow.pdf`: blank lines remain
+  paragraphs, single line wraps stay within them, `[12]` and hard hyphens remain,
+  and only the discretionary soft hyphen disappears in speech. Compare PDF source
+  and narration: known recurring titles/decimal folios are omitted with notices;
+  all body sentences remain in order, including the demonstrated page continuation.
+  Listen to Heart before/after at 1.0×; levels and accepted gap durations are unchanged.
+  Check representative digital/scanned/mixed/rotated/multi-column books, contents,
+  captions, notes, refrains and legal text: uncertain layouts/unknown margin prose
+  should stay present rather than being guessed away. Review layout warnings and
+  measured progress; cancel during preparation and ensure the next job stays correct.
+  In VoiceRelay, use a disposable authorized PDF source/review to check the same
+  notices, retained original and spoken flow. Old retained snapshots lacking geometry
+  should remain unchanged until an explicit new extraction. Earlier EPUB, image,
+  GUI, private-file and live-service checks remain separate. Report false omissions,
+  missed joins and unexpected pauses without sharing private text.
+
 ## Conditional installation and distribution checks
 
 - [ ] **D01 — Relocated packaged apps.** On another supported Apple Silicon Mac
@@ -185,7 +294,7 @@ are consolidated here; their implementation/build evidence remains in the
   signing identity/entitlements, Developer ID/notarization or App Store route,
   downloaded-app Gatekeeper behavior and stable credential access on a clean Mac.
   Ad-hoc archive verification does not establish these. Engineering release/package
-  gates remain in [VoiceRelay's release checklist](../../VoiceRelay/docs/RELEASE_CHECKLIST.md).
+  gates remain in [VoiceRelay's release checklist](../VoiceRelay/docs/RELEASE_CHECKLIST.md).
 
 ## Reporting results
 
@@ -193,3 +302,7 @@ Report IDs as **Pass / Fail / N/A** (for example `L10 Fail`, `V12 Pass`, `D02 N/
 For a failure include the app/build, input type or private alias, action, visible
 error and whether memory belonged to the app or helper. A screenshot or sanitized
 log excerpt is enough; keep documents, private URLs and credentials private.
+
+Listening pages from completed comparison rounds remain with the original
+repository archive. The new checkout retains their accepted decisions and test
+corpora; it does not copy generated development reports or build state.

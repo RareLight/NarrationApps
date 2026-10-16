@@ -3,6 +3,13 @@
 Research and decision record, October 15, 2026. This concerns written-to-spoken
 text only. Audio levels and dynamics are never normalized or modified.
 
+Current update: [Delivery A](TEXT_PROCESSING_IMPROVEMENT_PLAN.md#delivery-a-evidence)
+implements the narrow source-mapped kilogram, temperature and explicit-AM/PM
+increment below. Native US/GB reference checks pass; operator listening/preview
+feedback accepted the improvement and the corrected letter A. Unreported app
+preview acceptance remains separate. The raw frontend findings show why projection
+corrections are needed. Soprano and contextual homographs remain unchanged.
+
 ## Accepted baseline
 
 The operator selected Heart (`af_heart`) at 1.0× with
@@ -133,5 +140,29 @@ mapping and override precedence; US/GB native phonemes; no omissions/duplication
 Heart/Michael/Emma matched 1.0× listening of only the changed cases; original
 Float32 fidelity, AAC 64 kbps/24 kHz and separate coordinator/helper memory checks.
 The native formatter probe establishes API behavior, not successful prose parsing
-or a listening result. No new normalization or homograph policy ships as part of
-this baseline activation; this is the concrete follow-up design.
+or a listening result. The earlier acoustic-baseline activation did not include these corrections.
+Delivery A now implements the narrow deterministic increment; homograph policy
+remains deferred, and listening acceptance stays separate from automated evidence.
+
+
+## Letter A labels: operator follow-up
+
+The Delivery A listener reported that every tested voice read “Package A” as an
+article. Offline native US/GB preparation reproduced `ɐ` for “Package A” and
+“Plan A”; the existing lexicon returns the intended stressed `ˈA` for “ay”.
+This is a text-tagger ambiguity before synthesis, shared across these voices.
+
+`spoken-forms-2` projects only standalone capital A after explicit label contexts:
+package, plan, option, appendix, section, figure, table, part, group, class, type,
+grade, vitamin and letter. The spoken spelling is “ay”; the original A and its
+source range survive. Ordinary lowercase articles and sentence-initial “A car”
+are untouched. Unsupported/ambiguous contexts abstain. Code, identifiers,
+equations, unverified sources and captured user overrides retain their protections.
+The model/frontend pins, other letters, Soprano and audio levels are unchanged.
+Exact US/GB phonemes are regression evidence; corrected audio requires listening.
+
+
+The user subsequently confirmed the letter-A correction as fixed and authorized
+Delivery B. Common `text-flow-1` now handles explicit paragraphs, mapped soft
+hyphens and conservative native PDF flow; see the current implementation checklist.
+It does not enable additional model-specific homograph or lexical substitutions.

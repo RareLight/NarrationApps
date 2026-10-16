@@ -1,0 +1,13 @@
+--- a/libmp3lame/id3tag.c
++++ b/libmp3lame/id3tag.c
+@@ -1579,8 +1579,8 @@ set_frame_apic(unsigned char *frame, const char *mimetype, const unsigned char *data, size_t size)
+             *frame++ = *mimetype++;
+         }
+         *frame++ = 0;
+-        /* set picture type to 0 */
+-        *frame++ = 0;
++        /* Our album artwork is the book front cover (ID3 APIC type 3). */
++        *frame++ = 3;
+         /* empty description field */
+         *frame++ = 0;
+         /* copy the image data */

@@ -2,7 +2,8 @@
 
 Updated October 15, 2026. Native unification and Kokoro LF0–LF7 implementation were
 authorized and their automated integration gates are complete. This is the current
-roadmap; the [original staged plan](history/UNIFICATION_PLAN.md) is historical.
+roadmap; completed stages and their evidence are recorded in
+[implementation status](IMPLEMENTATION_STATUS.md).
 
 ## Implemented baseline
 
@@ -17,18 +18,28 @@ app, safe Libro priority, no normalization/volume leveling, and finished-recordi
 preservation remain invariants. Soprano retains its text frontend. Details are in
 [architecture](ARCHITECTURE.md) and [current validation status](IMPLEMENTATION_STATUS.md).
 
+## Latest implemented feature sequence
+
+The [cover art and document navigation plan](COVER_ART_AND_NAVIGATION_PLAN.md)
+records the implemented increment: Libro embedded export covers, VoiceRelay
+show artwork, authored outlines, local heading deduplication, explicit narration
+controls and bounded spoken-form corrections. CA0–CA3 and DN1–DN3 engineering is complete;
+operator cover/navigation/narration checks L17–L19 and V17–V19 remain open. SF1
+retains the accepted pronunciation baseline without speculative new rules.
+
 ## Next work
 
 1. Complete the [consolidated operator checklist](OPERATOR_VALIDATION.md): GUI,
    actual private PDF/Markdown freeze reproduction, final samples/narration,
    OCR/caption quality, lifecycle and cross-app waiting. Live VoiceRelay Safari,
    Keychain, WebDAV, podcast playback and test-library restore remain operator-owned.
-2. Implement/evaluate the [researched normalization increment](TEXT_NORMALIZATION_RESEARCH.md).
-   Prioritize reproduced `kg`/temperature/time failures; keep the accepted pacing
-   fixed. Preserve original blocks, composed replacement mappings and user-rule
-   precedence, version acoustic/semantic identity, and evaluate contextual
-   homographs without global substitutions or generative prose rewriting.
-   It is not part of the currently accepted binary/sample baseline.
+2. Validate Delivery B of the [text-processing checklist](TEXT_PROCESSING_IMPROVEMENT_PLAN.md)
+   through B06: paragraph/source fidelity, conservative PDF margin/continuation
+   decisions, progress/cancellation and matched listening. Delivery A listening,
+   including letter A, is operator accepted. TP4–TP7 engineering is implemented;
+   complex layout, chaptered audio, caption scheduling and further citation/homograph
+   changes remain separate future scope; the implemented outline/control increment
+   is recorded above.
 3. Resolve reported app-specific acceptance failures in their owning repository;
    keep shared bugs/tests canonical in the packages. Add focused regressions and
    repeat affected gates before the next operator candidate.
