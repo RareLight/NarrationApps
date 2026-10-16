@@ -1,4 +1,5 @@
 import Foundation
+import Pronunciation
 import SwiftSoup
 import Testing
 @testable import VoiceRelayCore
@@ -29,6 +30,7 @@ import Testing
     #expect(plan.chunks.allSatisfy { $0.text.count <= 120 })
     let oldVersion = "conservative-2/footnotes-1/sentence-chunks-1/decorative-quotes-1/article-boundaries-1/decorative-separators-1"
     #expect(Narration.chunkFingerprintVersion(oldVersion) == Narration.chunkFingerprintVersion(plan.version))
+    #expect(plan.version.contains("spoken-forms-2-en_US"))
 }
 
 @Test func narrationKeepsAuthoredPlaceholderTextAndFootnoteBoundaries() throws {
@@ -778,4 +780,24 @@ func archiveRecoveryNeverQueuesUnavailableChallengeOrOversizedCopies(_ outcome: 
     try FileManager.default.removeItem(at: link)
     try await coordinator.purgeRemovedReadingListCaches(storage: storage)
     #expect(try await coordinator.library(storage: storage).isEmpty)
+}
+
+
+@Test func reviewedArticleUsesCapturedVoiceDictionaryAndSpokenFormNotices() async throws {
+    let url = URL(string: "https://articles.example/normalization")!
+    let prose = String(repeating: "Package A carries 2 kg beside SQLite at 18°C before 9:05 pm. A car carries a book. ", count: 10)
+    let html = "<html><title>Synthetic</title><body><article><p>" + prose + "</p></article></body></html>"
+    let dictionary = try PronunciationDictionary(entries: [.init(word: "SQLite", spelling: "sequel lite")])
+    let loader = ArticleSourceLoader(limits: try FetchLimits(), fetch: { _ in
+        FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html, contentType: "text/html", encoding: "utf-8", fetchedAt: Date(timeIntervalSince1970: 0))
+    }, describeImages: false, speechSettings: .init(voice: "bf_emma"), pronunciations: dictionary)
+    let result = try await loader.load(url, chunkLimit: 480)
+    let narration = try #require(result.narration)
+    let spoken = narration.chunks.map(\.text).joined(separator: " ")
+    #expect(spoken.contains("Package ay carries 2 kilograms beside sequel lite at 18 degrees Celsius before 9 oh 5 p.m."))
+    #expect(narration.notices.contains { $0.contains("Spoken forms expanded") && $0.contains("en_GB") })
+    #expect(result.document?.article.blocks.map(\.text).joined().contains("SQLite at 18°C") == true)
+    #expect(spoken.contains("A car carries a book."))
+    #expect(result.document?.article.blocks.map(\.text).joined().contains("Package A carries") == true)
+    #expect(narration.version.contains(dictionary.fingerprint))
 }

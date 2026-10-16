@@ -67,6 +67,10 @@ enum RSS {
         xml += "<atom:link href=\"\(escaped(channel.feedURL.absoluteString))\" rel=\"self\" type=\"application/rss+xml\"/>"
         let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX"); date.timeZone = TimeZone(secondsFromGMT: 0)
         date.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        xml += artwork(channel.coverArtworkURL)
+        if let url = channel.rssArtworkURL {
+            xml += "<image><url>\(escaped(url.absoluteString))</url><title>\(escaped(channel.title))</title><link>\(escaped(channel.feedURL.absoluteString))</link><width>144</width><height>144</height></image>"
+        }
         for e in episodes.sorted(by: { ($0.podcastDate ?? .distantPast, $0.id) > ($1.podcastDate ?? .distantPast, $1.id) }) {
             guard e.stage == .published, let delivery = e.delivery, delivery.status == .uploaded else { continue }
             guard e.publicationDate != nil, let when = e.podcastDate, let info = e.info, e.audioHash != nil,
@@ -105,15 +109,31 @@ struct RemoteChannel: Sendable, Equatable {
     let language: String
     let feedURL: URL
     let audioBaseURL: URL
-    init(settings: DeliverySettings) throws {
+    let coverArtworkURL: URL?
+    let rssArtworkURL: URL?
+    init(settings: DeliverySettings, previousFeed: Data? = nil) throws {
         guard let feedURL = settings.publicFeedURL, let audioBaseURL = settings.publicAudioBaseURL else {
             throw RelayError.setup("Remote feed requires configured public URLs.")
         }
+        if let digest = settings.podcastCoverDigest {
+            _ = try AudioCoverReference.validate(digest)
+            self.coverArtworkURL = settings.publicFolderURL?.appendingPathComponent("artwork-" + digest + ".jpg")
+            self.rssArtworkURL = settings.publicFolderURL?.appendingPathComponent("artwork-" + digest + "-rss.jpg")
+        } else if settings.podcastCoverConfigured != true, let previousFeed {
+            self.coverArtworkURL = try ServerFeedSnapshot.channelArtwork(in: previousFeed); self.rssArtworkURL = nil
+        } else { self.coverArtworkURL = nil; self.rssArtworkURL = nil }
         self.title = settings.channelTitle; self.description = settings.channelDescription
         self.language = settings.language; self.feedURL = feedURL; self.audioBaseURL = audioBaseURL
     }
     init(title: String, description: String, language: String, feedURL: URL, audioBaseURL: URL) {
+        self.coverArtworkURL = nil; self.rssArtworkURL = nil
         self.title = title; self.description = description; self.language = language
         self.feedURL = feedURL; self.audioBaseURL = audioBaseURL
+    }
+}
+
+private enum AudioCoverReference {
+    static func validate(_ digest: String) throws {
+        guard digest.count == 64, digest.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw RelayError.setup("The podcast cover reference is invalid. Replace or remove it.") }
     }
 }

@@ -32,6 +32,7 @@ public struct SemanticArticle: Codable, Sendable, Equatable {
     public var sourceName: String? = nil
     public var previewImageURL: URL? = nil
     public var archivedCopy: ArchivedArticleCopy? = nil
+    public var outline: [NarrationCore.DocumentOutlineEntry]? = nil
 }
 
 public typealias NarrationChunk = NarrationCore.NarrationChunk

@@ -1,3 +1,4 @@
+import AudioOutput
 import NarrationUI
 import AppPresentation
 import PronunciationUI
@@ -113,7 +114,44 @@ final class AppModel {
     /// Explicit Stop suspends automation until new work arrives or Generate is pressed.
     var autoHalted = false
     /// Delivery configuration; the password lives only in the credential store, never here.
-    var deliverySettings = DeliverySettings() { didSet { deliverySettingsChanged() } }
+    var deliverySettings = DeliverySettings() { didSet {
+        if oldValue.podcastCoverDigest != deliverySettings.podcastCoverDigest || oldValue.podcastCoverConfigured != deliverySettings.podcastCoverConfigured || oldValue.feedFolderURL != deliverySettings.feedFolderURL || oldValue.publicFolderURL != deliverySettings.publicFolderURL {
+            if deliveryTask != nil { pendingDeliveryForce = pendingDeliveryForce ?? false; deliveryTask?.cancel() }
+        }
+        deliverySettingsChanged()
+    } }
+    @ObservationIgnored private var coverImportTask: Task<Void, Never>?
+    var podcastCoverError: String?
+    var coverImporting = false
+    let podcastCoverStore = CoverArtworkStore.application("VoiceRelay")
+    var podcastCoverURL: URL? { deliverySettings.podcastCoverDigest.flatMap { try? podcastCoverStore.url(for: $0) } }
+    func choosePodcastCover(_ url: URL) {
+        guard !preview, !stopping, !libraryMaintenanceBusy, !coverImporting else { return }
+        coverImporting = true; podcastCoverError = nil
+        let store = podcastCoverStore
+        coverImportTask = Task {
+            defer { coverImporting = false; coverImportTask = nil }
+            do {
+                let work = Task.detached(priority: .userInitiated) {
+                    let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
+                    return try store.save(CoverArtwork.read(url, profile: .podcast))
+                }
+                let digest = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+                try Task.checkCancellation()
+                guard !stopping, !libraryMaintenanceBusy else { return }
+                var updated = deliverySettings; updated.podcastCoverDigest = digest; updated.podcastCoverConfigured = true
+                deliverySettings = updated
+                deliveryStatus = "Podcast cover selected. It will publish with the next feed update."
+            } catch is CancellationError { }
+            catch { podcastCoverError = error.localizedDescription }
+        }
+    }
+    func removePodcastCover() {
+        guard !preview, !stopping, !libraryMaintenanceBusy else { return }
+        podcastCoverError = nil
+        var updated = deliverySettings; updated.podcastCoverDigest = nil; updated.podcastCoverConfigured = true
+        deliverySettings = updated
+    }
     @ObservationIgnored private var presentationDeliverySettings: DeliverySettings?
     @ObservationIgnored private var presentationDeliveryIdentity: String?
     var deliveryPreflightBusy = false
@@ -280,8 +318,7 @@ final class AppModel {
             } catch { self.error = "Saved voice and speed preferences could not be read. Default voice and speed are active." }
         }
         runtimeProject = NativeSpeechSetup.preferredRoot(
-            saved: defaults.string(forKey: "runtimeProject").map { URL(fileURLWithPath: $0) },
-            legacy: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Coding/VoiceRelay"))
+            saved: defaults.string(forKey: "runtimeProject").map { URL(fileURLWithPath: $0) })
         autoAdmitEnabled = defaults.object(forKey: "autoAdmitArticles") as? Bool ?? true
         autoProcessEnabled = defaults.object(forKey: "autoProcessArticles") as? Bool ?? true
         useArchivedArticles = defaults.bool(forKey: "useArchivedArticles")
@@ -732,7 +769,7 @@ final class AppModel {
         let dictionaryStore: PronunciationStore? = pronunciationIsInert ? nil : .init()
         return { episode in
             try NativeMLXBackend(configuration: KokoroConfiguration(projectRoot: project,
-                voice: episode.settings.voice ?? "af_heart", speed: episode.settings.backendSettings["speed"]?.numericValue ?? 1), pronunciations: dictionaryStore?.load().dictionary ?? .empty, gapSeconds: episode.settings.gapSeconds)
+                voice: episode.settings.voice ?? "af_heart", speed: episode.settings.backendSettings["speed"]?.numericValue ?? 1), pronunciations: dictionaryStore?.load().dictionary ?? .empty, gapSeconds: episode.settings.gapSeconds, narrationOptions: episode.settings.narrationOptions ?? .init())
         }
     }
     private func resetProgress() {
@@ -1244,6 +1281,7 @@ final class AppModel {
         task?.cancel()
         status = "Stopping speech and releasing unfinished work…"
     }
+    var previewProfiles: [URL: PrototypeProfile] = [:]
     func previewQueueItem(_ item: SpeechQueueItem, openWindow: OpenWindowAction) {
         guard !preview, !stopping else { return }
         previewTask?.cancel()
@@ -1254,7 +1292,10 @@ final class AppModel {
             do {
                 let url = try await coordinator.articlePreviewURL(articleID: item.id,
                     stateRoot: storageOverride?.stateRoot ?? AppStorage.managedLibrary)
+                let profile = try await coordinator.articlePreviewProfile(articleID: item.id,
+                    stateRoot: storageOverride?.stateRoot ?? AppStorage.managedLibrary)
                 guard previewRequestID == request, !Task.isCancelled, !stopping else { return }
+                previewProfiles[url] = profile
                 ArticlePreviewNavigation.open(url, using: openWindow, inert: preview)
             } catch is CancellationError {
             } catch {
@@ -1478,13 +1519,13 @@ final class AppModel {
         let mutation = queueMutationTask, audioMutation = audioMutationTask, preview = previewTask
         let delivery = deliveryTask, deliveryTest = deliveryTestTask, automation = automationTask, credential = deliveryCredentialTask
         let runtime = runtimeTask, maintenance = libraryMaintenanceTask, sourcePrune = sourcePruneTask
-        let sync = syncTask, settings = settingsBookkeepingTask
+        let sync = syncTask, settings = settingsBookkeepingTask, cover = coverImportTask
         previewRequestID = UUID()
         current?.cancel(); enqueue?.cancel(); library?.cancel(); mutation?.cancel()
         audioMutation?.cancel(); preview?.cancel(); delivery?.cancel(); deliveryTest?.cancel(); automation?.cancel()
         credential?.cancel(); deliveryCredentialStore?.cancelAuthentication()
         runtime?.cancel(); maintenance?.cancel(); sourcePrune?.cancel()
-        sync?.cancel(); settings?.cancel()
+        sync?.cancel(); settings?.cancel(); cover?.cancel()
         sourceReview.cancel()
         await sourceReview.stop()
         if let current { await current.value }
@@ -1502,6 +1543,7 @@ final class AppModel {
         if let sourcePrune { await sourcePrune.value }
         if let sync { await sync.value }
         if let settings { await settings.value }
+        if let cover { await cover.value }
         deliveryCredentialStore?.clearSession()
         deliveryPassword = ""; deliveryPasswordStored = false; deliveryPasswordChecked = false
     }

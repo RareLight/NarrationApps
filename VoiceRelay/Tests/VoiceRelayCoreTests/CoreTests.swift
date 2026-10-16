@@ -322,7 +322,7 @@ func unsafeDeliveryURLsRejected(_ value: String) {
         articleID: item.id, chunkIndex: first.index, blockIndices: first.blockIndices, settings: episode.settings.backendSettings)
     let oldVersion = "conservative-2/footnotes-1/sentence-chunks-1/decorative-quotes-1/article-boundaries-1"
     let expected = Files.hash(try Files.json(PreviousFingerprint(request: request, backend: backend.identity,
-        extraction: article.extractorVersion, narration: oldVersion)))
+        extraction: "SwiftReadability-0.3.3/semantic-4-images/inline-code-1", narration: oldVersion)))
     // Restore an authentic older plan containing a separator and the same completed request.
     do {
         let store = try NativeStore(url: storage.profile.database)
@@ -1893,6 +1893,29 @@ func queueCancellationBeforeSuccessAcknowledgementRetainsItem(_ stage: Stage) as
         .filter { $0.hasSuffix(".swift") }.map { "Sources/VoiceRelayApp/\($0)" }
     #expect(sourcePaths.count == appSources.count)
     #expect(Set(sourcePaths) == Set(appSources))
+}
+
+@Test func xcodeAppDirectlyLinksAudioOutputWithoutTheSpeechEngine() throws {
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let plist = try #require(PropertyListSerialization.propertyList(
+        from: Data(contentsOf: root.appendingPathComponent("VoiceRelay.xcodeproj/project.pbxproj")),
+        options: [], format: nil) as? [String: Any])
+    let objects = try #require(plist["objects"] as? [String: [String: Any]])
+    let target = try #require(objects.values.first {
+        $0["isa"] as? String == "PBXNativeTarget" && $0["name"] as? String == "VoiceRelay" })
+    let dependencies = try #require(target["packageProductDependencies"] as? [String])
+    let productNames = dependencies.compactMap { objects[$0]?["productName"] as? String }
+    #expect(productNames.contains("AudioOutput"))
+    #expect(!productNames.contains("NativeSpeechEngine"))
+    let phases = try #require(target["buildPhases"] as? [String])
+    let frameworks = try #require(phases.compactMap { objects[$0] }.first {
+        $0["isa"] as? String == "PBXFrameworksBuildPhase" })
+    let files = try #require(frameworks["files"] as? [String])
+    let linkedNames = files.compactMap { objects[$0]?["productRef"] as? String }
+        .compactMap { objects[$0]?["productName"] as? String }
+    #expect(linkedNames.contains("AudioOutput"))
+    #expect(!linkedNames.contains("NativeSpeechEngine"))
 }
 
 @Test func xcodeProjectLoadsOptionalPrivateSigningForBothConfigurations() throws {

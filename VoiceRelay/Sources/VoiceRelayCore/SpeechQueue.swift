@@ -245,7 +245,8 @@ extension FixtureCoordinator {
         let limits = try FetchLimits(maximumBytes: storage.profile.maxArticleBytes,
                                      timeout: Double(storage.profile.httpTimeoutSeconds))
         let review = try await ArticleSourceLoader(limits: limits, useArchives: useArchives, fetch: fetch,
-            archiveFetch: archiveFetch, debugLog: debugLog, describeImages: describeImages)
+            archiveFetch: archiveFetch, debugLog: debugLog, describeImages: describeImages,
+            speechSettings: .init(voice: preferences.voice.rawValue, speed: Float(preferences.speed)), narrationOptions: preferences.effectiveNarrationOptions)
             .load(entry.url, savedAt: entry.addedAt, chunkLimit: storage.profile.chunkMaxCharacters)
         let page = review.page
         try Task.checkCancellation()
@@ -279,6 +280,7 @@ extension FixtureCoordinator {
         settings.backendSelector = "reviewed-article-speech"; settings.channelTitle = "VoiceRelay Articles"
         settings.channelDescription = "Private local speech; remote delivery disabled"
         settings.voice = preferences.voice.rawValue; settings.backendSettings = ["speed": .number(preferences.speed)]
+        settings.narrationOptions = preferences.narrationOptions
         settings.language = preferences.languageRegion.rawValue
         try settings.validate()
         if admissionControl?.isCancelled == true { throw CancellationError() }
@@ -500,7 +502,7 @@ extension FixtureCoordinator {
                 }
                 // Count the upgraded plan that resume will actually synthesize.
                 if episode.stage != .published, plan.version != Narration.version, let article = review.document?.article {
-                    plan = try Narration.prepare(article, limit: episode.settings.chunkMaxCharacters)
+                    plan = try Narration.prepare(article, limit: episode.settings.chunkMaxCharacters, options: episode.settings.narrationOptions ?? .init())
                 }
                 ready.append((item.id, plan.chunks.count))
             } catch is CancellationError { throw CancellationError() }

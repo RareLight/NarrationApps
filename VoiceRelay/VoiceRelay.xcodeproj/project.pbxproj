@@ -26,6 +26,7 @@
         B90000000000000000000001 /* ThirdPartyNotices in Resources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001; };
         B20000000000000000000003 /* PronunciationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000003 /* PronunciationUI */; };
         B20000000000000000000004 /* NarrationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000004 /* NarrationUI */; };
+        B20000000000000000000005 /* AudioOutput in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000005 /* AudioOutput */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -102,6 +103,7 @@
                 B20000000000000000000001 /* AppPresentation in Frameworks */,
                 B20000000000000000000003 /* PronunciationUI in Frameworks */,
                 B20000000000000000000004 /* NarrationUI in Frameworks */,
+                B20000000000000000000005 /* AudioOutput in Frameworks */,
 			);
 		};
 		E10000000000000000000002 /* Frameworks */ = {
@@ -237,6 +239,7 @@
                 D20000000000000000000001 /* AppPresentation */,
                 D20000000000000000000003 /* PronunciationUI */,
                 D20000000000000000000004 /* NarrationUI */,
+                D20000000000000000000005 /* AudioOutput */,
 			);
 			productName = VoiceRelay;
 			productReference = F20000000000000000000001 /* VoiceRelay.app */;
@@ -633,6 +636,7 @@
 		};
         D20000000000000000000003 /* PronunciationUI */ = {isa = XCSwiftPackageProductDependency; package = A20000000000000000000001; productName = PronunciationUI; };
         D20000000000000000000004 /* NarrationUI */ = {isa = XCSwiftPackageProductDependency; package = A20000000000000000000001; productName = NarrationUI; };
+        D20000000000000000000005 /* AudioOutput */ = {isa = XCSwiftPackageProductDependency; package = A20000000000000000000001; productName = AudioOutput; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A00000000000000000000001 /* Project object */;

@@ -169,6 +169,15 @@ public actor FixtureCoordinator {
         }
         return episodes
     }
+    public func articlePreviewProfile(articleID: String, stateRoot: URL = AppStorage.managedLibrary) throws -> PrototypeProfile {
+        try ManagedSpeechStorage.validateLibrary(stateRoot: stateRoot)
+        let database = PrototypeProfile.fixture(at: stateRoot).database
+        guard UUID(uuidString: articleID) != nil, FileManager.default.fileExists(atPath: database.path),
+              let record = try NativeStore(url: database, readOnly: true).query("SELECT record FROM episodes WHERE id=?", [articleID]).first?.first else {
+            throw RelayError.setup("The queued article settings are unavailable. Reopen Articles and try again.")
+        }
+        return try JSONDecoder().decode(Episode.self, from: Data(record.utf8)).settings
+    }
     public func articlePreviewURL(articleID: String, stateRoot: URL = AppStorage.managedLibrary) throws -> URL {
         try ManagedSpeechStorage.validateLibrary(stateRoot: stateRoot)
         let database = PrototypeProfile.fixture(at: stateRoot).database
@@ -467,13 +476,13 @@ public actor FixtureCoordinator {
             let native = backend as? any PreparedTTSBackend
             let purpose = native?.preparationPurpose ?? .preview
             let projection = try Narration.prepare(document.article, limit: p.chunkMaxCharacters,
-                pronunciations: backend.pronunciations, settings: native?.speechSettings, purpose: purpose)
+                pronunciations: backend.pronunciations, settings: native?.speechSettings, purpose: purpose, options: p.narrationOptions ?? .init())
             if native != nil, let previous = context?.previous { try await previous.wait() }
             var narration = try native?.prepareNarration(projection) ?? projection
             if native != nil, let oldData = try? Data(contentsOf: narrationFile),
                let old = try? JSONDecoder().decode(NarrationPlan.self, from: oldData), old.version != narration.version {
                 narration = NarrationPlan(version: narration.version, chunks: narration.chunks,
-                    notices: narration.notices + ["Unfinished narration was prepared with the current speech pipeline. Completed and published audio is preserved."])
+                    notices: narration.notices + ["Unfinished narration was prepared with the current speech pipeline. Completed and published audio is preserved."], omissions: narration.omissions)
             }
             try Files.write(try Files.json(document.article), to: articleFile)
             try Files.write(try Files.json(narration), to: narrationFile)
@@ -533,7 +542,7 @@ public actor FixtureCoordinator {
                         }
                         let request = requestFor(chunk)
                         let fingerprint = Files.hash(try Files.json(Fingerprint(request: request, backend: backend.identity,
-                            extraction: article.extractorVersion, narration: Narration.chunkFingerprintVersion(plan.version))))
+                            extraction: ArticleExtractor.chunkFingerprintVersion(article.extractorVersion), narration: Narration.chunkFingerprintVersion(plan.version))))
                         var checkpoint = try store.chunk(articleID: e.id, index: chunk.index, fingerprint: fingerprint)
                         if let cp = checkpoint {
                             let valid = cp.hashes.count == cp.result.artifacts.count && !cp.hashes.isEmpty

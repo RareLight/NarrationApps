@@ -56,17 +56,17 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
     public let narrationVersion: String
     private let gapSeconds: Double?
 
-    public init(configuration: KokoroConfiguration, worker: WorkerConfiguration? = nil, pronunciations: PronunciationDictionary = .empty, policy: SpeechPreparationPolicy = .current, gapSeconds: Double? = nil) throws {
+    public init(configuration: KokoroConfiguration, worker: WorkerConfiguration? = nil, pronunciations: PronunciationDictionary = .empty, policy: SpeechPreparationPolicy = .current, gapSeconds: Double? = nil, narrationOptions: NarrationOptions = .init()) throws {
         self.pronunciations = pronunciations; voice = configuration.voice; speed = configuration.speed
         let settings = SpeechSettings(model: .kokoro, voice: voice, speed: Float(speed))
         speechSettings = settings; self.policy = policy; self.gapSeconds = gapSeconds
-        narrationVersion = Narration.version(pronunciations: pronunciations) + "/native-preparation-1/" + SpeechAcousticIdentity.make(settings: settings, policy: policy)
+        narrationVersion = Narration.version(settings: settings, pronunciations: pronunciations, options: narrationOptions) + "/native-preparation-1/" + SpeechAcousticIdentity.make(settings: settings, policy: policy)
         let selected = worker ?? WorkerConfiguration(executable: NativeSpeechSetup.workerExecutable,
                                                       requestTimeout: .seconds(configuration.synthesisTimeout), inferencePriority: .background)
         session = try NativeSpeechSession(configuration: selected, workspace: configuration.projectRoot,
                                           settings: settings, leaseFile: selected.inferenceLeaseFile, policy: policy)
         let catalog = NativePrimaryCatalog.specification(for: .kokoro)
-        let fingerprint = (["swift-mlx-kokoro-v2", catalog.revision, narrationVersion] + (pronunciations.fingerprint.isEmpty ? [] : [pronunciations.fingerprint])).joined(separator: "\n")
+        let fingerprint = (["swift-mlx-kokoro-v2", catalog.revision, NarrationOptions.acousticCompatibleVersion(narrationVersion)] + (pronunciations.fingerprint.isEmpty ? [] : [pronunciations.fingerprint])).joined(separator: "\n")
         identity = BackendIdentity(id: "native-kokoro-v2-" + Files.hash(Data(fingerprint.utf8)),
                                    displayName: "Kokoro via native Swift MLX", isMock: false)
     }
@@ -79,8 +79,8 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
         }
         return NarrationPlan(version: narrationVersion, chunks: plan.utterances.enumerated().map {
             .init(index: $0.offset, text: $0.element.text, blockIndices: $0.element.source.blockIndices,
-                boundaryAfter: $0.element.boundaryAfter, origin: $0.element.source.origin, preparedUtterance: $0.element)
-        }, notices: plan.notices)
+                boundaryAfter: $0.element.boundaryAfter, origin: $0.element.source.origin, preparedUtterance: $0.element, sourceMappings: $0.element.source.sourceMappings)
+        }, notices: plan.notices, omissions: projection.omissions)
     }
 
     public func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {

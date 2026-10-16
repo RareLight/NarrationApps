@@ -31,6 +31,11 @@ struct ConfigurationView: View {
             } header: {
                 SectionHelpHeader(title: "Voice sample", explanation: "Plays the bundled sample at its recorded speed. It does not generate new audio.")
             }
+            Section {
+                NarrationOptionsControls(options: $model.preferences.effectiveNarrationOptions)
+            } header: {
+                SectionHelpHeader(title: "Document Narration", explanation: "Notes and auxiliary choices apply to newly queued articles with explicit source markup. Unclassified text and bibliographies are retained. Queued articles keep their settings.")
+            }.disabled(model.preview || model.stopping)
             ImageDescriptionSettingsSection(enabled: $model.describeArticleImages,
                 additionalHelp: "Applies to newly added articles. Existing queued articles keep their prepared text. Web images may be fetched from public sites to create descriptions.")
                 .disabled(model.preview || model.stopping)
@@ -188,6 +193,13 @@ struct DeliveryPaneView: View {
                 }
                 TextField("Channel title", text: $model.deliverySettings.channelTitle)
                 TextField("Channel description", text: $model.deliverySettings.channelDescription)
+                CoverArtworkPicker(title: "Podcast Cover", url: model.podcastCoverURL,
+                    selected: model.deliverySettings.podcastCoverDigest != nil,
+                    choose: model.choosePodcastCover, remove: model.removePodcastCover,
+                    failure: { model.podcastCoverError = $0 })
+                    .disabled(model.preview || model.coverImporting || model.libraryMaintenanceBusy)
+                    .help("Square JPEG or PNG, at least 1400 pixels per side, without transparency. Episode images still come from their articles.")
+                if let error = model.podcastCoverError { InlineNotice(message: error) { model.podcastCoverError = nil } }
             } header: {
                 SectionHelpHeader(title: "Public feed",
                     explanation: "Public folder must serve the same files as Feed folder. Copy the Subscription URL into your podcast app.", helpTopic: .publishing)

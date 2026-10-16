@@ -84,6 +84,11 @@ public enum SpeechVoice: String, Codable, CaseIterable, Identifiable, Sendable {
 public struct SpeechPreferences: Codable, Sendable, Equatable {
     public var voice: SpeechVoice
     public var speed: Double
+    public var narrationOptions: NarrationOptions? = nil
+    public var effectiveNarrationOptions: NarrationOptions {
+        get { narrationOptions ?? .init() }
+        set { narrationOptions = newValue }
+    }
     /// Deriving the region from the stored voice preserves legacy preferences and
     /// prevents mismatched language/voice pairs without another persisted field.
     public var languageRegion: SpeechLanguageRegion {
@@ -208,6 +213,7 @@ public struct ManagedSpeechStorage: Sendable {
 }
 
 public struct PrototypeProfile: Codable, Sendable, Equatable {
+    public var narrationOptions: NarrationOptions? = nil
     public var configurationURL: URL?
     public var safariPlist: URL
     public var database: URL
@@ -231,6 +237,8 @@ public struct PrototypeProfile: Codable, Sendable, Equatable {
     public var loudnessLUFS = -16.0
     public var gapSeconds = 0.15
     // Historical profile fields are inert; native audio never launches these tools.
+    // Legacy metadata decoding only. Native audio never uses these executable
+    // hints or the retained loudness field to process generated audio.
     public var ffmpeg = "ffmpeg"
     public var ffprobe = "ffprobe"
     public var toolTimeoutSeconds = 1800

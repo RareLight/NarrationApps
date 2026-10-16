@@ -158,7 +158,10 @@ struct VoiceRelayApp: App {
             .defaultSize(width: 980, height: 640)
             WindowGroup("Article Preview", for: URL.self) { $url in
                 if let url {
-                    ArticlePreviewView(url: url, inert: model.preview).appTextSizing(model.textSize)
+                    let profile = model.previewProfiles[url]
+                    let options = profile.map { $0.narrationOptions ?? .init() } ?? model.preferences.effectiveNarrationOptions
+                    ArticlePreviewView(url: url, inert: model.preview, settings: .init(voice: model.preferences.voice.rawValue, speed: Float(model.preferences.speed)), profile: profile, options: options)
+                        .id(options.versionSuffix).appTextSizing(model.textSize)
                         .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
                         .frame(minWidth: 560, minHeight: 420)
                 }

@@ -1,3 +1,6 @@
+import Pronunciation
+import NarrationUI
+import NarrationCore
 import AppPresentation
 import SwiftUI
 import AppKit
@@ -232,7 +235,7 @@ final class ArticlePreviewModel {
         self.inert = inert
         if let review { self.review = review; status = review.issue == nil ? "Article ready." : "Source needs inspection." }
     }
-    func load(_ url: URL, profile: PrototypeProfile? = nil) {
+    func load(_ url: URL, profile: PrototypeProfile? = nil, settings: SpeechSettings = .init(), options: NarrationOptions = .init()) {
         guard !inert, !busy else { return }
         busy = true; error = nil; status = "Loading article…"
         task = Task {
@@ -241,10 +244,16 @@ final class ArticlePreviewModel {
                 let limits = try FetchLimits(maximumBytes: profile?.maxArticleBytes ?? 10_000_000,
                                             timeout: Double(profile?.httpTimeoutSeconds ?? 30))
                 let limit = profile?.chunkMaxCharacters ?? 1800
-                let result = try await ArticleSourceLoader(limits: limits,
-                    useArchives: UserDefaults.standard.bool(forKey: "useArchivedArticles"),
-                    describeImages: UserDefaults.standard.object(forKey: "describeArticleImages") as? Bool ?? true)
-                    .load(url, chunkLimit: limit)
+                let archives = UserDefaults.standard.bool(forKey: "useArchivedArticles")
+                let descriptions = UserDefaults.standard.object(forKey: "describeArticleImages") as? Bool ?? true
+                let capturedOptions = profile.map { $0.narrationOptions ?? .init() } ?? options
+                let capturedSettings = profile.map { SpeechSettings(voice: $0.voice ?? settings.voice, speed: Float($0.backendSettings["speed"]?.numericValue ?? Double(settings.speed))) } ?? settings
+                let work = Task.detached {
+                    let dictionary = try PronunciationStore().load().dictionary
+                    return try await ArticleSourceLoader(limits: limits, useArchives: archives,
+                        describeImages: descriptions, speechSettings: capturedSettings, pronunciations: dictionary, narrationOptions: capturedOptions).load(url, chunkLimit: limit)
+                }
+                let result = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
                 try Task.checkCancellation()
                 review = result
                 status = result.issue == nil ? (result.page.archivedCopy == nil ? "Article ready." : "Archived article ready.") : "Source needs inspection."
@@ -265,6 +274,7 @@ struct ArticlePreviewContent: View {
     var placeholder = "Loading article…"
     @State private var dismissedIssue: String?
     var body: some View {
+        ScrollViewReader { proxy in
         VStack(alignment: .leading, spacing: 12) {
             if let review {
                 Text(review.document?.article.title ?? "Source inspection").appFont(.title2)
@@ -277,6 +287,9 @@ struct ArticlePreviewContent: View {
                     InlineNotice(message: message) { dismissedIssue = message }
                 }
                 if let document = review.document {
+                    DocumentNavigationMenu(entries: document.article.outline ?? DocumentNavigation.headings(in: document.article.blocks)) { entry in
+                        if let index = entry.blockIndex { proxy.scrollTo("article-source-\(index)", anchor: .top) }
+                    }
                     Text("Semantic blocks").appFont(.headline)
                     ForEach(Array(document.article.blocks.enumerated()), id: \.offset) { index, block in
                         VStack(alignment: .leading, spacing: 3) {
@@ -285,7 +298,7 @@ struct ArticlePreviewContent: View {
                             if block.imageDescriptionGenerated == true, let description = block.narrationText {
                                 Text("Generated · " + description).appFont(.secondary).foregroundStyle(.secondary).textSelection(.enabled)
                             }
-                        }
+                        }.id("article-source-\(index)")
                     }
                     ForEach(document.article.warnings, id: \.self) { Text($0).foregroundStyle(.orange) }
                 }
@@ -296,15 +309,19 @@ struct ArticlePreviewContent: View {
                 }
             } else { Text(placeholder).foregroundStyle(.secondary) }
         }
+        }
     }
 }
-
 struct ArticlePreviewView: View {
     let url: URL
+    let settings: SpeechSettings
+    let profile: PrototypeProfile?
+    let options: NarrationOptions
     @State private var model: ArticlePreviewModel
     @Environment(\.dismiss) private var dismiss
-    init(url: URL, inert: Bool = false, review: ReviewedSource? = nil) {
-        self.url = url
+    init(url: URL, inert: Bool = false, review: ReviewedSource? = nil, settings: SpeechSettings = .init(), profile: PrototypeProfile? = nil, options: NarrationOptions = .init()) {
+        self.profile = profile; self.options = options
+        self.url = url; self.settings = settings
         _model = State(initialValue: ArticlePreviewModel(inert: inert, review: review))
     }
     var body: some View {
@@ -322,7 +339,7 @@ struct ArticlePreviewView: View {
                 Button("Close") { dismiss() }.help("Close this article preview")
             }
         }
-        .task { model.load(url) }
+        .task { model.load(url, profile: profile, settings: settings, options: options) }
         .onDisappear { model.cancel() }
     }
 }
@@ -644,7 +661,10 @@ extension AppModel {
     }
     func previewArticleRow(_ row: ArticleLibraryRow, openWindow: OpenWindowAction) {
         if let item = row.jobs.first { previewQueueItem(item, openWindow: openWindow) }
-        else if let entry = row.source { ArticlePreviewNavigation.open(entry.url, using: openWindow, inert: preview) }
+        else if let entry = row.source {
+            previewProfiles[entry.url] = nil
+            ArticlePreviewNavigation.open(entry.url, using: openWindow, inert: preview)
+        }
     }
     var canPreviewUnifiedSelection: Bool {
         canPreviewArticleRows(selectedUnifiedRows)

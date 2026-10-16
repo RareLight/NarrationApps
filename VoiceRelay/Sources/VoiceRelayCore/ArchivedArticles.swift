@@ -1,3 +1,5 @@
+import Pronunciation
+import NarrationCore
 import Foundation
 import SwiftSoup
 
@@ -42,13 +44,17 @@ public struct ArticleSourceLoader: Sendable {
     private let imageFetch: ImageFetch?
     private let imageCaption: ImageCaption?
     private let describeImages: Bool
+    private let narrationOptions: NarrationOptions
+    private let speechSettings: SpeechSettings
+    private let pronunciations: PronunciationDictionary
     public init(limits: FetchLimits, useArchives: Bool = false, fetch: Fetch? = nil, archiveFetch: ArchiveFetch? = nil,
                 debugLog: DeliveryDebugLog? = nil, imageFetch: ImageFetch? = nil, imageCaption: ImageCaption? = nil,
-                describeImages: Bool = true) {
+                describeImages: Bool = true, speechSettings: SpeechSettings = .init(), pronunciations: PronunciationDictionary = .empty, narrationOptions: NarrationOptions = .init()) {
         self.limits = limits; self.useArchives = useArchives; self.fetch = fetch; self.archiveFetch = archiveFetch
         self.debugLog = debugLog
         self.imageFetch = imageFetch; self.imageCaption = imageCaption
-        self.describeImages = describeImages
+        self.narrationOptions = narrationOptions
+        self.describeImages = describeImages; self.speechSettings = speechSettings; self.pronunciations = pronunciations
     }
     public func load(_ url: URL, savedAt: Date? = nil, chunkLimit: Int) async throws -> ReviewedSource {
         try ArticleURL.validate(url); try Task.checkCancellation()
@@ -108,12 +114,12 @@ public struct ArticleSourceLoader: Sendable {
         throw ArticleRecoveryError.unavailable(failure ?? .network)
     }
     private func review(_ page: FetchedPage, chunkLimit: Int) async throws -> ReviewedSource {
-        let work = Task.detached { try Task.checkCancellation(); return try await ReviewedSource.prepareAsync(page, chunkLimit: chunkLimit) }
+        let work = Task.detached { try Task.checkCancellation(); return try await ReviewedSource.prepareAsync(page, chunkLimit: chunkLimit, settings: speechSettings, pronunciations: pronunciations, options: narrationOptions) }
         let result = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
         try Task.checkCancellation()
         return try await ImageNarration.enrich(result, chunkLimit: chunkLimit,
             nativeEnabled: describeImages && fetch == nil && archiveFetch == nil,
-            fetch: describeImages ? imageFetch : nil, caption: describeImages ? imageCaption : nil, debugLog: debugLog)
+            fetch: describeImages ? imageFetch : nil, caption: describeImages ? imageCaption : nil, debugLog: debugLog, settings: speechSettings, pronunciations: pronunciations, options: narrationOptions)
     }
     private func request(_ url: URL, limits: FetchLimits, types: Set<String>, hosts: Set<String>) async throws -> FetchedPage {
         let page: FetchedPage

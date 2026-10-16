@@ -21,7 +21,7 @@ let package = Package(
             .product(name: "SwiftSoup", package: "SwiftSoup"),
             .product(name: "TOMLDecoder", package: "TOMLDecoder")
         ], resources: [.copy("Resources/article.html")]),
-        .executableTarget(name: "VoiceRelayApp", dependencies: ["VoiceRelayCore", .product(name: "PronunciationUI", package: "swift-packages"), .product(name: "NarrationUI", package: "swift-packages"), .product(name: "AppPresentation", package: "apppresentation")]),
+        .executableTarget(name: "VoiceRelayApp", dependencies: ["VoiceRelayCore", .product(name: "AudioOutput", package: "swift-packages"), .product(name: "PronunciationUI", package: "swift-packages"), .product(name: "NarrationUI", package: "swift-packages"), .product(name: "AppPresentation", package: "apppresentation")]),
         .testTarget(name: "VoiceRelayCoreTests", dependencies: ["VoiceRelayCore", "CSQLite"]),
         .testTarget(name: "VoiceRelayAppTests", dependencies: ["VoiceRelayApp", "VoiceRelayCore", .product(name: "AppPresentation", package: "apppresentation")])
     ]

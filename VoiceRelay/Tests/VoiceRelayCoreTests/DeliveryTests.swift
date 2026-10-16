@@ -3,6 +3,8 @@ import Foundation
 import FoundationXML
 #endif
 import Testing
+import AudioOutput
+import ImageIO
 #if canImport(Security)
 import Security
 #endif
@@ -1818,4 +1820,119 @@ private final class UploadEventRecorder: @unchecked Sendable {
     #expect(await coordinator.deliveryPreflightRequired(stateRoot: root, settings: settings, now: now))
     #expect(try Data(contentsOf: file) == corrupt)
     #expect(try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path) == ["delivery.json"])
+}
+
+@Test func podcastCoverPublishesBeforeFeedWithoutChangingEpisodeMedia() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), coordinator = FixtureCoordinator()
+    var settings = deliverySettings()
+    let published = try await publishReview(storage: storage, delivery: settings)
+    let context = try #require(CGContext(data: nil, width: 1400, height: 1400, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+    let imageData = NSMutableData(), imageDestination = try #require(CGImageDestinationCreateWithData(imageData, "public.jpeg" as CFString, 1, nil))
+    CGImageDestinationAddImage(imageDestination, try #require(context.makeImage()), nil)
+    #expect(CGImageDestinationFinalize(imageDestination))
+    let art = try CoverArtwork(data: imageData as Data, profile: .podcast)
+    let artStore = CoverArtworkStore(root: root.appendingPathComponent("art"))
+    settings.podcastCoverDigest = try artStore.save(art); settings.podcastCoverConfigured = true
+    let transport = FakeWebDAVTransport(), credentials = FakeCredentials(password: "synthetic")
+    let result = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials,
+        transport: transport, force: true, artworkStore: artStore)
+    #expect(result.feedUploaded)
+    let feedPath = settings.remoteFolder.isEmpty ? "/feed.xml" : "/" + settings.remoteFeedPath
+    let feed = try #require(transport.body(feedPath))
+    let snapshot = try ServerFeedSnapshot(feed)
+    #expect(snapshot.channelArtworkURL?.lastPathComponent == "artwork-" + art.digest + ".jpg")
+    #expect(snapshot.items.first?.id == published.episode.id)
+    let putCalls = transport.recordedCalls.filter { $0.method == "PUT" }
+    #expect(try #require(putCalls.firstIndex { $0.path.hasSuffix(".jpg") }) < #require(putCalls.firstIndex { $0.path.hasSuffix("feed.xml") }))
+    let mediaPuts = putCalls.filter { $0.path.hasSuffix(".m4a") }.count
+    let firstHash = try #require(await coordinator.savedAudio(storage: storage).first).audioHash
+    settings.podcastCoverDigest = nil; settings.podcastCoverConfigured = true
+    let removed = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials,
+        transport: transport, force: true, artworkStore: artStore)
+    #expect(removed.feedUploaded)
+    #expect(try ServerFeedSnapshot(#require(transport.body(feedPath))).channelArtworkURL == nil)
+    #expect(transport.recordedCalls.filter { $0.method == "PUT" && $0.path.hasSuffix(".m4a") }.count == mediaPuts)
+    #expect(try #require(await coordinator.savedAudio(storage: storage).first).audioHash == firstHash)
+    let oldFeed = try #require(transport.body(feedPath))
+    settings.podcastCoverDigest = art.digest
+    settings.feedFolderURL = URL(string: "https://other-webdav.example/new-podcast/")
+    settings.publicFolderURL = URL(string: "https://other-podcast.example/")
+    let moved = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials,
+        transport: transport, force: true, artworkStore: artStore)
+    #expect(moved.feedUploaded)
+    #expect(transport.body(feedPath) == oldFeed)
+    let newFeedPath = "/" + settings.remoteFeedPath
+    #expect(try ServerFeedSnapshot(#require(transport.body(newFeedPath))).channelArtworkURL?.host == "other-podcast.example")
+    try FileManager.default.removeItem(at: artStore.url(for: art.digest))
+    settings.channelDescription = "Metadata-only update with a remotely retained cover"
+    let remoteOnly = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials,
+        transport: transport, force: true, artworkStore: artStore)
+    #expect(remoteOnly.feedUploaded)
+    #expect(try ServerFeedSnapshot(#require(transport.body(newFeedPath))).channelArtworkURL?.lastPathComponent == "artwork-" + art.digest + ".jpg")
+}
+
+@Test func podcastCoverReadbackFailurePreservesPreviousFeed() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), coordinator = FixtureCoordinator()
+    var settings = deliverySettings()
+    _ = try await publishReview(storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport(), credentials = FakeCredentials(password: "synthetic")
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials, transport: transport, force: true)
+    let path = "/" + settings.remoteFeedPath, prior = try #require(transport.body(path))
+    settings.podcastCoverConfigured = true; settings.podcastCoverDigest = String(repeating: "a", count: 64)
+    let result = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials,
+        transport: transport, force: true, artworkStore: .init(root: root.appendingPathComponent("missing")))
+    #expect(!result.feedUploaded)
+    #expect(transport.body(path) == prior)
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings).remoteFeedPending)
+}
+
+@Test func podcastCoverRecoveryDoesNotEraseRemoteOnlyShowArtOrEpisodeArt() throws {
+    let remote = Data("<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><itunes:image href=\"https://podcast.example/old.jpg\"/></channel></rss>".utf8)
+    var settings = deliverySettings()
+    let preserved = try RSS.renderRemote([], channel: RemoteChannel(settings: settings, previousFeed: remote))
+    #expect(try ServerFeedSnapshot(preserved).channelArtworkURL?.absoluteString == "https://podcast.example/old.jpg")
+    settings.podcastCoverConfigured = true
+    let removed = try RSS.renderRemote([], channel: RemoteChannel(settings: settings, previousFeed: remote))
+    #expect(try ServerFeedSnapshot(removed).channelArtworkURL == nil)
+    let old = try JSONDecoder().decode(DeliverySettings.self, from: Data("{}".utf8))
+    #expect(old.podcastCoverConfigured == nil && old.podcastCoverDigest == nil)
+}
+
+@Test func podcastCoverCorruptReadbackNeverPublishesItsReference() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), coordinator = FixtureCoordinator()
+    var settings = deliverySettings()
+    _ = try await publishReview(storage: storage, delivery: settings)
+    let transport = FakeWebDAVTransport(), credentials = FakeCredentials(password: "synthetic")
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials, transport: transport, force: true)
+    let prior = try #require(transport.body("/" + settings.remoteFeedPath))
+    let context = try #require(CGContext(data: nil, width: 1400, height: 1400, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+    let bytes = NSMutableData(), destination = try #require(CGImageDestinationCreateWithData(bytes, "public.jpeg" as CFString, 1, nil))
+    CGImageDestinationAddImage(destination, try #require(context.makeImage()), nil); #expect(CGImageDestinationFinalize(destination))
+    let art = try CoverArtwork(data: bytes as Data, profile: .podcast), store = CoverArtworkStore(root: root.appendingPathComponent("art"))
+    settings.podcastCoverDigest = try store.save(art); settings.podcastCoverConfigured = true
+    transport.getResponseFor = { path in path.hasSuffix(".jpg") && transport.body(path) != nil ? DeliveryResponse(status: 200, body: Data("corrupt".utf8)) : nil }
+    let result = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials,
+        transport: transport, force: true, artworkStore: store)
+    #expect(!result.feedUploaded)
+    #expect(transport.body("/" + settings.remoteFeedPath) == prior)
+}
+
+@Test func queuedNarrationOptionsAreCapturedAndLegacyPreferencesKeepDefaults() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), coordinator = FixtureCoordinator()
+    let review = try deliveryReview()
+    var preferences = SpeechPreferences()
+    preferences.effectiveNarrationOptions = .init(notes: .omit, includeAuxiliary: false)
+    let item = try await coordinator.enqueue(review, storage: storage, preferences: preferences)
+    preferences.effectiveNarrationOptions = .init()
+    let episode = try #require(await coordinator.library(storage: storage).first { $0.id == item.id })
+    #expect(episode.settings.narrationOptions == .init(notes: .omit, includeAuxiliary: false))
+    #expect(try await coordinator.articlePreviewProfile(articleID: item.id, stateRoot: storage.stateRoot).narrationOptions == .init(notes: .omit, includeAuxiliary: false))
+    let old = try JSONDecoder().decode(SpeechPreferences.self, from: Data("{\"voice\":\"af_heart\",\"speed\":1}".utf8))
+    #expect(old.effectiveNarrationOptions == .init())
 }

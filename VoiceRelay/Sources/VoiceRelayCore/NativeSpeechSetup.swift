@@ -21,7 +21,7 @@ public enum NativeSpeechSetup {
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("swift-packages/.build/debug/NarrationSpeechWorker")
     }
-    public static func preferredRoot(saved: URL?, legacy: URL) -> URL { saved ?? managedRoot }
+    public static func preferredRoot(saved: URL?) -> URL { saved ?? managedRoot }
     public static func isInstalled(at root: URL) -> Bool {
         let weights = root.appendingPathComponent(SpeechModel.kokoro.primaryRelativePath + "/kokoro-v1_0.safetensors")
         let prepared = root.appendingPathComponent("models/.native/primary/kokoro/\(NativePrimaryCatalog.specification(for: .kokoro).revision)/kokoro-v1_0.safetensors")

@@ -155,11 +155,29 @@ final class ServerFeedParser: NSObject, XMLParserDelegate {
 /// Invalid individual items survive feed updates; malformed XML/DTDs still stop
 /// feed mutation, without stopping unrelated media work.
 struct ServerFeedSnapshot {
+    var channelArtworkURL: URL?
     var items: [ServerFeedItem] = []
     var rawItems: [String: [String]] = [:]
     var invalidItems: [String] = []
     var invalidIDs = Set<String>()
     init() {}
+    private static func cover(in channel: XMLElement) throws -> URL? {
+        let covers = channel.children?.compactMap { $0 as? XMLElement }.filter {
+            $0.localName == "image" && $0.uri == "http://www.itunes.com/dtds/podcast-1.0.dtd"
+        } ?? []
+        guard covers.count <= 1 else { throw ServerFeedParser.failure }
+        guard let raw = covers.first?.attribute(forName: "href")?.stringValue else { return nil }
+        guard let url = URL(string: raw), (try? ArticleURL.validate(url)) != nil, url.scheme == "https" else { throw ServerFeedParser.failure }
+        return url
+    }
+    /// Metadata-only lookup avoids revalidating every episode while rendering a feed.
+    static func channelArtwork(in data: Data) throws -> URL? {
+        guard data.count <= 4 * 1024 * 1024, let text = String(data: data, encoding: .utf8),
+              !text.uppercased().contains("<!DOCTYPE"), !text.uppercased().contains("<!ENTITY") else { throw ServerFeedParser.failure }
+        let document = try XMLDocument(data: data, options: [.nodeLoadExternalEntitiesNever])
+        guard let root = document.rootElement(), root.name == "rss", root.elements(forName: "channel").count == 1 else { throw ServerFeedParser.failure }
+        return try cover(in: root.elements(forName: "channel")[0])
+    }
     init(_ data: Data) throws {
         guard data.count <= 4 * 1024 * 1024, let text = String(data: data, encoding: .utf8),
               !text.uppercased().contains("<!DOCTYPE"), !text.uppercased().contains("<!ENTITY") else { throw ServerFeedParser.failure }
@@ -167,6 +185,7 @@ struct ServerFeedSnapshot {
         guard let root = document.rootElement(), root.name == "rss", root.attribute(forName: "version")?.stringValue == "2.0",
               root.elements(forName: "channel").count == 1 else { throw ServerFeedParser.failure }
         let channel = root.elements(forName: "channel")[0]
+        channelArtworkURL = try Self.cover(in: channel)
         let nodes = channel.elements(forName: "item")
         guard nodes.count <= 10_000 else { throw ServerFeedParser.failure }
         var candidates: [(ServerFeedItem?, String, String?)] = []
@@ -595,7 +614,7 @@ extension FixtureCoordinator {
         ledger.reconciledFeedETag = report.feedETag
         ledger.reconciledAt = report.checkedAt
         ledger.reconciledQueueIDs = try store.queue().map { $0.id + ":" + $0.state.rawValue }.sorted()
-        let candidate = try RSS.renderReconciledRemote(store.published(), channel: RemoteChannel(settings: report.destination), preserved: preserved)
+        let candidate = try RSS.renderReconciledRemote(store.published(), channel: RemoteChannel(settings: report.destination, previousFeed: report.feed), preserved: preserved)
         ledger.remoteFeedPending = ledger.lastUploadedFeedHash != Files.hash(candidate)
         try ledger.save(stateRoot: storage.stateRoot)
     }

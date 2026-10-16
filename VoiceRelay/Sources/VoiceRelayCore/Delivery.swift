@@ -1,4 +1,5 @@
 import Foundation
+import AudioOutput
 #if canImport(FoundationXML)
 import FoundationXML
 #endif
@@ -64,10 +65,12 @@ public struct DeliverySettings: Codable, Sendable, Equatable {
     public var username: String?
     public var channelTitle = "VoiceRelay"
     public var channelDescription = "Personal narrated articles"
+    public var podcastCoverDigest: String?
+    public var podcastCoverConfigured: Bool?
     public var language = "en"
     public init() {}
     private enum CodingKeys: String, CodingKey {
-        case enabled, feedFolderURL, publicFolderURL, username, channelTitle, channelDescription, language
+        case enabled, feedFolderURL, publicFolderURL, username, channelTitle, channelDescription, language, podcastCoverDigest, podcastCoverConfigured
         // Read old settings once; independent audio folders are intentionally retired.
         case webdavURL, remoteFolder, publicFeedURL
     }
@@ -88,6 +91,8 @@ public struct DeliverySettings: Codable, Sendable, Equatable {
         channelTitle = try v.decodeIfPresent(String.self, forKey: .channelTitle) ?? "VoiceRelay"
         channelDescription = try v.decodeIfPresent(String.self, forKey: .channelDescription) ?? "Personal narrated articles"
         language = try v.decodeIfPresent(String.self, forKey: .language) ?? "en"
+        podcastCoverDigest = try v.decodeIfPresent(String.self, forKey: .podcastCoverDigest)
+        podcastCoverConfigured = try v.decodeIfPresent(Bool.self, forKey: .podcastCoverConfigured)
     }
     public func encode(to encoder: any Encoder) throws {
         let s = try normalized()
@@ -99,6 +104,8 @@ public struct DeliverySettings: Codable, Sendable, Equatable {
         try v.encode(s.channelTitle, forKey: .channelTitle)
         try v.encode(s.channelDescription, forKey: .channelDescription)
         try v.encode(s.language, forKey: .language)
+        try v.encodeIfPresent(s.podcastCoverDigest, forKey: .podcastCoverDigest)
+        try v.encodeIfPresent(s.podcastCoverConfigured, forKey: .podcastCoverConfigured)
     }
     public func normalized() throws -> Self {
         var s = self
@@ -134,6 +141,7 @@ public struct DeliverySettings: Codable, Sendable, Equatable {
                 throw RelayError.setup("The delivery username must be nonblank and contain no colons or line breaks; leave it empty for password-only authentication.")
             }
         }
+        if let digest = podcastCoverDigest { _ = try CoverArtworkStore(root: URL(fileURLWithPath: "/")).url(for: digest) }
         if enabled, s.feedFolderURL == nil || s.publicFolderURL == nil {
             throw RelayError.setup("Delivery requires a Feed folder URL and a Public folder URL.")
         }
@@ -144,7 +152,7 @@ public struct DeliverySettings: Codable, Sendable, Equatable {
         let settings = try normalized(), channel = try RemoteChannel(settings: settings)
         return Files.hash(try Files.json([settings.feedFolderURL?.absoluteString ?? "",
             channel.feedURL.absoluteString, channel.audioBaseURL.absoluteString,
-            channel.title, channel.description, channel.language]))
+            channel.title, channel.description, channel.language] + (settings.podcastCoverConfigured == nil && settings.podcastCoverDigest == nil ? [] : [settings.podcastCoverDigest ?? "removed"])))
     }
 }
 
@@ -711,6 +719,7 @@ public struct WebDAVClient: Sendable {
     @discardableResult
     private func perform(_ method: String, remotePath: String, body: Data? = nil, file: URL? = nil,
                          contentType: String? = nil, directory: Bool = false, progress: (@Sendable (Int64, Int64) -> Void)? = nil, extraHeaders: [String: String] = [:], acceptable: (Int) -> Bool) async throws -> DeliveryResponse {
+        try Task.checkCancellation()
         let target = try remoteURL(remotePath, directory: directory)
         var extra = extraHeaders
         if method == "HEAD" { extra["Accept-Encoding"] = "identity"; extra["Cache-Control"] = "no-cache"; extra["Want-Repr-Digest"] = "sha-256=10" }
@@ -752,6 +761,32 @@ public struct WebDAVClient: Sendable {
         _ = try await perform("PUT", remotePath: remotePath, file: local, contentType: "audio/mp4", progress: progress, extraHeaders: onlyIfMissing ? ["If-None-Match": "*"] : [:]) { (200...299).contains($0) }
         verifying?()
         return try await verify(remotePath: remotePath, expected: size)
+    }
+    func confirmPodcastArtwork(_ digest: String, store: CoverArtworkStore) async throws {
+        let fullPath = DeliverySettings.join(settings.remoteFolder, "artwork-" + digest + ".jpg")
+        let fullURL = try remoteURL(fullPath)
+        let response = try await transport.read(fullURL, headers: recoveryHeaders(fullURL), maximumBytes: Int64(CoverArtwork.maximumStoredBytes))
+        let art: CoverArtwork
+        if response.status == 200 && Files.hash(response.body) == digest {
+            art = try CoverArtwork(preparedData: response.body)
+        } else {
+            guard response.status == 404 || response.status == 200 else { throw DeliveryError.classify(response.status) }
+            art = try store.load(digest)
+            try await uploadData(art.data, remotePath: fullPath, contentType: "image/jpeg")
+            let actual = try await transport.read(fullURL, headers: recoveryHeaders(fullURL), maximumBytes: Int64(CoverArtwork.maximumStoredBytes))
+            guard actual.status == 200, Files.hash(actual.body) == digest else { throw DeliveryError.retryable("Podcast cover upload could not be confirmed. The previous feed is preserved.") }
+        }
+        let thumbnail = try art.thumbnailData()
+        let smallPath = DeliverySettings.join(settings.remoteFolder, "artwork-" + digest + "-rss.jpg")
+        let smallURL = try remoteURL(smallPath)
+        let small = try await transport.read(smallURL, headers: recoveryHeaders(smallURL), maximumBytes: 128 * 1024)
+        if small.status != 200 || small.body != thumbnail {
+            guard small.status == 404 || small.status == 200 else { throw DeliveryError.classify(small.status) }
+            try await uploadData(thumbnail, remotePath: smallPath, contentType: "image/jpeg")
+            let actual = try await transport.read(smallURL, headers: recoveryHeaders(smallURL), maximumBytes: 128 * 1024)
+            guard actual.status == 200, actual.body == thumbnail else { throw DeliveryError.retryable("Podcast cover upload could not be confirmed. The previous feed is preserved.") }
+        }
+        try Task.checkCancellation()
     }
     public func uploadData(_ data: Data, remotePath: String, contentType: String = "application/rss+xml", ifMatch: String? = nil, onlyIfMissing: Bool = false) async throws {
         var preconditions: [String: String] = [:]
@@ -993,7 +1028,7 @@ extension FixtureCoordinator {
             if ledger.destinationURL != settings.feedFolderURL {
                 summary.verificationFailedIDs = []; summary.feedError = nil
             }
-            let candidate = (try? RemoteChannel(settings: settings)).flatMap { try? RSS.renderReconciledRemote(episodes, channel: $0, preserved: ledger.preservedServerItems ?? []) }
+            let candidate = (try? RemoteChannel(settings: settings, previousFeed: ledger.reconciledFeed)).flatMap { try? RSS.renderReconciledRemote(episodes, channel: $0, preserved: ledger.preservedServerItems ?? []) }
             if let candidate, ledger.lastUploadedFeedHash != Files.hash(candidate) { summary.remoteFeedPending = true }
             let identity = try? settings.publicationHash()
             summary.publicationSettingsHash = identity
@@ -1025,7 +1060,7 @@ extension FixtureCoordinator {
             case nil: break
             }
         }
-        if episodes.isEmpty && ledger.reconciledFeed == nil && (ledger.preservedServerItems ?? []).isEmpty && ledger.pendingRemoteDeletes.isEmpty {
+        if episodes.isEmpty && settings?.podcastCoverDigest == nil && ledger.reconciledFeed == nil && (ledger.preservedServerItems ?? []).isEmpty && ledger.pendingRemoteDeletes.isEmpty {
             summary.remoteFeedPending = false
         }
         return summary
@@ -1049,6 +1084,7 @@ extension FixtureCoordinator {
         min(60 * pow(2, Double(max(0, attempts - 1))), 1800)
     }
     private static func deliveryNotice(_ error: any Error) -> String {
+        if let failure = error as? ArtworkError { return failure.localizedDescription }
         if let failure = error as? DeliveryError { return failure.localizedDescription }
         return (error as? RelayError)?.localizedDescription ?? "Delivery failed; saved progress is retained."
     }
@@ -1075,7 +1111,8 @@ extension FixtureCoordinator {
     public func deliverPending(storage: ManagedSpeechStorage, settings: DeliverySettings,
                                credential: any DeliveryCredentialStore, transport: any DeliveryTransport,
                                force: Bool = false, reconcileNow: Bool = false, now: Date = Date(), debugLog: DeliveryDebugLog? = nil,
-                               progress: (@Sendable (UploadProgress) -> Void)? = nil) async throws -> DeliveryResult {
+                               progress: (@Sendable (UploadProgress) -> Void)? = nil,
+                               artworkStore: CoverArtworkStore? = nil) async throws -> DeliveryResult {
         try Task.checkCancellation()
         try storage.validate()
         let settings = try settings.normalized()
@@ -1126,7 +1163,7 @@ extension FixtureCoordinator {
         var ledgerChanged = Self.reconcileRemoteDeletes(episodes, settings: settings, ledger: &ledger)
         let published = episodes.filter { $0.stage == .published }
         if !ledger.remoteFeedPending,
-           let candidate = try? RSS.renderReconciledRemote(published, channel: RemoteChannel(settings: settings), preserved: ledger.preservedServerItems ?? []),
+           let candidate = try? RSS.renderReconciledRemote(published, channel: RemoteChannel(settings: settings, previousFeed: ledger.reconciledFeed), preserved: ledger.preservedServerItems ?? []),
            ledger.lastUploadedFeedHash != Files.hash(candidate) {
             ledger.remoteFeedPending = true
             ledgerChanged = true
@@ -1139,7 +1176,7 @@ extension FixtureCoordinator {
                 || delivery.remotePath != settings.remoteMediaPath(episode.id)) { return true }
             return delivery.status == .pending && (force || delivery.nextAttemptAt == nil || delivery.nextAttemptAt! <= now)
         }
-        let hasFeedContent = !published.isEmpty || ledger.reconciledFeed != nil
+        let hasFeedContent = settings.podcastCoverDigest != nil || !published.isEmpty || ledger.reconciledFeed != nil
             || !(ledger.preservedServerItems ?? []).isEmpty || !ledger.pendingRemoteDeletes.isEmpty
         let feedPending = hasFeedContent && (ledger.remoteFeedPending || ledger.lastUploadedFeedHash == nil)
         let feedDue = feedPending && (force || ledger.feedAttempts == 0 || ledger.lastAttemptAt == nil
@@ -1313,7 +1350,7 @@ extension FixtureCoordinator {
         if reconciled { try ledger.save(stateRoot: root) }
         // Metadata-only changes (including recovered Reading List dates) need a
         // fresh feed even when every audio copy was already confirmed.
-        if let candidate = try? RSS.renderReconciledRemote(store.published(), channel: RemoteChannel(settings: settings), preserved: ledger.preservedServerItems ?? []),
+        if let candidate = try? RSS.renderReconciledRemote(store.published(), channel: RemoteChannel(settings: settings, previousFeed: ledger.reconciledFeed), preserved: ledger.preservedServerItems ?? []),
            ledger.lastUploadedFeedHash != Files.hash(candidate), !ledger.remoteFeedPending {
             ledger.remoteFeedPending = true
             try ledger.save(stateRoot: root)
@@ -1325,7 +1362,11 @@ extension FixtureCoordinator {
                 || now >= ledger.lastAttemptAt! + Self.deliveryBackoff(ledger.feedAttempts)
             if feedDue {
                 do {
-                    let channel = try RemoteChannel(settings: settings)
+                    if let digest = settings.podcastCoverDigest {
+                        try await client.confirmPodcastArtwork(digest, store: artworkStore ?? .application("VoiceRelay"))
+                    }
+                    try Task.checkCancellation()
+                    let channel = try RemoteChannel(settings: settings, previousFeed: ledger.reconciledFeed)
                     let published = try store.published()
                     let feed = try RSS.renderReconciledRemote(published, channel: channel, preserved: ledger.preservedServerItems ?? [])
                     let etag = ledger.reconciledFeedETag.flatMap { Self.strongETag($0) ? $0 : nil }
