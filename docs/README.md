@@ -9,6 +9,8 @@ stage records are reference evidence, not additional operating instructions.
 | --- | --- |
 | [Architecture](ARCHITECTURE.md) | Current processing, ownership, worker/audio/recovery contracts |
 | [Current status](IMPLEMENTATION_STATUS.md) | Accepted baseline, latest automated evidence and open operator gates |
+| [Development foundation checklist](DEVELOPMENT_FOUNDATION_CHECKLIST.md) | Staged setup, validation/CI, regression, organization, formatting and maintenance work |
+| [Next-agent handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) | Ready-to-paste implementation request for the foundation stages |
 | [Remaining work](IMPLEMENTATION_PLAN.md) | Current roadmap, proposed features, acceptance and distribution/package-release work |
 | [Cover art and navigation stages](COVER_ART_AND_NAVIGATION_PLAN.md) | Implemented export/feed covers, outlines, heading dedup and narration controls; evidence and acceptance gates |
 | [Operator checklist](OPERATOR_VALIDATION.md) | Single current manual validation list, separated by app |

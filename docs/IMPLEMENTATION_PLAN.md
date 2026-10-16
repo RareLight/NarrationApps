@@ -27,6 +27,16 @@ controls and bounded spoken-form corrections. CA0–CA3 and DN1–DN3 engineerin
 operator cover/navigation/narration checks L17–L19 and V17–V19 remain open. SF1
 retains the accepted pronunciation baseline without speculative new rules.
 
+## Development foundation
+
+The coordinated source checkpoint is complete. The detailed
+[development foundation checklist](DEVELOPMENT_FOUNDATION_CHECKLIST.md) covers
+reproducible setup, tiered validation/CI readiness, regression contracts, focused
+app-file cleanup, formatting/documentation and dependency/release maintenance.
+Use its [agent handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) for that work.
+These local engineering stages can proceed independently of outstanding product
+quality/service acceptance; deferred product features are not added to their scope.
+
 ## Next work
 
 1. Complete the [consolidated operator checklist](OPERATOR_VALIDATION.md): GUI,

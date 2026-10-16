@@ -49,7 +49,8 @@ their clone locations and the verified toolchain. The root revision is the Git c
 containing that manifest; it is not embedded in itself. Libro and VoiceRelay retain
 independent histories and are excluded from root Git, so save/restore each app at its
 recorded revision separately. Branch names describe development lines; commit IDs
-identify the baseline. Model assets, private settings and generated evidence remain
+identify the baseline. The local annotated tag `native-unification-2026-10-16`
+marks the coordinated checkpoint in all three repositories. Model assets, private settings and generated evidence remain
 outside versioned source. The root repository currently has no configured remote;
 these are local commits, not a remote backup or publication.
 
@@ -87,6 +88,13 @@ It reuses the same planner, dictionary, supervised native engine and audio pipel
 No product CLI, Python runtime or external FFmpeg/ffprobe dependency is maintained.
 The fixture worker, speech worker, native-check harness and sample generator are
 unshipped engineering tools.
+
+## Next development stages
+
+The [development foundation checklist](docs/DEVELOPMENT_FOUNDATION_CHECKLIST.md)
+and [next-agent handoff](docs/AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) define the
+remaining setup, validation, CI, regression and maintainability work. The coordinated
+source baseline is committed; these additional engineering stages are not yet implemented.
 
 ## Documentation
 
