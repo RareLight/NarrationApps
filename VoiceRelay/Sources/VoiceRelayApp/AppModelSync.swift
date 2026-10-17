@@ -5,7 +5,8 @@ import VoiceRelayCore
 extension AppModel {
     var canSyncNow: Bool {
         !preview && !stopping && !syncBusy && !cancelling && !libraryReviewRequired
-            && !libraryMaintenanceBusy && !sourcePruningBusy && !audioMutationBusy && !runtimeBusy && !deliveryCredentialBusy
+            && !libraryMaintenanceBusy && !sourcePruningBusy && !audioMutationBusy && !runtimeBusy
+            && !deliveryCredentialBusy
     }
     /// One manual round trip, without changing persisted automation preferences.
     func syncNow() {
@@ -50,7 +51,10 @@ extension AppModel {
     }
     var syncProgressLabel: String {
         if syncPhase == .reconciling || syncPhase == .publishing,
-           let transfer = uploadProgress.values.first(where: { $0.phase.active }) { return transfer.phase.title }
+            let transfer = uploadProgress.values.first(where: { $0.phase.active })
+        {
+            return transfer.phase.title
+        }
         return syncPhase?.rawValue ?? "Syncing…"
     }
     /// Measured generation or current-file transfer progress, never an overall estimate.
