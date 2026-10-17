@@ -38,7 +38,10 @@ Do not copy `.build`, DerivedData or SwiftPM workspace state between checkouts.
 ## Checks and ownership
 
 `bash scripts/check.sh` remains the full isolated fixture gate. Individual shared
-and app scripts remain supported. Source/model preparation, GUI, protected Safari,
+and app scripts remain supported. Choose quick/full/native/release via
+[development gates](docs/DEVELOPMENT.md); see [CI activation](docs/CI.md) and
+[canonical regression ownership](docs/REGRESSION_CORPUS.md).
+Source/model preparation, GUI, protected Safari,
 Keychain, network services and signing accounts are not implicit test setup.
 The explicit foundation implementation request authorizes automated local checks
 for that session; otherwise follow the recorded app testing mode and confirm an

@@ -46,7 +46,6 @@ enum DevelopmentTests {
         try rejects { _ = try Options(["health", "--root"]) }
         try rejects { try setup(fixture, cloneApps: false, prepare: false, resolve: false) }
 
-        // Real tiny independent Git checkouts, no app data or shared build caches.
         let seed = fixture.appendingPathComponent("seed")
         try FileManager.default.createDirectory(at: seed, withIntermediateDirectories: true)
         func checkedGit(_ directory: URL, _ arguments: [String]) throws -> String {
@@ -129,6 +128,54 @@ enum DevelopmentTests {
         try rejects { try setup(absent, cloneApps: true, prepare: false, resolve: false, runner: runner) }
         try expect(!FileManager.default.fileExists(atPath: absent.appendingPathComponent("Libro").path), "unavailable commit never installs partial app")
         try expect(try sourceState(absent, component: baseline.components[0]).revision == nil, "missing app state explicit")
+        for arguments in [
+            ["check", "--tier", "typo"], ["check", "--filter", "foo"],
+            ["check", "--tier", "full", "--scope", "shared"],
+            ["check", "--tier", "quick", "--scope", "unknown"],
+            ["check", "--tier", "release"], ["check", "--adhoc"],
+            ["check", "--workspace", "private"], ["check", "--tier", "--scope"],
+        ] { try rejects { _ = try Options(arguments) } }
+        let evidence = fixture.appendingPathComponent("evidence")
+        let quick = try Options(["check", "--tier", "quick", "--scope", "shared", "--filter", "SpokenFormTests"])
+        let plan = validationPlan(quick, evidence: evidence)
+        try expect(plan.map(\.name) == ["static", "tooling", "fixture-worker", "shared-tests"], "quick selects only named scope")
+        try expect(plan.last!.command.arguments.suffix(2) == ["--filter", "SpokenFormTests"], "filter passed without shell interpretation")
+        try expect(plan.allSatisfy { !$0.command.arguments.contains("--resolve") }, "fixture gates do not acquire sources")
+        let full = validationPlan(try Options(["check"]), evidence: evidence)
+        try expect(full.count == 1 && full[0].name == "full-fixtures", "full delegates once to existing checks")
+        let native = validationPlan(try Options(["check", "--tier", "native"]), evidence: evidence)
+        try expect(native.isEmpty, "unconfigured native gate unavailable, not passed")
+        let release = validationPlan(try Options(["check", "--tier", "release", "--adhoc"]), evidence: evidence)
+        try expect(release.filter { $0.kind == "archive" }.count == 2, "individual archives")
+        try expect(release.filter { $0.kind == "build" }.count == 2, "both workspace configurations")
+        try expect(!release.filter { $0.kind == "archive" }.contains { $0.command.arguments.contains("Build Both Apps") }, "combined scheme never archived")
+        var records: [StepRecord] = []
+        var executions = 0
+        let failure = try executePlan(plan, runner: { _ in
+            executions += 1
+            return Result(status: executions == 2 ? 9 : 0, output: "synthetic output")
+        }, record: { records.append($0) })
+        try expect(failure == "failed" && executions == 2, "failure propagates and stops dependent work")
+        try expect(records.map(\.outcome) == ["passed", "failed", "not-run", "not-run"], "accurate skipped dependency records")
+        try expect(records[1].exitCode == 9, "actual exit preserved")
+        records = []
+        let noTests = try executePlan([plan.last!], runner: { _ in Result(status: 0, output: "warning: No matching test cases were run") },
+            record: { records.append($0) })
+        try expect(noTests == "failed" && records[0].exitCode == 1, "empty filter cannot pass")
+        records = []
+        _ = try executePlan([plan.last!], runner: { _ in Result(status: 0, output: "Executed 3 tests, with 1 test skipped and 0 failures") },
+            record: { records.append($0) })
+        try expect(records[0].observations.count == 1, "test skip observations retained")
+        var selected = try Options(["check", "--tier", "quick"])
+        selected.root = fixture
+        let exitCode = try validate(selected, runner: { _ in Result(status: 7, output: "synthetic failure") })
+        try expect(exitCode == 1, "summary failing exit")
+        let runs = try FileManager.default.contentsOfDirectory(at: fixture.appendingPathComponent(".local/validation"), includingPropertiesForKeys: nil)
+        let report = try JSONSerialization.jsonObject(with: Data(contentsOf: runs[0].appendingPathComponent("summary.json"))) as! [String: Any]
+        try expect(report["outcome"] as? String == "failed" && report["tier"] as? String == "quick", "machine summary reflects selected failed gate")
+        let reportSteps = report["steps"] as! [[String: Any]]
+        try expect(reportSteps[1]["outcome"] as? String == "not-run", "summary never greens unrun steps")
+        try expect(report["operatorAcceptance"] as? String == "not-performed", "operator acceptance remains separate")
         print("Development tooling: \(count) assertions passed; disposable sibling, no network/models/apps.")
     }
 }

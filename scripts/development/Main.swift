@@ -11,6 +11,8 @@ enum DevelopmentTool {
                 exit(try health(options.root, strict: options.strict) ? 0 : 1)
             case "setup":
                 try setup(options.root, cloneApps: options.cloneApps, prepare: options.prepare, resolve: options.resolve)
+            case "check":
+                exit(try validate(options))
             default:
                 throw ToolError("Unknown command.")
             }
@@ -29,25 +31,53 @@ struct Options {
     var cloneApps = false
     var prepare = false
     var resolve = false
+    var tier = "full"
+    var scope: String?
+    var filter: String?
+    var adhoc = false
+    var workspace: String?
+    var libroWorker: String?
+    var voiceRelayWorker: String?
 
     init(_ arguments: [String]) throws {
-        guard let first = arguments.first, ["health", "setup"].contains(first) else {
-            throw ToolError("Usage: bash scripts/develop.sh health [--strict-baseline] | setup [--clone-apps] [--prepare-dependencies] [--resolve]")
+        guard let first = arguments.first, ["health", "setup", "check"].contains(first) else {
+            throw ToolError("Usage: bash scripts/develop.sh health | setup <actions> | check [--tier quick|full|native|release]. See docs/DEVELOPMENT.md.")
         }
         command = first
         var remaining = Array(arguments.dropFirst())
         while !remaining.isEmpty {
             let argument = remaining.removeFirst()
+            func value() throws -> String {
+                guard let next = remaining.first, !next.hasPrefix("--"), !next.isEmpty else {
+                    throw ToolError("\(argument) requires a value.")
+                }
+                return remaining.removeFirst()
+            }
             switch argument {
             case "--root":
-                guard !remaining.isEmpty else { throw ToolError("--root requires a path.") }
-                root = URL(fileURLWithPath: remaining.removeFirst()).standardizedFileURL
+                root = URL(fileURLWithPath: try value()).standardizedFileURL
             case "--strict-baseline" where command == "health": strict = true
             case "--clone-apps" where command == "setup": cloneApps = true
             case "--prepare-dependencies" where command == "setup": prepare = true
             case "--resolve" where command == "setup": resolve = true
+            case "--tier" where command == "check": tier = try value()
+            case "--scope" where command == "check": scope = try value()
+            case "--filter" where command == "check": filter = try value()
+            case "--adhoc" where command == "check": adhoc = true
+            case "--workspace" where command == "check": workspace = try value()
+            case "--libro-worker" where command == "check": libroWorker = try value()
+            case "--voicerelay-worker" where command == "check": voiceRelayWorker = try value()
             default: throw ToolError("Unknown or inapplicable argument: \(argument)")
             }
+        }
+        guard ["quick", "full", "native", "release"].contains(tier),
+            scope == nil || ["presentation", "shared", "libro", "voicerelay"].contains(scope!),
+            scope == nil || tier == "quick", filter == nil || scope != nil,
+            !adhoc || tier == "release",
+            (workspace == nil && libroWorker == nil && voiceRelayWorker == nil) || tier == "native"
+        else { throw ToolError("Invalid tier/scope/filter/signing/native option combination; see docs/DEVELOPMENT.md.") }
+        if command == "check", tier == "release", !adhoc {
+            throw ToolError("Local release requires --adhoc. Normal account/distribution signing remains operator-owned.")
         }
     }
 }

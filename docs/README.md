@@ -8,6 +8,10 @@ stage records are reference evidence, not additional operating instructions.
 | Document | Purpose |
 | --- | --- |
 | [Architecture](ARCHITECTURE.md) | Current processing, ownership, worker/audio/recovery contracts |
+| [Contributing](../CONTRIBUTING.md) | Repository ownership and safe native setup |
+| [Development gates](DEVELOPMENT.md) | Quick/full/native/release commands and bounded evidence |
+| [CI activation](CI.md) | Inactive self-hosted template, local entry points and external prerequisites |
+| [Regression corpus](REGRESSION_CORPUS.md) | Canonical synthetic fixtures and mandatory contracts |
 | [Current status](IMPLEMENTATION_STATUS.md) | Accepted baseline, latest automated evidence and open operator gates |
 | [Development foundation checklist](DEVELOPMENT_FOUNDATION_CHECKLIST.md) | Staged setup, validation/CI, regression, organization, formatting and maintenance work |
 | [Next-agent handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) | Ready-to-paste implementation request for the foundation stages |

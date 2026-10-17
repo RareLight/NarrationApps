@@ -1,7 +1,9 @@
 # Development foundation implementation checklist
 
 Updated October 16, 2026. This plan turns the organization/maintenance assessment
-into bounded engineering stages. DF0 and DF1 are complete; DF2–DF8 are in progress.
+into bounded engineering stages. DF0/DF1/DF4 are complete; DF2/DF3 local tooling
+is implemented with Xcode Test-action verification and external activation tracked
+below. DF5–DF8 are in progress.
 It supplements the [product roadmap](IMPLEMENTATION_PLAN.md), not a request to
 implement deferred product features. The ready-to-paste
 [agent handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) defines execution scope.
@@ -102,81 +104,103 @@ checkpoint availability is explicitly unverified; setup refuses unavailable comm
 
 ## DF2 — Tiered, repeatable validation entry points
 
-- [ ] Add explicit quick/full/native/release selections around existing checks;
+- [x] Add explicit quick/full/native/release selections around existing checks;
   keep `bash scripts/check.sh` backward-compatible as the full isolated fixture gate.
-- [ ] Quick: layout/docs/configuration and affected package/app tests, with documented
+- [x] Quick: layout/docs/configuration and affected package/app tests, with documented
   filtering. Do not label a filtered run a full-suite pass or silently skip failures.
-- [ ] Full: current AppPresentation/shared/LibroCore and VoiceRelay suites plus
+- [x] Full: current AppPresentation/shared/LibroCore and VoiceRelay suites plus
   dependency preparation, shell/plist and packaging checks. Avoid duplicate runs.
-- [ ] Native: opt-in prepared-model offline helpers, frontend conformance,
+- [x] Native: opt-in prepared-model offline helpers, frontend conformance,
   cancellation/reaping, admission arbitration and memory safety. Missing assets
   should clearly report unavailable/skip, not claim native acceptance passed.
-- [ ] Release: both Debug/Release workspace builds; individual app Archives for
+- [x] Release: both Debug/Release workspace builds; individual app Archives for
   archive-specific behavior; embedded worker/Metal/notices/codec checks and signature
   verification. Keep Build Both Apps build-only. Preserve normal signing settings;
   separate ad-hoc engineering evidence from account/distribution acceptance.
 - [ ] Add Xcode test plans/dedicated test schemes where useful and actually supported.
   Verify each Test action and test target rather than assuming auto-generated package
   schemes can run tests. Reuse current tests; don't create duplicate test bodies.
-- [ ] Emit bounded ignored logs and a machine-readable summary with source revisions,
+- [x] Emit bounded ignored logs and a machine-readable summary with source revisions,
   dirty state, toolchain, tier, outcomes/skips and evidence paths. Distinguish tests,
   packaged runs and operator acceptance. Default diagnostics must omit private text.
-- [ ] Test command argument handling, failure propagation, selective execution and
+- [x] Test command argument handling, failure propagation, selective execution and
   summary accuracy with fake runners/disposable fixtures. No real app launches.
 
 Acceptance: a developer can choose the narrowest suitable gate; full validation
 preserves existing coverage; failures and unavailable native gates cannot appear
 green. Xcode plans, if added, must work in the root workspace.
 
+DF2 local evidence: quick/static/tooling and the final full gate pass. The full
+run is `.local/validation/full-0B80037E-8A69-4A74-B131-5439D799CD6E/summary.json`.
+It retains 229 shared XCTest (three explicit opt-in skips), one shared Swift
+Testing, two presentation, 18 LibroCore, 303 VoiceRelay core and 141 app cases.
+Two earlier harness attempts failed on nested sandbox/bookmark-entitlement
+behavior; product assertions were not weakened. Existing Xcode Test actions are
+being exercised with DF5 builds; no duplicate test bodies/plans were introduced.
+Native/release configuration is not yet a claim those tiers were run.
+
 ## DF3 — Continuous integration readiness
 
 - [ ] Determine a suitable provider and current macOS/arm64/Xcode availability using
   official documentation. The root repository has no configured remote; do not
   invent its URL or assume hosted runners support macOS 27 frameworks or GPU/model work.
-- [ ] Prepare source-controlled CI definitions that invoke DF2 entry points rather
+- [x] Prepare source-controlled CI definitions that invoke DF2 entry points rather
   than reimplementing their logic. Check out app revisions from the manifest.
-- [ ] Run fast checks for ordinary changes and broader fixtures/builds for shared
+- [x] Run fast checks for ordinary changes and broader fixtures/builds for shared
   API, package/dependency, worker, persistence or project changes. Offer explicit
   manual full/release runs; do not add a recurring app automation for CI.
-- [ ] Separate source dependency acquisition from offline tests. Use no live Safari,
+- [x] Separate source dependency acquisition from offline tests. Use no live Safari,
   Keychain, WebDAV, private corpus, production feed or automatic model downloads.
-- [ ] Keep heavyweight native inference on a compatible, explicitly enabled machine;
+- [x] Keep heavyweight native inference on a compatible, explicitly enabled machine;
   serialize GPU work and avoid overlapping timing-sensitive suites with heavy builds.
-- [ ] If caching is used, key it to toolchain/SDK/architecture/paths/locks/patches;
+- [x] If caching is used, key it to toolchain/SDK/architecture/paths/locks/patches;
   never transplant DerivedData or SwiftPM workspace state into unrelated checkouts.
-- [ ] Validate workflow syntax and local commands. Report provider activation,
+- [x] Validate workflow syntax and local commands. Report provider activation,
   credentials, billing or hardware access as operator steps until authorized.
 
 Acceptance: local CI-equivalent gates are reproducible. Workflow configuration is
 reviewable; actual remote CI success is claimed only after a real authorized run.
 Unavailable external activation must not prevent independent later local stages.
 
+DF3: an inactive `.devin/ci/github-actions.yml` template targets a dedicated
+self-hosted arm64 machine, not an assumed hosted image. YAML parsed locally;
+the local full equivalent passes. Current official provider/action review awaits
+network permission. Root/app remote availability, credentials, runner enrollment,
+cost approval, activation and actual remote success remain external. No cache,
+native-model job, untrusted-PR self-hosted execution or scheduled app automation.
+
 ## DF4 — Canonical regression corpus and architecture contracts
 
-- [ ] Inventory existing shared/app fixtures and tests first; create a small catalog
+- [x] Inventory existing shared/app fixtures and tests first; create a small catalog
   referencing them by purpose. Move/delete duplicates only after replacement coverage
   passes. Preserve licenses and the distinction between authored and generated data.
-- [ ] Cover plaintext/legacy encodings/override, Markdown, rich text/HTML, native PDF,
+- [x] Cover plaintext/legacy encodings/override, Markdown, rich text/HTML, native PDF,
   OCR, DRM-free EPUB, images/caption dedup, authored navigation and cover metadata.
-- [ ] Retain expected spoken text, omissions and source mappings for normalization,
+- [x] Retain expected spoken text, omissions and source mappings for normalization,
   pronunciation overrides, letter A, punctuation, quantities, regional G2P and
   boundary/subtoken failures. Do not silently accept regenerated expected values.
-- [ ] Keep important contracts mandatory: no prose truncation, supported phoneme
+- [x] Keep important contracts mandatory: no prose truncation, supported phoneme
   vocabulary/token limits, private helper-only MLX, independent AppPresentation,
   source-mapped omissions, original audio levels and atomic final-output preservation.
-- [ ] Maintain compatibility fixtures for worker messages/prepared plans, retained
+- [x] Maintain compatibility fixtures for worker messages/prepared plans, retained
   metadata/settings/library records and pronunciation persistence. Change versions
   only for a justified contract change, with old/new tests.
-- [ ] Reuse bounded synthetic PDF/Markdown mixed jobs for memory/cancellation tests.
+- [x] Reuse bounded synthetic PDF/Markdown mixed jobs for memory/cancellation tests.
   Separate host/helper measurements, worker cleanup and hard safety-limit assertions
   from throughput trends. Performance trends need a fixed-machine baseline and
   recorded hardware/toolchain; avoid fragile elapsed-time thresholds in generic CI.
-- [ ] Keep real listening, OCR/caption quality and private-document acceptance in the
+- [x] Keep real listening, OCR/caption quality and private-document acceptance in the
   existing operator checklist. Do not add private books or user recordings to Git.
 
 Acceptance: fixtures have clear ownership and reproducible expectations; existing
 coverage remains or improves. Run affected suites and offline native gates when
 acoustic/preparation/IPC/audio behavior is touched; no new engine policy is authorized.
+
+DF4: [corpus inventory](REGRESSION_CORPUS.md) names existing canonical expectations;
+no duplicates/golden data were removed or regenerated. Parsed architecture gates
+enforce independent presentation, transitive helper-only MLX and six owned locks
+without forcing unrelated dependency graphs identical. Full fixtures pass above;
+no acoustic/preparation/IPC/audio behavior was changed by this stage.
 
 ## DF5 — Focused app-file decomposition
 

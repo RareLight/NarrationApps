@@ -67,7 +67,9 @@ Xcode; link only the products needed by each target. This is Swift Package Manag
 source integration, not a global library installation.
 
 ```sh
-bash swift-packages/scripts/prepare-dependencies.sh
+bash scripts/develop.sh health
+# Only with explicit network authorization:
+bash scripts/develop.sh setup --prepare-dependencies
 bash scripts/check.sh
 ```
 
@@ -94,7 +96,10 @@ unshipped engineering tools.
 The [development foundation checklist](docs/DEVELOPMENT_FOUNDATION_CHECKLIST.md)
 and [next-agent handoff](docs/AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) define the
 remaining setup, validation, CI, regression and maintainability work. The coordinated
-source baseline is committed; these additional engineering stages are not yet implemented.
+source baseline is committed. Manifest-aware health/setup, tiered validation,
+CI readiness and canonical regression ownership are implemented; see
+[contributing](CONTRIBUTING.md) and [development gates](docs/DEVELOPMENT.md).
+Remote CI activation and product/operator acceptance remain separate.
 
 ## Documentation
 

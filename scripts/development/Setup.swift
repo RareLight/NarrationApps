@@ -22,8 +22,6 @@ func setup(_ root: URL, cloneApps: Bool, prepare: Bool, resolve: Bool, runner: R
                 print("PRESERVED \(component.name): path exists; no fetch, checkout or overwrite.")
                 continue
             }
-            // Clone into newly owned staging. A failed/unavailable local-only checkpoint
-            // never occupies the requested app path or changes an existing checkout.
             let stage = root.appendingPathComponent(".local/setup-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: stage) }

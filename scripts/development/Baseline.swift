@@ -89,7 +89,6 @@ func capture(_ command: Command) throws -> Result {
     process.standardOutput = pipe
     process.standardError = pipe
     try process.run()
-    // Drain before waiting, including large compiler diagnostics.
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
     return Result(status: process.terminationStatus, output: String(decoding: data, as: UTF8.self))

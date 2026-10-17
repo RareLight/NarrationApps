@@ -1,0 +1,34 @@
+name: NarrationApps Foundation
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: Local gate to run
+        type: choice
+        options: [quick, full, release]
+        default: full
+permissions:
+  contents: read
+concurrency:
+  group: narration-foundation
+  cancel-in-progress: false
+jobs:
+  engineering:
+    if: vars.NARRATION_FOUNDATION_CI_ENABLED == 'true'
+    runs-on: [self-hosted, macOS, ARM64, narration-xcode-27-1]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Acquire recorded app sources and pinned dependencies
+        run: bash scripts/develop.sh setup --clone-apps --resolve
+      - name: Validate source checkpoint
+        run: bash scripts/develop.sh health --strict-baseline
+      - name: Run shared entry points
+        env:
+          REQUESTED_TIER: ${{ inputs.tier }}
+          BEFORE_REVISION: ${{ github.event.before }}
+        run: bash scripts/ci.sh

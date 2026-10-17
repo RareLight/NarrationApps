@@ -1,5 +1,4 @@
 #!/bin/bash
-# Native engineering tooling, not a product CLI. Compilation never changes a checkout.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 tool="$(mktemp -d "${TMPDIR:-/tmp}/narration-development.XXXXXX")"
