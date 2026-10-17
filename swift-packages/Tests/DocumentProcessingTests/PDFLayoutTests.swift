@@ -95,6 +95,52 @@ extension PDFLayoutTests {
 }
 
 extension PDFLayoutTests {
+    func testPrintedWordWrapsUseNativeLinesAndPreserveThePDFAndSource() async throws {
+        let data = NSMutableData()
+        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let context = try XCTUnwrap(CGContext(consumer: XCTUnwrap(CGDataConsumer(data: data)), mediaBox: &box, nil))
+        let lines = ["There is a particu-", "larly comfortable hotel in this town.",
+                     "Readers describe an extraor‐", "dinary arrival near the river."]
+        context.beginPDFPage(nil)
+        for (index, line) in lines.enumerated() {
+            context.textPosition = CGPoint(x: 50, y: 700 - index * 18)
+            CTLineDraw(CTLineCreateWithAttributedString(NSAttributedString(string: line, attributes: [
+                NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName("Helvetica" as CFString, 12, nil)
+            ])), context)
+        }
+        context.endPDFPage(); context.closePDF()
+        let bytes = data as Data
+        let doc = try await PDFDocumentExtractor.extract(data: bytes, recognize: { _ in
+            XCTFail("Printed word wraps must use digital text without OCR"); return []
+        })
+        let original = doc
+        XCTAssertEqual(doc.blocks.count, 1)
+        XCTAssertEqual(doc.blocks[0].text, PDFDocument(data: bytes)?.page(at: 0)?.string)
+        for model in SpeechModel.allCases {
+            let settings = SpeechSettings(model: model)
+            let before = try NarrationPlanner.prepareForSpeech(doc, settings: settings)
+            XCTAssertTrue(before.chunks[0].text.contains("particu- larly"))
+            let options = NarrationOptions(experimentalPDFWordJoining: true)
+            let plan = try NarrationPlanner.prepareForSpeech(doc, settings: settings, options: options)
+            XCTAssertEqual(plan.chunks.map(\.text).joined(separator: " "),
+                "There is a particularly comfortable hotel in this town. Readers describe an extraordinary arrival near the river.")
+            let cuts = plan.chunks.flatMap { $0.sourceMappings ?? [] }.filter { $0.rule == "pdf-word-wrap-readium-1" }
+            XCTAssertEqual(cuts.count, 2)
+            for cut in cuts {
+                let source = try XCTUnwrap(cut.source)
+                let removed = (doc.blocks[source.blockIndex].text as NSString).substring(with:
+                    NSRange(location: source.location, length: source.length))
+                XCTAssertTrue(removed.hasPrefix("-") || removed.hasPrefix("‐"))
+                XCTAssertEqual(cut.spokenLength, 0)
+            }
+            XCTAssertEqual(try NarrationPlanner.prepare(doc, settings: settings, options: options).chunks.map(\.text),
+                plan.chunks.map(\.text))
+            XCTAssertEqual(try JSONDecoder().decode(NarrationPlan.self, from: JSONEncoder().encode(plan)), plan)
+        }
+        XCTAssertEqual(doc, original)
+        XCTAssertEqual(data as Data, bytes)
+    }
+
     func testActualPDFKitPageEdgesProveASingleColumnContinuation() async throws {
         let data = NSMutableData()
         var box = CGRect(x: 0, y: 0, width: 612, height: 792)

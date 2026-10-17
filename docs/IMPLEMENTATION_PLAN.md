@@ -41,6 +41,13 @@ product features were not added to this scope.
 
 ## Next work
 
+The authorized Readium-style PDF word-joining experiment is implemented in shared
+NarrationCore/NarrationUI, off by default. Current evidence is in
+[implementation status](IMPLEMENTATION_STATUS.md); actual-document/compound/listening
+acceptance is operator B07, alongside the existing B06 baseline flow checks.
+Libro's progressive preview/layout follow-up is implemented; first-page latency,
+live layout and cancellation/reopening acceptance are operator L20.
+
 1. Complete the [consolidated operator checklist](OPERATOR_VALIDATION.md): GUI,
    actual private PDF/Markdown freeze reproduction, final samples/narration,
    OCR/caption quality, lifecycle and cross-app waiting. Live VoiceRelay Safari,

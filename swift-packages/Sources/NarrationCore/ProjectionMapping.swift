@@ -141,11 +141,11 @@ struct MappedProjection {
         guard result.mappings.count <= 100_000, result.length <= ns.length * 8 + 256 else { throw NarrationError.invalidInput("Spoken-form mapping or expansion budget exceeded. No text was truncated.") }
         return result
     }
-    func joining(_ next: Self) throws -> Self {
+    func joining(_ next: Self, directly: Bool = false) throws -> Self {
         var result = self
         // A discretionary word split needs no invented separator; its explicit
         // soft hyphen is subsequently removed by the mapped spoken-text rule.
-        if !result.text.hasSuffix("\u{ad}") { result.append(" ", source: nil, rule: "pdf-continuation-space-1") }
+        if !directly && !result.text.hasSuffix("\u{ad}") { result.append(" ", source: nil, rule: "pdf-continuation-space-1") }
         let offset = result.length
         result.text += next.text; result.length += next.length
         for mapping in next.mappings { result.appendMapping(mapping.shiftedSpoken(by: offset)) }
@@ -155,7 +155,7 @@ struct MappedProjection {
 
     /// Source spans from verified PDF lines become mapped spoken omissions.
     /// Scan compact runs once; a whitespace run may overlap a line separator.
-    func removingSourceRanges(_ ranges: [NSRange]) throws -> Self {
+    func removingSourceRanges(_ ranges: [NSRange], rule: String = "pdf-recurring-margin-1") throws -> Self {
         var edits: [ProjectionEdit] = [], cursor = 0
         for range in ranges {
             try Task.checkCancellation()
@@ -174,8 +174,8 @@ struct MappedProjection {
             if let start, let end, end > start {
                 let range = NSRange(location: start, length: end - start)
                 if let last = edits.last, NSMaxRange(last.range) >= start {
-                    edits[edits.count - 1] = .init(range: NSUnionRange(last.range, range), replacement: "", rule: "pdf-recurring-margin-1")
-                } else { edits.append(.init(range: range, replacement: "", rule: "pdf-recurring-margin-1")) }
+                    edits[edits.count - 1] = .init(range: NSUnionRange(last.range, range), replacement: "", rule: rule)
+                } else { edits.append(.init(range: range, replacement: "", rule: rule)) }
             }
         }
         var result = try applying(edits)

@@ -62,6 +62,15 @@ contending workers within the admission test; only one holds inference admission
 These measurements are not a throughput SLA or a hard whole-system allocation cap.
 Listening and actual OCR/caption quality remain operator-owned.
 
+The focused printed-word PDF experiment has an additional offline harness mode:
+after building `NarrationNativeCheck`, invoke it with `WORKER WORKSPACE OUTPUT_DIRECTORY
+pdf-word-joins`. Use the same isolated workspace/idle-app rules above, once for
+each packaged app helper. It generates a synthetic PDF, checks repaired text and
+source maps against an independent unwrapped control through both native engines,
+then renders/decodes finite nonempty WAVs at each engine's native rate. Its
+`pdf-word-joins.json` is engineering evidence, not listening acceptance. Routine
+`PDFWordJoiningTests` and `PDFLayoutTests` run without models in the full tier.
+
 ## Xcode and release evidence
 
 Existing LibroCoreTests and app schemes have explicit Test actions targeting real

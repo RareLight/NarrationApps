@@ -30,9 +30,11 @@ public enum PDFExtractionError: Error, LocalizedError, Sendable {
 public enum PDFDocumentExtractor {
     public static let version = "PDFKit/RecognizeDocuments-2/layout-1"
     public typealias Recognition = @Sendable (CGImage) async throws -> [ContentBlock]
+    public typealias Preview = @Sendable (PDFExtractionPreview) async throws -> Void
 
     public static func extract(data: Data, title: String? = nil, limits: PDFExtractionLimits = .init(),
                                forceOCR: Bool = false, recognize: Recognition? = nil,
+                               preview: Preview? = nil,
                                progress: @escaping @Sendable (DocumentPreparationProgress) -> Void = { _ in }) async throws -> SemanticDocument {
         try Task.checkCancellation()
         guard limits.maximumPages > 0, limits.maximumOCRPages >= 0, limits.maximumTextBytes > 0,
@@ -46,6 +48,18 @@ public enum PDFDocumentExtractor {
         let alternatives = PDFImageMetadata.alternatives(pdf)
         var blocks: [ContentBlock] = [], totalBytes = 0, ocrPages = 0, geometryLines = 0
         var geometrySkipped = Set<Int>()
+        // A small first prefix, then doubling prefixes: less than 3 full-document
+        // equivalents of provisional planning, with backpressure from the reader.
+        var nextPreviewPage = min(5, max(1, (pageCount + 19) / 20))
+        let metadataTitle = pdf.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String
+        let author = pdf.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String
+        func snapshot(outline: [DocumentOutlineEntry]? = nil, warnings: [String] = []) -> SemanticDocument {
+            .init(title: metadataTitle ?? title, author: author, blocks: blocks,
+                warnings: warnings + ["Complex PDF reading order should be reviewed."] +
+                    (ocrPages > 0 ? ["Includes OCR text; review recognition accuracy."] : []) +
+                    (geometrySkipped.isEmpty ? [] : ["Layout evidence unavailable for \(geometrySkipped.count) PDF pages; uncertain text is preserved."]),
+                extractorVersion: version, outline: outline)
+        }
         let deadline = ProcessInfo.processInfo.systemUptime + limits.ocrSeconds
         for index in 0..<pageCount {
             try Task.checkCancellation()
@@ -108,17 +122,20 @@ public enum PDFDocumentExtractor {
                                     pdfPageIndex: index, origin: .authored))
             }
             progress(.init(stage: .extractingText, completed: index + 1, total: pageCount))
+            if let preview, index + 1 >= nextPreviewPage,
+               blocks.contains(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                try Task.checkCancellation()
+                try await preview(.init(document: snapshot(), completedPages: index + 1, totalPages: pageCount))
+                try Task.checkCancellation()
+                nextPreviewPage = min(pageCount, (index + 1) * 2)
+            }
         }
         guard blocks.contains(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { throw DocumentReadError.emptyPDF }
         var outline: [DocumentOutlineEntry]?, outlineWarnings: [String] = []
         do { outline = try PDFNavigation.entries(pdf, blocks: blocks) }
         catch is CancellationError { throw CancellationError() }
         catch { outlineWarnings.append("The PDF outline exceeded its navigation budget; source text is retained.") }
-        let metadataTitle = pdf.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String
-        return .init(title: metadataTitle ?? title, author: pdf.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String, blocks: blocks,
-                     warnings: outlineWarnings + ["Complex PDF reading order should be reviewed."] + (ocrPages > 0 ? ["Includes OCR text; review recognition accuracy."] : []) +
-                        (geometrySkipped.isEmpty ? [] : ["Layout evidence unavailable for \(geometrySkipped.count) PDF pages; uncertain text is preserved."]),
-                     extractorVersion: version, outline: outline)
+        return snapshot(outline: outline, warnings: outlineWarnings)
     }
 
     public static func render(_ page: PDFPage, maximumDimension: CGFloat = 2200) throws -> CGImage {
@@ -130,4 +147,12 @@ public enum PDFDocumentExtractor {
         guard let image = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { throw DocumentReadError.malformed }
         return image
     }
+}
+
+/// Provisional prefix for interactive previews only. The full extraction still
+/// enforces cumulative budgets and produces the canonical generation document.
+public struct PDFExtractionPreview: Sendable {
+    public let document: SemanticDocument
+    public let completedPages: Int
+    public let totalPages: Int
 }

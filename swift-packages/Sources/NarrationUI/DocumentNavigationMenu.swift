@@ -26,5 +26,7 @@ public struct NarrationOptionsControls: View {
         }
         Toggle("Include auxiliary sections", isOn: $options.includeAuxiliary)
             .help("Applies only to sections explicitly marked as auxiliary, such as appendices. Unclassified prose and bibliographies are retained.")
+        Toggle("Rejoin PDF word wraps (experimental)", isOn: $options.experimentalPDFWordJoining)
+            .help("Tries Readium-style joining at verified PDF line endings before lowercase text. Can remove genuine compound hyphens. Off by default; original source stays intact. Applies to future jobs.")
     }
 }

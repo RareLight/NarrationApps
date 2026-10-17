@@ -39,6 +39,11 @@ Narration. Defaults preserve current behavior. Libro persists choices for future
 batches; VoiceRelay captures them when adding queue records. These preferences
 remain app-specific, unlike the shared pronunciation dictionary.
 
+Document Narration also offers **Rejoin PDF word wraps (experimental)**, off by
+default and captured with future jobs. Both engines use the same source-mapped
+PDF rule. The help and preview notices disclose that genuine compound hyphens
+may be removed; unsupported layouts and non-PDF inputs retain their text.
+
 Libro's per-document Cover Art selection lives with its document queue/export
 workflow. VoiceRelay's Podcast Cover lives beside channel details in Publishing.
 Both offer Choose/Replace/Remove; validation/storage remain in shared AudioOutput

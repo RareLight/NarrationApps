@@ -15,6 +15,13 @@ be rewritten during documentation cleanup. App bundles include dependency notice
 model assets are explicitly acquired outside the bundle. Distribution review is
 separate from local build feasibility.
 
+The optional native PDF word joiner adapts Readium Swift toolkit proposal #877 at
+commit `3a50f066f0b050f2951c211b41cf69d8eab9be6a`. Its original BSD-3-Clause license,
+copyright and adaptation record are retained in
+[`swift-packages/ThirdPartyNotices/Readium/`](../swift-packages/ThirdPartyNotices/Readium/README.md)
+and included by both apps' existing notice-packaging flow. This adds no Readium
+package or binary dependency.
+
 The private `.build/longform/accepted/` records preserve source/sample/helper hashes,
 operator selection and final artifact checks. Historical public stage summaries
 are indexed in [README.md](README.md); they are not current setup commands or

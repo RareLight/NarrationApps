@@ -69,8 +69,10 @@ public enum NarrationPlanner {
         try Task.checkCancellation()
         guard limit > 0 else { throw NarrationError.invalidInput("Narration chunk limit must be positive.") }
         var chunks: [NarrationChunk] = []; var notices: [String] = []; var usedPronunciations = false; var mappedRules = 0; var mappingCount = 0
-        let layout = layoutEnabled ? try PDFLayoutAnalysis.analyze(article) : PDFLayoutAnalysis.Result()
         let structuralOmissions = NarrationStructure.omissions(article, options: options)
+        let layout = layoutEnabled ? try PDFLayoutAnalysis.analyze(article,
+            experimentalWordJoining: options.experimentalPDFWordJoining,
+            excludedBlocks: Set(structuralOmissions.keys)) : PDFLayoutAnalysis.Result()
         let normalizer = SpokenFormNormalizer(settings: settings)
         var noteIndices: [String: [Int]] = [:]
         for (index, block) in article.blocks.enumerated() {
@@ -91,7 +93,7 @@ public enum NarrationPlanner {
             let applications = normalized.applications
             mappingCount += normalized.mappings?.count ?? 0
             guard mappingCount <= 100_000 else {
-                if !layout.omissions.isEmpty || !layout.joins.isEmpty { throw OptionalLayoutBudget.exceeded }
+                if !layout.omissions.isEmpty || !layout.joins.isEmpty || !layout.wordCuts.isEmpty { throw OptionalLayoutBudget.exceeded }
                 throw NarrationError.invalidInput("Spoken-form mapping budget exceeded. No text was truncated.") }
             usedPronunciations = usedPronunciations || application.text != text
             let parts = purpose == .speechPreparation ? [spoken] : try NarrationText.chunks(spoken, settings: settings, maximumScalars: min(limit, 480))
@@ -113,7 +115,8 @@ public enum NarrationPlanner {
             do {
                 let block = article.blocks[index]
                 let mapped = try MappedProjection.source(block.text, block: index, canonical: !pronunciations.entries.isEmpty)
-                return try layout.byBlock[index].map { try mapped.removingSourceRanges($0) } ?? mapped
+                let margins = try layout.byBlock[index].map { try mapped.removingSourceRanges($0) } ?? mapped
+                return try layout.wordCuts[index].map { try margins.removingSourceRanges($0, rule: PDFWordJoining.rule) } ?? margins
             } catch NarrationError.invalidInput(let reason) where reason.contains("budget") {
                 throw OptionalLayoutBudget.exceeded
             }
@@ -124,7 +127,7 @@ public enum NarrationPlanner {
             if duplicateCaptions.contains(index) { notices.append("Duplicate image caption omitted from narration."); return }
             var text = NarrationText.normalizeWhitespace(block.narrationText ?? block.text)
             var projection: MappedProjection?
-            if layout.byBlock[index] != nil {
+            if layout.byBlock[index] != nil || layout.wordCuts[index] != nil {
                 let mapped = try projectedBlock(index)
                 text = mapped.text; projection = mapped
             }
@@ -182,8 +185,9 @@ public enum NarrationPlanner {
                 var indices = [index], last = index, mapped = try projectedBlock(index)
                 do {
                     while layout.joins.contains(last), indices.count < 16, structuralOmissions[last + 1] == nil {
+                        let direct = layout.directJoins.contains(last)
                         last += 1; indices.append(last); joined.insert(last)
-                        mapped = try mapped.joining(projectedBlock(last))
+                        mapped = try mapped.joining(projectedBlock(last), directly: direct)
                     }
                 } catch NarrationError.invalidInput(let reason) where reason.contains("budget") {
                     throw OptionalLayoutBudget.exceeded
@@ -211,6 +215,10 @@ public enum NarrationPlanner {
             notices.append("Recurring PDF headers/footers omitted on \(pages.count) pages (\(shown)); original text, source ranges and omission reasons are retained.")
         }
         if layout.budgetSkipped { notices.append("PDF layout review exceeded its evidence budget; affected text was left unchanged.") }
+        if !layout.wordCuts.isEmpty {
+            let count = layout.wordCuts.values.reduce(0) { $0 + $1.count }
+            notices.append("Rejoined \(count) PDF printed word wraps using experimental Readium-style rules; genuine compound hyphens may change. Original source and mapped spans are retained.")
+        }
         for omission in structuralOmissions.values.sorted(by: { $0.source.blockIndex < $1.source.blockIndex }) {
             notices.append("Block \(omission.source.blockIndex + 1): " + omission.reason)
         }
@@ -249,7 +257,7 @@ public enum NarrationPlanner {
             chunks = merged
         }
         guard chunks.reduce(0, { $0 + ($1.sourceMappings?.count ?? 0) }) <= 100_000 else {
-            if !layout.omissions.isEmpty || !layout.joins.isEmpty { throw OptionalLayoutBudget.exceeded }
+            if !layout.omissions.isEmpty || !layout.joins.isEmpty || !layout.wordCuts.isEmpty { throw OptionalLayoutBudget.exceeded }
             throw NarrationError.invalidInput("Spoken-form mapping budget exceeded after cue composition. No text was truncated.") }
         return NarrationPlan(version: version(settings: settings, pronunciations: pronunciations, options: options) + (purpose == .speechPreparation ? "/spoken-projection-1" : ""), chunks: chunks, notices: notices, omissions: (layout.omissions + structuralOmissions.values.sorted { $0.source.blockIndex < $1.source.blockIndex }).isEmpty ? nil : layout.omissions + structuralOmissions.values.sorted { $0.source.blockIndex < $1.source.blockIndex })
     }

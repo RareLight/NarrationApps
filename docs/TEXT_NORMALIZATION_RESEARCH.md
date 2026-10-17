@@ -169,11 +169,11 @@ It does not enable additional model-specific homograph or lexical substitutions.
 
 ## PDF printed-word dehyphenation: library-first investigation
 
-Research requested October 17, 2026. This section records findings and a proposed
-evaluation, not an enabled repair policy. No library/model was installed and no
-new hyphen-joining implementation or dependency pin was introduced.
+Research requested October 17, 2026. The initial library-first findings below led
+to the authorized optional Readium adaptation recorded at the end of this section.
+No library/model was installed or dependency pin changed.
 
-### What the current pipeline does
+### Baseline behavior (option off)
 
 `SpokenFormNormalizer` removes **U+00AD soft hyphens** in mapped spoken text.
 It does not remove ASCII `-` (U+002D) or typographic U+2010 hard hyphens at printed
@@ -194,7 +194,7 @@ audio post-processing or by rewriting original PDF/source blocks.
 | --- | --- | --- |
 | MuPDF C structured-text extraction | Official `FZ_STEXT_DEHYPHENATE` records line-ending hyphens as soft hyphens and joins lines when flattened. PyMuPDF exposes the same family of behavior as `TEXT_DEHYPHENATE`. A native C integration does not require Python. | Strongest established extractor-level option. MuPDF is AGPL or commercially licensed; redistribution review is required. It is a second PDF extraction stack, not a drop-in PDFKit postprocessor, and remapping extraction order/characters to existing source provenance needs evaluation. The flag is not proof of linguistic correctness for authored compounds. |
 | PDFium C API | Public `FPDFText_IsHyphen` is marked experimental; the upstream text-page implementation classifies hyphen boundaries using line geometry and adjacent characters. Native C API; core license has BSD-style terms, with bundled/transitive notices to review. | Useful existing extraction signal, not an English word/compound disambiguator. Replacing/adding a large PDF backend and its build graph solely for this issue is not justified without measured wins. |
-| Readium Swift toolkit | BSD-3-Clause source. Its content API has semantic elements/locators. Proposal #877 directly targets broken PDF/FXL TTS, joining printed fragments while preserving per-fragment page locators and bounded sentence regions. | Closest Swift architectural precedent. Public search-index metadata reports the proposal as open/draft, last updated August 14, 2026; this is **not live-verified release status**. GitHub CLI is unauthenticated, so live API/source review is blocked pending operator authentication. Do not assume the proposal is shipped, a small standalone component, or supported as-is in a macOS AppKit app. Do not adopt its speech engine. |
+| Readium Swift toolkit | BSD-3-Clause source. Its content API has semantic elements/locators. Proposal #877 directly targets broken PDF/FXL TTS, joining printed fragments while preserving per-fragment page locators and bounded sentence regions. | Closest Swift architectural precedent. Read-only GitHub API/source verification on October 17 confirms open/draft, unmerged, head `3a50f066f0b050f2951c211b41cf69d8eab9be6a`. This is draft behavior, not a shipped release guarantee. Adapt its bounded joining pattern without adding its reader or speech engine. |
 | `pd3f/dehyphen` | Purpose-built dehyphenation using Flair character-language-model perplexity to compare alternative joins; handles preserving some genuine hyphens rather than only deletion. | Python/GPLv3 and additional neural-model assets. Not an acceptable product runtime under the native/no-new-model constraints. A useful reference for why context matters, not an installation recommendation. |
 | calibre heuristic processing | Official conversion documentation describes unwrap/dehyphenation heuristics and using the document itself as a dictionary to decide whether hyphens are retained. | Mature reference, but heuristic conversion may worsen some documents and operates on converted text/structure. Not a native Swift drop-in; no calibre/product CLI integration is proposed. Same-document repeated unsplit forms are useful evidence to evaluate. |
 | Swift `Hyphenation` / Apple's CFString hyphenation APIs | Swift library implements Knuth-Liang layout hyphenation; its documented `unhyphenate` removes separator characters. Apple's API returns possible hyphenation locations for a known word and locale. | **Not inverse PDF dehyphenation.** Removing every `-` corrupts real compounds; layout break opportunities do not prove the intended joined spelling. CFString can provide a native corroborating signal without a dependency, but is not a complete solution. Swift library is MIT with separately licensed pattern data. |
@@ -207,7 +207,7 @@ location neither proves a legitimate spelling nor reliably recovers an observed
 printed wrap. This probe did not alter source text or implement a repair. Ignored
 output is `.local/pdf-hyphenation-apple-probe.log`.
 
-### Recommendation before implementation
+### Initial evaluation criteria
 
 1. Obtain a small nonprivate example from the reported failure: the two extracted
    line fragments and whether it crosses a page/column. Inspect its Unicode scalar
@@ -235,6 +235,46 @@ column/page boundaries, OCR uncertainty, Unicode/combining marks, overrides and
 bounded UTF-16 source maps. These are proposed evaluation cases, not regenerated
 current goldens. Original prose, completed audio, worker count, audio levels and
 the accepted acoustic policy must remain unchanged.
+
+### Readium adaptation implemented October 17, 2026
+
+The operator authorized trying the draft's approach. `PDFWordJoining.swift`
+adapts its hard-hyphen/lowercase fragment rule and hard-break classification into
+the existing PDFKit layout and UTF-16 projection pipeline. The exact upstream
+`SentenceRegionBuilder.swift` was fetched again during resumption and matched the
+earlier inspected copy (SHA-256
+`c8a9d84010b551793867cde67bc467a09e2ce6f54d2bc3d359d3a7f4085bea64`).
+The original license and adaptation details are retained in
+[Readium notices](../swift-packages/ThirdPartyNotices/Readium/README.md).
+
+`NarrationOptions.experimentalPDFWordJoining` defaults false, is omitted when
+encoding false for legacy identity compatibility, and is exposed by both apps'
+existing Document Narration controls. Enabling it versions the semantic plan;
+identical spoken text retains compatible acoustic fingerprints. Captured job
+settings own the choice. There is no implicit old-snapshot extraction or completed
+recording regeneration.
+
+Within one authored digital PDF paragraph, a verified ASCII/U+2010 trailing hyphen
+and one newline before lowercase text can be removed from speech. Geometry must
+support a consistent upright column and nearby lines. Paragraph gaps, hard breaks,
+code/paths/identifiers, unsupported geometry, OCR and non-PDF resources abstain.
+Across adjacent pages, compatible page edges/columns and a native sentence bridge
+are additionally required. Groups are bounded to four pages and 200 fragments;
+the boundary hyphen stays if a seam cannot be joined. Layout analysis respects
+structurally excluded sections, so omitting an auxiliary continuation cannot cut
+the preceding word. Known recurring margins compose through the existing maps.
+
+Repairs precede captured pronunciation rules and native G2P for both engines.
+Original blocks remain unchanged, mapped zero-length spoken omissions retain the
+removed UTF-16 spans, and preview notices disclose the experiment. Upstream's
+compound ambiguity remains: `well-` / `known` becomes `wellknown`, rather than
+meeting the initial ideal compound-preservation criterion. This is why the option
+is explicit and off by default; no dictionary/model guess is silently added.
+
+Focused and native evidence is maintained in
+[current status](IMPLEMENTATION_STATUS.md); actual-document and matched listening
+remain [operator B07](OPERATOR_VALIDATION.md). The broader Readium iterator,
+sentence/search/locator service and EPUB FXL integration are outside this increment.
 
 ### Primary sources consulted
 

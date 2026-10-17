@@ -28,6 +28,30 @@ measures the current pass; unavailable totals use indeterminate progress. Speech
 counts become final only after prepared utterances exist. Cancellation and stale
 updates must not overwrite the next job or phase.
 
+## Libro interactive previews
+
+Libro opens PDF narration/source previews after the first `ceil(pageCount × 5%)`
+pages, capped at five pages and at least one. It then publishes doubling prefixes
+from the same ongoing extraction, before optional image descriptions finish.
+Coordinated file opening still precedes the first update; scanned first pages still
+need OCR. Empty/unnarratable leading prefixes wait for readable content. Each
+checkpoint is awaited, so planning cannot accumulate a backlog of UI updates.
+All page/OCR/text/layout limits remain cumulative across checkpoints.
+
+The sheet observes live preview state, uses a hidden-label segmented control and
+lazy, flexible scrolling passages; analysis notes expand separately instead of
+displacing narration. Rows say **Analyzing text** and partial previews show actual
+available-page counts. Recurring margins, page-seam joins, optional image captions
+and Contents can change at later checkpoints, so partial results are clearly
+labeled. The final update uses the normal complete semantic document and planner.
+Generation does not consume partial previews and retains its existing behavior.
+
+Done/Escape/dismissal cancels the owned analysis; late updates cannot reopen it.
+New imports join a cancelled preview task before using its resources. Cancellation
+or a later failure leaves an already-visible prefix labeled incomplete, never
+complete. Actual large-book layout/scrolling and first-page latency remain operator
+L20 checks in [the consolidated checklist](OPERATOR_VALIDATION.md).
+
 ## Paragraphs and conservative PDF flow
 
 Plain text preserves explicit blank-line paragraphs and exact decoded separators;
@@ -46,11 +70,29 @@ retain the page, block/range and reason; both apps expose planner notices.
 Compatible adjacent upright single-column page runs may continue with multiple
 source spans. Captions/structures, chapter/quote/list boundaries, uncertain columns,
 OCR paragraph-only evidence and EPUB resources prevent joins. No custom column
-sorting or speculative hard-hyphen repair is enabled. Optional map/evidence budget
+sorting is enabled. Optional map/evidence budget
 exhaustion retains affected text; mandatory intake budgets remain enforced. Old
 snapshots lacking geometry are preserved without refetching or re-extraction.
 See [implemented scope and evidence](TEXT_PROCESSING_IMPROVEMENT_PLAN.md#delivery-b-paragraph-and-pdf-flow-evidence)
 and operator B06 before accepting actual-document quality.
+
+**Rejoin PDF word wraps (experimental)** in Document Narration optionally joins
+printed `particu-` / `larly` into `particularly`, before captured pronunciation
+rules and native G2P, for both Kokoro and Soprano. It defaults off, including when
+decoding old settings. The native adaptation of Readium proposal #877 uses verified
+upright digital PDF lines, compatible columns and a lowercase continuation.
+Explicit paragraph gaps, headings, code/identifiers, OCR, uncertain geometry and
+excluded sections prevent repairs. Page seams additionally require compatible
+page edges and a sentence spanning the seam; joined groups stop at four pages or
+200 line fragments. A cap or excluded continuation retains the boundary hyphen.
+Original PDF bytes/blocks remain intact; zero-length spoken mappings retain each
+removed source span and preview notices report repairs. Old snapshots are not
+refetched and completed recordings are not regenerated.
+
+The draft rule cannot distinguish genuine compounds: `well-` / `known` becomes
+`wellknown` when enabled. Review and listen before using it for a book. There is
+no new model, spell checker or Readium runtime dependency. See the
+[adaptation and source provenance](TEXT_NORMALIZATION_RESEARCH.md#readium-adaptation-implemented-october-17-2026).
 
 ## Text encodings
 

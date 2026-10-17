@@ -24,6 +24,8 @@ enum PDFLayoutAnalysis {
         var omissions: [NarrationOmission] = []
         var byBlock: [Int: [NSRange]] = [:]
         var joins = Set<Int>()
+        var wordCuts: [Int: [NSRange]] = [:]
+        var directJoins = Set<Int>()
         var budgetSkipped = false
     }
     private struct Candidate { let line: Line; let key: String; let reason: String; let folio: Int? }
@@ -36,11 +38,12 @@ enum PDFLayoutAnalysis {
         }
         return key
     }
-    static func analyze(_ document: SemanticDocument) throws -> Result {
+    static func analyze(_ document: SemanticDocument, experimentalWordJoining: Bool = false,
+                        excludedBlocks: Set<Int> = []) throws -> Result {
         var pages: [Int: [Line]] = [:], count = 0
         for (index, block) in document.blocks.enumerated() {
             if index.isMultiple(of: 256) { try Task.checkCancellation() }
-            guard block.kind == .paragraph, block.narrationText == nil, block.footnoteID == nil,
+            guard !excludedBlocks.contains(index), block.kind == .paragraph, block.narrationText == nil, block.footnoteID == nil,
                   (block.footnoteReferences ?? []).isEmpty, block.containsInlineCode != true,
                   block.origin == .authored || block.origin == .ocr,
                   let page = block.pdfPageIndex, (0..<10_000).contains(page), let layout = block.pdfLayout,
@@ -115,6 +118,16 @@ enum PDFLayoutAnalysis {
         result.omissions.sort { ($0.source.blockIndex, $0.source.location) < ($1.source.blockIndex, $1.source.location) }
         for key in result.byBlock.keys { result.byBlock[key]?.sort { $0.location < $1.location } }
         result.joins = try continuations(document, pages: pages, omissions: result.byBlock)
+        if experimentalWordJoining {
+            let words = try PDFWordJoining.analyze(document, pages: pages, omissions: result.byBlock)
+            result.joins = PDFWordJoining.boundedJoins(result.joins.union(words.pageCuts.keys), document: document)
+            result.wordCuts = words.cuts
+            for (index, range) in words.pageCuts where result.joins.contains(index) {
+                result.wordCuts[index, default: []].append(range)
+                result.directJoins.insert(index)
+            }
+            for key in result.wordCuts.keys { result.wordCuts[key]?.sort { $0.location < $1.location } }
+        }
         return result
     }
     private struct Column {

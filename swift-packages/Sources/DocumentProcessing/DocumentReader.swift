@@ -6,6 +6,7 @@ import PDFKit
 public enum DocumentReader {
     public static func readSemantic(_ document: InputDocument, describeImages: Bool = false,
                                     recognize: PDFDocumentExtractor.Recognition? = nil,
+                                    pdfPreview: PDFDocumentExtractor.Preview? = nil,
                                     progress: @escaping @Sendable (DocumentPreparationProgress) -> Void = { _ in }) async throws -> SemanticDocument {
         try Task.checkCancellation()
         progress(.init(stage: .readingFile))
@@ -25,7 +26,8 @@ public enum DocumentReader {
         let semantic: SemanticDocument
         switch document.kind {
         case .pdf:
-            semantic = try await PDFDocumentExtractor.extract(data: data, title: title, recognize: recognize, progress: progress)
+            semantic = try await PDFDocumentExtractor.extract(data: data, title: title, recognize: recognize,
+                preview: pdfPreview, progress: progress)
         case .epub:
             return try await EPUBDocumentExtractor.extract(data: data, title: title, describeImages: describeImages, progress: progress)
         case .text:

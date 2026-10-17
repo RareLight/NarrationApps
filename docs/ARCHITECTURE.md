@@ -64,6 +64,21 @@ labels/folios and conservative page continuations use that evidence once before
 G2P; uncertain geometry/columns and old artifacts abstain. Optional layout budgets
 never discard prose or bypass mandatory intake limits.
 
+Libro's interactive PDF preview can receive awaited, provisional extraction
+prefixes: rounded-up 5% capped at five pages, then doubling page counts from one
+pass. Narration is replanned off the UI actor with one captured settings/dictionary
+snapshot, before the final optional image pass. Only the preview consumes partial
+documents; generation and VoiceRelay retain complete extraction by default. The
+live sheet marks provisional results and owns cancellation through the existing
+intake task. Mandatory extraction budgets are cumulative, never reset per prefix.
+
+Captured NarrationOptions can enable an off-by-default experimental Readium-style
+printed-word joiner before pronunciation/G2P for either engine. Verified digital
+PDF line/page seams supply mapped hyphen/whitespace omissions; structural exclusions
+and four-page/200-fragment caps retain unjoinable boundaries. Genuine compound
+hyphens remain ambiguous, disclosed in the control and preview notices. Original
+source stays intact; no Readium runtime, second parser or model is introduced.
+
 Optional ProjectionMapping runs connect block-local extracted UTF-16 coordinates
 to chunk-local spoken coordinates; prepared ranges remain spoken coordinates.
 Whitespace, canonical Unicode, known note-marker removal, user replacements and

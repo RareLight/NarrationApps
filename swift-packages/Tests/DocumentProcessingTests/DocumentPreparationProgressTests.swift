@@ -12,6 +12,11 @@ private final class PreparationLog: @unchecked Sendable {
     var snapshot: [DocumentPreparationProgress] { lock.withLock { values } }
 }
 
+private actor PDFPreviewLog {
+    var values: [PDFExtractionPreview] = []
+    func append(_ value: PDFExtractionPreview) { values.append(value) }
+}
+
 final class DocumentPreparationProgressTests: XCTestCase {
     private func pdf(_ texts: [String?], image: Bool = false) throws -> Data {
         let bytes = NSMutableData()
@@ -100,5 +105,80 @@ final class DocumentPreparationProgressTests: XCTestCase {
         XCTAssertNil(DocumentPreparationProgress(stage: .extractingText, total: 0).fractionCompleted)
         XCTAssertEqual(DocumentPreparationProgress(stage: .extractingText, completed: -1, total: 3).fractionCompleted, 0)
         XCTAssertEqual(DocumentPreparationProgress(stage: .extractingText, completed: 4, total: 3).fractionCompleted, 1)
+    }
+
+    func testFirstPreviewRoundsUpAndArrivesBeforeLaterOCR() async throws {
+        let data = try pdf((0..<21).map { $0 < 2 ? "Readable source page \($0)." : nil })
+        let previews = PDFPreviewLog()
+        do {
+            _ = try await PDFDocumentExtractor.extract(data: data, recognize: { _ in
+                XCTFail("Later pages must not be analyzed before the first prefix is delivered")
+                return []
+            }, preview: { prefix in
+                await previews.append(prefix)
+                throw CancellationError()
+            })
+            XCTFail("Expected preview cancellation")
+        } catch is CancellationError {}
+        let values = await previews.values
+        XCTAssertEqual(values.map(\.completedPages), [2])
+        XCTAssertEqual(values.first?.totalPages, 21)
+        XCTAssertEqual(values.first?.document.blocks.map(\.pdfPageIndex), [0, 1])
+    }
+
+    func testPreviewPrefixesGrowWithoutReextractingAndFinalDocumentMatchesNormalExtraction() async throws {
+        let data = try pdf((0..<21).map { "Readable source page \($0)." })
+        let previews = PDFPreviewLog()
+        let streamed = try await PDFDocumentExtractor.extract(data: data, preview: { await previews.append($0) })
+        let normal = try await PDFDocumentExtractor.extract(data: data)
+        let values = await previews.values
+        XCTAssertEqual(values.map(\.completedPages), [2, 4, 8, 16, 21])
+        XCTAssertEqual(values.map { $0.document.blocks.count }, [2, 4, 8, 16, 21])
+        XCTAssertEqual(values.first?.document.blocks.last?.pdfPageIndex, 1)
+        XCTAssertEqual(streamed, normal)
+    }
+
+    func testLargePDFFirstPreviewIsCappedAtFivePages() async throws {
+        let previews = PDFPreviewLog()
+        do {
+            _ = try await PDFDocumentExtractor.extract(data: pdf((0..<121).map { "Source page \($0)." }),
+                preview: { prefix in await previews.append(prefix); throw CancellationError() })
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {}
+        let values = await previews.values
+        XCTAssertEqual(values.map(\.completedPages), [5])
+        XCTAssertEqual(values.first?.totalPages, 121)
+    }
+
+    func testPreviewCheckpointsDoNotResetTheMandatoryTextBudget() async throws {
+        let previews = PDFPreviewLog()
+        do {
+            _ = try await PDFDocumentExtractor.extract(data: pdf(Array(repeating: "Readable source.", count: 5)),
+                limits: .init(maximumTextBytes: 35), preview: { await previews.append($0) })
+            XCTFail("A partial preview cannot turn an over-budget document into a success")
+        } catch PDFExtractionError.textLimit {}
+        let values = await previews.values
+        XCTAssertEqual(values.map(\.completedPages), [1, 2])
+    }
+
+    func testCancellationAtPreviewDeliveryStopsBeforeTheNextPage() async throws {
+        let log = PreparationLog()
+        let data = try pdf(["First source page.", "Second source page."])
+        let task = Task {
+            try await PDFDocumentExtractor.extract(data: data,
+                preview: { _ in withUnsafeCurrentTask { $0?.cancel() } }, progress: { log.append($0) })
+        }
+        do { _ = try await task.value; XCTFail("Expected cancellation") }
+        catch is CancellationError {}
+        XCTAssertFalse(log.snapshot.contains { $0.currentPage == 2 })
+    }
+
+    func testEmptyLeadingOCRDoesNotPublishAnUnusablePreview() async throws {
+        let previews = PDFPreviewLog()
+        _ = try await PDFDocumentExtractor.extract(data: pdf([nil, "Readable second page."]),
+            recognize: { _ in [] }, preview: { await previews.append($0) })
+        let values = await previews.values
+        XCTAssertEqual(values.map(\.completedPages), [2])
+        XCTAssertEqual(values.first?.document.blocks.first?.pdfPageIndex, 1)
     }
 }

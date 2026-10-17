@@ -16,6 +16,7 @@ struct NativeCheck {
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "contention" { try await ContentionCheck.run() }
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "catalog" { try await CatalogCheck.run() }
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "frontend" { try await FrontendCheck.run() }
+            else if CommandLine.arguments.dropFirst().dropFirst(3).first == "pdf-word-joins" { try await PDFWordJoinCheck.run() }
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "longform" { try await LongformCheck.run() }
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "mixed" { try await MixedDocumentCheck.run() }
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "batch" { try await runBatch() }

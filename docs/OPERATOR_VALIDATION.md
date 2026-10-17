@@ -140,6 +140,10 @@ separate from automated fixture tests.
   Replace manually, add/rescan inputs, and confirm that choice wins. Remove and
   re-add the document: no automatic re-selection until Use Book Cover is chosen.
   Blank/locked/unsupported artwork must not prevent other documents importing.
+  Document rows should show a small uncropped cover beside the title whenever
+  artwork is available, including with WAV selected. Check automatic detection,
+  manual Replace/Remove and scrolling/reordering; uncovered or unavailable art
+  should show the document symbol, never another row's previous cover.
 - [ ] **L18 — Contents and source.** Preview the synthetic EPUB/Markdown and an
   authored-bookmark PDF. Contents should navigate the correct Original Source
   section/page, retain nesting and explain page precision. Switch back to Narration;
@@ -152,6 +156,21 @@ separate from automated fixture tests.
   bibliography/unclassified prose stay present, and omissions are explained.
   Changes must not alter an active batch or finished output. Listen for intact
   body text, note boundaries and the accepted unchanged vocal pacing.
+
+- [ ] **L20 — Responsive PDF narration previews.** Open a long digital PDF with
+  printed word wraps and a mixed/scanned PDF. The row should say Analyzing text;
+  narration should appear after the first rounded-up 5% (at most five pages),
+  before the rest of the book or optional image descriptions finish. Check visible
+  partial/page-count status, growing narration and Original Source, and final
+  Contents/navigation. The segmented label must not wrap vertically; narration
+  must retain scrolling space with many analysis notes expanded or collapsed.
+  Resize at small/large text sizes. Review possible margin/page-join changes while
+  the prefix grows. Done/Escape/dismissal must cancel background work without
+  reopening the sheet or overwriting a subsequent document. Test cancellation and
+  a later failure: partial content must not be labeled complete. Compare the final
+  preview with normal narration for both engines; generation and existing audio
+  must remain unchanged. OCR and file-provider opening can still delay the first
+  readable prefix. Report actual-book timing and layout separately from fixtures.
 
 ## VoiceRelay
 
@@ -295,6 +314,19 @@ separate from automated fixture tests.
   should remain unchanged until an explicit new extraction. Earlier EPUB, image,
   GUI, private-file and live-service checks remain separate. Report false omissions,
   missed joins and unexpected pauses without sharing private text.
+
+- [ ] **B07 — Experimental printed PDF word joins (both apps).** In Document
+  Narration, enable **Rejoin PDF word wraps (experimental)** for a new disposable
+  job and compare source, spoken preview and Kokoro/Soprano listening. Printed
+  `particu-` / `larly` should become `particularly` with a repair notice. Original
+  source/navigation must stay intact. Compare the default-off behavior and check
+  that a saved choice survives relaunch and affects future jobs. Explicit paragraph
+  gaps, heading/column changes, OCR and missing geometry should abstain. An excluded
+  auxiliary continuation must leave the preceding hyphen intact. The draft rule
+  deliberately also turns `well-` / `known` into `wellknown`: inspect compounds
+  and turn the option off for unsuitable books. Existing recordings and queued
+  captured choices must remain unchanged; no old snapshot is implicitly refetched.
+  Automated preparation equality and decoded audio are not listening acceptance.
 
 ## Conditional installation and distribution checks
 
