@@ -31,7 +31,7 @@ func validationPlan(_ options: Options, evidence: URL) -> [Step] {
                     ["build", "--package-path", "swift-packages", "--disable-sandbox", "--skip-update",
                         "--force-resolved-versions", "--product", "NarrationFixtureWorker", "--jobs", "4"]))
             }
-            var arguments = ["test", "--package-path", path, "--disable-sandbox", "--skip-update",
+            var arguments = ["test", "--package-path", path] + (scope == "libro" ? [] : ["--disable-sandbox"]) + ["--skip-update",
                 "--force-resolved-versions", "--no-parallel", "--jobs", "4"]
             if scope == "libro" { arguments += ["--scratch-path", "Libro/macos/.build/CoreTests"] }
             if let filter = options.filter { arguments += ["--filter", filter] }
@@ -111,7 +111,10 @@ struct ValidationSummary: Encodable {
     var outcome = "running"
     var steps: [StepRecord] = []
     var bundles: [String: [String: String]] = [:]
+    var bundleSigningClasses: [String: String] = [:]
     let operatorAcceptance = "not-performed"
+    let distributionAcceptance = "not-performed"
+    let unrequestedGates: [String]
 }
 
 func boundedRun(_ command: Command) throws -> Result {
@@ -121,7 +124,8 @@ func boundedRun(_ command: Command) throws -> Result {
     process.currentDirectoryURL = command.directory
     var environment = ProcessInfo.processInfo.environment.merging(command.environment) { _, new in new }
     for name in ["NARRATION_PRONUNCIATION_NATIVE", "VOICE_SAMPLE_NATIVE_CHECK", "NARRATION_NATIVE_PCM_WAV",
-        "VOICERELAY_REVIEW_FIXTURES", "VOICERELAY_REVIEW_OUTPUT"] { environment.removeValue(forKey: name) }
+        "VOICERELAY_REVIEW_FIXTURES", "VOICERELAY_REVIEW_OUTPUT", "NARRATION_CHECK_POLICY",
+        "NARRATION_CHECK_OUTPUT_FORMAT"] { environment.removeValue(forKey: name) }
     process.environment = environment
     let pipe = Pipe()
     process.standardOutput = pipe
@@ -143,6 +147,7 @@ func executePlan(_ steps: [Step], runner: Runner, record: (StepRecord) throws ->
             try record(StepRecord(name: step.name, kind: step.kind, outcome: "not-run", exitCode: nil, log: nil, observations: []))
             continue
         }
+        FileHandle.standardOutput.write(Data("RUNNING \(step.name)\n".utf8))
         let result: Result
         do { result = try runner(step.command) }
         catch { result = Result(status: 2, output: "Unable to execute step: \(error)") }
@@ -150,7 +155,7 @@ func executePlan(_ steps: [Step], runner: Runner, record: (StepRecord) throws ->
         failed = result.status != 0 || noTests
         let observations = result.output.split(separator: "\n").filter {
             $0.contains("Executed ") || $0.contains(" skipped") || $0.contains(" tests passed") ||
-                $0.contains("Test run with ") || $0.contains("No matching test")
+            $0.contains("Test run with ") || $0.contains("No matching test") || $0.contains("assertions passed")
         }.suffix(80).map(String.init)
         try record(StepRecord(name: step.name, kind: step.kind, outcome: failed ? "failed" : "passed",
             exitCode: noTests && result.status == 0 ? 1 : result.status, log: result.output, observations: observations))
@@ -174,7 +179,8 @@ func validate(_ options: Options, runner: Runner = boundedRun) throws -> Int32 {
     }
     var summary = ValidationSummary(started: Date(), tier: options.tier, scope: options.scope, filter: options.filter,
         signingClass: options.adhoc ? "ad-hoc-engineering" : "not-applicable", source: source, toolchain: toolchain,
-        fingerprints: try fingerprints(options.root))
+        fingerprints: try fingerprints(options.root),
+        unrequestedGates: ["quick", "full", "native", "release"].filter { $0 != options.tier })
     func save() throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -182,7 +188,7 @@ func validate(_ options: Options, runner: Runner = boundedRun) throws -> Int32 {
         try encoder.encode(summary).write(to: evidence.appendingPathComponent("summary.json"), options: .atomic)
     }
     try save()
-    print("Evidence: \(evidence.path)")
+    FileHandle.standardOutput.write(Data("Evidence: \(evidence.path)\n".utf8))
     let steps = options.tier == "native" && !nativePrerequisites(options) ? [] : validationPlan(options, evidence: evidence)
     if steps.isEmpty {
         summary.outcome = "unavailable"
@@ -190,7 +196,7 @@ func validate(_ options: Options, runner: Runner = boundedRun) throws -> Int32 {
             exitCode: nil, log: nil, observations: ["Supply --workspace (isolated, prepared models), --libro-worker and --voicerelay-worker. No download/build/GUI attempted."])]
     } else {
         summary.outcome = try executePlan(steps, runner: runner) { record in
-            print("\(record.outcome.uppercased()) \(record.name)")
+            FileHandle.standardOutput.write(Data("\(record.outcome.uppercased()) \(record.name)\n".utf8))
             let path = evidence.appendingPathComponent("\(record.name).log")
             if let output = record.log { try Data(output.utf8).write(to: path) }
             summary.steps.append(StepRecord(name: record.name, kind: record.kind, outcome: record.outcome,
@@ -199,6 +205,7 @@ func validate(_ options: Options, runner: Runner = boundedRun) throws -> Int32 {
                 let bundle = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any],
                 let artifacts = bundle["artifacts"] as? [String: String] {
                 summary.bundles[record.name] = artifacts
+                summary.bundleSigningClasses[record.name] = bundle["signingClass"] as? String
             }
             try save()
         }

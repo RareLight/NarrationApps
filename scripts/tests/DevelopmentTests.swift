@@ -57,7 +57,7 @@ enum DevelopmentTests {
         try Data("authored synthetic fixture\n".utf8).write(to: seed.appendingPathComponent("fixture"))
         _ = try checkedGit(seed, ["add", "fixture"])
         _ = try checkedGit(seed, ["-c", "user.name=Fixture", "-c", "user.email=fixture@localhost",
-            "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture"])
+            "-c", "commit.gpgsign=false", "commit", "-qm", "fixture"])
         let revision = try checkedGit(seed, ["rev-parse", "HEAD"])
         var object = original
         var components = object["components"] as! [[String: Any]]
@@ -85,6 +85,10 @@ enum DevelopmentTests {
         let baseline = try Baseline.load(fixture)
         let state = try sourceState(fixture, component: baseline.components[0])
         try expect(state.matchesBaseline && state.dirty == true && state.baselineAvailable, "dirty state accurately recorded")
+        _ = try checkedGit(fixture, ["init", "-q"])
+        _ = try checkedGit(fixture, ["add", "DevelopmentBaseline.json"])
+        _ = try checkedGit(fixture, ["-c", "user.name=Fixture", "-c", "user.email=fixture@localhost",
+            "-c", "commit.gpgsign=false", "commit", "-qm", "root fixture"])
         var toolFailure = false
         var architecture = "arm64"
         var sdk = "27.0"
@@ -176,6 +180,55 @@ enum DevelopmentTests {
         let reportSteps = report["steps"] as! [[String: Any]]
         try expect(reportSteps[1]["outcome"] as? String == "not-run", "summary never greens unrun steps")
         try expect(report["operatorAcceptance"] as? String == "not-performed", "operator acceptance remains separate")
+        try expect(report["distributionAcceptance"] as? String == "not-performed", "distribution acceptance remains separate")
+        try expect((report["unrequestedGates"] as? [String])?.contains("native") == true, "unrequested native acceptance explicit")
+        try expect(sha256(Data("abc".utf8)) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "release fingerprint SHA-256")
+        let configured = try Options(["check", "--tier", "native", "--workspace", fixture.path,
+            "--libro-worker", "/missing/libro", "--voicerelay-worker", "/missing/relay"])
+        try expect(!nativePrerequisites(configured), "missing configured native assets unavailable")
+        let absentLink = absent.appendingPathComponent("Libro")
+        try FileManager.default.createSymbolicLink(atPath: absentLink.path, withDestinationPath: "missing-target")
+        calls = []
+        try setup(absent, cloneApps: true, prepare: false, resolve: false, runner: runner)
+        try expect(try FileManager.default.destinationOfSymbolicLink(atPath: absentLink.path) == "missing-target", "dangling app link preserved")
+        try expect(calls.filter { $0.arguments.first == "clone" }.allSatisfy { $0.arguments.last!.hasSuffix("/VoiceRelay") }, "unexpected app path never replaced")
+        _ = try checkedGit(libro, ["-c", "user.name=Fixture", "-c", "user.email=fixture@localhost",
+            "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm", "development divergence"])
+        let diverged = try sourceState(fixture, component: baseline.components[0])
+        try expect(!diverged.matchesBaseline && diverged.baselineAvailable, "available checkpoint differs from development HEAD without reset")
+        var previous = revision
+        for (path, tier) in [
+            ("Notes.md", "quick"), ("Sources/Synthetic.swift", "full"), ("Package.swift", "release"),
+            ("swift-packages/Sources/NarrationCore/Contract.swift", "release"),
+            ("swift-packages/AppPresentation/Sources/AppPresentation/Control.swift", "release"),
+            ("NarrationApps.xcworkspace/contents.xcworkspacedata", "release"),
+            ("swift-packages/scripts/check.sh", "full"),
+            ("swift-packages/ThirdPartyNotices/Notice.md", "release"),
+        ] {
+            let file = seed.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("synthetic CI path fixture\n".utf8).write(to: file)
+            _ = try checkedGit(seed, ["add", path])
+            _ = try checkedGit(seed, ["-c", "user.name=Fixture", "-c", "user.email=fixture@localhost",
+                "-c", "commit.gpgsign=false", "commit", "-qm", "classify fixture"])
+            let result = try capture(Command(executable: "/usr/bin/swift",
+                arguments: [source.appendingPathComponent("scripts/select-ci-tier.swift").path, previous], directory: seed))
+            try expect(result.status == 0 && result.output.trimmingCharacters(in: .whitespacesAndNewlines) == tier, "CI classifies \(path)")
+            previous = try checkedGit(seed, ["rev-parse", "HEAD"])
+        }
+        var acquisition: [Command] = []
+        try setup(fixture, cloneApps: false, prepare: true, resolve: true, runner: { command in
+            if command.executable == "/usr/bin/git" { return try capture(command) }
+            acquisition.append(command)
+            return Result(status: 0, output: "synthetic source acquisition")
+        })
+        try expect(acquisition.first?.arguments == ["scripts/resolve-xcode-workspace.sh", "-derivedDataPath",
+            fixture.appendingPathComponent(".build/WorkspaceDerivedData").path], "setup delegates workspace preparation to its existing owner and build path")
+        let resolutions = acquisition.filter { $0.executable == "/usr/bin/swift" }
+        try expect(resolutions.count == 3, "setup acquires all three fixture package graphs")
+        try expect(resolutions.allSatisfy { $0.arguments.contains("--force-resolved-versions") }, "setup preserves fixture locks")
+        try expect(resolutions.contains { $0.arguments.contains("Libro/macos/.build/CoreTests") }, "Libro resolution uses the fixture-owned scratch path")
+        try expect(!acquisition.contains { $0.arguments == ["swift-packages/scripts/prepare-dependencies.sh"] }, "combined setup does not duplicate preparation")
         print("Development tooling: \(count) assertions passed; disposable sibling, no network/models/apps.")
     }
 }

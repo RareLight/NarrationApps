@@ -94,7 +94,7 @@ unshipped engineering tools.
 ## Next development stages
 
 The [development foundation checklist](docs/DEVELOPMENT_FOUNDATION_CHECKLIST.md)
-and [next-agent handoff](docs/AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) define the
+and [original implementation request](docs/AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) define the
 remaining setup, validation, CI, regression and maintainability work. The coordinated
 source baseline is committed. Manifest-aware health/setup, tiered validation,
 CI readiness and canonical regression ownership are implemented; see

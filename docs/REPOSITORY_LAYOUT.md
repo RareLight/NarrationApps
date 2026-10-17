@@ -142,8 +142,8 @@ Before archiving the originals:
    voice sample playback and library/output settings. This final GUI smoke test is
    operator-owned. Use normal team signing for VoiceRelay Keychain/server checks;
    ad-hoc validation does not establish live account acceptance.
-2. Update Codex's project folders to NarrationApps, Libro and VoiceRelay. This chat
-   still starts in the original Libro folder; do not continue development there.
+2. Update editor project folders to NarrationApps, Libro and VoiceRelay where
+   needed. New development starts in NarrationApps, not an archival sibling.
 3. After that smoke test, the old sibling folders outside NarrationApps can be
    archived. No active source/build/model dependency on those folders was found.
 

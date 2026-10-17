@@ -33,7 +33,8 @@ The coordinated source checkpoint is complete. The detailed
 [development foundation checklist](DEVELOPMENT_FOUNDATION_CHECKLIST.md) covers
 reproducible setup, tiered validation/CI readiness, regression contracts, focused
 app-file cleanup, formatting/documentation and dependency/release maintenance.
-Use its [agent handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) for that work.
+Its [original handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) records the authorized
+scope; use current checklist/status evidence rather than restarting completed stages.
 These local engineering stages can proceed independently of outstanding product
 quality/service acceptance; deferred product features are not added to their scope.
 

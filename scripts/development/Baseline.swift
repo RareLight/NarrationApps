@@ -127,6 +127,13 @@ func sourceState(_ root: URL, component: Baseline.Component?, runner: Runner = c
 func health(_ root: URL, strict: Bool, runner: Runner = capture) throws -> Bool {
     let baseline = try Baseline.load(root)
     var healthy = true
+    let rootState = try sourceState(root, component: nil, runner: runner)
+    if let revision = rootState.revision {
+        print("root HEAD: \(revision); dirty=\(rootState.dirty == true); dirty work is not a committed composition.")
+    } else {
+        print("UNAVAILABLE root Git checkout: run this tool from the complete NarrationApps source layout.")
+        healthy = false
+    }
     for component in baseline.components {
         let state = try sourceState(root, component: component, runner: runner)
         guard let revision = state.revision else {

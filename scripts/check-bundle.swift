@@ -1,5 +1,6 @@
 #!/usr/bin/swift
 import CryptoKit
+import Darwin
 import Foundation
 
 let arguments = Array(CommandLine.arguments.dropFirst())
@@ -54,7 +55,10 @@ func compareTree(_ source: URL, _ destination: URL) throws -> [String: String] {
     return records
 }
 do {
-    let gui = app.appendingPathComponent("Contents/MacOS/\(name)")
+    let info = try PropertyListSerialization.propertyList(from: Data(contentsOf: app.appendingPathComponent("Contents/Info.plist")), format: nil) as! [String: Any]
+    guard let executable = info["CFBundleExecutable"] as? String,
+        executable.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else { throw CocoaError(.fileReadCorruptFile) }
+    let gui = app.appendingPathComponent("Contents/MacOS/\(executable)")
     let worker = app.appendingPathComponent("Contents/Helpers/\(name)SpeechWorker")
     let metal = app.appendingPathComponent("Contents/Helpers/mlx.metallib")
     for binary in [gui, worker] {
@@ -71,9 +75,19 @@ do {
     let helperNames = try manager.contentsOfDirectory(atPath: app.appendingPathComponent("Contents/Helpers").path)
     try require(Set(helperNames) == ["\(name)SpeechWorker", "mlx.metallib"], "Unexpected embedded helper/runtime.")
     var artifacts = ["gui": try digest(gui), "worker": try digest(worker), "metal": try digest(metal)]
+    var codecSymbols: [String] = []
     if name == "Libro" {
         let codec = app.appendingPathComponent("Contents/Frameworks/libmp3lame.0.dylib")
         try require(try run("/usr/bin/lipo", ["-archs", codec.path]).trimmingCharacters(in: .whitespacesAndNewlines) == "arm64", "Expected arm64 codec.")
+        _ = try run("/usr/bin/codesign", ["--verify", "--strict", codec.path])
+        guard let library = dlopen(codec.path, RTLD_NOW | RTLD_LOCAL) else { throw CocoaError(.executableNotLoadable) }
+        defer { dlclose(library) }
+        codecSymbols = ["lame_init", "lame_close", "lame_set_num_channels", "lame_set_in_samplerate",
+            "lame_set_out_samplerate", "lame_set_mode", "lame_set_brate", "lame_set_quality",
+            "lame_set_findReplayGain", "lame_set_decode_on_the_fly", "lame_set_bWriteVbrTag",
+            "lame_set_write_id3tag_automatic", "id3tag_set_albumart", "lame_set_scale", "lame_init_params",
+            "lame_encode_buffer_ieee_float", "lame_encode_flush", "lame_get_lametag_frame", "lame_get_id3v2_tag"]
+        for symbol in codecSymbols { try require(dlsym(library, symbol) != nil, "Missing packaged codec symbol: \(symbol)") }
         artifacts["codec"] = try digest(codec)
     }
     _ = try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
@@ -85,7 +99,7 @@ do {
     let report: [String: Any] = ["app": name, "path": app.path, "artifacts": artifacts,
         "notices": notices, "samples": samples, "signatureVerified": true,
         "signingClass": signature.contains("Signature=adhoc") ? "ad-hoc-engineering" : "configured-signature",
-        "metalProbe": json ?? [:], "operatorAcceptance": "not-performed"]
+        "metalProbe": json ?? [:], "codecSymbolsVerified": codecSymbols, "operatorAcceptance": "not-performed"]
     print(String(decoding: try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]), as: UTF8.self))
 } catch {
     print("Bundle verification failed: \(error)")

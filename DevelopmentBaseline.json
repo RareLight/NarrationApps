@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "baseline": "native-unification-2026-10-16",
+  "baseline": "development-foundation-2026-10-16",
   "rootRevisionPolicy": "containing-git-commit",
   "components": [
     {
@@ -8,14 +8,14 @@
       "path": "Libro",
       "cloneURL": "git@github.com:RareLight/Libro-TTS.git",
       "branch": "unification",
-      "revision": "3c3b8e9c5603e38e0c60602c6861db9fdf2d8618"
+      "revision": "641540c41bd6aa7a84f19a3dc7f62e01ad53dc48"
     },
     {
       "name": "VoiceRelay",
       "path": "VoiceRelay",
       "cloneURL": "git@github.com:RareLight/VoiceRelay.git",
       "branch": "unification",
-      "revision": "681b8f6b09cecea870acdf472b2ee9b74840248b"
+      "revision": "20a8b28d8f9f9a33992dde47b33dca26a3623f3d"
     }
   ],
   "verifiedToolchain": {

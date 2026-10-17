@@ -1,5 +1,10 @@
 # Handoff prompt: NarrationApps development foundation
 
+Original implementation request, retained as provenance. Current completion,
+evidence and external blockers are owned by
+[the checklist](DEVELOPMENT_FOUNDATION_CHECKLIST.md) and
+[status](IMPLEMENTATION_STATUS.md); do not restart completed stages from this prompt.
+
 Implement the remaining stages in
 `/path/to/NarrationApps/docs/DEVELOPMENT_FOUNDATION_CHECKLIST.md`.
 Read the complete checklist, then proceed through DF1–DF8, developing, testing and

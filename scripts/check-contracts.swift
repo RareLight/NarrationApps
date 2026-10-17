@@ -8,7 +8,7 @@ func require(_ condition: Bool, _ message: String) throws {
 func manifest(_ path: String) throws -> [String: Any] {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
-    process.arguments = ["package", "--disable-sandbox", "--package-path", root.appendingPathComponent(path).path, "dump-package"]
+    process.arguments = ["package", "--package-path", root.appendingPathComponent(path).path, "dump-package"]
     let pipe = Pipe()
     process.standardOutput = pipe
     process.standardError = FileHandle.standardError

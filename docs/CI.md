@@ -40,8 +40,9 @@ CI resource, secret, remote, billable machine or service was provisioned.
 ## Gate policy
 
 `scripts/ci.sh` delegates to the same DF2 entry points. Ordinary docs/config-only
-pushes select quick; source/fixture changes select full; shared manifests/pins,
-patches, worker/project/build tooling or composition changes select full plus
+pushes select quick; source/fixture/check-script changes select full; shared
+public/presentation sources, manifests/pins, patches/notices, workspace,
+worker/project/build tooling or composition changes select full plus
 release. A missing/unknown comparison revision conservatively selects release.
 Manual quick/full/release dispatch is explicit. Full/release use locked prepared
 sources without automatic updates. Full's preparation is network-denied; native

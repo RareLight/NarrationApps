@@ -19,3 +19,7 @@ and Release workspace builds for layout/dependency changes. Use synthetic isolat
 fixtures; GUI, listening, protected-file, live server and signing-account validation
 remain operator-owned. Preserve unrelated pending changes and the apps' independent
 histories. Update current docs when moving maintained files or changing setup.
+
+CONTRIBUTING.md and docs/DEVELOPMENT.md own setup, tier selection and evidence.
+Formatting is deliberately allowlisted by .devin/format-files.txt; never format
+dependencies, patches, notices, generated output or golden fixtures recursively.

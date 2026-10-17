@@ -134,6 +134,15 @@ commands, pane navigation/help/notices and Appearance controls. NarrationUI owns
 speech controls; apps retain pane inventory, preferences and lifecycle. See
 [Settings ownership](SETTINGS_ALIGNMENT.md) and [sample generation](VOICE_SAMPLES.md).
 
+App source organization keeps workflow ownership local. Libro's `LibroApp.swift`
+owns scenes/delegate/window restoration; `IntakeModel.swift` retains intake/batch
+state and owned tasks. Queue, intake, document preview, Settings, narration controls
+and speech setup have separate view files. VoiceRelay retains AppModel state and
+lifecycle in `VoiceRelayApp.swift`, with main-actor Sync, speech-setup, health and
+event-projection extensions in `AppModel*.swift`. Only the minimum module-local
+visibility needed by those extensions is shared; no public API, persistence key
+or task/join owner changed. Delivery/DeliveryRead remain app-owned and unchanged.
+
 ## Authored navigation and narration choices
 
 SemanticDocument optionally retains bounded outline entries and source destinations.

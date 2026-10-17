@@ -14,7 +14,7 @@ stage records are reference evidence, not additional operating instructions.
 | [Regression corpus](REGRESSION_CORPUS.md) | Canonical synthetic fixtures and mandatory contracts |
 | [Current status](IMPLEMENTATION_STATUS.md) | Accepted baseline, latest automated evidence and open operator gates |
 | [Development foundation checklist](DEVELOPMENT_FOUNDATION_CHECKLIST.md) | Staged setup, validation/CI, regression, organization, formatting and maintenance work |
-| [Next-agent handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) | Ready-to-paste implementation request for the foundation stages |
+| [Original foundation handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) | Implementation-request provenance; current completion is in the checklist/status |
 | [Remaining work](IMPLEMENTATION_PLAN.md) | Current roadmap, proposed features, acceptance and distribution/package-release work |
 | [Cover art and navigation stages](COVER_ART_AND_NAVIGATION_PLAN.md) | Implemented export/feed covers, outlines, heading dedup and narration controls; evidence and acceptance gates |
 | [Operator checklist](OPERATOR_VALIDATION.md) | Single current manual validation list, separated by app |

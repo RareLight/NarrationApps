@@ -96,7 +96,7 @@ revisions have tested actionable diagnostics. Setup is repeatable, preserves une
 edits, and does not install models or touch an account. Defer provider/credential
 activation while completing local implementation.
 
-DF1 evidence: `bash scripts/test-development.sh` passes 27 assertions using tiny
+DF1 initially passed 27 assertions; the expanded tooling now passes 72, using tiny
 independent repositories in an owned disposable sibling, fake source acquisition
 and diagnostic tools (no network/cache copy/models). `bash scripts/develop.sh health`
 passes on the current native toolchain without changing app checkouts. Remote
@@ -117,7 +117,7 @@ checkpoint availability is explicitly unverified; setup refuses unavailable comm
   archive-specific behavior; embedded worker/Metal/notices/codec checks and signature
   verification. Keep Build Both Apps build-only. Preserve normal signing settings;
   separate ad-hoc engineering evidence from account/distribution acceptance.
-- [ ] Add Xcode test plans/dedicated test schemes where useful and actually supported.
+- [x] Add Xcode test plans/dedicated test schemes where useful and actually supported.
   Verify each Test action and test target rather than assuming auto-generated package
   schemes can run tests. Reuse current tests; don't create duplicate test bodies.
 - [x] Emit bounded ignored logs and a machine-readable summary with source revisions,
@@ -135,9 +135,20 @@ run is `.local/validation/full-0B80037E-8A69-4A74-B131-5439D799CD6E/summary.json
 It retains 229 shared XCTest (three explicit opt-in skips), one shared Swift
 Testing, two presentation, 18 LibroCore, 303 VoiceRelay core and 141 app cases.
 Two earlier harness attempts failed on nested sandbox/bookmark-entitlement
-behavior; product assertions were not weakened. Existing Xcode Test actions are
-being exercised with DF5 builds; no duplicate test bodies/plans were introduced.
-Native/release configuration is not yet a claim those tiers were run.
+behavior; product assertions were not weakened. Existing Xcode Test actions were
+verified with DF5: LibroCoreTests passed five ProjectResources tests and VoiceRelay
+passed its selected unique-reference test. `.xcresult` summaries confirm five and
+one tests, not empty Test actions. No duplicate plans/test bodies were added.
+
+The actual release tier passed both configurations, both individual Archives and
+all six bundle/signature/Metal/resource checks:
+`.local/validation/release-E0374846-76BD-4E1F-811E-5E8C6002BCB5/summary.json`.
+An initial verifier assumption about VoiceRelay's executable name was corrected to
+read CFBundleExecutable. The configured native tier also passed using the existing
+isolated prepared workspace, with both helpers' frontend/mixed jobs, safety
+fixtures and arbitration/cancellation:
+`.local/validation/native-FBBDFEBF-8A74-4B4A-AD4E-76DE4D44EDAB/summary.json`.
+Its no-argument invocation separately returned unavailable/exit 3 as intended.
 
 ## DF3 — Continuous integration readiness
 
@@ -204,26 +215,37 @@ no acoustic/preparation/IPC/audio behavior was changed by this stage.
 
 ## DF5 — Focused app-file decomposition
 
-- [ ] Split Libro's approximately 1,800-line LibroApp.swift along existing boundaries:
+- [x] Split Libro's approximately 1,800-line LibroApp.swift along existing boundaries:
   app/delegate startup, intake/batch state, queue/progress, document preview,
   Settings and speech-setup UI. Keep app workflow here and common capability shared.
-- [ ] Split VoiceRelay's approximately 1,700-line application-model file into coherent
+- [x] Split VoiceRelay's approximately 1,700-line application-model file into coherent
   existing responsibilities, such as lifecycle/health, owned Sync tasks, setup and
   coordinator event projection. Inspect current presentation files before moving code.
-- [ ] Review Delivery.swift only for a clearly useful small extraction; do not combine
+- [x] Review Delivery.swift only for a clearly useful small extraction; do not combine
   lifecycle/storage/publishing redesign with file organization. Avoid speculative
   new services, protocols, coordinators or additional packages.
-- [ ] Preserve actor isolation, access control, cancellation/join ownership, event
+- [x] Preserve actor isolation, access control, cancellation/join ownership, event
   ordering, persistence keys, timing, inert previews and user-visible behavior.
-- [ ] Make each extraction independently reviewable. Add focused regressions where a
+- [x] Make each extraction independently reviewable. Add focused regressions where a
   seam changes. Update Xcode's explicit source references; run VoiceRelay's
   `xcodeProjectAppSourcesUseUniqueBuildFileReferences` after project.pbxproj edits.
-- [ ] Verify SwiftPM/app suites and Debug/Release Xcode builds after relevant moves.
+- [x] Verify SwiftPM/app suites and Debug/Release Xcode builds after relevant moves.
   Recheck archive/packaged resources if packaging or worker wiring changes.
 
 Acceptance: responsibilities are easier to locate and test; no generic abstraction
 or behavior change is introduced merely to reduce line counts. New UI acceptance
 is operator-owned and should be requested only for changed flows or a final smoke pass.
+
+DF5 keeps method bodies, main-actor isolation and task/join owners unchanged, with
+only necessary module-local extension seams (no new public API). Delivery was
+reviewed and left unchanged: DeliveryRead already separates read-side concerns.
+VoiceRelay's unique-reference regression and four affected app tests pass; both
+app builds/Archives and real Xcode Test actions pass above. The new Libro project
+test initially mistook nested target-attribute keys for object definitions; it
+now scopes object definitions and cross-checks the parsed object count.
+The full 141-case VoiceRelay app suite and all 19 LibroCore cases pass after the
+extractions, including the new source-reference contract. Owning source commits
+are recorded in the manifest; formatting stays in separate subsequent commits.
 
 ## DF6 — Formatting and documentation lifecycle
 
@@ -250,25 +272,25 @@ maintained owner. Documentation checks pass in the root, package and both apps.
 
 ## DF7 — Dependency and release maintenance policy
 
-- [ ] Document one dependency-update procedure: exact upstream revision/license,
+- [x] Document one dependency-update procedure: exact upstream revision/license,
   current patch inventory, upstream fix comparison, reproducible preparation and
   the smallest adequate validation matrix. Don't update pins merely for cleanup.
-- [ ] Retire patches only after proving the upstream replacement preserves the
+- [x] Retire patches only after proving the upstream replacement preserves the
   intended behavior. Repeat API/behavior/native checks for touched engine changes.
-- [ ] Define ownership for app/package/workspace resolution files. Allow deliberate
+- [x] Define ownership for app/package/workspace resolution files. Allow deliberate
   independent consumer graphs; detect incompatible drift without blindly making all
   lockfiles identical. Record tested composition in the root manifest.
-- [ ] Document commit/release naming and compatibility expectations for shared APIs,
+- [x] Document commit/release naming and compatibility expectations for shared APIs,
   worker protocols, acoustic identities and persisted data. Preserve version strings
   that intentionally support old checkpoints or cross-app admission.
-- [ ] Define a release evidence manifest containing all three actual commit IDs,
+- [x] Define a release evidence manifest containing all three actual commit IDs,
   dirty state, toolchain, dependency/patch/resource fingerprints, artifact digests,
   signing class and completed/unavailable gates. Generated reports avoid the root
   self-SHA problem and belong in ignored output unless deliberately published.
-- [ ] Consolidate packaging/resource/notices/signature checks into the release tier.
+- [x] Consolidate packaging/resource/notices/signature checks into the release tier.
   Document human account/notarization, clean-Mac, installer/player and live-service
   gates without executing them or changing personal-team settings.
-- [ ] Keep remote package publication/export/registry strategy documented as future
+- [x] Keep remote package publication/export/registry strategy documented as future
   distribution work. The parent repository has no root Package.swift and patched
   ignored source dependencies still require preparation; a bare repository URL is
   not yet a ready-to-consume SwiftNarration release. No publication is requested.
@@ -276,6 +298,13 @@ maintained owner. Documentation checks pass in the root, package and both apps.
 Acceptance: a future update/release has a repeatable checklist and clear ownership;
 current pins, models, audio policy, signing configuration and public outputs remain
 unchanged unless a separately justified change is tested and recorded.
+
+DF7's canonical procedure is in
+[dependency maintenance](DEPENDENCIES.md#maintenance-procedure-and-ownership).
+Current pins/patches/models/version identifiers are unchanged. The real release
+report records source/dirty state, toolchain, dependency/patch/resource fingerprints
+and per-bundle artifact digests. Ad-hoc signing remains engineering evidence only;
+no account, remote or publication was operated.
 
 ## DF8 — Final engineering handoff
 

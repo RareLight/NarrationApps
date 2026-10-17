@@ -5,6 +5,8 @@ Tests use synthetic isolated inputs; no GUI is launched. Setup is the only
 network-acquisition entry point. Prepare sources before running gates; no test
 runner installs models. Tests/builds run serially at the tier level, with four
 compiler jobs. Do not overlap timing-sensitive tests and heavyweight builds.
+Explicit setup `--resolve` acquires both the workspace and all three SwiftPM fixture
+graphs; an Xcode-only resolution does not populate package-owned checkout state.
 Dependency preparation inside full is OS-network-denied and fails closed if
 source acquisition is needed. SwiftPM/Xcode validation uses locked versions and
 skips updates/automatic resolution. Product tests use isolated fake transports,
@@ -20,7 +22,7 @@ workers and packaged Metal probes retain their own OS network denial.
 | `bash scripts/check.sh --tier quick --scope presentation` | Also AppPresentation tests |
 | `bash scripts/check.sh --tier quick --scope shared --filter SpokenFormTests` | Also selected shared tests, not a full-suite pass |
 | `bash scripts/check.sh --tier quick --scope libro` | Also LibroCore tests |
-| `bash scripts/check.sh --tier quick --scope voicerelay --filter appModel` | Also matching VoiceRelay tests |
+| `bash scripts/check.sh --tier quick --scope voicerelay --filter xcodeProjectAppSourcesUseUniqueBuildFileReferences` | Also the VoiceRelay project-reference regression |
 | `bash scripts/check.sh` | Full isolated AppPresentation/shared/LibroCore/VoiceRelay core+app suites, preparation, number, packaging and static regressions |
 | `bash scripts/check.sh --tier native` | Unavailable (exit 3) until explicit prepared-model/worker arguments are supplied |
 | `bash scripts/check.sh --tier release --adhoc` | Workspace Debug/Release builds, each app's individual Archive, bundle/resource/signature/Metal checks |
@@ -83,3 +85,24 @@ independent Git repositories in an owned disposable sibling. It checks malformed
 manifests, missing/unavailable revisions, deliberate divergence, unsupported tool
 selection, repeat setup preservation, arguments, selection and failure evidence.
 It does not contact remotes or use the archival source trees.
+
+## Scoped formatting and document ownership
+
+Use the installed `swift format`, with the identical explicit
+`.devin/swift-format.json` in each repository. Four spaces, a 120-column target,
+stable multiline strings/import ordering and no automatic privacy rewriting keep
+the rules modest. There is no formatter package dependency.
+
+`bash scripts/format.sh lint all` strictly checks only each owner's
+`.devin/format-files.txt`; `apply` is the explicit fixing mode. Choose `root`,
+`Libro` or `VoiceRelay` instead of `all` for one repository. Initial enforcement
+covers the native tooling plus one small extracted file per app, not a wholesale
+legacy reformat. Graduate additional maintained files in formatting-only commits
+after behavior changes are committed and reviewed. The script rejects generated,
+patch/notice/golden-fixture paths and compares all three configurations.
+
+The single maintained architecture, roadmap, engineering checklist, status and
+manual list are indexed by [docs/README.md](README.md). App validation pages link
+to current shared results rather than maintaining rival totals. Historical stage
+counts/provenance remain historical, not today's acceptance. Ignored raw reports
+are optional local evidence; setup and current guides must work without them.

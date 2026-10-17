@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "indentation": { "spaces": 4 },
+  "lineLength": 120,
+  "maximumBlankLines": 1,
+  "respectsExistingLineBreaks": true,
+  "reflowMultilineStringLiterals": "never",
+  "rules": {
+    "OrderedImports": false,
+    "FileScopedDeclarationPrivacy": false,
+    "UseTripleSlashForDocumentationComments": false,
+    "ReplaceForEachWithForLoop": false,
+    "UseSynthesizedInitializer": false,
+    "OneVariableDeclarationPerLine": false,
+    "DoNotUseSemicolons": false
+  }
+}

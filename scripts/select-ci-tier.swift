@@ -17,8 +17,13 @@ guard process.terminationStatus == 0 else { print("release"); exit(0) }
 let paths = String(decoding: bytes, as: UTF8.self).split(separator: "\0").map(String.init)
 let release = paths.contains {
     $0 == "DevelopmentBaseline.json" || $0.contains("Package.") || $0.contains("Patches/") ||
-        $0.contains(".xcode") || $0.contains("Worker") || $0.contains("prepare-") ||
-        $0.contains("build-") || $0.hasPrefix("scripts/")
+        $0.contains(".xcode") || $0.contains(".xcworkspace") || $0.contains("Worker") ||
+        $0.contains("prepare-") || $0.contains("build-") || $0.hasPrefix("scripts/") ||
+        $0.hasPrefix("swift-packages/Sources/") || $0.hasPrefix("swift-packages/AppPresentation/Sources/") ||
+        $0.contains("ThirdPartyNotices/")
 }
-let full = paths.contains { $0.contains("Sources/") || $0.contains("Tests/") || $0.contains("Fixtures/") }
+let full = paths.contains {
+    $0.contains("Sources/") || $0.contains("Tests/") || $0.contains("Fixtures/") ||
+        $0.hasPrefix("swift-packages/scripts/")
+}
 print(release ? "release" : (full ? "full" : "quick"))

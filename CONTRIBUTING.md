@@ -25,8 +25,9 @@ remote availability has not been established. No root remote is configured.
   are preserved, never fetched/reset/stashed/checked out.
 - `bash scripts/develop.sh setup --prepare-dependencies`: explicit pinned source
   preparation, patches and LAME; may use network. Never installs speech models.
-- `bash scripts/develop.sh setup --resolve`: preparation plus locked workspace
-  resolution. Review lockfile diffs. Do not promise a fresh clone works until
+- `bash scripts/develop.sh setup --resolve`: existing workspace preparation/
+  resolution plus locked shared/LibroCore/VoiceRelay fixture-graph acquisition.
+  Review lockfile diffs. Do not promise a fresh clone works until
   owners publish the required commits and root.
 
 Use native arm64 Xcode/Swift with an SDK supporting the manifest deployment target.
@@ -66,3 +67,7 @@ settings, credentials, recordings or backups. Preserve completed/published audio
 MLX stays helper-only, one worker per app, with safe Libro priority. No gain,
 normalization, leveling, limiting or compression. Build/test evidence is not
 feature, acoustic, Keychain or distribution acceptance.
+
+For pin/patch updates, separately owned resolution files, compatibility versions
+and generated release evidence, follow
+[dependency maintenance](docs/DEPENDENCIES.md#maintenance-procedure-and-ownership).

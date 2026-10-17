@@ -42,9 +42,15 @@ func setup(_ root: URL, cloneApps: Bool, prepare: Bool, resolve: Bool, runner: R
             }
         }
     }
-    if prepare || resolve { try run("/bin/bash", ["swift-packages/scripts/prepare-dependencies.sh"]) }
     if resolve {
-        try run("/usr/bin/xcodebuild", ["-workspace", "NarrationApps.xcworkspace", "-scheme", "Build Both Apps",
-            "-resolvePackageDependencies", "-onlyUsePackageVersionsFromResolvedFile"])
+        try run("/bin/bash", ["scripts/resolve-xcode-workspace.sh", "-derivedDataPath",
+            root.appendingPathComponent(".build/WorkspaceDerivedData").path])
+        for package in ["swift-packages", "Libro/macos/LibroCore", "VoiceRelay"] {
+            var arguments = ["package", "--package-path", package, "--force-resolved-versions"]
+            if package == "Libro/macos/LibroCore" { arguments += ["--scratch-path", "Libro/macos/.build/CoreTests"] }
+            try run("/usr/bin/swift", arguments + ["resolve"])
+        }
+    } else if prepare {
+        try run("/bin/bash", ["swift-packages/scripts/prepare-dependencies.sh"])
     }
 }
