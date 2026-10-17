@@ -3,6 +3,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 swift scripts/check-layout.swift
+bash scripts/format.sh lint all
 swift scripts/check-contracts.swift
 for directory in "$root" "$root/swift-packages" "$root/Libro"; do
     swift scripts/check-docs.swift "$directory"

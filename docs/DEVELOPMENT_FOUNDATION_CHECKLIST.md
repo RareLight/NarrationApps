@@ -1,12 +1,12 @@
 # Development foundation implementation checklist
 
 Updated October 16, 2026. This plan turns the organization/maintenance assessment
-into bounded engineering stages. DF0/DF1/DF4 are complete; DF2/DF3 local tooling
-is implemented with Xcode Test-action verification and external activation tracked
-below. DF5–DF8 are in progress.
+into bounded engineering stages. DF0 is retained; DF1/DF2/DF4–DF7 local gates pass
+as recorded below. DF3 provider review/activation remains external; DF8 final
+composition verification and handoff are in progress.
 It supplements the [product roadmap](IMPLEMENTATION_PLAN.md), not a request to
-implement deferred product features. The ready-to-paste
-[agent handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) defines execution scope.
+implement deferred product features. The
+[original handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) records execution scope.
 
 ## Starting checkpoint and evidence
 
@@ -249,26 +249,35 @@ are recorded in the manifest; formatting stays in separate subsequent commits.
 
 ## DF6 — Formatting and documentation lifecycle
 
-- [ ] Adopt a modest explicit swift-format configuration using the installed
+- [x] Adopt a modest explicit swift-format configuration using the installed
   `swift format` tool; avoid introducing a formatter dependency by default.
-- [ ] Apply the same rules deliberately across the three repositories. Exclude
+- [x] Apply the same rules deliberately across the three repositories. Exclude
   dependencies, patches, generated output, license notices and golden fixture data.
   Keep formatting-only commits separate from logic changes and avoid a wholesale
   reformat that obscures DF5 review. Document baseline/graduated enforcement.
-- [ ] Keep one architecture, product roadmap, engineering checklist, current status
+- [x] Keep one architecture, product roadmap, engineering checklist, current status
   and operator checklist. Summarize repeated completed-stage evidence in status;
   retain accepted decisions/limitations and useful provenance pointers.
-- [ ] Resolve stale links/labels and contradictory historical counts/acceptance
+- [x] Resolve stale links/labels and contradictory historical counts/acceptance
   statements. Keep essential API/model/license records and original notices intact.
-- [ ] Keep agent instructions short and consistent with contributor guidance; app
+- [x] Keep agent instructions short and consistent with contributor guidance; app
   instructions may retain their domain-specific invariants. Don't rewrite all
   historical documentation merely to match current filesystem paths.
-- [ ] Ensure fixtures and docs remain checked after cleanup. Git history preserves
+- [x] Ensure fixtures and docs remain checked after cleanup. Git history preserves
   retired plans; ignored raw evidence may be absent on a fresh checkout and must
   not be a hidden setup dependency.
 
 Acceptance: formatting is deterministic and scoped; setup/status facts have one
 maintained owner. Documentation checks pass in the root, package and both apps.
+
+DF6's identical native formatter profiles are tracked in `.devin/` in all owners.
+Strict lint passes the graduated baseline: five tooling files and one small
+extracted file per app. Formatting-only commits are separate from decomposition.
+VoiceRelay's existing private `.devin/` ignore policy remains unchanged; only the
+two nonsecret style files were explicitly tracked. Quick/static includes scoped
+lint, architecture and all four documentation owners. Repeated relocation prose,
+stale current paths/count labels and handoff labels were corrected without
+rewriting historical plans or original dependency notices.
 
 ## DF7 — Dependency and release maintenance policy
 

@@ -12,6 +12,12 @@ live-service cases below remain unconfirmed unless explicitly recorded elsewhere
 
 ## Before starting
 
+For the development-foundation-only final smoke, focus on the existing setup,
+Settings, small synthetic import/preview/queue and Stop/Quit flows: Libro
+L01/L02/L05/L12/L18 and VoiceRelay V01/V02/V10 in an authorized disposable test
+setup. This is not a request to repeat model downloads, live Publishing, listening
+or private-document quality tests; those existing unreported cases stay open.
+
 Use the active workspace at
 `/path/to/NarrationApps/NarrationApps.xcworkspace`.
 First complete the [relocation smoke and archival gate](REPOSITORY_LAYOUT.md#migration-validation-and-archival-gate).
