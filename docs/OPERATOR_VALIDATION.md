@@ -134,6 +134,12 @@ separate from automated fixture tests.
   keeps the choice but explains it is not embedded. Choose an EPUB's Use Book
   Cover; missing/unsupported cover metadata offers a clear message. Bad images,
   cancellation and failed export preserve previous output and original images.
+  On the automatic-cover candidate, also import a PDF with a designed first page,
+  a metadata-marked EPUB and an EPUB whose cover image is embedded on its opening
+  page. Check automatic thumbnails preserve the full rectangular artwork/title.
+  Replace manually, add/rescan inputs, and confirm that choice wins. Remove and
+  re-add the document: no automatic re-selection until Use Book Cover is chosen.
+  Blank/locked/unsupported artwork must not prevent other documents importing.
 - [ ] **L18 — Contents and source.** Preview the synthetic EPUB/Markdown and an
   authored-bookmark PDF. Contents should navigate the correct Original Source
   section/page, retain nesting and explain page precision. Switch back to Narration;

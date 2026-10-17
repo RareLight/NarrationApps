@@ -23,3 +23,7 @@ histories. Update current docs when moving maintained files or changing setup.
 CONTRIBUTING.md and docs/DEVELOPMENT.md own setup, tier selection and evidence.
 Formatting is deliberately allowlisted by .devin/format-files.txt; never format
 dependencies, patches, notices, generated output or golden fixtures recursively.
+
+Testing mode: **autonomous** (confirmed October 17, 2026). Run relevant isolated
+checks automatically. GUI, listening, protected-file, live-service and signing-account
+acceptance remain operator-owned; do not replace a bundle under active operator testing.

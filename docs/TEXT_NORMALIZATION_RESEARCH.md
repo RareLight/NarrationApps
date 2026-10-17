@@ -166,3 +166,90 @@ The user subsequently confirmed the letter-A correction as fixed and authorized
 Delivery B. Common `text-flow-1` now handles explicit paragraphs, mapped soft
 hyphens and conservative native PDF flow; see the current implementation checklist.
 It does not enable additional model-specific homograph or lexical substitutions.
+
+## PDF printed-word dehyphenation: library-first investigation
+
+Research requested October 17, 2026. This section records findings and a proposed
+evaluation, not an enabled repair policy. No library/model was installed and no
+new hyphen-joining implementation or dependency pin was introduced.
+
+### What the current pipeline does
+
+`SpokenFormNormalizer` removes **U+00AD soft hyphens** in mapped spoken text.
+It does not remove ASCII `-` (U+002D) or typographic U+2010 hard hyphens at printed
+line endings. `PDFContinuationTests.testOnlyExplicitDiscretionaryWordSplitIsRepairedAcrossPages`
+explicitly retains the hard-hyphen boundary. Whitespace normalization can therefore
+leave a printed `inter-` / `national` as `inter- national`, unlike the soft-hyphen
+case. This is consistent with the reported pronunciation interruption, but the
+operator's actual PDF/code points have not been inspected.
+
+The earlier preservation policy was deliberate: geometry alone cannot distinguish
+`extraor-` / `dinary` from `well-` / `known` or ambiguous `re-` / `creation`.
+Any correction belongs before G2P in the source-mapped spoken projection, not in
+audio post-processing or by rewriting original PDF/source blocks.
+
+### Existing implementations and native fit
+
+| Candidate | Evidence and fit | Limitations / decision |
+| --- | --- | --- |
+| MuPDF C structured-text extraction | Official `FZ_STEXT_DEHYPHENATE` records line-ending hyphens as soft hyphens and joins lines when flattened. PyMuPDF exposes the same family of behavior as `TEXT_DEHYPHENATE`. A native C integration does not require Python. | Strongest established extractor-level option. MuPDF is AGPL or commercially licensed; redistribution review is required. It is a second PDF extraction stack, not a drop-in PDFKit postprocessor, and remapping extraction order/characters to existing source provenance needs evaluation. The flag is not proof of linguistic correctness for authored compounds. |
+| PDFium C API | Public `FPDFText_IsHyphen` is marked experimental; the upstream text-page implementation classifies hyphen boundaries using line geometry and adjacent characters. Native C API; core license has BSD-style terms, with bundled/transitive notices to review. | Useful existing extraction signal, not an English word/compound disambiguator. Replacing/adding a large PDF backend and its build graph solely for this issue is not justified without measured wins. |
+| Readium Swift toolkit | BSD-3-Clause source. Its content API has semantic elements/locators. Proposal #877 directly targets broken PDF/FXL TTS, joining printed fragments while preserving per-fragment page locators and bounded sentence regions. | Closest Swift architectural precedent. Public search-index metadata reports the proposal as open/draft, last updated August 14, 2026; this is **not live-verified release status**. GitHub CLI is unauthenticated, so live API/source review is blocked pending operator authentication. Do not assume the proposal is shipped, a small standalone component, or supported as-is in a macOS AppKit app. Do not adopt its speech engine. |
+| `pd3f/dehyphen` | Purpose-built dehyphenation using Flair character-language-model perplexity to compare alternative joins; handles preserving some genuine hyphens rather than only deletion. | Python/GPLv3 and additional neural-model assets. Not an acceptable product runtime under the native/no-new-model constraints. A useful reference for why context matters, not an installation recommendation. |
+| calibre heuristic processing | Official conversion documentation describes unwrap/dehyphenation heuristics and using the document itself as a dictionary to decide whether hyphens are retained. | Mature reference, but heuristic conversion may worsen some documents and operates on converted text/structure. Not a native Swift drop-in; no calibre/product CLI integration is proposed. Same-document repeated unsplit forms are useful evidence to evaluate. |
+| Swift `Hyphenation` / Apple's CFString hyphenation APIs | Swift library implements Knuth-Liang layout hyphenation; its documented `unhyphenate` removes separator characters. Apple's API returns possible hyphenation locations for a known word and locale. | **Not inverse PDF dehyphenation.** Removing every `-` corrupts real compounds; layout break opportunities do not prove the intended joined spelling. CFString can provide a native corroborating signal without a dependency, but is not a complete solution. Swift library is MIT with separately licensed pattern data. |
+
+A read-only probe on the installed macOS/SDK confirmed CFString hyphenation data
+for both en_US and en_GB. Its results differ by locale: the proposed `inter-`
+boundary in `international` was returned for en_GB but not en_US, while the
+candidate `wellknown` admitted boundary 4 for en_US. Thus a valid layout break
+location neither proves a legitimate spelling nor reliably recovers an observed
+printed wrap. This probe did not alter source text or implement a repair. Ignored
+output is `.local/pdf-hyphenation-apple-probe.log`.
+
+### Recommendation before implementation
+
+1. Obtain a small nonprivate example from the reported failure: the two extracted
+   line fragments and whether it crosses a page/column. Inspect its Unicode scalar
+   and retained line evidence. No private book upload or live service is needed.
+2. If a new native PDF backend/license is acceptable, evaluate MuPDF's existing
+   dehyphenation against the current PDFKit extraction on synthetic fixtures
+   first. Preserve unmodified extraction as the source of truth; measure mapping,
+   compound handling, reading order and memory before adopting it.
+3. Inspect Readium's proposed joining component once live public source access is
+   available. Reuse a suitable small BSD-licensed component only after checking
+   maturity, macOS compatibility and exact behavior; do not import an entire reader
+   stack or replace the current speech worker merely for this.
+4. If neither is suitable, evaluate existing Apple language/hyphenation facilities
+   and same-document spelling evidence over the **already retained PDF line
+   geometry**. Only then propose the smallest mapped joining policy. This would be
+   limited integration/decision logic, not a new PDF parser or generative rewrite.
+   An uncertain join must abstain or require an explicit user override.
+
+The critical regression pairs are `inter-\\nnational` -> `international`,
+`extraor-\\ndinary` -> `extraordinary`, and `well-\\nknown` -> `well-known`
+(remove the line boundary without deleting an authored hyphen). Also evaluate
+`state-of-\\nthe-art`, ambiguous `re-\\ncreation` / `re-\\nsign`, proper names,
+US/GB variants, numeric minus/ranges, URLs/identifiers, dialog dashes, heading/
+column/page boundaries, OCR uncertainty, Unicode/combining marks, overrides and
+bounded UTF-16 source maps. These are proposed evaluation cases, not regenerated
+current goldens. Original prose, completed audio, worker count, audio levels and
+the accepted acoustic policy must remain unchanged.
+
+### Primary sources consulted
+
+- [MuPDF C structured-text flags](https://mupdf.readthedocs.io/en/latest/_static/generated/c/html/structured-text_8h.html)
+- [MuPDF license](https://mupdf.readthedocs.io/en/latest/license.html)
+- [PyMuPDF text-extraction flags](https://pymupdf.readthedocs.io/en/latest/vars.html)
+- [PDFium public text API](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/public/fpdf_text.h)
+- [PDFium text-page implementation](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/core/fpdftext/cpdf_textpage.cpp)
+- [PDFium license](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/LICENSE)
+- [Readium content API](https://readium.org/swift-toolkit/3.8.0/documentation/readium/content/)
+- [Readium fixed-layout TTS proposal #877](https://github.com/readium/swift-toolkit/pull/877)
+- [Readium license](https://github.com/readium/swift-toolkit/blob/develop/LICENSE)
+- [dehyphen project documentation](https://pd3f.com/docs/dehyphen/)
+- [calibre heuristic processing](https://manual.calibre-ebook.com/conversion.html#heuristic-processing)
+- [Swift Hyphenator API and separator-removal warning](https://john-mueller.github.io/Hyphenation/Classes/Hyphenator.html)
+- [Swift Hyphenation licensing/pattern data](https://john-mueller.github.io/Hyphenation/)
+- [Apple CFString hyphenation API purpose](https://developer.apple.com/library/archive/releasenotes/CoreFoundation/RN-CoreFoundation-iOS/CoreFoundation_iOS5.html)
+- [Apple PDFSelection string semantics](https://developer.apple.com/documentation/pdfkit/pdfselection)

@@ -143,8 +143,22 @@ to source anchors. PDFKit bookmarks retain page precision, while actual
 HTML/Markdown headings provide a fallback. Invalid/unresolved destinations are
 unavailable instead of guessed; oversized optional trees abstain with a warning.
 Contents in either app's preview navigates original source, not generated chapter
-files. EPUB declarations may provide a JPEG/PNG cover through explicit Use Book
-Cover; SVG rendering and guessed first-page PDF covers are not introduced.
+files. Cover discovery is separate from narration: EPUB 3 `cover-image` and EPUB 2
+cover metadata take precedence, followed by a declared guide cover page and the
+first spine page's largest plausible embedded JPEG/PNG. SVG wrappers can reference
+an internal raster image; pure vector SVG rendering is not added. References must
+remain inside the archive and match its manifest; scripts, external resources and
+later-chapter illustrations are never fetched/searched for artwork.
+
+PDF covers render only the first page's authored crop box/orientation through
+CoreGraphics, capped at a 1200-pixel edge. The complete page design is retained;
+uniformly blank/locked/unreadable pages yield no automatic art. There is no OCR,
+generative image model, semantic claim that a first-page thumbnail is an authored
+cover, or automatic square crop. Libro performs discovery off the UI actor with
+owned cancellation/join, best-effort per-document failure, explicit selection
+precedence and persisted per-document removal opt-outs. Existing source prose,
+spine/narration order, manual cover choices, non-artwork preferences and completed
+recordings stay unchanged.
 
 The shared note policy supports Current Placement, End of Document and Omit.
 Include auxiliary sections applies only to explicit appendix/auxiliary semantics;

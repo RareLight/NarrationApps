@@ -6,3 +6,7 @@ sources/tests. ProcessingPipeline remains narration-specific. Keep MLX out of GU
 consumers, speech single-worker, audio levels unchanged and pins/patches reproducible.
 Run bash scripts/check.sh here for package fixtures. Cross-app orchestration and Xcode
 workspace support belong to the parent repository's scripts/ and NarrationApps.xcworkspace.
+
+Testing mode: **autonomous**, following the parent instruction confirmed
+October 17, 2026. Use synthetic isolated fixtures; no implicit model downloads
+or live-service/private-document validation.

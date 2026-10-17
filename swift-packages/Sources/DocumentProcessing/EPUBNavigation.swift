@@ -2,6 +2,8 @@ import Foundation
 import CryptoKit
 import SwiftSoup
 import NarrationCore
+import ImageIO
+import UniformTypeIdentifiers
 
 /// Navigation resources are metadata only; never schedule them as new spine prose.
 enum EPUBNavigation {
@@ -73,6 +75,54 @@ public extension EPUBDocumentExtractor {
     static func coverImage(data: Data) throws -> Data? {
         let container = try EPUBContainer(data: data, limits: .init())
         let package = try EPUBPackage(container: container)
-        return try package.coverPath.map { try container.read($0, maximum: 20 * 1024 * 1024) }
+        if let path = package.coverPath { return try container.read(path, maximum: 20 * 1024 * 1024) }
+        var paths = [package.coverPagePath, package.spine.first.flatMap { package.manifest[$0.id]?.path }].compactMap { $0 }
+        paths = paths.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+        for path in paths {
+            try Task.checkCancellation()
+            guard let item = package.manifest.values.first(where: { $0.path == path }) else { continue }
+            if ["image/jpeg", "image/png"].contains(item.mediaType) {
+                return try container.read(path, maximum: 20 * 1024 * 1024)
+            }
+            guard ["application/xhtml+xml", "text/html", "image/svg+xml"].contains(item.mediaType) else { continue }
+            do {
+                if let image = try coverPageImage(item, container: container, package: package) { return image }
+            } catch is CancellationError { throw CancellationError() }
+            catch { continue }
+        }
+        return nil
+    }
+
+    private static func coverPageImage(_ item: EPUBManifestItem, container: EPUBContainer, package: EPUBPackage) throws -> Data? {
+        let bytes = try container.read(item.path, maximum: 2_000_000)
+        let text = try DocumentTextDecoder.decode(bytes).text
+        let page = try item.mediaType == "image/svg+xml" ? SwiftSoup.parse(text, "", Parser.xmlParser()) : SwiftSoup.parse(text)
+        var best: (bytes: Data, pixels: Int)?, seen = Set<String>()
+        for element in try page.select("img, image").array().prefix(32) {
+            try Task.checkCancellation()
+            for attribute in ["src", "href", "xlink:href", "data-src", "data-original"] where element.hasAttr(attribute) {
+                guard let target = try? EPUBContainer.reference(element.attr(attribute), relativeTo: item.path),
+                      target.fragment == nil, seen.insert(target.path).inserted,
+                      let imageItem = package.manifest.values.first(where: { $0.path == target.path }),
+                      ["image/jpeg", "image/png"].contains(imageItem.mediaType) else { continue }
+                let image: Data
+                do { image = try container.read(target.path, maximum: 20 * 1024 * 1024) }
+                catch is CancellationError { throw CancellationError() }
+                catch { continue }
+                guard let source = CGImageSourceCreateWithData(image as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+                      CGImageSourceGetCount(source) == 1,
+                      CGImageSourceGetStatus(source) == .statusComplete,
+                      let type = CGImageSourceGetType(source) as String?,
+                      [UTType.jpeg.identifier, UTType.png.identifier].contains(type),
+                      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                      let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                      let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                      width >= 64, height >= 64, max(width, height) >= 128,
+                      width <= 16000, height <= 16000, width * height <= 40_000_000,
+                      max(width, height) <= min(width, height) * 3 else { continue }
+                if width * height > (best?.pixels ?? 0) { best = (image, width * height) }
+            }
+        }
+        return best?.bytes
     }
 }

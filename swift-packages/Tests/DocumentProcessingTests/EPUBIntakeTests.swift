@@ -2,6 +2,9 @@ import XCTest
 import Foundation
 import ZIPFoundation
 import NarrationCore
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
 @testable import DocumentProcessing
 
 private final class EPUBProgress: @unchecked Sendable {
@@ -12,6 +15,17 @@ private final class EPUBProgress: @unchecked Sendable {
 }
 
 final class EPUBIntakeTests: XCTestCase {
+    private func coverPNG(width: Int = 120, height: Int = 180) throws -> Data {
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let bytes = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(bytes, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return bytes as Data
+    }
     private func book(version: String = "3.0", manifest: String = "", spine: String = "", files: [(String, Data)] = [],
                       package: String? = nil, compression: CompressionMethod = .deflate) throws -> Data {
         let archive = try Archive(accessMode: .create)
@@ -178,6 +192,45 @@ final class EPUBIntakeTests: XCTestCase {
             XCTAssertNil(document.outline)
             XCTAssertTrue(document.warnings.contains { $0.contains("outline could not") })
             XCTAssertEqual(document.blocks.count, 4)
+        }
+    }
+
+    func testEPUB3DeclaredCoverTakesPriorityOverFirstSpineIllustrations() throws {
+        let marked = try coverPNG(), illustration = try coverPNG(width: 300, height: 400)
+        let bytes = try book(manifest: "<item id='cover' href='cover.png' media-type='image/png' properties='cover-image'/><item id='illustration' href='illustration.png' media-type='image/png'/>",
+            files: [("EPUB/cover.png", marked), ("EPUB/illustration.png", illustration),
+                ("EPUB/Text/one.xhtml", Data("<html><body><img src='../illustration.png'/></body></html>".utf8))])
+        XCTAssertEqual(try EPUBDocumentExtractor.coverImage(data: bytes), marked)
+    }
+
+    func testCoverGuideCanFindAnEmbeddedRasterInsideAnSVGWrapperOutsideTheSpine() throws {
+        let cover = try coverPNG()
+        let opf = "<package version='2.0'><metadata/><manifest><item id='one' href='Text/one.xhtml' media-type='application/xhtml+xml'/><item id='page' href='cover.svg' media-type='image/svg+xml'/><item id='art' href='Images/book.png' media-type='image/png'/></manifest><spine><itemref idref='one'/></spine><guide><reference type='cover' href='cover.svg'/></guide></package>"
+        let bytes = try book(files: [("EPUB/cover.svg", Data("<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'><image xlink:href='Images/book.png'/></svg>".utf8)),
+            ("EPUB/Images/book.png", cover)], package: opf)
+        XCTAssertEqual(try EPUBDocumentExtractor.coverImage(data: bytes), cover)
+    }
+
+    func testUnmarkedFirstPageChoosesTheLargestPlausibleImageWithoutRewritingProse() async throws {
+        let cover = try coverPNG(), logo = try coverPNG(width: 16, height: 16)
+        let bytes = try book(manifest: "<item id='art' href='Images/book.png' media-type='image/png'/><item id='logo' href='Images/logo.png' media-type='image/png'/>",
+            files: [("EPUB/Images/book.png", cover), ("EPUB/Images/logo.png", logo),
+                ("EPUB/Text/one.xhtml", Data("<html><body><p>Original first prose.</p><img src='../Images/logo.png'/><img src='../Images/book.png'/></body></html>".utf8))])
+        let before = try await EPUBDocumentExtractor.extract(data: bytes)
+        XCTAssertEqual(try EPUBDocumentExtractor.coverImage(data: bytes), cover)
+        let after = try await EPUBDocumentExtractor.extract(data: bytes)
+        XCTAssertEqual(after, before)
+        XCTAssertTrue(before.blocks.contains { $0.text == "Original first prose." })
+    }
+
+    func testFirstPageDoesNotFollowExternalOrUnmanifestedImagesOrSearchLaterChapters() throws {
+        let cover = try coverPNG()
+        for reference in ["https://example.invalid/cover.png", "file:///private/cover.png", "../../../escape.png", "../Images/hidden.png"] {
+            let bytes = try book(manifest: "<item id='later' href='Images/later.png' media-type='image/png'/>",
+                files: [("EPUB/Images/hidden.png", cover), ("EPUB/Images/later.png", cover),
+                    ("EPUB/Text/one.xhtml", Data("<html><body><img src='\(reference)'/></body></html>".utf8)),
+                    ("EPUB/Text/two.xhtml", Data("<html><body><img src='../Images/later.png'/></body></html>".utf8))])
+            XCTAssertNil(try EPUBDocumentExtractor.coverImage(data: bytes))
         }
     }
 }

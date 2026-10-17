@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "baseline": "development-foundation-2026-10-16",
+  "baseline": "automatic-document-covers-2026-10-17",
   "rootRevisionPolicy": "containing-git-commit",
   "components": [
     {
@@ -8,7 +8,7 @@
       "path": "Libro",
       "cloneURL": "git@github.com:RareLight/Libro-TTS.git",
       "branch": "unification",
-      "revision": "ad758a6c41c4956356ca8ed314fe4de4482ce267"
+      "revision": "a85732a76db4e7a5ea34f86fc4dac4989a3b44c3"
     },
     {
       "name": "VoiceRelay",

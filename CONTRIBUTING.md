@@ -44,9 +44,9 @@ and app scripts remain supported. Choose quick/full/native/release via
 [canonical regression ownership](docs/REGRESSION_CORPUS.md).
 Source/model preparation, GUI, protected Safari,
 Keychain, network services and signing accounts are not implicit test setup.
-The explicit foundation implementation request authorizes automated local checks
-for that session; otherwise follow the recorded app testing mode and confirm an
-unset mode before routine validation.
+Testing mode is **autonomous**, confirmed October 17, 2026 in the root/shared/Libro
+instructions. Run relevant isolated checks automatically, preserving the operator's
+current test bundle and the manual ownership of GUI/listening/protected/live gates.
 
 | Operation | Maintained owner |
 | --- | --- |

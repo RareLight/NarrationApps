@@ -166,6 +166,7 @@ struct EPUBPackage {
     let navigationPath: String?
     let ncxPath: String?
     let coverPath: String?
+    let coverPagePath: String?
     let spine: [(id: String, auxiliary: Bool)]
     init(container: EPUBContainer) throws {
         let ocf = try parseEPUBXML(container.read("META-INF/container.xml", maximum: 4_000_000))
@@ -201,6 +202,13 @@ struct EPUBPackage {
         let coverID = resources.children.first { ($0.attributes["properties"] ?? "").split(whereSeparator: \.isWhitespace).contains("cover-image") }?.attributes["id"]
             ?? metadata.children.first { $0.name == "meta" && $0.attributes["name"] == "cover" }?.attributes["content"]
         coverPath = coverID.flatMap { items[$0] }.flatMap { ["image/jpeg", "image/png"].contains($0.mediaType) ? $0.path : nil }
+        let markedPage = coverID.flatMap { items[$0] }.flatMap {
+            ["application/xhtml+xml", "text/html", "image/svg+xml"].contains($0.mediaType) ? $0.path : nil
+        }
+        let guideCover = opf.children.first { $0.name == "guide" }?.children.first {
+            $0.name == "reference" && ($0.attributes["type"] ?? "").split(whereSeparator: \.isWhitespace).contains("cover")
+        }?.attributes["href"]
+        coverPagePath = markedPage ?? guideCover.flatMap { try? EPUBContainer.reference($0, relativeTo: path).path }
         manifest = items; spine = order
         if container.contains("META-INF/encryption.xml") {
             let encryption = try parseEPUBXML(container.read("META-INF/encryption.xml", maximum: 4_000_000))

@@ -87,12 +87,13 @@ public enum DocumentReader {
     }
 
     public static func bookCover(_ document: InputDocument) throws -> Data? {
-        guard document.kind == .epub else { return nil }
+        guard document.kind == .epub || document.kind == .pdf else { return nil }
         try Task.checkCancellation()
         var error: NSError?, result: Result<Data?, Error>?
         NSFileCoordinator().coordinate(readingItemAt: document.source, options: [], error: &error) { url in
             result = Result {
                 guard (try url.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? Int.max <= 512_000_000 else { throw DocumentReadError.malformed }
+                if document.kind == .pdf { return try PDFCoverImage.read(url) }
                 return try EPUBDocumentExtractor.coverImage(data: Data(contentsOf: url))
             }
         }
