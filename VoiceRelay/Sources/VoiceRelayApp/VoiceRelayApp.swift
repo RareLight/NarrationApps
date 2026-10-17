@@ -12,33 +12,6 @@ enum SpeechRuntimeTestResult: Equatable {
     case untested, success, cancelled, failure(String)
 }
 
-enum AppHealthStatus: Equatable {
-    case ready
-    case checking(String)
-    case needsSetup(String, SettingsSection)
-    case failure(String, SettingsSection)
-    var title: String {
-        switch self {
-        case .ready: "Ready"
-        case .checking(let message), .needsSetup(let message, _), .failure(let message, _): message
-        }
-    }
-    var symbol: String {
-        switch self {
-        case .ready: "checkmark.circle.fill"
-        case .checking: "clock"
-        case .needsSetup: "arrow.down.circle"
-        case .failure: "xmark.circle.fill"
-        }
-    }
-    var settingsSection: SettingsSection? {
-        switch self {
-        case .failure(_, let section), .needsSetup(_, let section): return section
-        default: return nil
-        }
-    }
-}
-
 enum SyncPhase: String {
     case readingList = "Reading List"
     case reconciling = "Checking server audio"
@@ -62,8 +35,8 @@ final class AppModel {
     var error: String?
     var progress: PipelineProgress?
     var batchProgress: QueueBatchProgress?
-    @ObservationIgnored private var progressID = UUID()
-    @ObservationIgnored private var completedQueueIDs: Set<String> = []
+    @ObservationIgnored private(set) var progressID = UUID()
+    @ObservationIgnored var completedQueueIDs: Set<String> = []
     var result: FixtureResult?
     var savedEpisodes: [Episode] = []
     var queueItems: [SpeechQueueItem] = []
@@ -168,8 +141,8 @@ final class AppModel {
     @ObservationIgnored private var deliveryVerificationID = UUID()
     var syncBusy = false
     var syncPhase: SyncPhase?
-    @ObservationIgnored private var syncTask: Task<Void, Never>?
-    @ObservationIgnored private var syncPreparing = false
+    @ObservationIgnored var syncTask: Task<Void, Never>?
+    @ObservationIgnored var syncPreparing = false
     /// Editor field only — never persisted to UserDefaults or files.
     var deliveryPassword = "" { didSet { cancelDeliveryTest() } }
     var deliveryPasswordStored = false
@@ -217,7 +190,7 @@ final class AppModel {
     var libraryReviewRequired = false {
         didSet { if !preview { defaults.set(libraryReviewRequired, forKey: "libraryReviewRequired") } }
     }
-    @ObservationIgnored private var runtimeTask: Task<Void, Never>?
+    @ObservationIgnored var runtimeTask: Task<Void, Never>?
     @ObservationIgnored private var libraryMaintenanceTask: Task<Void, Never>?
     @ObservationIgnored let coordinator = FixtureCoordinator()
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -238,7 +211,7 @@ final class AppModel {
     /// Entry IDs whose automatic admission failed or was refused this session; manual adds bypass it.
     @ObservationIgnored private var autoAttempted: Set<String> = []
     @ObservationIgnored private var launchResumeDone = false
-    @ObservationIgnored private var libraryTask: Task<Void, Never>?
+    @ObservationIgnored private(set) var libraryTask: Task<Void, Never>?
     /// Discard saved-audio snapshots read before a removal or delivery confirmation.
     @ObservationIgnored private var audioLibraryRevision = UUID()
     @ObservationIgnored private var pendingLibraryRefresh: Bool?
@@ -255,13 +228,13 @@ final class AppModel {
     @ObservationIgnored private var startupReconciliationPending = true
     @ObservationIgnored private(set) var stopping = false
     var workspaceSection: WorkspaceSection? = .articles
-    @ObservationIgnored private let storageOverride: ManagedSpeechStorage?
-    @ObservationIgnored private let backendOverride: (@Sendable (Episode) throws -> any TTSBackend)?
+    @ObservationIgnored let storageOverride: ManagedSpeechStorage?
+    @ObservationIgnored let backendOverride: (@Sendable (Episode) throws -> any TTSBackend)?
     @ObservationIgnored private let enqueueFetchOverride: (@Sendable (URL) async throws -> FetchedPage)?
     @ObservationIgnored private let archiveFetchOverride: ArticleSourceLoader.ArchiveFetch?
-    @ObservationIgnored private let runtimeInstalledOverride: (@Sendable (URL) -> Bool)?
-    @ObservationIgnored private let runtimeSetupOverride: (@Sendable (Bool, URL) throws -> Void)?
-    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored let runtimeInstalledOverride: (@Sendable (URL) -> Bool)?
+    @ObservationIgnored let runtimeSetupOverride: (@Sendable (Bool, URL) throws -> Void)?
+    @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored private let inertDefaults: InertDefaultsDomain?
     /// Delivery seams: production gets Keychain + URLSession; injected models get nil unless a
     /// test supplies fakes, so isolated models can never touch the network or Keychain.
@@ -788,32 +761,6 @@ final class AppModel {
         running = false; processingSpeech = false; cancelling = false; task = nil
         refreshLibrary()
     }
-    private var progressHandler: @Sendable (PipelineProgress) -> Void {
-        let token = progressID
-        return { [weak self] update in Task { @MainActor in
-            guard let self, self.progressID == token else { return }
-            self.progress = update
-        } }
-    }
-    private var queueHandler: @Sendable (SpeechQueueItem) -> Void {
-        let token = progressID
-        return { [weak self] item in
-            Task { @MainActor in
-                guard let self, self.progressID == token else { return }
-                if item.state == .completed {
-                    self.completedQueueIDs.insert(item.id)
-                    self.queueItems.removeAll { $0.id == item.id }
-                    self.queueSelection.remove(.episode(item.id)); return
-                }
-                guard !self.completedQueueIDs.contains(item.id) else { return }
-                if item.state == .running {
-                    self.queueItems.removeAll { $0.id == item.id }
-                    self.queueItems.insert(item, at: 0)
-                } else if let index = self.queueItems.firstIndex(where: { $0.id == item.id }) { self.queueItems[index] = item }
-                else { self.queueItems.append(item) }
-            }
-        }
-    }
     var selectedArticles: [ReadingListEntry] {
         allArticleRows.filter { articlesWebsiteFilter.includes($0) && matchesArticleSearch($0, query: articlesSearchText) }
             .compactMap(\.source).filter { articleSelection.contains($0.id) }
@@ -942,65 +889,6 @@ final class AppModel {
     func maybeAutoProcess() {
         guard !syncPreparing, autoProcessEnabled, !autoHalted, canGenerateAudio else { return }
         runQueue()
-    }
-    var canSyncNow: Bool {
-        !preview && !stopping && !syncBusy && !cancelling && !libraryReviewRequired
-            && !libraryMaintenanceBusy && !sourcePruningBusy && !audioMutationBusy && !runtimeBusy && !deliveryCredentialBusy
-    }
-    /// One manual round trip, without changing persisted automation preferences.
-    func syncNow() {
-        guard canSyncNow else { return }
-        syncBusy = true; syncPreparing = true; syncPhase = .readingList
-        syncTask = Task {
-            defer { syncTask = nil; syncBusy = false; syncPreparing = false; syncPhase = nil }
-            do {
-                guard await sourceReview.refreshSource() else { return }
-                try Task.checkCancellation()
-                await waitForSourcePruning()
-                refreshLibrary(allowDelivery: false); await waitForLibraryRefresh()
-                try Task.checkCancellation()
-                // Manual Sync retries credential access and the current feed check,
-                // while retaining valid media proofs and ordinary upload backoff.
-                syncPhase = .reconciling
-                triggerDelivery(reconcileNow: true); await waitForDelivery()
-                try Task.checkCancellation()
-                syncPhase = .preparing
-                await autoAdmitNewEntries(explicit: true)
-                await waitForEnqueue()
-                syncPhase = .generating
-                await waitForProcessing()
-                await waitForAudioMutation()
-                await waitForLibraryRefresh()
-                try Task.checkCancellation()
-                if runtimeTestResult != .success && canManageSpeechRuntime {
-                    syncPhase = .speechCheck
-                    checkSpeechRuntime(); await waitForRuntimeSetup()
-                }
-                try Task.checkCancellation()
-                syncPreparing = false
-                syncPhase = .generating
-                if canGenerateAudio { runQueue(); await waitForProcessing() }
-                try Task.checkCancellation()
-                syncPhase = .publishing
-                triggerDelivery(); await waitForDelivery()
-                await waitForLibraryRefresh()
-            } catch is CancellationError {
-            } catch { self.error = "Sync could not finish; saved progress is retained." }
-        }
-    }
-    var syncProgressLabel: String {
-        if syncPhase == .reconciling || syncPhase == .publishing,
-           let transfer = uploadProgress.values.first(where: { $0.phase.active }) { return transfer.phase.title }
-        return syncPhase?.rawValue ?? "Syncing…"
-    }
-    /// Measured generation or current-file transfer progress, never an overall estimate.
-    var syncProgressFraction: Double? {
-        guard syncBusy else { return nil }
-        if syncPhase == .generating { return processingFraction }
-        if syncPhase == .reconciling || syncPhase == .publishing {
-            return uploadProgress.values.first(where: { $0.phase == .transferring })?.fraction
-        }
-        return nil
     }
     /// Launch resume: items left .running by a previous Quit are legitimate unfinished work —
     /// re-ready them once, then let automation drain. Failed items stay manual-Retry.
@@ -1308,18 +1196,6 @@ final class AppModel {
         ArticleOriginMetadata(host: episode.originalSourceHost ?? episode.sourceHost ?? episode.sourceURL?.host,
                               savedAt: episode.readingListSavedAt)
     }
-    /// Progress snapshots may predate captured metadata; they must not erase it in the UI.
-    func recordUploadProgress(_ event: UploadProgress) {
-        uploadProgress[event.episode.id] = event
-        var episode = event.episode
-        if let index = savedEpisodes.firstIndex(where: { $0.id == episode.id }) {
-            let previous = savedEpisodes[index]
-            episode.readingListSavedAt = episode.readingListSavedAt ?? previous.readingListSavedAt
-            episode.originalSourceHost = episode.originalSourceHost ?? previous.originalSourceHost
-            episode.originalSourceIdentity = episode.originalSourceIdentity ?? previous.originalSourceIdentity
-            savedEpisodes[index] = episode
-        } else { savedEpisodes.append(episode) }
-    }
     /// Audio metadata is separate from the original website and Reading List save date.
     func savedAudioMeta(_ episode: Episode) -> String? {
         guard let info = episode.info else { return nil }
@@ -1335,13 +1211,6 @@ final class AppModel {
     }
 
     var savedAudioResetCandidates: [String] { savedEpisodes.filter(canRemoveSavedAudio).map(\.id) }
-    private func recordDeliveryPublication(_ summary: DeliverySummary) {
-        deliveryPublicationStates = summary.publicationStates
-        deliveryPublicationAudioHashes = summary.publicationAudioHashes
-        deliveryPublicationSettingsHash = summary.publicationSettingsHash
-        deliveryVerificationFailedIDs = summary.verificationFailedIDs
-        deliveryFeedError = summary.feedError
-    }
     func savedAudioDeliveryStatus(_ episode: Episode) -> DeliveryPublicationStatus {
         guard let settings = presentationDeliverySettings else { return .notUploaded }
         if let identity = presentationDeliveryIdentity, identity == deliveryPublicationSettingsHash,
@@ -1549,88 +1418,6 @@ final class AppModel {
     }
     func quit() { NSApplication.shared.terminate(nil) }
 
-    var speechSetupStatus: SpeechSetupStatus {
-        switch runtimeTestResult {
-        case .untested: speechRuntimeInstalled ? .notChecked : .notInstalled
-        case .success: .ready
-        case .cancelled: .cancelled
-        case .failure(let message): .failure(message)
-        }
-    }
-    var pronunciationUnavailableReason: String? {
-        guard pronunciationConfiguration == nil else { return nil }
-        if running || runtimeBusy || stopping { return NarrationSettingsHelp.previewBusy }
-        if runtimeVerificationFailed { return NarrationSettingsHelp.previewCheckNeeded }
-        return speechRuntimeAvailable ? NarrationSettingsHelp.previewBusy : NarrationSettingsHelp.previewModelMissing
-    }
-
-    var speechRuntimeInstalled: Bool {
-        if let runtimeInstalledOverride { return runtimeInstalledOverride(runtimeProject) }
-        return storageOverride != nil || backendOverride != nil || NativeSpeechSetup.isInstalled(at: runtimeProject)
-    }
-    var speechRuntimeAvailable: Bool { !runtimeVerificationFailed && speechRuntimeInstalled }
-    var canManageLibrary: Bool {
-        !syncBusy && !sourcePruningBusy && !preview && !stopping && !running && !runtimeBusy && !libraryMaintenanceBusy && pendingAdds.isEmpty
-            && !queueMutationBusy && !audioMutationBusy && !deliveryBusy && !deliveryTesting
-            && !deliveryCredentialBusy && !sourceReview.busy && !sourceReview.maintenanceSuspended && libraryTask == nil
-    }
-    /// Speech setup is independent of server operations and short library metadata writes.
-    var runtimeControlDisabledReason: String? {
-        if preview || (storageOverride != nil && runtimeSetupOverride == nil) { return "Unavailable in this isolated model." }
-        if stopping { return "VoiceRelay is quitting." }
-        if runtimeBusy { return "Speech setup is in progress." }
-        if running || processingSpeech || cancelling { return "Stop audio generation before checking speech setup or installing a model." }
-        if libraryMaintenanceBusy { return "Wait for library maintenance to finish." }
-        return nil
-    }
-    var canManageSpeechRuntime: Bool { runtimeControlDisabledReason == nil }
-    func checkSpeechRuntime() {
-        beginRuntimeSetup(install: false)
-    }
-    func installSpeechRuntime() {
-        beginRuntimeSetup(install: true)
-    }
-    private func beginRuntimeSetup(install: Bool) {
-        guard canManageSpeechRuntime else { return }
-        let root = install ? NativeSpeechSetup.managedRoot : runtimeProject
-        pronunciationPreview.stop()
-        runtimeBusy = true; runtimeInstalling = install; runtimeTestResult = .untested
-        let operation: DeliveryDebugLog.Event.RuntimeOperation = install ? .installation : .check
-        deliveryDebugLog.record(.speechRuntime(operation, .started))
-        let perform = runtimeSetupOverride
-        runtimeTask = Task { [weak self] in
-            guard let self else { return }
-            defer { runtimeTask = nil; runtimeBusy = false; maybeAutoProcess() }
-            await pronunciationPreview.stopAndWait()
-            let worker = Task.detached {
-                if let perform { try perform(install, root) }
-                else if install { try NativeSpeechSetup.install(at: root) }
-                else { try NativeSpeechSetup.check(at: root) }
-            }
-            do {
-                try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
-                try Task.checkCancellation()
-                guard !stopping else { return }
-                if install { runtimeProject = root; defaults.set(root.path, forKey: "runtimeProject") }
-                runtimeVerificationFailed = false
-                runtimeTestResult = .success
-                deliveryDebugLog.record(.speechRuntime(operation, .verified))
-            } catch is CancellationError {
-                guard !stopping else { return }
-                runtimeTestResult = .cancelled
-                deliveryDebugLog.record(.speechRuntime(operation, .cancelled))
-            } catch {
-                guard !stopping else { return }
-                if root.standardizedFileURL == runtimeProject.standardizedFileURL { runtimeVerificationFailed = true }
-                let guidance = install
-                    ? "The speech model could not be installed. Check your internet connection and available disk space, then retry."
-                    : "Speech setup could not be verified offline. Check that the speech model is installed, or install it again."
-                runtimeTestResult = .failure((error as? RelayError)?.localizedDescription ?? guidance)
-                deliveryDebugLog.record(.speechRuntime(operation, .failed))
-            }
-        }
-    }
-    func cancelRuntimeSetup() { runtimeTask?.cancel() }
     func chooseLibraryBackup() {
         guard canManageLibrary else { return }
         let panel = NSSavePanel()

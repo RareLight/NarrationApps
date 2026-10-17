@@ -1,4 +1,4 @@
-# VoiceRelay 1.0 release checklist
+# VoiceRelay release checklist
 
 This is the engineering/distribution gate, separate from the
 [consolidated app validation checklist](../../docs/OPERATOR_VALIDATION.md).
@@ -13,11 +13,15 @@ publishing, notarization, developer-account operations or live state changes.
 - [ ] Inspect the candidate's Git changes/history for private URLs, source content,
       credentials, diagnostics and generated artifacts. Retain LICENSE and notices.
 - [ ] Confirm Package.swift and both Package.resolved files agree; no incidental downloads.
+- [ ] Review the root workspace composition and separately owned locks through
+      [dependency maintenance](../../docs/DEPENDENCIES.md#maintenance-procedure-and-ownership);
+      use the root release tier for ad-hoc engineering evidence. Do not blindly
+      make independent consumer graphs identical.
 - [ ] Review README, Help, beta checks and current validation for the candidate behavior.
 
 ## Operator acceptance
 
-Complete and record VoiceRelay V01–V16, shared B01–B04 and applicable D01–D02
+Complete and record applicable VoiceRelay, shared and distribution acceptance IDs
 from the [single operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay).
 Operator results are separate from fixture/build/signature evidence.
 

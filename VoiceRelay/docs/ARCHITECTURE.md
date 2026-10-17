@@ -1,6 +1,6 @@
 # VoiceRelay architecture
 
-Current application contract, October 15, 2026. Shared processing lives in the
+Current application contract, October 16, 2026. Shared processing lives in the
 independent [SwiftNarration packages](../../docs/ARCHITECTURE.md).
 VoiceRelay owns Safari discovery, source authorization, retained identity/text,
 SQLite queue/recovery, Publishing/Keychain, backup and GUI lifecycle.
@@ -10,6 +10,7 @@ SQLite queue/recovery, Publishing/Keychain, backup and GUI lifecycle.
 | Component | Responsibility |
 | --- | --- |
 | VoiceRelayApp, AppModel, SettingsViews, MenuBarViews, WindowPresence | Native scenes, preferences, actions and cached UI projections |
+| AppModelSync, AppModelSpeechSetup, AppModelHealth, AppModelEvents | Main-actor extensions for existing owned Sync, setup, cached health and ordered event projection; AppModel retains stored state/lifecycle |
 | ReadingList, SourceReview, Extraction, ArchivedArticles | Read-only Safari inventory, authorized fetch/archive lookup and app-specific source policy |
 | PDFArticleExtractor, ImageNarration | Thin adapters to shared native document/image processing |
 | Store, SpeechQueue, FixtureCoordinator | Durable snapshots, admission, job identity, checkpoints and queue ownership |
@@ -132,4 +133,4 @@ Use [CONTRIBUTING.md](../CONTRIBUTING.md) for safe checks,
 [VALIDATION.md](VALIDATION.md) for current evidence and the
 [single operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay)
 for GUI, live services, listening and restoration. Those are not established by
-compile/fixture success. Older stage results are [history](ARCHITECTURE.md).
+compile/fixture success. Older stage results remain in Git history.

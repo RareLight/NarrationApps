@@ -27,6 +27,10 @@
         B20000000000000000000003 /* PronunciationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000003 /* PronunciationUI */; };
         B20000000000000000000004 /* NarrationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000004 /* NarrationUI */; };
         B20000000000000000000005 /* AudioOutput in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000005 /* AudioOutput */; };
+		FEFD934D5BBD42AB8AE09DBE = {isa = PBXBuildFile; fileRef = 75C7382263904AAFBBFF5D41; };
+		AEEBCDF43EF64AE4A943B6BA = {isa = PBXBuildFile; fileRef = CF4B1312873448AA8E69DA9A; };
+		706038754237405C9DBF42D3 = {isa = PBXBuildFile; fileRef = 1B435156B1CF468E8F47FA04; };
+		C334E2DD0B0B4F719DFF0DEF = {isa = PBXBuildFile; fileRef = 377F33843F254AF29A86DC59; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -72,6 +76,10 @@
 		F20000000000000000000002 /* voicerelay */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = VoiceRelaySpeechWorker; sourceTree = BUILT_PRODUCTS_DIR; };
 		F20000000000000000000003 /* VoiceRelayCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = VoiceRelayCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
         F90000000000000000000001 /* ThirdPartyNotices */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "../swift-packages/ThirdPartyNotices"; sourceTree = "<group>"; };
+		75C7382263904AAFBBFF5D41 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/VoiceRelayApp/AppModelSync.swift"; sourceTree = "<group>"; };
+		CF4B1312873448AA8E69DA9A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/VoiceRelayApp/AppModelSpeechSetup.swift"; sourceTree = "<group>"; };
+		1B435156B1CF468E8F47FA04 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/VoiceRelayApp/AppModelEvents.swift"; sourceTree = "<group>"; };
+		377F33843F254AF29A86DC59 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/VoiceRelayApp/AppModelHealth.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -147,6 +155,10 @@
 			isa = PBXGroup;
 			children = (
 				F10000000000000000000001 /* VoiceRelayApp.swift */,
+				377F33843F254AF29A86DC59,
+				1B435156B1CF468E8F47FA04,
+				CF4B1312873448AA8E69DA9A,
+				75C7382263904AAFBBFF5D41,
 				F10000000000000000000010 /* SourceReviewView.swift */,
 				F10000000000000000000014 /* WindowPresence.swift */,
 				F1000000000000000000001A /* MenuBarViews.swift */,
@@ -328,6 +340,10 @@
 			isa = PBXSourcesBuildPhase;
 			files = (
 				B10000000000000000000001 /* VoiceRelayApp.swift in Sources */,
+				C334E2DD0B0B4F719DFF0DEF,
+				706038754237405C9DBF42D3,
+				AEEBCDF43EF64AE4A943B6BA,
+				FEFD934D5BBD42AB8AE09DBE,
 				B10000000000000000000008 /* SourceReviewView.swift in Sources */,
 				B1000000000000000000000F /* WindowPresence.swift in Sources */,
 				B1000000000000000000001A /* MenuBarViews.swift in Sources */,
