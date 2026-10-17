@@ -49,6 +49,10 @@ final class IntakeModel {
     var coverDigests = DocumentCoverPreferences().load() {
         didSet { DocumentCoverPreferences().save(coverDigests) }
     }
+    var automaticCoverExclusions = DocumentCoverPreferences().loadAutomaticExclusions() {
+        didSet { DocumentCoverPreferences().saveAutomaticExclusions(automaticCoverExclusions) }
+    }
+    var coverScanProgress: String?
     let coverStore = CoverArtworkStore.application("Libro")
     var selectedCoverDigest: String? {
         guard let document = selectedDocument else { return nil }
@@ -63,7 +67,7 @@ final class IntakeModel {
         busy = true
         let store = coverStore
         coverTask = Task {
-            defer { busy = false; coverTask = nil }
+            defer { coverTask = nil; busy = hasIntakeWork }
             do {
                 let work = Task.detached(priority: .userInitiated) {
                     let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
@@ -72,6 +76,7 @@ final class IntakeModel {
                 let digest = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
                 try Task.checkCancellation()
                 for source in sources { coverDigests[DocumentCoverPreferences.key(source)] = digest }
+                automaticCoverExclusions.subtract(sources.map(DocumentCoverPreferences.key))
                 replan()
                 status = "Cover selected for \(sources.count) document(s)."
             } catch { planningError = error.localizedDescription }
@@ -82,16 +87,17 @@ final class IntakeModel {
         busy = true
         let store = coverStore
         coverTask = Task {
-            defer { busy = false; coverTask = nil }
+            defer { coverTask = nil; busy = hasIntakeWork }
             do {
                 let work = Task.detached(priority: .userInitiated) {
                     let bytes = try DocumentReader.bookCover(document)
-                    guard let bytes else { throw NarrationError.invalidInput("This EPUB does not declare a supported JPEG or PNG cover. Choose an image instead.") }
+                    guard let bytes else { throw NarrationError.invalidInput("No usable cover was found on this document's cover or first page. Choose an image instead.") }
                     return try store.save(CoverArtwork(data: bytes))
                 }
                 let digest = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
                 try Task.checkCancellation()
                 coverDigests[DocumentCoverPreferences.key(document.source)] = digest
+                automaticCoverExclusions.remove(DocumentCoverPreferences.key(document.source))
                 replan()
             } catch { planningError = error.localizedDescription }
         }
@@ -100,7 +106,7 @@ final class IntakeModel {
         let store = coverStore, keeping = Set(coverDigests.values)
         busy = true
         coverTask = Task {
-            defer { busy = false; coverTask = nil }
+            defer { coverTask = nil; busy = hasIntakeWork }
             do {
                 let work = Task.detached(priority: .utility) { try store.removeUnreferenced(keeping: keeping) }
                 try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
@@ -110,7 +116,9 @@ final class IntakeModel {
     }
     func removeCover() {
         guard !busy, !isGenerating else { return }
-        for source in documents.filter({ selection.contains($0.id) }).map(\.source) { coverDigests[DocumentCoverPreferences.key(source)] = nil }
+        let keys = Set(documents.filter { selection.contains($0.id) }.map { DocumentCoverPreferences.key($0.source) })
+        automaticCoverExclusions.formUnion(keys)
+        coverDigests = coverDigests.filter { !keys.contains($0.key) }
         cleanCoverAssets()
         replan()
     }
@@ -185,9 +193,9 @@ final class IntakeModel {
     var canManageSpeechSetup: Bool { speechSetupDisabledReason == nil }
     var canPrepareModel: Bool { workspace?.url != nil && canManageSpeechSetup }
     var cancellable: Bool { hasCoverWork || pronunciationPreview.hasOwnedWork || scanner != nil || reader != nil || hasOwnedProbe || isGenerating || isPreparingModel }
-    var inputCancelLabel: String { scanner != nil ? "Cancel Scan" : (reader != nil ? "Cancel Read" : "Cancel Check") }
+    var inputCancelLabel: String { scanner != nil ? "Cancel Import" : (reader != nil ? "Cancel Read" : "Cancel Check") }
     var hasOwnedProbe: Bool { probeProcess != nil }
-    var activityStatus: String { scanner != nil ? "Scanning inputs… \(scanCount) entries checked." : status }
+    var activityStatus: String { scanner != nil ? (coverScanProgress ?? "Scanning inputs… \(scanCount) entries checked.") : status }
     var planning: Bool { planner != nil }
     var preview: Preview?
     var issues: [IntakeIssue] = []
@@ -209,7 +217,7 @@ final class IntakeModel {
     private var roots: [URL] = []
     private var removed = Set<String>()
     private var scopes: [String: DirectoryAccess] = [:]
-    private var scanner: Task<IntakeResult, Error>?
+    private var scanner: Task<(intake: IntakeResult, covers: [String: String]), Error>?
     private var reader: Task<(text: String, warnings: [String], document: SemanticDocument), Error>?
     private var planner: Task<[PlannedDocument], Error>?
     private var planOperation = UUID()
@@ -293,23 +301,43 @@ final class IntakeModel {
         let selection = roots
         let excluded = output?.url
         let token = UUID(); operation = token
-        busy = true; scanCount = 0; status = "Scanning inputs…"
+        busy = true; scanCount = 0; coverScanProgress = nil; status = "Scanning inputs…"
         let recipient = self
+        let references = coverDigests, exclusions = automaticCoverExclusions, store = coverStore
+        let removedPaths = removed
+        let previousCoverWork = coverTask
         let task = Task.detached(priority: .userInitiated) {
+            await previousCoverWork?.value
+            try Task.checkCancellation()
+            let access = selection.map { DirectoryAccess($0) }
+            defer { withExtendedLifetime(access) {} }
             let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Discovering Libro documents")
             defer { ProcessInfo.processInfo.endActivity(activity) }
-            return try InputCollector.collect(selection, excludingOutput: excluded) { count in
+            let result = try InputCollector.collect(selection, excludingOutput: excluded) { count in
                 Task { @MainActor in
                     guard recipient.operation == token else { return }
                     recipient.scanCount = count
                 }
             }
+            let covers = try DocumentCoverPreferences.automaticCovers(
+                result.documents.filter { !removedPaths.contains($0.source.path) },
+                references: references, excluding: exclusions, store: store,
+                progress: { completed, total in
+                    guard total > 0 else { return }
+                    Task { @MainActor in
+                        guard recipient.operation == token, recipient.scanner != nil else { return }
+                        recipient.coverScanProgress = "Finding cover art… \(completed) of \(total) documents."
+                    }
+                })
+            return (intake: result, covers: covers)
         }
         scanner = task
         Task {
             do {
-                let result = try await task.value
+                let imported = try await task.value
                 guard operation == token else { return }
+                guard !task.isCancelled else { throw CancellationError() }
+                let result = imported.intake
                 let existing = Dictionary(uniqueKeysWithValues: documents.map { ($0.source.path, $0) })
                 let discovered = result.documents.filter { !removed.contains($0.source.path) }.map {
                     InputDocument(source: $0.source, kind: $0.kind, relativePath: $0.relativePath,
@@ -319,6 +347,13 @@ final class IntakeModel {
                 let discoveredPaths = Set(discovered.map { $0.source.path })
                 let retainedActive = activeBatch?.documents.map(\.input).filter { !discoveredPaths.contains($0.source.path) } ?? []
                 documents = discovered + retainedActive
+                let sourceKeys = Set(documents.map { DocumentCoverPreferences.key($0.source) })
+                var updatedCovers = coverDigests
+                for (key, digest) in imported.covers where sourceKeys.contains(key) &&
+                    updatedCovers[key] == nil && !automaticCoverExclusions.contains(key) {
+                    updatedCovers[key] = digest
+                }
+                if updatedCovers != coverDigests { coverDigests = updatedCovers }
                 issues = result.issues
                 let excluded = result.excludedOutput ? " Selected output subtree excluded." : ""
                 status = "\(documents.count) documents; \(result.ignoredCount) unsupported or linked items ignored; \(result.issues.count) input errors.\(excluded)"
@@ -327,7 +362,7 @@ final class IntakeModel {
             } catch is CancellationError {
                 if operation == token { status = "Input scan cancelled." }
             } catch { if operation == token { status = error.localizedDescription } }
-            if operation == token { busy = false; scanner = nil }
+            if operation == token { busy = false; scanner = nil; coverScanProgress = nil }
         }
     }
 
@@ -412,6 +447,14 @@ final class IntakeModel {
         coverTask?.cancel()
         scanner?.cancel(); reader?.cancel()
         if let process = probeProcess, process.isRunning { probeCancelled = true; process.terminate() }
+    }
+
+    var hasIntakeWork: Bool { scanner != nil || reader != nil }
+    func stopIntake() async {
+        let scan = scanner, read = reader
+        scan?.cancel(); read?.cancel()
+        _ = await scan?.result
+        _ = await read?.result
     }
 
     func stopProbe() async {
@@ -649,9 +692,9 @@ final class IntakeModel {
                 }
                 let covers = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
                 try Task.checkCancellation()
-                busy = false
+                busy = hasIntakeWork
                 beginGeneration(covers: covers)
-            } catch { busy = false; planningError = error.localizedDescription }
+            } catch { busy = hasIntakeWork; planningError = error.localizedDescription }
         }
     }
 
@@ -970,4 +1013,3 @@ private func finishProbe(_ process: Process, output: Pipe, ended: DispatchSemaph
     guard process.terminationStatus == 0 else { return "Worker probe failed (\(process.terminationStatus))." }
     return "Embedded worker: Metal ready\n" + (String(data: data, encoding: .utf8) ?? "")
 }
-

@@ -93,7 +93,7 @@ struct DocumentQueueView: View {
                         .disabled(model.busy || model.activeIDs.contains(document.id) ||
                                   (model.outcomes[document.id]?.state == .published && !model.retryQueued.contains(document.id)))
                     }
-                    if document.kind == .epub {
+                    if document.kind == .epub || document.kind == .pdf {
                         Button("Use Book Cover") { model.useBookCover(document) }.disabled(model.busy || model.isGenerating)
                     }
                     if let outcome = model.outcomes[document.id] {
@@ -129,7 +129,7 @@ struct DocumentQueueView: View {
                 }
             }
             if model.selection.isEmpty && !model.displayedDocuments.isEmpty {
-                Text("Select an item to add cover art for MP3, M4A or M4B.")
+                Text("PDF and EPUB cover art is detected automatically. Select an item to replace or remove it for MP3, M4A or M4B.")
                     .appFont(.caption).foregroundStyle(.secondary)
             }
             Text("Drop files or folders to add documents. Double-click a document to preview its text.")
@@ -147,4 +147,3 @@ struct DocumentQueueView: View {
         }
     }
 }
-

@@ -30,3 +30,7 @@ for changed behavior and debug failures systematically. GUI, actual-document fre
 retest, OCR/caption quality, listening, protected-file, live server and signing-account
 acceptance are operator-owned; do not operate the GUI or live services. Keep diagnostic
 content private/opt-in. Report source/build/test evidence separately from acceptance.
+
+Testing mode: **autonomous** (confirmed October 17, 2026). Run focused isolated
+checks automatically; keep operator-owned GUI/listening/live-service gates separate
+and do not replace a bundle currently under operator testing.

@@ -79,12 +79,22 @@ Kokoro, with visible preview notices and unchanged original source. Contextual
 homographs remain [follow-up work](../docs/TEXT_NORMALIZATION_RESEARCH.md);
 new spoken forms require listening acceptance separately from the accepted pacing.
 
-Select one or more queued documents to choose **Cover Art** for MP3, M4A or M4B.
-Each document keeps its own cover; selecting multiple documents explicitly applies
-one image to that selection. Choose/Replace/Remove uses app-owned copies, leaving
-original images and finished exports intact. WAV retains the selection but does
-not embed it. EPUB context menus offer **Use Book Cover** for a declared JPEG/PNG
-cover; no PDF cover-page guess or online cover search is performed.
+PDF and EPUB cover art is detected during import for future MP3, M4A and M4B
+exports. PDFs use the complete first displayed page, including typography and
+vector art, at a bounded resolution; blank/locked pages have no automatic cover.
+EPUBs prefer declared cover metadata, then a plausible embedded JPEG/PNG on the
+declared cover page or first spine page. No later-chapter or online cover search
+is performed, and no automatic square crop cuts off a book's title.
+
+Select one or more queued documents to choose or replace **Cover Art**. Each
+document keeps its own cover; selecting multiple documents explicitly applies one
+image to that selection. Manual choices win over automatic detection. Remove
+also disables automatic re-selection for that document; **Use Book Cover** in
+PDF/EPUB context menus restores document-derived art. Artwork uses app-owned
+copies, leaving original files and finished exports intact. WAV retains the
+selection but does not embed it. An unavailable automatic cover does not block
+ordinary import/narration; an explicitly selected missing asset still requires
+replacement or removal.
 
 Preview **Contents** navigates authored EPUB navigation, PDF bookmarks and actual
 Markdown headings in **Original Source**. Switch to **Narration** to review spoken

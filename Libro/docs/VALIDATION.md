@@ -24,6 +24,38 @@ complete; final GUI/playback, OCR/caption quality and the original private
 12-page PDF/600-word Markdown memory retest remain operator-owned. Synthetic
 measurements and compiled fixtures are not those acceptances.
 
+## Automatic document cover candidate
+
+Testing is **autonomous**, confirmed October 17, 2026 in the project instructions.
+Automatic-cover checks pass 22 PDF/EPUB and four Libro cover-policy cases;
+broader checks pass 61 DocumentProcessing, four PDFContinuation and all 22 LibroCore
+cases. The isolated Libro Debug build and bundle/signature/Metal/codec checks pass.
+An initial callback-label compile error was fixed with an explicit `progress:` label.
+The root full isolated gate also passes with all 237 shared XCTest (three existing
+opt-in skips), shared/presentation cases, 22 LibroCore and 303 core/141 app VoiceRelay
+cases; see the shared current status for the machine summary.
+The currently tested application bundle is not replaced. Focused reruns from
+NarrationApps after pinned source setup:
+
+```sh
+swift test --package-path swift-packages --disable-sandbox --skip-update \
+  --force-resolved-versions --no-parallel --jobs 4 \
+  --filter 'PDFCoverTests|EPUBIntakeTests'
+swift test --package-path Libro/macos/LibroCore \
+  --scratch-path Libro/macos/.build/CoreTests --skip-update \
+  --force-resolved-versions --no-parallel --jobs 4 --filter DocumentCoverTests
+```
+
+Both commands should pass without speech models or live services. The ad-hoc
+engineering build is at `.build/AutomaticCoverValidation/Build/Products/Debug/Libro.app`
+relative to NarrationApps, separate from existing workspace products. Use a normal
+Xcode-signed candidate when account behavior matters. Verify automatic artwork,
+manual overrides/removal and cancellation
+through L17 in the consolidated checklist. Covers stay uncropped, original source
+bytes/audio stay unchanged, and a missing optional cover must not stop other imports.
+
+## Existing feature gates
+
 For package-resolution and diagnostic steps use [troubleshooting](TROUBLESHOOTING.md).
 Older paths/counts and retired worker modes are [historical evidence](README.md#current-and-historical-records),
 not current release candidates. Documentation-only checks do not constitute a new
