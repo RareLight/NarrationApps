@@ -3,6 +3,34 @@ import XCTest
 import LibroCore
 
 final class ProjectResourcesTests: XCTestCase {
+    func testEveryAppSourceHasOneUniqueGUIBuildReference() throws {
+        let macOS = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: macOS.appendingPathComponent("Libro/Libro.xcodeproj/project.pbxproj"))
+        let text = String(decoding: data, as: UTF8.self)
+        let definitions = try NSRegularExpression(pattern: "(?m)^\\t{2}([A-F0-9]{24})\\s*(?:/\\*[^\\n]*\\*/\\s*)?=\\s*\\{")
+        let identifiers = definitions.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            .compactMap { Range($0.range(at: 1), in: text).map { String(text[$0]) } }
+        XCTAssertEqual(identifiers.count, Set(identifiers).count)
+        let project = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        let objects = try XCTUnwrap(project["objects"] as? [String: [String: Any]])
+        XCTAssertEqual(identifiers.count, objects.count)
+        let target = try XCTUnwrap(objects.values.first { $0["isa"] as? String == "PBXNativeTarget" && $0["name"] as? String == "Libro" })
+        let phases = try XCTUnwrap(target["buildPhases"] as? [String])
+        let sources = try XCTUnwrap(phases.compactMap { objects[$0] }.first { $0["isa"] as? String == "PBXSourcesBuildPhase" })
+        let files = try XCTUnwrap(sources["files"] as? [String])
+        let paths = try files.map { identifier in
+            let build = try XCTUnwrap(objects[identifier])
+            XCTAssertEqual(build["isa"] as? String, "PBXBuildFile")
+            let reference = try XCTUnwrap(build["fileRef"] as? String)
+            return try XCTUnwrap(objects[reference]?["path"] as? String)
+        }
+        let expected = try FileManager.default.contentsOfDirectory(atPath: macOS.appendingPathComponent("Libro/App").path)
+            .filter { $0.hasSuffix(".swift") }.map { "App/\($0)" }
+        XCTAssertEqual(paths.count, Set(paths).count)
+        XCTAssertEqual(Set(paths), Set(expected))
+    }
+
     func testEPUBIsRegisteredForFinderAndImportPanels() throws {
         let macOS = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let data = try Data(contentsOf: macOS.appendingPathComponent("Libro/App/Info.plist"))

@@ -14,6 +14,8 @@ From Libro, run `bash scripts/check.sh` for the required isolated regression
 gate. Prepare sources with `bash macos/scripts/prepare-dependencies.sh`; build/Archive
 with `macos/scripts/build.sh` and `LIBRO_CONFIGURATION=Release` for Release checks.
 The test suite does not operate the GUI, private documents or signing accounts.
+Coordinated quick/full/native/release commands and evidence are documented in the
+root [development gates](../../docs/DEVELOPMENT.md).
 
 The [consolidated checklist](../../docs/OPERATOR_VALIDATION.md#libro)
 is the only manual test list: L01–L19 for Libro, B01–B06 for shared behavior and
@@ -33,8 +35,9 @@ Delivery A mapped-spoken-form and preview validation is ready for operator B05;
 records current gates, costs and listening artifacts. Delivery B remains gated.
 
 The cover/navigation increment adds L17–L19: per-document export art, authored
-Contents/source navigation and explicit note/auxiliary controls. Synthetic fixtures
-and expected narration previews are in swift-packages/.build/cover-navigation/fixtures.
+Contents/source navigation and explicit note/auxiliary controls. Canonical authored
+fixtures/expectations remain in the shared tests; earlier generated
+`.build/cover-navigation/fixtures` outputs are historical and may be absent.
 Packet/Float32 preservation, source-map and isolated workflow tests are engineering
 evidence; real-player cover display/seeking, GUI and actual-book listening remain
 operator checks.
