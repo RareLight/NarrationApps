@@ -1,27 +1,28 @@
 import Foundation
 
 #if !TOOL_TESTS
-@main
-enum DevelopmentTool {
-    static func main() {
-        do {
-            let options = try Options(Array(CommandLine.arguments.dropFirst()))
-            switch options.command {
-            case "health":
-                exit(try health(options.root, strict: options.strict) ? 0 : 1)
-            case "setup":
-                try setup(options.root, cloneApps: options.cloneApps, prepare: options.prepare, resolve: options.resolve)
-            case "check":
-                exit(try validate(options))
-            default:
-                throw ToolError("Unknown command.")
+    @main
+    enum DevelopmentTool {
+        static func main() {
+            do {
+                let options = try Options(Array(CommandLine.arguments.dropFirst()))
+                switch options.command {
+                case "health":
+                    exit(try health(options.root, strict: options.strict) ? 0 : 1)
+                case "setup":
+                    try setup(
+                        options.root, cloneApps: options.cloneApps, prepare: options.prepare, resolve: options.resolve)
+                case "check":
+                    exit(try validate(options))
+                default:
+                    throw ToolError("Unknown command.")
+                }
+            } catch {
+                print("ERROR \(error)")
+                exit(2)
             }
-        } catch {
-            print("ERROR \(error)")
-            exit(2)
         }
     }
-}
 #endif
 
 struct Options {
@@ -41,7 +42,9 @@ struct Options {
 
     init(_ arguments: [String]) throws {
         guard let first = arguments.first, ["health", "setup", "check"].contains(first) else {
-            throw ToolError("Usage: bash scripts/develop.sh health | setup <actions> | check [--tier quick|full|native|release]. See docs/DEVELOPMENT.md.")
+            throw ToolError(
+                "Usage: bash scripts/develop.sh health | setup <actions> | check [--tier quick|full|native|release]. See docs/DEVELOPMENT.md."
+            )
         }
         command = first
         var remaining = Array(arguments.dropFirst())
@@ -75,9 +78,12 @@ struct Options {
             scope == nil || tier == "quick", filter == nil || scope != nil,
             !adhoc || tier == "release",
             (workspace == nil && libroWorker == nil && voiceRelayWorker == nil) || tier == "native"
-        else { throw ToolError("Invalid tier/scope/filter/signing/native option combination; see docs/DEVELOPMENT.md.") }
+        else {
+            throw ToolError("Invalid tier/scope/filter/signing/native option combination; see docs/DEVELOPMENT.md.")
+        }
         if command == "check", tier == "release", !adhoc {
-            throw ToolError("Local release requires --adhoc. Normal account/distribution signing remains operator-owned.")
+            throw ToolError(
+                "Local release requires --adhoc. Normal account/distribution signing remains operator-owned.")
         }
     }
 }

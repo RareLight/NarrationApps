@@ -20,10 +20,15 @@ func fingerprints(_ root: URL) throws -> [String: String] {
         let url = root.appendingPathComponent(path)
         if manager.fileExists(atPath: url.path) { records[path] = sha256(try Data(contentsOf: url)) }
     }
-    for path in ["swift-packages/Patches", "swift-packages/ThirdPartyNotices",
-        "swift-packages/Sources/NativeSpeech/Resources/VoiceSamples"] {
-        guard let enumerator = manager.enumerator(at: root.appendingPathComponent(path),
-            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles]) else { continue }
+    for path in [
+        "swift-packages/Patches", "swift-packages/ThirdPartyNotices",
+        "swift-packages/Sources/NativeSpeech/Resources/VoiceSamples",
+    ] {
+        guard
+            let enumerator = manager.enumerator(
+                at: root.appendingPathComponent(path),
+                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles])
+        else { continue }
         for case let url as URL in enumerator {
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             if values.isRegularFile == true && values.isSymbolicLink != true {
@@ -31,8 +36,10 @@ func fingerprints(_ root: URL) throws -> [String: String] {
             }
         }
     }
-    for name in ["ZIPFoundation", "mlx-audio-swift", "mlx-swift", "mlx-swift-lm", "swift-huggingface",
-        "mlx-swift/Source/Cmlx/mlx", "mlx-swift/Source/Cmlx/mlx-c"] {
+    for name in [
+        "ZIPFoundation", "mlx-audio-swift", "mlx-swift", "mlx-swift-lm", "swift-huggingface",
+        "mlx-swift/Source/Cmlx/mlx", "mlx-swift/Source/Cmlx/mlx-c",
+    ] {
         let directory = root.appendingPathComponent("swift-packages/.build/dependencies/\(name)")
         guard manager.fileExists(atPath: directory.appendingPathComponent(".git").path) else { continue }
         let revision = try git(directory, ["rev-parse", "HEAD"])
@@ -47,8 +54,9 @@ func fingerprints(_ root: URL) throws -> [String: String] {
 
 func nativePrerequisites(_ options: Options) -> Bool {
     guard let workspace = options.workspace, let libro = options.libroWorker,
-        let relay = options.voiceRelayWorker else { return false }
-    return FileManager.default.isExecutableFile(atPath: libro) &&
-        FileManager.default.isExecutableFile(atPath: relay) &&
-        FileManager.default.fileExists(atPath: URL(fileURLWithPath: workspace).appendingPathComponent("models/.native").path)
+        let relay = options.voiceRelayWorker
+    else { return false }
+    return FileManager.default.isExecutableFile(atPath: libro) && FileManager.default.isExecutableFile(atPath: relay)
+        && FileManager.default.fileExists(
+            atPath: URL(fileURLWithPath: workspace).appendingPathComponent("models/.native").path)
 }

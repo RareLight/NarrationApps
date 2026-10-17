@@ -57,8 +57,10 @@ struct Baseline: Codable {
             else { throw ToolError("Invalid path, full commit ID or GitHub clone URL for \(component.name).") }
         }
         guard verifiedToolchain.architecture == "arm64",
-            [verifiedToolchain.xcodeVersion, verifiedToolchain.swiftVersion,
-                verifiedToolchain.macOSSDK, verifiedToolchain.deploymentTarget].allSatisfy({
+            [
+                verifiedToolchain.xcodeVersion, verifiedToolchain.swiftVersion,
+                verifiedToolchain.macOSSDK, verifiedToolchain.deploymentTarget,
+            ].allSatisfy({
                 $0.range(of: #"^\d+\.\d+(\.\d+)?$"#, options: .regularExpression) != nil
             })
         else { throw ToolError("Invalid toolchain versions or architecture in baseline.") }
@@ -95,8 +97,10 @@ func capture(_ command: Command) throws -> Result {
 }
 
 func git(_ root: URL, _ arguments: [String], runner: Runner = capture) throws -> Result {
-    try runner(Command(executable: "/usr/bin/git", arguments: ["--no-optional-locks", "-C", root.path] + arguments,
-        directory: root, environment: ["GIT_TERMINAL_PROMPT": "0"]))
+    try runner(
+        Command(
+            executable: "/usr/bin/git", arguments: ["--no-optional-locks", "-C", root.path] + arguments,
+            directory: root, environment: ["GIT_TERMINAL_PROMPT": "0"]))
 }
 
 struct SourceState: Codable {
@@ -110,17 +114,22 @@ struct SourceState: Codable {
 func sourceState(_ root: URL, component: Baseline.Component?, runner: Runner = capture) throws -> SourceState {
     let directory = component.map { root.appendingPathComponent($0.path) } ?? root
     guard FileManager.default.fileExists(atPath: directory.appendingPathComponent(".git").path) else {
-        return SourceState(name: component?.name ?? "root", revision: nil, dirty: nil,
+        return SourceState(
+            name: component?.name ?? "root", revision: nil, dirty: nil,
             baselineAvailable: false, matchesBaseline: false)
     }
     let head = try git(directory, ["rev-parse", "HEAD"], runner: runner)
     let status = try git(directory, ["status", "--porcelain", "--untracked-files=normal"], runner: runner)
-    guard head.status == 0, status.status == 0 else { throw ToolError("Cannot inspect Git state for \(directory.lastPathComponent).") }
+    guard head.status == 0, status.status == 0 else {
+        throw ToolError("Cannot inspect Git state for \(directory.lastPathComponent).")
+    }
     let revision = head.output.trimmingCharacters(in: .whitespacesAndNewlines)
-    let available = try component.map {
-        try git(directory, ["cat-file", "-e", "\($0.revision)^{commit}"], runner: runner).status == 0
-    } ?? true
-    return SourceState(name: component?.name ?? "root", revision: revision, dirty: !status.output.isEmpty,
+    let available =
+        try component.map {
+            try git(directory, ["cat-file", "-e", "\($0.revision)^{commit}"], runner: runner).status == 0
+        } ?? true
+    return SourceState(
+        name: component?.name ?? "root", revision: revision, dirty: !status.output.isEmpty,
         baselineAvailable: available, matchesBaseline: component.map { revision == $0.revision } ?? true)
 }
 
@@ -137,7 +146,9 @@ func health(_ root: URL, strict: Bool, runner: Runner = capture) throws -> Bool 
     for component in baseline.components {
         let state = try sourceState(root, component: component, runner: runner)
         guard let revision = state.revision else {
-            print("UNAVAILABLE \(component.name): missing independent checkout. Use setup --clone-apps only with network authorization.")
+            print(
+                "UNAVAILABLE \(component.name): missing independent checkout. Use setup --clone-apps only with network authorization."
+            )
             healthy = false
             continue
         }
@@ -146,7 +157,9 @@ func health(_ root: URL, strict: Bool, runner: Runner = capture) throws -> Bool 
             print("WARNING \(component.name): recorded commit unavailable locally; no fetch attempted.")
         }
         if !state.matchesBaseline || state.dirty == true {
-            print("WARNING \(component.name): deliberate development divergence is allowed; preserve edits. --strict-baseline enforces the checkpoint.")
+            print(
+                "WARNING \(component.name): deliberate development divergence is allowed; preserve edits. --strict-baseline enforces the checkpoint."
+            )
         }
         if strict && (!state.baselineAvailable || !state.matchesBaseline || state.dirty == true) { healthy = false }
     }
@@ -160,17 +173,28 @@ func health(_ root: URL, strict: Bool, runner: Runner = capture) throws -> Bool 
         let text = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         print("\(URL(fileURLWithPath: tool).lastPathComponent) \(args.joined(separator: " ")): \(text)")
         if result.status != 0 { healthy = false }
-        if args == ["-m"] && text != "arm64" { healthy = false; print("ERROR Native arm64 execution required; leave Rosetta.") }
+        if args == ["-m"] && text != "arm64" {
+            healthy = false; print("ERROR Native arm64 execution required; leave Rosetta.")
+        }
         if args.contains("--show-sdk-version"),
-            text.compare(baseline.verifiedToolchain.deploymentTarget, options: .numeric) == .orderedAscending {
-            healthy = false; print("ERROR Selected SDK is older than deployment target \(baseline.verifiedToolchain.deploymentTarget).")
+            text.compare(baseline.verifiedToolchain.deploymentTarget, options: .numeric) == .orderedAscending
+        {
+            healthy = false;
+            print("ERROR Selected SDK is older than deployment target \(baseline.verifiedToolchain.deploymentTarget).")
         }
         if args == ["-version"] && !text.contains(baseline.verifiedToolchain.xcodeBuild) {
-            print("WARNING Toolchain differs from tested Xcode \(baseline.verifiedToolchain.xcodeBuild); validate this composition before recording it.")
+            print(
+                "WARNING Toolchain differs from tested Xcode \(baseline.verifiedToolchain.xcodeBuild); validate this composition before recording it."
+            )
         }
     }
-    for tool in ["/usr/bin/git", "/usr/bin/plutil", "/usr/bin/codesign", "/usr/bin/shasum", "/usr/bin/sandbox-exec", "/usr/bin/make"] {
-        if !FileManager.default.isExecutableFile(atPath: tool) { healthy = false; print("ERROR Required tool missing: \(tool)") }
+    for tool in [
+        "/usr/bin/git", "/usr/bin/plutil", "/usr/bin/codesign", "/usr/bin/shasum", "/usr/bin/sandbox-exec",
+        "/usr/bin/make",
+    ] {
+        if !FileManager.default.isExecutableFile(atPath: tool) {
+            healthy = false; print("ERROR Required tool missing: \(tool)")
+        }
     }
     for dependency in ["ZIPFoundation", "mlx-audio-swift", "mlx-swift", "mlx-swift-lm", "swift-huggingface"] {
         let path = root.appendingPathComponent("swift-packages/.build/dependencies/\(dependency)/Package.swift")
@@ -180,7 +204,11 @@ func health(_ root: URL, strict: Bool, runner: Runner = capture) throws -> Bool 
         }
     }
     let codec = root.appendingPathComponent("swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib")
-    if !FileManager.default.fileExists(atPath: codec.path) { healthy = false; print("UNAVAILABLE Prepared LAME library; run setup --prepare-dependencies.") }
-    print("Health checks source/tool presence only; full validates prepared patches. Metal execution is release/native evidence, not inferred from compiler presence. Models are never probed or installed.")
+    if !FileManager.default.fileExists(atPath: codec.path) {
+        healthy = false; print("UNAVAILABLE Prepared LAME library; run setup --prepare-dependencies.")
+    }
+    print(
+        "Health checks source/tool presence only; full validates prepared patches. Metal execution is release/native evidence, not inferred from compiler presence. Models are never probed or installed."
+    )
     return healthy
 }
