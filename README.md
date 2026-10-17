@@ -91,13 +91,13 @@ No product CLI, Python runtime or external FFmpeg/ffprobe dependency is maintain
 The fixture worker, speech worker, native-check harness and sample generator are
 unshipped engineering tools.
 
-## Next development stages
+## Development foundation
 
 The [development foundation checklist](docs/DEVELOPMENT_FOUNDATION_CHECKLIST.md)
-and [original implementation request](docs/AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) define the
-remaining setup, validation, CI, regression and maintainability work. The coordinated
-source baseline is committed. Manifest-aware health/setup, tiered validation,
-CI readiness and canonical regression ownership are implemented; see
+and [original implementation request](docs/AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) record the
+authorized engineering scope and verified local completion. Manifest-aware health/setup,
+tiered validation/evidence, CI readiness, canonical regression ownership, app-file
+organization, scoped formatting and maintenance procedures are implemented; see
 [contributing](CONTRIBUTING.md) and [development gates](docs/DEVELOPMENT.md).
 Remote CI activation and product/operator acceptance remain separate.
 

@@ -1,9 +1,9 @@
 # Development foundation implementation checklist
 
 Updated October 16, 2026. This plan turns the organization/maintenance assessment
-into bounded engineering stages. DF0 is retained; DF1/DF2/DF4–DF7 local gates pass
-as recorded below. DF3 provider review/activation remains external; DF8 final
-composition verification and handoff are in progress.
+into bounded engineering stages. DF0 is retained; DF1/DF2/DF4–DF8 local engineering
+and verification are complete as recorded below. DF3 official provider/action
+review and remote activation remain externally controlled, not claimed complete.
 It supplements the [product roadmap](IMPLEMENTATION_PLAN.md), not a request to
 implement deferred product features. The
 [original handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) records execution scope.
@@ -130,7 +130,7 @@ Acceptance: a developer can choose the narrowest suitable gate; full validation
 preserves existing coverage; failures and unavailable native gates cannot appear
 green. Xcode plans, if added, must work in the root workspace.
 
-DF2 local evidence: quick/static/tooling and the final full gate pass. The full
+DF2 initial integration evidence: quick/static/tooling and the full gate pass. That
 run is `.local/validation/full-0B80037E-8A69-4A74-B131-5439D799CD6E/summary.json`.
 It retains 229 shared XCTest (three explicit opt-in skips), one shared Swift
 Testing, two presentation, 18 LibroCore, 303 VoiceRelay core and 141 app cases.
@@ -317,16 +317,47 @@ no account, remote or publication was operated.
 
 ## DF8 — Final engineering handoff
 
-- [ ] Run the affected tiers, plus final root full fixtures and both app builds for
+- [x] Run the affected tiers, plus final root full fixtures and both app builds for
   changed source/project boundaries. Run native/archive checks where relevant.
-- [ ] Inspect source diffs, private-data exclusions and all three repository statuses.
+- [x] Inspect source diffs, private-data exclusions and all three repository statuses.
   Commit logical changes in their owners, update app revisions in the root manifest
   after the corresponding validated commits, and verify compatibility metadata.
-- [ ] Update this checklist and status with actual results, unresolved failures and
+- [x] Update this checklist and status with actual results, unresolved failures and
   externally blocked CI/distribution actions. Never mark a stage complete because
   its configuration file exists or because a test was skipped.
-- [ ] Hand back concise operator testing limited to affected flows and remaining
+- [x] Hand back concise operator testing limited to affected flows and remaining
   acceptance IDs. Keep the existing product checklist authoritative.
+
+DF8 final source composition was clean at root `20240ff`, Libro `ad758a6` and
+VoiceRelay `9e34c49` (full SHAs are in the generated reports/manifest). The final
+root full gate passed 229 shared XCTest with three existing opt-in skips, one
+shared Swift Testing, two AppPresentation, 19 LibroCore, 303 VoiceRelay core and
+141 app cases, plus 72 tooling assertions, static/format/architecture/lock/docs,
+preparation/number/plist and isolated packaging checks.
+
+Final reports:
+- `.local/validation/full-35D635AF-2230-456B-93A8-E7B4A15EC192/summary.json`
+- `.local/validation/release-9DA36E05-4ADA-4E95-B7F7-0CD528309724/summary.json`
+- `.local/validation/native-FBBDFEBF-8A74-4B4A-AD4E-76DE4D44EDAB/summary.json`
+
+Final release passed both workspace configurations, both individual Archives and
+six actual bundle/signature/Metal/resource checks, including Libro's packaged
+codec load/required symbols. All six signatures are ad-hoc engineering evidence.
+The final Release workers are byte-identical to the native-tested workers;
+`native-worker-continuity.json` beside the final release summary records their
+SHA-256 values and native report linkage. Native passed 68 frontend records per
+helper (two expected rejections each), four mixed-document outputs per helper,
+memory/safety fixtures and admission/cancellation/reaping.
+
+All three source diffs/statuses, private exclusions, checkpoint ancestry and
+unchanged annotated tag targets were reviewed. Independent histories/remotes,
+pins/patches/models, preferences, notices, audio policy and recordings are preserved.
+No source/build/test failures remain unresolved. Official CI review/activation,
+remote commit availability and distribution accounts remain external. The only
+foundation-specific operator request is the limited final smoke already described
+in [operator validation](OPERATOR_VALIDATION.md#before-starting): L01/L02/L05/L12/L18
+and V01/V02/V10 using an authorized disposable setup. Existing quality/listening,
+private-document/B06, protected/live-service and distribution cases remain open.
 
 Existing product acceptance, B06 and future product features remain on the
 [product roadmap](IMPLEMENTATION_PLAN.md). This engineering plan does not authorize

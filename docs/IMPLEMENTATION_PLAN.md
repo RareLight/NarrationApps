@@ -35,8 +35,9 @@ reproducible setup, tiered validation/CI readiness, regression contracts, focuse
 app-file cleanup, formatting/documentation and dependency/release maintenance.
 Its [original handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) records the authorized
 scope; use current checklist/status evidence rather than restarting completed stages.
-These local engineering stages can proceed independently of outstanding product
-quality/service acceptance; deferred product features are not added to their scope.
+Local engineering and final gates are complete; official CI provider/action review,
+source publication/activation and operator acceptance remain separate. Deferred
+product features were not added to this scope.
 
 ## Next work
 
