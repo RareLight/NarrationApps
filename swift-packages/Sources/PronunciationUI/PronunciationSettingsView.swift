@@ -1,5 +1,6 @@
 import SwiftUI
 import Pronunciation
+import AppPresentation
 
 public struct PronunciationSettingsView: View {
     @State private var editor: PronunciationEditor
@@ -16,9 +17,9 @@ public struct PronunciationSettingsView: View {
     public var body: some View {
         ScrollView {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Pronunciation").fontWeight(.semibold)
+            SettingsSectionHeader(title: "Pronunciation", explanation: "Matches whole words without regard to capitalization. Changes apply to new narration; source documents and existing recordings are preserved.")
             Text("Enter a word and how it should sound using English letters, for example, “SQLite” → “sequel lite”. The dictionary is shared by Libro and VoiceRelay.")
-            Text("Matches whole words without regard to capitalization. Changes apply to new narration; source documents and existing recordings are preserved.").foregroundStyle(.secondary)
+            VStack(spacing: 12) {
             List(selection: $selection) {
                 ForEach(editor.entries) { entry in
                     HStack {
@@ -41,9 +42,14 @@ public struct PronunciationSettingsView: View {
                         .disabled(configuration == nil || editor.dictionary == nil || entry.word.isEmpty || entry.spelling.isEmpty)
                     }
                     .tag(entry.id)
+                    .listRowBackground(Color.clear)
                     .onTapGesture { selection = entry.id }
                 }
-            }.listStyle(.bordered).frame(height: min(360, max(160, CGFloat(editor.entries.count) * 44)))
+            }.listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .frame(height: min(360, max(160, CGFloat(editor.entries.count) * 44)))
+                .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 12))
+                .clipShape(.rect(cornerRadius: 12))
             HStack {
                 ControlGroup {
                     Button { selection = editor.add() } label: { Image(systemName: "plus") }
@@ -55,6 +61,9 @@ public struct PronunciationSettingsView: View {
                 Button("Reload") { preview.stop(); Task { await editor.reload(discardChanges: true) } }.disabled(editor.saving)
                 Button("Save") { editor.save() }.disabled(!editor.dirty || editor.dictionary == nil || editor.saving)
             }
+            }
+            .containerRelativeFrame(.horizontal) { width, _ in width * 0.75 }
+            .frame(maxWidth: .infinity)
             if let error = editor.error ?? editor.validationMessage { Text(error).foregroundStyle(.red).textSelection(.enabled) }
             else { Text(!editor.loaded ? "Loading dictionary…" : editor.saving ? "Saving…" : (editor.dirty ? "Unsaved changes" : "Saved locally. Valid changes save automatically.")).foregroundStyle(.secondary) }
             if let error = preview.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }

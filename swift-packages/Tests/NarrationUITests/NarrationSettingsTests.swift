@@ -19,5 +19,16 @@ import NarrationCore
     _ = VoiceSampleButton(playing: false) { calls += 1 }.body
     _ = NarrationOptionsControls(options: .constant(.init())).body
     _ = NarrationOptionsControls(options: .constant(.init(experimentalPDFWordJoining: true))).body
+    for placement in NarrationOptions.NotePlacement.allCases {
+        for enabled in [false, true] {
+            _ = NarrationOptionsControls(options: .constant(.init(notes: placement,
+                includeAuxiliary: enabled, experimentalPDFWordJoining: enabled,
+                stripInlineCitations: enabled, stripEndnoteCitations: enabled)), showsExamples: true).body
+        }
+    }
+    _ = ImageDescriptionSettingsSection(enabled: .constant(true), additionalHelp: "Future work only.", showsExample: true).body
+    _ = ImageDescriptionSettingsSection(enabled: .constant(false), additionalHelp: "Future work only.", showsExample: true).body
+    _ = DocumentTextExample(source: "Synthetic input", narration: "Synthetic narration").body
+    _ = DocumentTextExample(source: "Synthetic input", narration: "Synthetic narration", detail: "Synthetic explanation.").body
     #expect(calls == 0)
 }

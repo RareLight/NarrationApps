@@ -102,6 +102,20 @@ extension PDFMarginTests {
 }
 
 extension PDFMarginTests {
+    func testRomanFoliosWithChangingChapterLabelsUsePositionAndSequence() throws {
+        let original = document(headers: Array(repeating: "Running book title", count: 4))
+        let footers = ["Alpha i", "Beta ii", "Gamma iii", "Delta iv"]
+        let blocks = original.blocks.enumerated().map { index, block -> ContentBlock in
+            let last = block.pdfLayout!.lines.last!
+            let text = (block.text as NSString).substring(to: last.location) + footers[index]
+            let lines = Array(block.pdfLayout!.lines.dropLast()) + [PDFTextLine(location: last.location,
+                length: footers[index].utf16.count, bounds: .init(x: index % 2 == 0 ? 0.1 : 0.65, y: 0.03, width: 0.25, height: 0.022))]
+            return .init(kind: .paragraph, text: text, pdfPageIndex: index, origin: .authored, pdfLayout: .init(basis: .cropBox, lines: lines))
+        }
+        let plan = try NarrationPlanner.prepare(.init(blocks: blocks, extractorVersion: "independent-roman-folio-fixture"))
+        XCTAssertEqual(plan.omissions?.filter { $0.reason == "recurring PDF footer" }.count, 4)
+        XCTAssertEqual(plan.chunks.filter { $0.text.contains("Repeated body refrain") }.count, 4)
+    }
     func testGenericMarginProseAndConstantYearsAreNotAutomaticOmissions() throws {
         let original = document(headers: Array(repeating: "Alle Rechte vorbehalten", count: 6))
         let anonymous = SemanticDocument(blocks: original.blocks, extractorVersion: "no-metadata")

@@ -6,7 +6,7 @@ import Foundation
 import Pronunciation
 
 public struct DocumentOutcome: Sendable {
-    public enum State: Sendable { case published, failed, cancelled }
+    public enum State: Sendable { case published, failed, cancelled, skipped }
     public let id: UUID
     public let state: State
     public let destination: URL
@@ -25,6 +25,7 @@ public struct BatchSummary: Sendable {
     }
     public var successfulCount: Int { documents.filter { $0.state == .published }.count }
     public var failedCount: Int { documents.filter { $0.state == .failed }.count }
+    public var skippedCount: Int { documents.filter { $0.state == .skipped }.count }
 }
 
 public enum BatchEvent: Sendable {
@@ -32,6 +33,7 @@ public enum BatchEvent: Sendable {
     case textPreparation(TextPreparationProgress)
     case speech(SpeechProgress)
     case document(batch: UUID, DocumentOutcome)
+    case control(BatchQueueState)
     case finished(BatchSummary)
 }
 
@@ -47,9 +49,15 @@ public actor QueueCoordinator {
     private var active: Task<BatchSummary, Never>?
     public init(configuration: WorkerConfiguration) { self.configuration = configuration }
 
-    public func run(_ request: BatchRequest, debugLog: DebugLog? = nil, events: @escaping @Sendable (BatchEvent) -> Void = { _ in }) async throws -> BatchSummary {
+    public func run(_ request: BatchRequest, debugLog: DebugLog? = nil, control: BatchQueueControl? = nil, events: @escaping @Sendable (BatchEvent) -> Void = { _ in }) async throws -> BatchSummary {
         guard active == nil else { throw CoordinatorError.busy }
         try Task.checkCancellation()
+        if let control {
+            let state = control.state
+            guard state.batch == request.id, state.current == nil,
+                  state.pending.count == request.documents.count,
+                  Set(state.pending) == Set(request.documents.map(\.id)) else { throw SpeechFailure(.invalidInput) }
+        }
         // Whole-batch preflight happens before any document/model is opened.
         let bindings = try Dictionary(uniqueKeysWithValues: Self.revalidate(request).map {
             ($0.id, try OutputPaths.resolved($0.destination))
@@ -58,11 +66,18 @@ public actor QueueCoordinator {
         if let debugLog { selected.debugLog = debugLog }
         let scheduler = ChunkScheduler(configuration: selected)
         let sessionConfiguration = selected
+        let queue = control ?? BatchQueueControl(batch: request.id, jobs: request.documents.map(\.id))
+        queue.observe { events(.control($0)) }
         let task = Task {
             do {
                 let pronunciations = try sessionConfiguration.pronunciationStore?.load().dictionary ?? request.pronunciations
+                if control != nil {
+                    // Controlled Libro batches release interactive admission while
+                    // paused. Individual extraction/model operations own their leases.
+                    return await self.execute(request, queue: queue, cooperative: true, bindings: bindings, scheduler: scheduler, sessionConfiguration: sessionConfiguration, pronunciations: pronunciations, debugLog: sessionConfiguration.debugLog, events: events)
+                }
                 return try await InferenceLease.withPriority(sessionConfiguration.inferencePriority, at: sessionConfiguration.inferenceLeaseFile) {
-                    await self.execute(request, bindings: bindings, scheduler: scheduler, sessionConfiguration: sessionConfiguration, pronunciations: pronunciations, debugLog: sessionConfiguration.debugLog, events: events)
+                    await self.execute(request, queue: queue, cooperative: false, bindings: bindings, scheduler: scheduler, sessionConfiguration: sessionConfiguration, pronunciations: pronunciations, debugLog: sessionConfiguration.debugLog, events: events)
                 }
             } catch {
                 let cancelled = error is CancellationError
@@ -86,11 +101,15 @@ public actor QueueCoordinator {
         _ = await task?.value
     }
 
-    private func execute(_ request: BatchRequest, bindings: [UUID: URL], scheduler: ChunkScheduler, sessionConfiguration: WorkerConfiguration, pronunciations: PronunciationDictionary, debugLog: DebugLog?,
+    private func execute(_ request: BatchRequest, queue: BatchQueueControl, cooperative: Bool, bindings: [UUID: URL], scheduler: ChunkScheduler, sessionConfiguration: WorkerConfiguration, pronunciations: PronunciationDictionary, debugLog: DebugLog?,
                          events: @escaping @Sendable (BatchEvent) -> Void) async -> BatchSummary {
         var outcomes: [DocumentOutcome] = []
         var session: NativeSpeechSession?
-        for document in request.documents {
+        let documents = Dictionary(uniqueKeysWithValues: request.documents.map { ($0.id, $0) })
+        while !Task.isCancelled {
+            let next: UUID?
+            do { next = try await queue.next() } catch { break }
+            guard let next, let document = documents[next] else { break }
             if Task.isCancelled { break }
             events(.preparing(batch: request.id, job: document.id))
             debugLog?.record("batch=\(request.id) job=\(document.id) preparing type=\(document.input.kind.rawValue)")
@@ -107,20 +126,37 @@ public actor QueueCoordinator {
                 let projection = try await withTaskCancellationHandler { try await preparation.value }
                     onCancel: { preparation.cancel() }
                 try Task.checkCancellation()
+                try await queue.checkpoint(job: document.id)
                 _ = try Self.revalidate(request, bindings: bindings, publicationJob: document.id)
                 if session == nil {
                     session = try NativeSpeechSession(configuration: sessionConfiguration, workspace: request.workspace,
                                                       settings: request.settings, leaseFile: sessionConfiguration.inferenceLeaseFile)
                 }
+                let checkpoint: (@Sendable () async throws -> Void)?
+                if cooperative { checkpoint = { try await queue.checkpoint(job: document.id) } }
+                else { checkpoint = nil }
                 try await scheduler.render(projection: projection, batchID: request.id, jobID: document.id,
                                            workspace: request.workspace, settings: request.settings,
                                            destination: document.destination,
                                            outputFormat: request.outputFormat, session: session, coverArtwork: request.coverArtwork[document.id],
-                                           beforePublication: { _ = try Self.revalidate(request, bindings: bindings, publicationJob: document.id) },
+                                           checkpoint: checkpoint,
+                                           beforePublication: {
+                                               _ = try Self.revalidate(request, bindings: bindings, publicationJob: document.id)
+                                               do { try queue.authorizePublication(job: document.id) }
+                                               catch is BatchItemSkipped { throw CancellationError() }
+                                           },
                                            preparationProgress: { completed, total in updates.report(.init(stage: .phonemizing, completed: completed, total: total, unit: .passages)) },
                                            progress: { events(.speech($0)) })
                 outcome = .init(id: document.id, state: .published, destination: document.destination, message: nil)
-            } catch is CancellationError { break }
+            } catch is BatchItemSkipped {
+                if Task.isCancelled { break }
+                await session?.close(); session = nil
+                outcome = .init(id: document.id, state: .skipped, destination: document.destination)
+            } catch is CancellationError {
+                guard !Task.isCancelled, queue.state.current == document.id, queue.state.phase == .skipping else { break }
+                await session?.close(); session = nil
+                outcome = .init(id: document.id, state: .skipped, destination: document.destination)
+            }
             catch {
                 await session?.close(); session = nil
                 debugLog?.record("batch=\(request.id) job=\(document.id) document failed: \(error.localizedDescription)")
@@ -130,11 +166,13 @@ public actor QueueCoordinator {
                                 message: error.localizedDescription)
             }
             outcomes.append(outcome); events(.document(batch: request.id, outcome))
+            queue.finish(job: document.id)
         }
         await session?.close()
         let cancelled = Task.isCancelled
         if cancelled {
-            for document in request.documents.dropFirst(outcomes.count) {
+            let finished = Set(outcomes.map(\.id))
+            for document in request.documents where !finished.contains(document.id) {
                 let outcome = DocumentOutcome(id: document.id, state: .cancelled,
                                               destination: document.destination, message: nil)
                 outcomes.append(outcome); events(.document(batch: request.id, outcome))

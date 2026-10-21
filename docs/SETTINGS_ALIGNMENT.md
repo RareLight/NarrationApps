@@ -12,8 +12,16 @@ are historical; the only current manual tests are in the
 | PronunciationUI | Shared dictionary editor and on-demand native pronunciation preview |
 | Each app | Preferences, pane inventory, file/source access, active-work gating, scene and playback lifecycle |
 
-Libro has General, Models, Pronunciation and Troubleshooting. Main-window narration
-and export choices remain part of its batch workflow; Models owns workspace/install/
+Libro has General, Document, Models, Pronunciation and Troubleshooting, in that
+order. General owns appearance and completion alerts. Document owns narration text
+choices and image descriptions, with short control tooltips and illustrative
+document/narration examples that update with each choice. Examples start collapsed
+behind **Show example**, whose trailing chevron rotates down when expanded.
+Pronunciation remains in its dedicated pane; the shared dictionary list and editing
+buttons use a centered 75% of the window width in both apps. The list uses a soft
+gray rounded background with native row selection, adapting to light/dark appearance.
+Future document text controls belong in Document.
+Main-window speech and export choices remain part of its batch workflow; Models owns workspace/install/
 offline setup checks and Troubleshooting owns the separate embedded-helper check.
 VoiceRelay has General, Pronunciation, Publishing and Troubleshooting; General owns
 Speech, Reading List and automation, Publishing owns credentials/destination/channel,
@@ -26,6 +34,11 @@ Samples play recorded audio and do not preview selected speed or spelling rules.
 
 New Kokoro settings share Heart at 1.0×; valid existing saved values remain intact.
 Text-size preferences stay app-owned; the pronunciation dictionary is shared.
+The entire pronunciation pane is the single `PronunciationUI.PronunciationSettingsView`
+used by both apps, not an app-local copy. Its matching/preservation explanation lives
+in the shared AppPresentation ⓘ section-help popover, leaving the editor uncluttered.
+Whole Settings panes or sections can be shared views with app-supplied bindings,
+preview configuration and action closures; persistence and lifecycle stay app-owned.
 Image-description choices affect future preparation, preserve authored ALT/OCR and
 do not rewrite existing recordings. Source/Publishing, completion alerts, storage,
 backup and diagnostic privacy remain appropriate to each app.
@@ -33,16 +46,21 @@ backup and diagnostic privacy remain appropriate to each app.
 ## Cover and document controls
 
 NarrationUI now supplies the common CoverArtworkPicker presentation and typed
-NarrationOptionsControls. Both apps call the note setting Notes, with Current
-Placement / End of Document / Omit, and use Include auxiliary sections in Document
-Narration. Defaults preserve current behavior. Libro persists choices for future
+NarrationOptionsControls. Both apps call the note setting **Footnotes**,
+with **Read with the text / Read at the end / Do not read**, and use **Read appendices
+and extra sections**. Libro places these in Document; VoiceRelay keeps them in
+General → Document Narration. Only marked sections are affected; unclassified prose
+and bibliographies remain included unless citation stripping is selected. Immediately
+after Footnotes, the Academic citations group contains **Strip inline citations**
+and **Strip endnote citations**, both off by default. See [cleanup rules](DOCUMENT_CLEANUP.md).
+Defaults preserve current behavior. Libro persists choices for future
 batches; VoiceRelay captures them when adding queue records. These preferences
 remain app-specific, unlike the shared pronunciation dictionary.
 
-Document Narration also offers **Rejoin PDF word wraps (experimental)**, off by
+These controls also offer **Join split words in PDFs (experimental)**, off by
 default and captured with future jobs. Both engines use the same source-mapped
-PDF rule. The help and preview notices disclose that genuine compound hyphens
-may be removed; unsupported layouts and non-PDF inputs retain their text.
+PDF rule. English dictionary checks preserve recognized compound hyphens and leave
+unknown spellings unchanged; unsupported layouts and non-PDF inputs retain their text.
 
 Libro's per-document Cover Art selection lives with its document queue/export
 workflow. VoiceRelay's Podcast Cover lives beside channel details in Publishing.

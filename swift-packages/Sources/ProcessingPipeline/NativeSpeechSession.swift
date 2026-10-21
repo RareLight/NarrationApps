@@ -68,6 +68,7 @@ public actor NativeSpeechSession {
     /// One authoritative preparation boundary shared by adapters and developer
     /// tools. No model loading/download or global text cache is hidden here.
     public func prepareSpeech(_ projection: NarrationPlan,
+        checkpoint: (@Sendable () async throws -> Void)? = nil,
         progress: @Sendable (Int, Int) -> Void = { _, _ in }) async throws -> PreparedSpeechPlan {
         try Task.checkCancellation()
         guard ready, !closed, !busy, !projection.chunks.isEmpty else { throw SpeechFailure(.invalidInput) }
@@ -94,6 +95,7 @@ public actor NativeSpeechSession {
             progress(0, windows.count)
             for (index, window) in windows.enumerated() {
                 try Task.checkCancellation()
+                if let checkpoint { try await checkpoint() }
                 lease = try await InferenceLease.acquire(at: leaseFile, priority: configuration.inferencePriority)
                 guard !closed, let worker else { throw CancellationError() }
                 let workerWindow = SpeechTextWindow(text: window.text,
@@ -124,6 +126,7 @@ public actor NativeSpeechSession {
 
     public func render(plan: PreparedSpeechPlan, destination: URL, outputFormat: AudioOutputFormat = .wav, coverArtwork: CoverArtwork? = nil,
                        identity progressIdentity: AttemptIdentity, explicitGap: Double? = nil,
+                       checkpoint: (@Sendable () async throws -> Void)? = nil,
                        beforePublication: @Sendable () throws -> Void = {},
                        progress: @Sendable (SpeechProgress) -> Void = { _ in }) async throws {
         try Task.checkCancellation()
@@ -144,6 +147,13 @@ public actor NativeSpeechSession {
                 lease = try await InferenceLease.acquire(at: leaseFile, priority: .interactive)
             }
             for (index, utterance) in plan.utterances.enumerated() {
+                if let checkpoint {
+                    lease = nil
+                    try await checkpoint()
+                    if configuration.inferencePriority == .interactive {
+                        lease = try await InferenceLease.acquire(at: leaseFile, priority: .interactive)
+                    }
+                }
                 if configuration.inferencePriority == .background {
                     lease = try await InferenceLease.acquire(at: leaseFile, priority: .background)
                 }
@@ -155,6 +165,8 @@ public actor NativeSpeechSession {
                 progress(.init(identity: progressIdentity, phase: .chunkWritten,
                     completedChunks: index + 1, totalChunks: plan.utterances.count))
             }
+            lease = nil
+            if let checkpoint { try await checkpoint() }
             progress(.init(identity: progressIdentity, phase: .publishing,
                 completedChunks: plan.utterances.count, totalChunks: plan.utterances.count))
             lease = nil

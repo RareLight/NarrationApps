@@ -30,13 +30,13 @@ public enum NarrationPlanner {
         pronunciations.fingerprint.isEmpty ? version : version + "/pronunciation-" + pronunciations.fingerprint
     }
     public static func version(settings: SpeechSettings, pronunciations: PronunciationDictionary = .empty, options: NarrationOptions = .init()) -> String {
-        let base = version(pronunciations: pronunciations) + "/text-flow-1/document-structure-1" + options.versionSuffix
+        let base = version(pronunciations: pronunciations) + "/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2" + options.versionSuffix
         return settings.model == .kokoro ? base + "/" + SpokenFormNormalizer.version + "-" + SpokenFormNormalizer.locale(settings) : base
     }
     // These upgrades omit separators and duplicate placeholders. Identical text, index,
     // provenance and engine still produce identical audio, so keep those checkpoints.
     public static func chunkFingerprintVersion(_ version: String) -> String {
-        var acousticVersion = NarrationOptions.acousticCompatibleVersion(version).replacingOccurrences(of: "/text-flow-1", with: "")
+        var acousticVersion = NarrationOptions.acousticCompatibleVersion(version).replacingOccurrences(of: "/text-flow-1", with: "").replacingOccurrences(of: "/pdf-layout-2", with: "").replacingOccurrences(of: "/scientific-text-1", with: "").replacingOccurrences(of: "/scientific-text-2", with: "")
         for policy in ["spoken-forms-1", "spoken-forms-2"] {
             for locale in ["en_US", "en_GB"] {
                 acousticVersion = acousticVersion.replacingOccurrences(of: "/" + policy + "-" + locale, with: "")
@@ -70,10 +70,14 @@ public enum NarrationPlanner {
         guard limit > 0 else { throw NarrationError.invalidInput("Narration chunk limit must be positive.") }
         var chunks: [NarrationChunk] = []; var notices: [String] = []; var usedPronunciations = false; var mappedRules = 0; var mappingCount = 0
         let structuralOmissions = NarrationStructure.omissions(article, options: options)
+        let citations = try AcademicCitations.analyze(article, options: options)
+        let excludedBlocks = Set(structuralOmissions.keys).union(citations.wholeBlocks)
+        let equations = layoutEnabled ? try PDFEquationNarration.analyze(article, excluded: excludedBlocks, pronunciations: pronunciations) : PDFEquationNarration.Result()
         let layout = layoutEnabled ? try PDFLayoutAnalysis.analyze(article,
             experimentalWordJoining: options.experimentalPDFWordJoining,
-            excludedBlocks: Set(structuralOmissions.keys)) : PDFLayoutAnalysis.Result()
+            excludedBlocks: excludedBlocks) : PDFLayoutAnalysis.Result()
         let normalizer = SpokenFormNormalizer(settings: settings)
+        let hasLayoutChanges = !layout.omissions.isEmpty || !layout.joins.isEmpty || !layout.wordCuts.isEmpty || !layout.letterCuts.isEmpty || !layout.readingOrder.isEmpty || !equations.edits.isEmpty
         var noteIndices: [String: [Int]] = [:]
         for (index, block) in article.blocks.enumerated() {
             if let id = block.footnoteID { noteIndices[id, default: []].append(index) }
@@ -82,6 +86,7 @@ public enum NarrationPlanner {
         var emitted: Set<String> = []
         var imageCredits: Set<String> = []
         var lastOmission: ContentBlock.Kind?
+        var announcedComplexEquations = false
         func emit(_ text: String, indices: [Int], boundary: SpeechBoundary = .paragraph, mappingBlock: Int? = nil, projection: MappedProjection? = nil) throws {
             if !text.isEmpty { lastOmission = nil }
             let application = try pronunciations.applyingWithMappings(to: text)
@@ -93,7 +98,7 @@ public enum NarrationPlanner {
             let applications = normalized.applications
             mappingCount += normalized.mappings?.count ?? 0
             guard mappingCount <= 100_000 else {
-                if !layout.omissions.isEmpty || !layout.joins.isEmpty || !layout.wordCuts.isEmpty { throw OptionalLayoutBudget.exceeded }
+                if hasLayoutChanges { throw OptionalLayoutBudget.exceeded }
                 throw NarrationError.invalidInput("Spoken-form mapping budget exceeded. No text was truncated.") }
             usedPronunciations = usedPronunciations || application.text != text
             let parts = purpose == .speechPreparation ? [spoken] : try NarrationText.chunks(spoken, settings: settings, maximumScalars: min(limit, 480))
@@ -114,20 +119,42 @@ public enum NarrationPlanner {
         func projectedBlock(_ index: Int) throws -> MappedProjection {
             do {
                 let block = article.blocks[index]
+                func scientific(_ base: MappedProjection) throws -> MappedProjection {
+                    let mapped = try base.replacingSourceRanges(equations.edits[index] ?? [])
+                    // Mappings are now in actual narration order, including
+                    // reconstructed columns and deferred footnotes.
+                    var duplicates: [ProjectionEdit] = []
+                    for run in mapped.mappings where run.rule == PDFEquationNarration.complexCueRule && run.spokenLength > 0 {
+                        if announcedComplexEquations {
+                            duplicates.append(.init(range: NSRange(location: run.spokenLocation, length: run.spokenLength), replacement: " ", rule: PDFEquationNarration.complexCueRule))
+                        }
+                        announcedComplexEquations = true
+                    }
+                    return duplicates.isEmpty ? mapped : try mapped.applying(duplicates)
+                }
+                if let order = layout.readingOrder[index] {
+                    let ordered = try MappedProjection.orderedPDF(block.text, block: index, lines: order,
+                        margins: layout.byBlock[index] ?? [], wordCuts: layout.wordCuts[index] ?? [], lineJoins: layout.lineJoins[index] ?? [:], letterCuts: layout.letterCuts[index] ?? [], citations: citations.ranges[index] ?? [], canonical: !pronunciations.entries.isEmpty)
+                    let processed = try scientific(ordered)
+                    return try citations.ranges[index] != nil ? processed.cleaningCitationWhitespace() : processed
+                }
                 let mapped = try MappedProjection.source(block.text, block: index, canonical: !pronunciations.entries.isEmpty)
                 let margins = try layout.byBlock[index].map { try mapped.removingSourceRanges($0) } ?? mapped
-                return try layout.wordCuts[index].map { try margins.removingSourceRanges($0, rule: PDFWordJoining.rule) } ?? margins
+                let joined = try layout.wordCuts[index].map { try margins.removingSourceRanges($0, rule: PDFWordJoining.rule) } ?? margins
+                let letters = try layout.letterCuts[index].map { try joined.removingSourceRanges($0, rule: "pdf-letter-spacing-1") } ?? joined
+                let cited = try citations.ranges[index].map { try letters.removingSourceRanges($0, rule: "academic-citation-1").cleaningCitationWhitespace() } ?? letters
+                return try scientific(cited)
             } catch NarrationError.invalidInput(let reason) where reason.contains("budget") {
                 throw OptionalLayoutBudget.exceeded
             }
         }
         func content(_ index: Int) throws {
             let block = article.blocks[index]
-            if structuralOmissions[index] != nil { return }
+            if excludedBlocks.contains(index) { return }
             if duplicateCaptions.contains(index) { notices.append("Duplicate image caption omitted from narration."); return }
             var text = NarrationText.normalizeWhitespace(block.narrationText ?? block.text)
             var projection: MappedProjection?
-            if layout.byBlock[index] != nil || layout.wordCuts[index] != nil {
+            if layout.byBlock[index] != nil || layout.wordCuts[index] != nil || layout.letterCuts[index] != nil || layout.readingOrder[index] != nil || citations.ranges[index] != nil || equations.edits[index] != nil {
                 let mapped = try projectedBlock(index)
                 text = mapped.text; projection = mapped
             }
@@ -142,9 +169,14 @@ public enum NarrationPlanner {
                     notices.append("Repeated image credit omitted from narration.")
                 }
             }
-            if block.kind == .code || block.kind == .table {
+            if block.kind == .table {
+                text = TableNarration.render(block)
+                notices.append("Block \(index): prose table entries read in source order; numeric entries retain reliable labels, and unread content remains in the source.")
+            }
+            let tableUnavailable = block.kind == .table && (text == TableNarration.unavailable || text.hasPrefix("Table image. Its contents could not be read reliably."))
+            if block.kind == .code {
                 notices.append("Block \(index): \(block.kind.rawValue) retained in semantic artifact and omitted from narration.")
-                text = block.kind == .code ? "Code block omitted from narration." : "Table omitted from narration."
+                text = "Code block omitted from narration."
             }
             if block.kind == .unsupported {
                 notices.append("Block \(index): unsupported structure read as plain text; inspect before listening acceptance.")
@@ -153,12 +185,12 @@ public enum NarrationPlanner {
                 notices.append("Block \(index): decorative quotation retained in semantic artifact and omitted from narration.")
             } else if isDecorativeSeparator(text) {
                 notices.append("Block \(index): decorative separator retained in semantic artifact and omitted from narration.")
-            } else if (block.kind == .table || block.kind == .code), lastOmission == block.kind {
+            } else if block.kind == .code || tableUnavailable, lastOmission == block.kind {
                 notices.append("Block \(index): repeated omission announcement suppressed.")
             } else {
                 try emit(text, indices: [index], boundary: block.kind == .heading ? .heading : block.kind == .footnote ? .footnote : .paragraph,
                          mappingBlock: [.code, .table].contains(block.kind) ? nil : index, projection: projection)
-                if block.kind == .table || block.kind == .code { lastOmission = block.kind }
+                if block.kind == .code || tableUnavailable { lastOmission = block.kind }
             }
             if options.notes == .current { for id in block.footnoteReferences ?? [] { try footnote(id, referredBy: index) } }
         }
@@ -168,7 +200,7 @@ public enum NarrationPlanner {
                 notices.append("A marked footnote/citation could not be resolved; its marker is omitted from speech.")
                 return
             }
-            guard notes.contains(where: { structuralOmissions[$0] == nil }) else { return }
+            guard notes.contains(where: { !excludedBlocks.contains($0) }) else { return }
             let provenance = (index.map { [$0] } ?? []) + notes
             if index == nil && options.notes == .current { notices.append("Unreferenced footnote retained at the end of narration.") }
             try emit("Footnote:", indices: provenance, boundary: .continuation)
@@ -179,12 +211,12 @@ public enum NarrationPlanner {
         let headerChunks = chunks.count
         var joined = Set<Int>()
         for (index, block) in article.blocks.enumerated() where block.footnoteID == nil {
-            if joined.contains(index) || structuralOmissions[index] != nil { continue }
+            if joined.contains(index) || excludedBlocks.contains(index) { continue }
             if block.kind == .footnote && options.notes == .endOfDocument { continue }
             if layout.joins.contains(index) {
                 var indices = [index], last = index, mapped = try projectedBlock(index)
                 do {
-                    while layout.joins.contains(last), indices.count < 16, structuralOmissions[last + 1] == nil {
+                    while layout.joins.contains(last), indices.count < 16, !excludedBlocks.contains(last + 1) {
                         let direct = layout.directJoins.contains(last)
                         last += 1; indices.append(last); joined.insert(last)
                         mapped = try mapped.joining(projectedBlock(last), directly: direct)
@@ -199,7 +231,7 @@ public enum NarrationPlanner {
             } else { try content(index) }
         }
         if options.notes == .endOfDocument {
-            for (index, block) in article.blocks.enumerated() where block.kind == .footnote && block.footnoteID == nil && structuralOmissions[index] == nil {
+            for (index, block) in article.blocks.enumerated() where block.kind == .footnote && block.footnoteID == nil && !excludedBlocks.contains(index) {
                 try emit("Footnote:", indices: [index], boundary: .continuation); try content(index); try emit("End Footnote", indices: [index], boundary: .footnote)
             }
         }
@@ -209,6 +241,8 @@ public enum NarrationPlanner {
         guard chunks.count > headerChunks else { throw NarrationError.invalidInput("No narration chunks were produced.") }
         if let closing = profile.closing { try emit(closing, indices: []) }
         if !layout.joins.isEmpty { notices.append("Joined \(layout.joins.count) PDF page continuations using compatible column, line and page-edge evidence; original blocks and source spans are retained.") }
+        if !layout.readingOrder.isEmpty { notices.append("Reconstructed column reading order in \(layout.readingOrder.count) PDF blocks using separated gutters and full-width text boundaries; original extraction order is retained in source.") }
+        if !layout.letterCuts.isEmpty { notices.append("Repaired dictionary-verified letter spacing in \(layout.letterCuts.count) PDF blocks; uncertain words and original source are retained.") }
         if !layout.omissions.isEmpty {
             let pages = Set(layout.omissions.compactMap { $0.pageIndex.map { $0 + 1 } }).sorted()
             let shown = pages.prefix(12).map(String.init).joined(separator: ", ") + (pages.count > 12 ? ", …" : "")
@@ -217,12 +251,15 @@ public enum NarrationPlanner {
         if layout.budgetSkipped { notices.append("PDF layout review exceeded its evidence budget; affected text was left unchanged.") }
         if !layout.wordCuts.isEmpty {
             let count = layout.wordCuts.values.reduce(0) { $0 + $1.count }
-            notices.append("Rejoined \(count) PDF printed word wraps using experimental Readium-style rules; genuine compound hyphens may change. Original source and mapped spans are retained.")
+            notices.append("Rejoined \(count) PDF printed word wraps using experimental geometry and English dictionary checks; recognized compound hyphens and uncertain words are preserved. Original source and mapped spans are retained.")
         }
+        if equations.readable > 0 { notices.append("Read \(equations.readable) equations using verified linear notation; original source is retained.") }
+        if equations.complex > 0 { notices.append("Flagged \(equations.complex) complex mathematical expressions. One spoken notice refers to the original text; every source range and page remains available for review, and explanatory prose is retained.") }
         for omission in structuralOmissions.values.sorted(by: { $0.source.blockIndex < $1.source.blockIndex }) {
             notices.append("Block \(omission.source.blockIndex + 1): " + omission.reason)
         }
         if options.notes == .endOfDocument { notices.append("Notes are narrated at the end of the document; original references and source blocks are retained.") }
+        if !citations.omissions.isEmpty { notices.append("Skipped \(citations.omissions.count) academic citation spans using the selected settings; explanatory notes and original source are retained.") }
         if usedPronunciations { notices.append("User pronunciation overrides applied to narration; original source blocks are preserved.") }
         do {
             if normalizer.discretionaryCount > 0 { notices.append("Discretionary soft hyphens removed from \(normalizer.discretionaryCount) spoken spans; original source text is preserved.") }
@@ -257,8 +294,9 @@ public enum NarrationPlanner {
             chunks = merged
         }
         guard chunks.reduce(0, { $0 + ($1.sourceMappings?.count ?? 0) }) <= 100_000 else {
-            if !layout.omissions.isEmpty || !layout.joins.isEmpty || !layout.wordCuts.isEmpty { throw OptionalLayoutBudget.exceeded }
+            if hasLayoutChanges { throw OptionalLayoutBudget.exceeded }
             throw NarrationError.invalidInput("Spoken-form mapping budget exceeded after cue composition. No text was truncated.") }
-        return NarrationPlan(version: version(settings: settings, pronunciations: pronunciations, options: options) + (purpose == .speechPreparation ? "/spoken-projection-1" : ""), chunks: chunks, notices: notices, omissions: (layout.omissions + structuralOmissions.values.sorted { $0.source.blockIndex < $1.source.blockIndex }).isEmpty ? nil : layout.omissions + structuralOmissions.values.sorted { $0.source.blockIndex < $1.source.blockIndex })
+        let omissions = layout.omissions + structuralOmissions.values.sorted { $0.source.blockIndex < $1.source.blockIndex } + citations.omissions + equations.omissions
+        return NarrationPlan(version: version(settings: settings, pronunciations: pronunciations, options: options) + (purpose == .speechPreparation ? "/spoken-projection-1" : ""), chunks: chunks, notices: notices, omissions: omissions.isEmpty ? nil : omissions)
     }
 }

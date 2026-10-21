@@ -1,5 +1,6 @@
 import SwiftUI
 import NarrationCore
+import AppPresentation
 
 public struct DocumentNavigationMenu: View {
     private let entries: [DocumentOutlineEntry]
@@ -19,14 +20,56 @@ public struct DocumentNavigationMenu: View {
 
 public struct NarrationOptionsControls: View {
     @Binding private var options: NarrationOptions
-    public init(options: Binding<NarrationOptions>) { _options = options }
+    private let showsExamples: Bool
+    public init(options: Binding<NarrationOptions>, showsExamples: Bool = false) {
+        _options = options; self.showsExamples = showsExamples
+    }
     public var body: some View {
-        Picker("Notes", selection: $options.notes) {
+        Picker("Footnotes", selection: $options.notes) {
             ForEach(NarrationOptions.NotePlacement.allCases, id: \.self) { Text($0.label).tag($0) }
         }
-        Toggle("Include auxiliary sections", isOn: $options.includeAuxiliary)
-            .help("Applies only to sections explicitly marked as auxiliary, such as appendices. Unclassified prose and bibliographies are retained.")
-        Toggle("Rejoin PDF word wraps (experimental)", isOn: $options.experimentalPDFWordJoining)
-            .help("Tries Readium-style joining at verified PDF line endings before lowercase text. Can remove genuine compound hyphens. Off by default; original source stays intact. Applies to future jobs.")
+        .help("Choose when to read footnotes and endnotes identified by the document. Unmarked text stays as written.")
+        if showsExamples {
+            DocumentTextExample(source: "Main text¹ → more text\n¹ Footnote", narration: noteExample)
+        }
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+            Toggle("Strip inline citations", isOn: $options.stripInlineCitations)
+                .help("Skips recognized author–year references and numbered citations linked to a reference list. Keeps ordinary parentheses and numbers.")
+            if showsExamples {
+                DocumentTextExample(source: "Forests recover (Smith, 2020).",
+                    narration: options.stripInlineCitations ? "Forests recover." : "Forests recover (Smith, 2020).")
+            }
+            Toggle("Strip endnote citations", isOn: $options.stripEndnoteCitations)
+                .help("Skips identified bibliographies and citation-only notes. Keeps notes that explain or add information.")
+            if showsExamples {
+                DocumentTextExample(source: "Main text → reference list → explanatory note",
+                    narration: options.stripEndnoteCitations ? "Main text → explanatory note" : "Main text → reference list → explanatory note")
+            }
+            }
+        } label: {
+            Text("Academic citations")
+        }
+        Toggle("Read appendices and extra sections", isOn: $options.includeAuxiliary)
+            .help("Only sections marked as extra material are affected. Ordinary body text stays included.")
+        if showsExamples {
+            DocumentTextExample(source: "Main text → appendix",
+                narration: options.includeAuxiliary ? "Main text → appendix" : "Main text")
+        }
+        Toggle("Join split words in PDFs (experimental)", isOn: $options.experimentalPDFWordJoining)
+            .help("Joins verified PDF line breaks using the English spelling dictionary. Keeps recognized compound hyphens and leaves uncertain words alone.")
+        if showsExamples {
+            DocumentTextExample(source: "inter-\nnational",
+                narration: options.experimentalPDFWordJoining ? "international" : "inter- national",
+                detail: "Keeps recognized compounds such as well-known. Uncertain words stay unchanged; review PDF narration before exporting.")
+        }
+    }
+
+    private var noteExample: String {
+        switch options.notes {
+        case .current: "Main text → footnote → more text"
+        case .endOfDocument: "Main text → more text → footnote"
+        case .omit: "Main text → more text"
+        }
     }
 }

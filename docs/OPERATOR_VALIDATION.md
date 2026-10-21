@@ -61,7 +61,7 @@ separate from automated fixture tests.
   user, try Not Now, installation, cancellation/retry and successful dismissal of
   setup; also try Choose Existing Models. Check Speech Setup works offline after
   installation. Select a British voice and install its regional resources if asked.
-- [ ] **L02 — Settings and appearance.** Visit General, Models, Pronunciation and
+- [ ] **L02 — Settings and appearance.** Visit General, Document, Models, Pronunciation and
   Troubleshooting. Test text size at 80%, 100% and 200%, ⌘+/⌘−/⌘0, minimum window
   sizes, light/dark, reduced motion/transparency, contrast, keyboard focus and
   VoiceOver. Help, long errors and controls remain readable; preferences persist.
@@ -70,12 +70,20 @@ separate from automated fixture tests.
   playback does not overlap. The common phrase starts “Hello, I can narrate…”
   and plays at recorded 1.0×, independently of generation speed/overrides.
 - [ ] **L04 — Pronunciation.** Add, edit and remove a temporary override such as
-  `SQLite` → `sequel lite`; use Play with the selected voice/speed. Narrate text
+  `SQLite` → `sequel lite`; use Play with the selected voice/speed.
+  Check that the centered dictionary list and editing buttons occupy 75% of the
+  window width and resize with the window, including at large text sizes. Narrate text
   containing both `SQLite` and `SQLites`: only the complete key should change,
   while original source prose stays intact. Check busy/missing-model guidance.
 - [ ] **L05 — Import and queue.** Use Open and Finder drag/drop for text, Markdown,
   RTF, PDFs and DRM-free EPUBs, including folders. Check duplicate imports, long names, editable
   output names, selection/removal and keyboard shortcuts without disrupting typing.
+  Re-drop a saved document: its row must become queued again. Adding a different
+  source must leave old finished rows finished and active jobs unchanged.
+  Drag single and noncontiguous selected rows to the beginning, middle and end;
+  verify native insertion markers and execution order. Import another file and
+  check the chosen order remains. During processing, reorder waiting items within
+  the active batch; current/completed rows and next-batch membership stay fixed.
 - [ ] **L06 — PDF/OCR quality.** Compare selectable-text, scanned, mixed and
   multi-column PDFs, including contents pages with dotted leaders, with their
   previews: reading order, paragraphs, lists, notes,
@@ -105,10 +113,23 @@ separate from automated fixture tests.
   run a fresh batch successfully. Close/reopen the window during work and test the
   Quit choices. Cancellation must settle, Quit must stop owned helpers, and finished
   files must survive. Queue Again/Queue Unfinished must not immediately start work.
+  Check the circular Start/Stop, Pause/Resume and Skip controls and menu equivalents.
+  Pause waits for the current operation, then resumes the same partial recording;
+  Stop keeps unfinished items queued. Confirm Skip during analysis, narration and
+  saving; the next item proceeds, existing outputs survive, and a stale confirmation
+  must never skip the next item. Skip while paused leaves the next item paused.
+  Check narrow windows, larger text, keyboard focus and accessibility labels.
+  Cover editing stays below the divider, destination controls stay adjacent, and
+  readiness/counts/activity occupy the bottom bar with full messages in Details.
 - [ ] **L13 — File errors and replacement.** Test an empty text file, a locked or
   unreadable PDF, duplicate output names and an unavailable destination. Recovery
   messages/Details are actionable; cancelling replacement or a failed job preserves
   existing complete output. Re-selecting a destination restores normal generation.
+  Queue files whose audio already exists: enqueue succeeds. Generate Audio offers
+  Overwrite Existing, Skip Existing and Cancel. Check a mixed batch and an all-existing
+  batch; skipped rows are visible, Queue Again works, and Cancel preserves the queue.
+  If a previously failed item is skipped, Queue Unfinished must queue it again;
+  changing an eligible skipped text item's encoding must also allow reprocessing.
 - [ ] **L14 — Alerts and diagnostics.** Check completion alerts with permission
   allowed/denied. Try Check Embedded Helper and log Copy/Open/Reveal/Clear if wanted;
   controls explain unavailable/busy states. Keep diagnostic text/paths private.
@@ -120,7 +141,9 @@ separate from automated fixture tests.
   choice; active batches cannot change encoding. Binary/damaged Unicode fails
   clearly, original files stay unchanged, and completed audio survives Queue Again.
 - [ ] **L16 — EPUB books.** Import DRM-free EPUB 2 and EPUB 3 books through Open,
-  folders and Finder/drop. Compare chapter order, beginnings/endings, headings,
+  folders and Finder/drop, including an unpacked `.epub` folder: it must enter as one book, show its cover
+  when available, and preview/generate without importing its individual resources.
+  Compare chapter order, beginnings/endings, headings,
   cross-chapter notes and repeated local note IDs against the book. Check section
   progress, authored ALT, duplicate images, optional local descriptions and Stop.
   External resources must not be fetched. A protected/malformed/unsupported book
@@ -150,8 +173,21 @@ separate from automated fixture tests.
   chapter order remains unchanged. No inferred plaintext chapters or audio chapter
   markers are promised. Compare the adjacent duplicate heading with its visible
   omission and retained original source.
-- [ ] **L19 — Document Narration settings.** Compare Current Placement, End of
-  Document and Omit for marked notes. Turn Include auxiliary sections off/on.
+- [ ] **L19 — Document settings.** In Settings → Document (between General and
+  Models), compare Read with the text, Read at the end and Do not read for
+  Footnotes. Immediately below, Academic citations has Strip inline citations and
+  Strip endnote citations, both initially off. Test each independently and together:
+  author–year/verified numbered references and bibliographies/citation-only notes
+  should be skipped, while explanatory notes, parentheses, dates, quantities and
+  unlinked numbers remain. Check saved choices and newly captured batches.
+  Turn Read appendices and extra sections off/on. Check
+  short hover help and the changing document/narration examples for each control,
+  including PDF word joins and image descriptions. Examples start collapsed behind
+  Show example; clicking or keyboard activation expands the preview and rotates
+  the trailing chevron 90° clockwise. Check collapse, independent disclosures,
+  VoiceOver expanded/collapsed state and reduced-motion behavior. Examples remain
+  readable at 80–200% text sizes and do not start document analysis or speech/model work.
+  General retains appearance/alerts; Document has no pronunciation shortcut.
   Preview and generate a new batch: the note/appendix treatment should agree,
   bibliography/unclassified prose stay present, and omissions are explained.
   Changes must not alter an active batch or finished output. Listen for intact
@@ -216,8 +252,12 @@ separate from automated fixture tests.
   Test Stop and Quit during speech/finalization, then relaunch/resume/retry: no
   duplicate episodes, automatic failed-row replay, or replacement of completed audio.
 - [ ] **V11 — Publishing and credentials (live).** With normal signing, test
-  existing credentials, denied/cancelled Keychain access and Test Connection.
-  Settings/errors remain responsive; denied access does not cause repeated prompts.
+  an existing protected credential: background publishing must not prompt; follow
+  the re-save instruction in Publishing once. Cancelling Save preserves the old
+  credential. Save again, quit/relaunch, reboot/sign in and lock the screen: delivery
+  should read the saved password without per-session authorization. Test Connection
+  remains responsive and uses sanitized errors; signed-identity changes are a separate
+  Keychain acceptance check. Never test existing credentials with an ad-hoc artifact.
   A readable-folder result alone must not claim successful upload/public playback.
 - [ ] **V12 — Publish and listen (live).** Publish one disposable article. Check
   media verification, feed membership, Uploads clearing only after confirmation,
@@ -242,8 +282,10 @@ separate from automated fixture tests.
   messages and busy states are clear. Source/setup/publishing failures route to the
   relevant Settings pane. Keep real URLs, credentials and source text out of reports.
 
-- [ ] **V17 — Podcast Cover.** In Publishing, choose the square fixture or an
-  opaque JPEG/PNG of at least 1400 pixels per side. Reject the transparent fixture
+- [ ] **V17 — Podcast Cover.** With no previous cover choice, confirm the bundled
+  icon-derived cover appears in Publishing. Replace it and relaunch: the custom
+  cover stays selected. Remove it and relaunch: it stays removed. Then choose the
+  square fixture or an opaque JPEG/PNG of at least 1400 pixels per side. Reject the transparent fixture
   and portrait image clearly. Test Replace/Remove/relaunch. On a disposable live
   destination, confirm show-cover upload precedes RSS, podcast display refreshes,
   and episode pictures remain article-specific. Failed cover upload preserves
@@ -256,15 +298,28 @@ separate from automated fixture tests.
   open an unrelated section. Check the retained source and visible duplicate-
   heading notices against the narration preview.
 - [ ] **V19 — Captured narration choices.** In General → Document Narration,
-  change Notes and Include auxiliary sections, then add new articles with marked
+  change Footnotes, citation choices and Read appendices and extra sections, then add new articles with marked
   notes/appendices. Confirm preview and generated content agree, bibliography and
   unclassified text remain, and queued articles keep their captured settings
   when preferences change. Already published audio remains unchanged.
 
+- [ ] **V20 — Optional login startup.** On a normal signed installed app, confirm
+  new installations default off. Opt in from initial setup or General Settings;
+  follow any Login Items approval prompt. Sign out/in: VoiceRelay starts in the menu
+  bar with no restored Articles/Settings/Preview/Help/setup windows, and configured automation
+  resumes. Quit stops it until manually opened or the next login. Toggle off and
+  sign out/in: it stays closed. Change consent in System Settings and reopen Settings:
+  actual OS state/approval is reflected without silent re-registration. Repeat with
+  speech setup incomplete; a login launch must not open the setup window.
+
 ## Both apps together
 
-- [ ] **B01 — Shared dictionary.** Save a pronunciation change in one app and
-  confirm it appears in the other. Try competing edits: Reload/conflict handling
+- [ ] **B01 — Shared dictionary.** In both apps, check that matching/preservation
+  prose is hidden behind the Pronunciation ⓘ control and opens with keyboard or
+  mouse. Check the centered list's gray rounded background, row selection, scrolling
+  and keyboard focus in light/dark appearance. Save a pronunciation change in one
+  app and confirm it appears in the other.
+  Try competing edits: Reload/conflict handling
   must preserve saved work. Edit during speech: current work retains its snapshot,
   and the next batch/article adopts the change. Restore temporary test entries afterward.
 - [ ] **B02 — Libro priority.** Start a long VoiceRelay job, then generate in
@@ -315,18 +370,45 @@ separate from automated fixture tests.
   GUI, private-file and live-service checks remain separate. Report false omissions,
   missed joins and unexpected pauses without sharing private text.
 
-- [ ] **B07 — Experimental printed PDF word joins (both apps).** In Document
-  Narration, enable **Rejoin PDF word wraps (experimental)** for a new disposable
+- [ ] **B07 — Experimental printed PDF word joins (both apps).** In Libro Settings
+  → Document or VoiceRelay General → Document Narration, enable **Join split words
+  in PDFs (experimental)** for a new disposable
   job and compare source, spoken preview and Kokoro/Soprano listening. Printed
   `particu-` / `larly` should become `particularly` with a repair notice. Original
   source/navigation must stay intact. Compare the default-off behavior and check
   that a saved choice survives relaunch and affects future jobs. Explicit paragraph
   gaps, heading/column changes, OCR and missing geometry should abstain. An excluded
-  auxiliary continuation must leave the preceding hyphen intact. The draft rule
-  deliberately also turns `well-` / `known` into `wellknown`: inspect compounds
-  and turn the option off for unsuitable books. Existing recordings and queued
+  auxiliary continuation must leave the preceding hyphen intact. Recognized compounds
+  such as `well-` / `known` should become `well-known`; unknown spellings abstain.
+  Check supported two-column order, full-width headings, tracked titles and ordinary
+  word pairs. Repeated isolated chapter/volume labels and folios disappear without
+  enabling any setting; body refrains and real headings remain. Existing recordings and queued
   captured choices must remain unchanged; no old snapshot is implicitly refetched.
   Automated preparation equality and decoded audio are not listening acceptance.
+
+- [ ] **B08 — Scientific equations and tables (both apps).** Compare original
+  pages with narration for the authorized scientific PDFs or equivalent
+  disposable documents, using a fresh import/analysis. Retained snapshots are not
+  implicitly re-extracted. The dedicated review apps are under
+  `.build/FlowNarrationValidation/Build/Products/Release/` (prose insets and
+  deduplicated equation notices; earlier review bundles remain available).
+  Clear linear notation should name operators/variables;
+  detected complex expressions should produce one original-text reference notice
+  per document, without repeating after prose, new pages or headings. Each omitted
+  expression must retain its original range/page and surrounding explanations. Inline equals
+  signs must not become display-equation cues. Check simple labelled tables,
+  verbose entries, missing headers and ambiguous image/merged grids. Prose entries
+  should read naturally without repeated row/column labels, including brief headings
+  and quantities in a prose inset. Numeric values need reliable labels. Check top,
+  middle and bottom OCR insets, nearby captions and explicit note links: paragraphs
+  stay intact; bottom-quarter insets follow the page body. Long numeric tables
+  must state how many brief rows remain in the source. Inspect targeted table OCR
+  against its image, cancel during analysis, and confirm native prose remains
+  available. Listen with both supported engines in Libro; no inferred formulas,
+  units, values or scientific conclusions should be presented as source facts.
+  See [scope and limits](SCIENTIFIC_NARRATION.md) and the
+  [expanded corpus findings](ACADEMIC_PDF_EVALUATION.md); automated preparation passes
+  do not establish mathematical transcription, GUI or listening acceptance.
 
 ## Conditional installation and distribution checks
 

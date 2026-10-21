@@ -11,6 +11,7 @@ enum PDFWordJoining {
     struct Result {
         var cuts: [Int: [NSRange]] = [:]
         var pageCuts: [Int: NSRange] = [:]
+        var lineJoins: [Int: [Int: Int]] = [:]
     }
 
     private struct Fragment {
@@ -58,8 +59,18 @@ enum PDFWordJoining {
         return (left, right, height)
     }
 
+    /// Preserve a recognized compound; remove the printing hyphen only when the
+    /// combined word is recognized. Unknown spellings never authorize mutation.
+    private static func hyphenLength(_ left: String, _ right: String, lexicon: DocumentWordLexicon) -> Int? {
+        let tail = String(left.dropLast().reversed().prefix(while: { $0.isLetter }).reversed())
+        let head = String(right.prefix(while: { $0.isLetter }))
+        guard !tail.isEmpty, !head.isEmpty else { return nil }
+        if lexicon.contains(tail + "-" + head) { return 0 }
+        return lexicon.contains(tail + head) ? 1 : nil
+    }
+
     static func analyze(_ document: SemanticDocument, pages: [Int: [PDFLayoutAnalysis.Line]],
-                        omissions: [Int: [NSRange]]) throws -> Result {
+                        omissions: [Int: [NSRange]], readingOrder: [Int: [PDFTextLine]], lexicon: DocumentWordLexicon) throws -> Result {
         let omitted = omissions.mapValues(Set.init)
         var blocks: [Int: [Fragment]] = [:], pageFragments: [Int: [Fragment]] = [:]
         for (page, lines) in pages {
@@ -77,22 +88,35 @@ enum PDFWordJoining {
                 pageFragments[page, default: []].append(fragment)
             }
         }
+        for (index, order) in readingOrder {
+            let fragments = Dictionary(uniqueKeysWithValues: (blocks[index] ?? []).map { ($0.line.value.location, $0) })
+            blocks[index] = order.compactMap { fragments[$0.location] }
+        }
         var result = Result()
         for (index, fragments) in blocks {
             try Task.checkCancellation()
-            guard column(fragments) != nil else { continue }
             let source = document.blocks[index].text as NSString
             for position in fragments.indices.dropFirst() {
                 if position.isMultiple(of: maximumFragments) { continue }
                 let previous = fragments[position - 1], next = fragments[position]
                 let a = previous.line.value.bounds, b = next.line.value.bounds
-                let gap = a.y - b.y - b.height
-                guard abs(a.x - b.x) <= 0.025, gap >= -min(a.height, b.height) * 0.2,
-                      gap <= max(a.height, b.height) * 1.5,
-                      wordCut(previous.text, next.text), next.start >= previous.end else { continue }
+                let drop = a.y - b.y
+                let sameColumn = column([previous, next]) != nil && abs(a.x - b.x) <= 0.025 &&
+                    drop >= min(a.height, b.height) * 0.3 && drop <= max(a.height, b.height) * 2.1
+                let columnSeam = readingOrder[index] != nil && a.x + a.width < b.x && a.y < 0.35 && b.y > 0.65 &&
+                    abs(a.width - b.width) < 0.05 && max(a.height, b.height) <= min(a.height, b.height) * 1.3 && bridges(previous.text, next.text)
+                guard sameColumn || columnSeam,
+                      wordCut(previous.text, next.text),
+                      let hyphen = hyphenLength(previous.text, next.text, lexicon: lexicon) else { continue }
+                if readingOrder[index] != nil {
+                    result.cuts[index, default: []].append(NSRange(location: previous.end - hyphen, length: hyphen))
+                    result.lineJoins[index, default: [:]][previous.line.value.location] = next.line.value.location
+                    continue
+                }
+                guard next.start >= previous.end else { continue }
                 let whitespace = source.substring(with: NSRange(location: previous.end, length: next.start - previous.end))
                 guard whitespace.allSatisfy(\.isWhitespace), whitespace.filter(\.isNewline).count == 1 else { continue }
-                result.cuts[index, default: []].append(NSRange(location: previous.end - 1, length: next.start - previous.end + 1))
+                result.cuts[index, default: []].append(NSRange(location: previous.end - hyphen, length: next.start - previous.end + hyphen))
             }
         }
         for index in document.blocks.indices.dropLast() {
@@ -107,8 +131,9 @@ enum PDFWordJoining {
                   abs(from.left - to.left) <= 0.02, abs(from.right - to.right) <= 0.03,
                   abs(end.x + end.width - from.right) <= 0.025, abs(start.x + start.width - to.right) <= 0.025,
                   abs(end.x - start.x) <= 0.02, max(end.height, start.height) <= min(end.height, start.height) * 1.3,
-                  wordCut(last.text, first.text), bridges(last.text, first.text) else { continue }
-            result.pageCuts[index] = NSRange(location: last.end - 1, length: 1)
+                  wordCut(last.text, first.text), bridges(last.text, first.text),
+                  let hyphen = hyphenLength(last.text, first.text, lexicon: lexicon) else { continue }
+            result.pageCuts[index] = NSRange(location: last.end - hyphen, length: hyphen)
         }
         return result
     }

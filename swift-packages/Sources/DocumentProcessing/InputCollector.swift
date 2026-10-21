@@ -73,6 +73,10 @@ public enum InputCollector {
                 url = url.resolvingSymlinksInPath()
                 let resolved = try url.resourceValues(forKeys: keys)
                 if resolved.isDirectory == true {
+                    if DocumentKind.identify(url) == .epub, values.isSymbolicLink != true, values.isAliasFile != true {
+                        loose.append(url)
+                        continue
+                    }
                     guard values.isSymbolicLink != true, values.isAliasFile != true, resolved.isPackage != true else {
                         result.ignoredCount += 1
                         continue
@@ -131,7 +135,13 @@ public enum InputCollector {
                         result.excludedOutput = true
                         continue
                     }
-                    if values.isSymbolicLink == true || values.isAliasFile == true || values.isPackage == true {
+                    if values.isSymbolicLink == true || values.isAliasFile == true {
+                        enumerator.skipDescendants()
+                        result.ignoredCount += 1
+                    } else if values.isDirectory == true, DocumentKind.identify(canonical) == .epub {
+                        enumerator.skipDescendants()
+                        found.append(canonical)
+                    } else if values.isPackage == true {
                         enumerator.skipDescendants()
                         result.ignoredCount += 1
                     } else if values.isRegularFile == true { found.append(canonical) }

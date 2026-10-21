@@ -18,7 +18,11 @@ accuracy still require comparison with the actual document.
 Blocks retain page, EPUB archive resource path and authored/OCR/generated provenance. Footnote references and
 omission notices survive the semantic boundary. Narration resolves known local
 notes at their reference by default, retains unresolved/unreferenced notices conservatively,
-and announces consecutive table/code omission runs once. Source prose is not
+and announces consecutive unavailable-table/code runs once. Clearly structured
+numeric tables read labelled entries; verbose insets read as general prose with
+captions and local placement. Complex display equations produce one original-text
+reference notice per document, retaining all source ranges. See [scientific narration](SCIENTIFIC_NARRATION.md)
+for scope, limits and optional image-table recognition. Source prose is not
 silently deduplicated. VoiceRelay retains title/source and article-ending cues;
 Libro retains its document/batch workflow.
 
@@ -64,19 +68,22 @@ retained only within fixed budgets. PDF source blocks retain native line breaks.
 Unreconciled/out-of-budget geometry keeps its text and a review warning. Known
 book-title/author/headings and sequential decimal folios may be omitted only with
 comparable margin geometry, body separation and repeated distinct-page evidence.
-Generic repeated margin prose and uncertain cases remain. Source omission records
+Isolated recurring margin labels also qualify in local chapter runs; legal/contact
+notices and uncertain cases remain. Source omission records
 retain the page, block/range and reason; both apps expose planner notices.
 
 Compatible adjacent upright single-column page runs may continue with multiple
 source spans. Captions/structures, chapter/quote/list boundaries, uncertain columns,
-OCR paragraph-only evidence and EPUB resources prevent joins. No custom column
-sorting is enabled. Optional map/evidence budget
+OCR paragraph-only evidence and EPUB resources prevent joins. Supported two-column
+gutter/band reconstruction changes only the spoken projection; ambiguous layouts
+retain native order. Optional map/evidence budget
 exhaustion retains affected text; mandatory intake budgets remain enforced. Old
 snapshots lacking geometry are preserved without refetching or re-extraction.
 See [implemented scope and evidence](TEXT_PROCESSING_IMPROVEMENT_PLAN.md#delivery-b-paragraph-and-pdf-flow-evidence)
 and operator B06 before accepting actual-document quality.
 
-**Rejoin PDF word wraps (experimental)** in Document Narration optionally joins
+**Join split words in PDFs (experimental)** in Libro Settings → Document or
+VoiceRelay General → Document Narration optionally joins
 printed `particu-` / `larly` into `particularly`, before captured pronunciation
 rules and native G2P, for both Kokoro and Soprano. It defaults off, including when
 decoding old settings. The native adaptation of Readium proposal #877 uses verified
@@ -89,9 +96,11 @@ Original PDF bytes/blocks remain intact; zero-length spoken mappings retain each
 removed source span and preview notices report repairs. Old snapshots are not
 refetched and completed recordings are not regenerated.
 
-The draft rule cannot distinguish genuine compounds: `well-` / `known` becomes
-`wellknown` when enabled. Review and listen before using it for a book. There is
-no new model, spell checker or Readium runtime dependency. See the
+English dictionary checks now preserve recognized compound hyphens (`well-` /
+`known` becomes `well-known`) and leave unknown words unchanged. Local line evidence
+also supports within-column joins on multi-column pages. The platform spelling
+service provides validation; there is no new model, external dictionary or Readium
+runtime dependency. Review and listen before using it for a book. See the
 [adaptation and source provenance](TEXT_NORMALIZATION_RESEARCH.md#readium-adaptation-implemented-october-17-2026).
 
 ## Text encodings
@@ -112,6 +121,14 @@ Again is required before changing a finished item. RTF keeps its native rich-tex
 reader and its own embedded encoding declarations.
 
 ## DRM-free EPUB books
+
+Intake accepts both ZIP EPUB files and unpacked `.epub` folders as one book,
+including through folder scans. Unpacked resources are bounded and normalized to
+an in-memory ZIP with the existing ZIPFoundation implementation; the same spine,
+reference, DRM, text and cover validation then applies. Resource links/aliases are
+rejected, cancellation and byte/entry budgets remain enforced, and source files
+are never repacked on disk. Stable entry order/timestamps keep repeated reads
+consistent. Malformed packages report a book error instead of importing children.
 
 Open, folder intake, Finder opening and drag/drop recognize `.epub` in Libro.
 The package reader follows OCF container/package metadata and the **spine**, not
@@ -202,8 +219,14 @@ precedence and persisted per-document removal opt-outs. Existing source prose,
 spine/narration order, manual cover choices, non-artwork preferences and completed
 recordings stay unchanged.
 
-The shared note policy supports Current Placement, End of Document and Omit.
-Include auxiliary sections applies only to explicit appendix/auxiliary semantics;
+Optional **Strip inline citations** and **Strip endnote citations** follow Footnotes
+in the Academic citations group. They default off, operate on the spoken projection
+and retain omitted spans/reasons; explanatory notes and uncertain references remain.
+See [citation, column and typography rules](DOCUMENT_CLEANUP.md).
+
+The shared **Footnotes** setting supports **Read with the text**,
+**Read at the end** and **Do not read**. **Read appendices and extra sections**
+applies only to explicit appendix/auxiliary semantics;
 a non-linear EPUB spine flag alone does not authorize discarding content.
 Bibliography markup is retained separately from note definitions. Repeated headings
 are omitted only locally with matching structural/source evidence; equal wording

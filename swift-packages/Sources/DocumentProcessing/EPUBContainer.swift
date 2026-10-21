@@ -33,6 +33,59 @@ public struct EPUBExtractionLimits: Sendable {
 /// Entries are read to bounded buffers with CRC verification. No ZIP path is
 /// ever unpacked onto the filesystem; no book resource initiates a network request.
 final class EPUBContainer {
+    /// Normalize an unpacked EPUB package at the file boundary, using the same
+    /// bounded ZIP reader/parser as ordinary EPUBs. No temporary book is written.
+    /// Stable order/timestamps keep resource provenance identical on repeat reads.
+    static func data(at source: URL, limits: EPUBExtractionLimits = .init()) throws -> Data {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .isAliasFileKey, .fileSizeKey]
+        guard try source.resourceValues(forKeys: keys).isDirectory == true else {
+            guard (try source.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? Int.max <= 512_000_000 else { throw EPUBReadError.limit }
+            return try Data(contentsOf: source)
+        }
+        guard limits.maximumEntries > 0, limits.maximumResourceBytes > 0, limits.maximumExpandedBytes > 0 else { throw EPUBReadError.limit }
+        let root = source.standardizedFileURL.resolvingSymlinksInPath()
+        var failure: Error?, files: [URL] = [], count = 0
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: Array(keys),
+            options: [], errorHandler: { _, error in failure = error; return false }) else { throw EPUBReadError.malformed }
+        for case let url as URL in enumerator {
+            try Task.checkCancellation()
+            count += 1
+            guard count <= limits.maximumEntries else { throw EPUBReadError.limit }
+            let values = try url.resourceValues(forKeys: keys)
+            let canonical = url.standardizedFileURL.resolvingSymlinksInPath()
+            guard values.isSymbolicLink != true, values.isAliasFile != true,
+                  canonical.path.hasPrefix(root.path + "/") else { throw EPUBReadError.unsafeReference }
+            if values.isDirectory == true { continue }
+            guard values.isRegularFile == true else { throw EPUBReadError.unsafeReference }
+            // FileManager can enumerate /var paths under a /private/var root.
+            files.append(canonical)
+        }
+        if let failure { throw failure }
+        let archive = try Archive(accessMode: .create)
+        var expanded = 0
+        for url in files.sorted(by: { $0.path < $1.path }) {
+            try Task.checkCancellation()
+            let remaining = min(limits.maximumResourceBytes, limits.maximumExpandedBytes - expanded, 512_000_000)
+            let values = try url.resourceValues(forKeys: keys)
+            guard values.isSymbolicLink != true, values.isAliasFile != true, values.isRegularFile == true,
+                  (values.fileSize ?? Int.max) <= remaining else { throw EPUBReadError.limit }
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            let bytes = try handle.read(upToCount: remaining + 1) ?? Data()
+            guard bytes.count <= remaining else { throw EPUBReadError.limit }
+            expanded += bytes.count
+            let path = String(url.path.dropFirst(root.path.count + 1))
+            try archive.addEntry(with: path, type: .file, uncompressedSize: Int64(bytes.count),
+                modificationDate: Date(timeIntervalSince1970: 315_532_800), compressionMethod: .none) { offset, size in
+                try Task.checkCancellation()
+                return bytes.subdata(in: Int(offset)..<min(bytes.count, Int(offset) + size))
+            }
+            guard (archive.data?.count ?? Int.max) <= 512_000_000 else { throw EPUBReadError.limit }
+        }
+        guard let data = archive.data else { throw EPUBReadError.malformed }
+        return data
+    }
+
     private let archive: Archive
     private var entries: [String: Entry] = [:]
     let limits: EPUBExtractionLimits

@@ -4,6 +4,21 @@ import NarrationCore
 @testable import DocumentProcessing
 
 final class DocumentNavigationTests: XCTestCase {
+    func testReciprocalEPUB2NotesResolveCitationsWithoutDiscardingExplanations() throws {
+        let html = """
+        <p>Main text<sup><a id='ref-one'></a><a href='#note-one'>1</a></sup> and more text<sup><a id='ref-two' href='#note-two'>2</a></sup>.</p>
+        <h2>Notes</h2>
+        <p><a id='note-one'></a><a href='#ref-one'>1</a>. Rivera, Ana. Forest Life (Example City: Example Press, 2020), 42.</p>
+        <p><a id='note-two'></a><a href='#ref-two'>2</a>. A moraine is a ridge of material left by moving ice.</p>
+        <p>A normal numbered link <sup><a id='ordinary' href='#destination'>3</a></sup>.</p><p id='destination'>Ordinary destination.</p>
+        """
+        let blocks = try HTMLDocumentExtractor.semanticBlocks(html: html, baseURL: URL(string: "https://example.invalid/book")!, epubResources: true).blocks
+        XCTAssertEqual(blocks.filter { $0.kind == .footnote }.count, 2)
+        let document = SemanticDocument(blocks: blocks, extractorVersion: "independent-reciprocal-note-fixture")
+        let spoken = try NarrationPlanner.prepare(document, options: .init(stripEndnoteCitations: true)).chunks.map(\.text).joined(separator: " ")
+        XCTAssertFalse(spoken.contains("Forest Life")); XCTAssertTrue(spoken.contains("moraine"))
+        XCTAssertTrue(spoken.contains("Ordinary destination")); XCTAssertTrue(spoken.contains("link 3"))
+    }
     func testPDFBookmarksRetainPagePrecisionAndSourceOrder() async throws {
         // Authored PDF fixture: this SDK's dataRepresentation() drops a newly
         // assigned outline tree, so it cannot serve as our bookmark serializer.

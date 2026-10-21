@@ -2,6 +2,12 @@ import XCTest
 @testable import NarrationCore
 
 final class NarrationOptionsTests: XCTestCase {
+    func testScientificFlowPolicyKeepsIdenticalNativeBackendAndChunkIdentity() {
+        let current = NarrationPlanner.version(settings: .init()) + "/native-preparation-1"
+        let previous = current.replacingOccurrences(of: "/scientific-text-2", with: "/scientific-text-1")
+        XCTAssertEqual(NarrationOptions.acousticCompatibleVersion(current), NarrationOptions.acousticCompatibleVersion(previous))
+        XCTAssertEqual(NarrationPlanner.chunkFingerprintVersion(current), NarrationPlanner.chunkFingerprintVersion(previous))
+    }
     private var document: SemanticDocument {
         .init(blocks: [
             .init(kind: .paragraph, text: "First body paragraph.", footnoteReferences: ["n"]),

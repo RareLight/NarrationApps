@@ -1,6 +1,6 @@
 # Current implementation and remaining work
 
-Updated October 15, 2026. Native unification and Kokoro LF0–LF7 implementation were
+Updated October 19, 2026. Native unification and Kokoro LF0–LF7 implementation were
 authorized and their automated integration gates are complete. This is the current
 roadmap; completed stages and their evidence are recorded in
 [implementation status](IMPLEMENTATION_STATUS.md).
@@ -47,6 +47,18 @@ NarrationCore/NarrationUI, off by default. Current evidence is in
 acceptance is operator B07, alongside the existing B06 baseline flow checks.
 Libro's progressive preview/layout follow-up is implemented; first-page latency,
 live layout and cancellation/reopening acceptance are operator L20.
+The October 18 citation/margin/column follow-up is authorized, including read-only
+text comparisons against the three operator-supplied books. Its scope and evidence
+are in [narration cleanup](DOCUMENT_CLEANUP.md) and the current status.
+The scientific-PDF follow-up adds conservative equation and table handling with
+explicit source-reference fallbacks. Its scope and remaining transcription limits
+are in [scientific narration](SCIENTIFIC_NARRATION.md); GUI/listening acceptance
+is operator B08.
+The [expanded academic evaluation](ACADEMIC_PDF_EVALUATION.md) records additional
+public-paper tests and proposed structure-preserving intake, regional review and
+math speech integration. Current priorities are readable inset prose in its local
+text flow and one reference notice for complex equations. Advanced mathematical
+transcription and those larger extraction changes remain deferred research.
 
 1. Complete the [consolidated operator checklist](OPERATOR_VALIDATION.md): GUI,
    actual private PDF/Markdown freeze reproduction, final samples/narration,
@@ -56,7 +68,7 @@ live layout and cancellation/reopening acceptance are operator L20.
    through B06: paragraph/source fidelity, conservative PDF margin/continuation
    decisions, progress/cancellation and matched listening. Delivery A listening,
    including letter A, is operator accepted. TP4–TP7 engineering is implemented;
-   complex layout, chaptered audio, caption scheduling and further citation/homograph
+   unsupported complex layouts, chaptered audio, caption scheduling and broader citation/homograph
    changes remain separate future scope; the implemented outline/control increment
    is recorded above.
 3. Resolve reported app-specific acceptance failures in their owning repository;

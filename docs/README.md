@@ -1,6 +1,6 @@
 # Documentation index
 
-Current guidance, October 16, 2026. Workspace/project paths are relative to the
+Current guidance, October 19, 2026. Workspace/project paths are relative to the
 NarrationApps root; package source, preparation-tool and historical package-build
 paths are relative to `swift-packages/` unless stated otherwise. Start with the document for the task; historical
 stage records are reference evidence, not additional operating instructions.
@@ -21,6 +21,9 @@ stage records are reference evidence, not additional operating instructions.
 | [Repository layout and migration](REPOSITORY_LAYOUT.md) | Active parent, independent repositories, cleanup and archival gates |
 | [Package boundaries](PACKAGE_BOUNDARIES.md) | Local Xcode/SwiftPM integration and independent releases |
 | [Document processing](DOCUMENT_PROCESSING.md) | PDF/OCR, semantic source fidelity, images and deduplication |
+| [Narration cleanup](DOCUMENT_CLEANUP.md) | Citation choices, recurring margins, supported columns and private text review |
+| [Scientific narration](SCIENTIFIC_NARRATION.md) | Simple equations, one complex-math notice, prose insets, numeric tables and local text flow |
+| [Academic PDF evaluation](ACADEMIC_PDF_EVALUATION.md) | Broader public-paper corpus, native/OCR/HTML comparisons and recommended extraction work |
 | [Pronunciation](PRONUNCIATION.md) | Dictionary, matching, persistence, Settings and live previews |
 | [Voice samples](VOICE_SAMPLES.md) | Current resources and one-argument regeneration utility |
 | [Settings ownership](SETTINGS_ALIGNMENT.md) | Shared controls versus app-specific preferences/workflows |

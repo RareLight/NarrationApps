@@ -14,6 +14,7 @@ public enum DocumentReader {
         var result: Result<Data, Error>?
         NSFileCoordinator().coordinate(readingItemAt: document.source, options: [], error: &coordinationError) { url in
             result = Result {
+                if document.kind == .epub { return try EPUBContainer.data(at: url) }
                 let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
                 guard size <= 512_000_000 else { throw DocumentProcessingError.extraction("This file exceeds the document byte budget.") }
                 return try Data(contentsOf: url)
@@ -94,9 +95,9 @@ public enum DocumentReader {
         var error: NSError?, result: Result<Data?, Error>?
         NSFileCoordinator().coordinate(readingItemAt: document.source, options: [], error: &error) { url in
             result = Result {
+                if document.kind == .epub { return try EPUBDocumentExtractor.coverImage(data: EPUBContainer.data(at: url)) }
                 guard (try url.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? Int.max <= 512_000_000 else { throw DocumentReadError.malformed }
-                if document.kind == .pdf { return try PDFCoverImage.read(url) }
-                return try EPUBDocumentExtractor.coverImage(data: Data(contentsOf: url))
+                return try PDFCoverImage.read(url)
             }
         }
         if let error { throw error }
@@ -177,7 +178,7 @@ public enum DocumentReader {
             let parsed = try NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
             return parsed.string.replacingOccurrences(of: "\u{fffc}", with: "")
         case .epub:
-            return try EPUBDocumentExtractor.read(data: Data(contentsOf: url), title: url.deletingPathExtension().lastPathComponent)
+            return try EPUBDocumentExtractor.read(data: EPUBContainer.data(at: url), title: url.deletingPathExtension().lastPathComponent)
                 .document.blocks.map(\.text).joined(separator: "\n\n")
         case .pdf:
             guard let pdf = PDFDocument(url: url) else { throw DocumentReadError.malformed }

@@ -41,7 +41,7 @@ public struct ExtractedHTMLDocument: Sendable {
 }
 
 public enum HTMLDocumentExtractor {
-    public static let version = "SwiftReadability-0.3.3/semantic-5-images/inline-code-1/anchors-1"
+    public static let version = "SwiftReadability-0.3.3/semantic-5-images/inline-code-1/anchors-1/table-prose-2"
     public static func extract(html: String, originalURL: URL, finalURL: URL) throws -> ExtractedHTMLDocument {
         // Readers and DOMs stay in this invocation; neither is shared across tasks.
         let original = try SwiftSoup.parse(html, finalURL.absoluteString)
@@ -166,6 +166,7 @@ public enum HTMLDocumentExtractor {
     }
 
     private static func convert(_ document: Document, baseURL: URL, footnoteSource: Document, publicationResources: Bool = false) throws -> (blocks: [ContentBlock], warnings: [String]) {
+        if publicationResources { try markReciprocalNotes(document) }
         var definitions: [String: Element] = [:]
         var retainedDefinitions: Set<String> = []
         // Use original definitions when Readability discarded an appendix.
@@ -289,7 +290,28 @@ public enum HTMLDocumentExtractor {
             }
             if let kind = leafKinds[tag] {
                 var references: [String] = []; let value = try text(element, references: &references)
-                try append(kind == .paragraph ? (inherited ?? kind) : kind, value.original, spoken: value.spoken,
+                var spoken = value.spoken
+                if kind == .table {
+                    let rows = try element.select("tr").array()
+                    let cells = rows.map { $0.children().array().filter { ["td", "th"].contains($0.tagName()) } }
+                    let unnested = try element.select("table").count == 1
+                    let simple = try cells.flatMap { $0 }.allSatisfy { cell in
+                        try ["colspan", "rowspan"].allSatisfy { attribute in
+                            if !cell.hasAttr(attribute) { return true }
+                            return try cell.attr(attribute) == "1"
+                        }
+                    } && unnested
+                    spoken = unnested ? try TableNarration.render(rows: cells.map { row in
+                        try row.map { try text($0, references: &references).spoken }
+                    },
+                        hasHeader: cells.first?.allSatisfy { $0.tagName() == "th" } == true,
+                        relationshipsReliable: simple) : TableNarration.unavailable
+                    if let caption = element.children().array().first(where: { $0.tagName() == "caption" }) {
+                        let label = normalize(try text(caption, references: &references).spoken)
+                        if !label.isEmpty { spoken = label + (label.last.map { ".!?".contains($0) } == true ? " " : ". ") + spoken }
+                    }
+                }
+                try append(kind == .paragraph ? (inherited ?? kind) : kind, value.original, spoken: spoken,
                            references: references, note: note, element: element); return
             }
             let role = try element.attr("role")
@@ -342,6 +364,32 @@ public enum HTMLDocumentExtractor {
             for target in referenced where !ordered.contains(target) { ordered.append(target) }
         }
         return (blocks, warnings)
+    }
+
+    /// EPUB 2 often expresses notes with reciprocal numbered links rather than
+    /// EPUB 3 roles. Require the return link; a numbered ordinary link is not a note.
+    private static func markReciprocalNotes(_ document: Document) throws {
+        var anchors: [String: Element] = [:]
+        for element in try document.select("[id]") { anchors[try element.attr("id")] = element }
+        for link in try document.select("sup a[href]") {
+            let marker = normalize(try link.text()), href = try link.attr("href")
+            var referenceID = try link.attr("id")
+            if referenceID.isEmpty, let sup = link.parent(), sup.tagName() == "sup" {
+                referenceID = try sup.attr("id")
+                if referenceID.isEmpty { referenceID = try sup.select("a[id]").first()?.attr("id") ?? "" }
+            }
+            guard marker.range(of: #"^[0-9]{1,4}$"#, options: .regularExpression) != nil,
+                  !referenceID.isEmpty, href.hasPrefix("#"), let target = anchors[String(href.dropFirst())],
+                  let note = ([target] + Array(target.parents())).first(where: { ["p", "li", "aside"].contains($0.tagName()) }),
+                  note !== link.parent() else { continue }
+            let backlinks = try note.select("a[href]").filter { (try? $0.attr("href")) == "#" + referenceID }
+            guard !backlinks.isEmpty else { continue }
+            let targetID = String(href.dropFirst()), noteID = try note.attr("id")
+            guard noteID.isEmpty || noteID == targetID else { continue }
+            if target !== note { try target.removeAttr("id") }
+            try note.attr("id", targetID).attr("role", "doc-endnote")
+            for backlink in backlinks { try backlink.attr("role", "doc-backlink") }
+        }
     }
 
     public static func normalize(_ text: String) -> String {

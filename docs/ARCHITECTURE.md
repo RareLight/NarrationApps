@@ -51,6 +51,13 @@ user replacements are protected. Native Markdown/HTML/EPUB retain an optional
 inline-code flag: affected paragraphs stay unchanged. Legacy markup with neither
 that metadata nor authored/OCR provenance abstains; no implicit refetch occurs.
 Unverifiable source alternatives also abstain.
+Before the native frontends, common `scientific-text-2` reads verified linear PDF
+equations and prose table entries in their local flow. Complex display math gets
+one original-text reference notice per document, retaining every omitted range.
+Numeric tables require reliable value associations. Unrecoverable table
+relationships get explicit source-reference cues with retained original text.
+Native text and bounded targeted image-table OCR keep distinct provenance. See
+[scientific narration](SCIENTIFIC_NARRATION.md) for recognition/grammar limits.
 Soprano retains its native frontend and numeric forms. Common `text-flow-1` adds
 mapped discretionary hyphens and source-preserving document flow to both engines;
 acoustic packing/pause/audio policy is unchanged. Underlying raw G2P
@@ -59,9 +66,11 @@ and contextual homographs retain the limitations in the
 not operator listening acceptance.
 
 Optional PDFTextLayout values retain bounded native line evidence; optional
-NarrationOmission records retain source spans and omission reasons. Known margin
-labels/folios and conservative page continuations use that evidence once before
-G2P; uncertain geometry/columns and old artifacts abstain. Optional layout budgets
+NarrationOmission records retain source spans and omission reasons. Recurring
+isolated margin labels/folios, supported two-column bands and conservative page
+continuations use that evidence before G2P. Captured citation choices add optional
+mapped reference omissions; dictionary checks constrain fragmented-word repairs.
+Uncertain geometry/columns and old artifacts abstain. Optional layout budgets
 never discard prose or bypass mandatory intake limits.
 
 Libro's interactive PDF preview can receive awaited, provisional extraction
@@ -143,6 +152,35 @@ Semantic/acoustic and encoding identities are separate. Unfinished incompatible
 plans are safely reprepared through the owning app; already placed/published,
 integrity-confirmed recordings remain unchanged. VoiceRelay owns durable SQLite
 checkpoints/publication; Libro owns batch destinations and replacement decisions.
+Libro accepts queued documents regardless of existing regular audio outputs.
+Explicitly re-adding a finished source queues its existing row again. At Generate
+Audio, destinations are checked afresh before a native Overwrite Existing / Skip
+Existing / Cancel prompt. Skipped documents are marked in the queue and can be
+queued again; cancellation changes neither queue decisions nor audio. Replacement
+approval is scoped to files present in that batch snapshot; late arrivals remain
+protected by coordinator/publication revalidation. Settings and output names are
+captured for that batch before asynchronous cover preparation.
+
+Libro's native SwiftUI table owns drag selection and insertion markers. Queue
+ordering survives later imports; a running batch can reorder only its waiting
+IDs. Current/completed positions, captured membership/settings/destinations and
+next-batch membership remain fixed. `BatchQueueControl` supplies cooperative
+pause/skip boundaries before native preparation windows, speech chunks and
+publication. Pause keeps the current temporary audio and worker, releasing
+inference admission while waiting. Resume continues that same item. Confirmed
+Skip finishes an in-flight operation, discards the item's temporary audio, reaps
+its worker and continues with a fresh session. The publication boundary rejects
+late skips of committed items and stale confirmations cannot target the next job.
+Stop cancels the batch and leaves unfinished items queued for a later Start.
+Default coordinator callers retain their existing priority/session behavior.
+
+Native circular glass controls sit to the right of cover editing below the queue
+divider, ordered Start/Pause/Resume, Skip, Stop. The first button shows Play when
+idle or paused and Pause while running; Stop remains separate. The bottom status
+bar groups readiness, queue totals, activity and Save Location with its selectable
+path and adjacent Browse button. Queue Actions retains full diagnostics; new
+import, destination, setup and generation errors surface in a small popover anchored to that
+menu, and status-bar issue messages also open the diagnostics.
 
 AppPresentation is independent of narration and owns typography, text-size
 commands, pane navigation/help/notices and Appearance controls. NarrationUI owns

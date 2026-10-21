@@ -76,6 +76,13 @@ do {
     try require(Set(helperNames) == ["\(name)SpeechWorker", "mlx.metallib"], "Unexpected embedded helper/runtime.")
     var artifacts = ["gui": try digest(gui), "worker": try digest(worker), "metal": try digest(metal)]
     var codecSymbols: [String] = []
+    if name == "VoiceRelay" {
+        let original = root.appendingPathComponent("VoiceRelay/icon/VoiceRelay_Cover.png")
+        let bundled = app.appendingPathComponent("Contents/Resources/VoiceRelay_Cover.png")
+        let expected = try digest(original)
+        try require(try digest(bundled) == expected, "Default podcast cover differs from the authored image.")
+        artifacts["defaultPodcastCover"] = expected
+    }
     if name == "Libro" {
         let codec = app.appendingPathComponent("Contents/Frameworks/libmp3lame.0.dylib")
         try require(try run("/usr/bin/lipo", ["-archs", codec.path]).trimmingCharacters(in: .whitespacesAndNewlines) == "arm64", "Expected arm64 codec.")

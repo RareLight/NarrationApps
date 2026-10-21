@@ -58,6 +58,39 @@ final class EPUBIntakeTests: XCTestCase {
             XCTAssertEqual(try NarrationPlanner.prepareForSpeech(result, settings: .init()).chunks.filter { $0.boundaryAfter == .heading }.count, 2)
         }
     }
+    func testFictionPageMetadataDoesNotBecomeSpeechOrTriggerPDFOrCitationCleanup() async throws {
+        let one = """
+        <html xmlns:epub='http://www.idpf.org/2007/ops'><body>
+        <h1>Chapter 12</h1>
+        <p><span epub:type='pagebreak' id='page-xii' title='xii'/>The signal re<span role='doc-pagebreak' id='page-13' aria-label='13'></span>turned.</p>
+        <p>“Stay (if you can),” she said. “We met in 1998.”</p>
+        <p>T I M E</p><p>HEA DER</p><p>000000000000000000000</p>
+        <p>Never leave a well-known story half-finished.</p>
+        <nav epub:type='page-list'><a href='#page-13'>13</a></nav>
+        <footer>Running footer 13</footer></body></html>
+        """
+        let two = "<html><body><h1>Chapter 12</h1><p>Again, she said the same words.</p></body></html>"
+        let result = try await EPUBDocumentExtractor.extract(data: book(files: [
+            ("EPUB/Text/one.xhtml", Data(one.utf8)), ("EPUB/Text/two.xhtml", Data(two.utf8))]))
+        let expected = ["Chapter 12", "The signal returned.", "“Stay (if you can),” she said. “We met in 1998.”",
+            "T I M E", "HEA DER", "000000000000000000000", "Never leave a well-known story half-finished.",
+            "Chapter 12", "Again, she said the same words."]
+        XCTAssertEqual(result.blocks.map(\.text), expected)
+        let content = expected.joined().filter { !$0.isWhitespace }
+        for model in SpeechModel.allCases {
+            for inline in [false, true] {
+                for endnotes in [false, true] {
+                    let options = NarrationOptions(experimentalPDFWordJoining: true,
+                        stripInlineCitations: inline, stripEndnoteCitations: endnotes)
+                    let plan = try NarrationPlanner.prepare(result, settings: .init(model: model), options: options)
+                    let prepared = try NarrationPlanner.prepareForSpeech(result, settings: .init(model: model), options: options)
+                    XCTAssertEqual(plan.chunks.map(\.text).joined().filter { !$0.isWhitespace }, content)
+                    XCTAssertEqual(prepared.chunks.map(\.text).joined().filter { !$0.isWhitespace }, content)
+                    XCTAssertTrue(plan.omissions?.isEmpty ?? true)
+                }
+            }
+        }
+    }
     func testCrossChapterAndNonSpineNotesResolveOnceWithoutCollidingLocalIDs() async throws {
         let one = "<html xmlns:epub='http://www.idpf.org/2007/ops'><body><p>Read this <a epub:type='noteref' href='notes.xhtml#note'>[1]</a> carefully.</p></body></html>"
         let notes = "<html xmlns:epub='http://www.idpf.org/2007/ops'><body><aside epub:type='footnote' id='note'><p>Authored note text.</p></aside><p>Unlinked auxiliary prose.</p></body></html>"
@@ -133,6 +166,62 @@ final class EPUBIntakeTests: XCTestCase {
         XCTAssertTrue(progress.snapshot.contains { $0.unit == .chapters && $0.countLabel?.contains("sections prepared") == true })
         XCTAssertTrue(try DocumentReader.read(discovered.documents[0]).contains("Original first prose."))
         XCTAssertEqual(try Data(contentsOf: url), bytes)
+    }
+
+    private func unpack(_ bytes: Data, at root: URL) throws {
+        let archive = try Archive(data: bytes, accessMode: .read)
+        for entry in archive {
+            let url = root.appendingPathComponent(entry.path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            var data = Data()
+            _ = try archive.extract(entry) { data.append($0) }
+            try data.write(to: url)
+        }
+    }
+
+    func testUnpackedEPUBIsOneDocumentWithTheSameProseCoverAndStableResources() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = root.appendingPathComponent("Unpacked Book.epub")
+        let cover = try coverPNG()
+        let bytes = try book(manifest: "<item id='cover' href='cover.png' media-type='image/png' properties='cover-image'/>",
+            files: [("EPUB/cover.png", cover), ("ignored.txt", Data("not a separate document".utf8))])
+        try unpack(bytes, at: package)
+        let discovery = try InputCollector.collect([root, package])
+        XCTAssertTrue(discovery.issues.isEmpty)
+        XCTAssertEqual(discovery.documents.count, 1)
+        let input = try XCTUnwrap(discovery.documents.first)
+        XCTAssertEqual(input.kind, .epub)
+        let semantic = try await DocumentReader.readSemantic(input)
+        let zipped = try await EPUBDocumentExtractor.extract(data: bytes)
+        XCTAssertEqual(semantic.blocks.map(\.text), zipped.blocks.map(\.text))
+        XCTAssertEqual(semantic.blocks.map(\.resourcePath), zipped.blocks.map(\.resourcePath))
+        XCTAssertEqual(try DocumentReader.bookCover(input), cover)
+        XCTAssertTrue(try DocumentReader.read(input).contains("Original second prose."))
+        XCTAssertEqual(try EPUBContainer.data(at: package), try EPUBContainer.data(at: package))
+        XCTAssertEqual(try Data(contentsOf: package.appendingPathComponent("EPUB/Text/one.xhtml")),
+            Data("<html><body><h1 id='same'>First chapter</h1><p>Original first prose.</p></body></html>".utf8))
+    }
+
+    func testUnpackedEPUBLimitsLinksMalformedContentsAndCancellation() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = root.appendingPathComponent("Book.epub")
+        try unpack(book(), at: package)
+        for limits in [EPUBExtractionLimits(maximumEntries: 1), .init(maximumExpandedBytes: 32), .init(maximumResourceBytes: 16)] {
+            XCTAssertThrowsError(try EPUBContainer.data(at: package, limits: limits))
+        }
+        let task = Task { try Task.checkCancellation(); return try EPUBContainer.data(at: package) }
+        task.cancel()
+        do { _ = try await task.value; XCTFail("Cancelled intake succeeded") } catch is CancellationError { }
+        try FileManager.default.createSymbolicLink(at: package.appendingPathComponent("external.txt"), withDestinationURL: root.appendingPathComponent("outside.txt"))
+        XCTAssertThrowsError(try EPUBContainer.data(at: package)) { error in
+            guard case EPUBReadError.unsafeReference = error else { return XCTFail("Expected unsafe resource reference, got \(error)") }
+        }
+        try FileManager.default.removeItem(at: package.appendingPathComponent("external.txt"))
+        try FileManager.default.removeItem(at: package.appendingPathComponent("META-INF/container.xml"))
+        let input = try XCTUnwrap(InputCollector.collect([package]).documents.first)
+        do { _ = try await DocumentReader.readSemantic(input); XCTFail("Malformed package succeeded") } catch { }
     }
     func testEmbeddedSVGAndUnresolvedNoteWarningsRemainVisible() async throws {
         let html = "<html xmlns:epub='http://www.idpf.org/2007/ops'><body><p>Before <a epub:type='noteref' href='#missing'>[1]</a>.</p><svg xmlns='http://www.w3.org/2000/svg'><title>Plot</title><text>Embedded SVG prose.</text></svg><p>After.</p></body></html>"

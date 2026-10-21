@@ -26,12 +26,28 @@ enum PDFLayoutAnalysis {
         var joins = Set<Int>()
         var wordCuts: [Int: [NSRange]] = [:]
         var directJoins = Set<Int>()
+        var readingOrder: [Int: [PDFTextLine]] = [:]
+        var letterCuts: [Int: [NSRange]] = [:]
+        var lineJoins: [Int: [Int: Int]] = [:]
         var budgetSkipped = false
     }
-    private struct Candidate { let line: Line; let key: String; let reason: String; let folio: Int? }
+    private struct Candidate { let line: Line; let key: String; let reason: String; let sequenceKey: String; let folio: Int? }
+    private static func folio(_ token: String) -> Int? {
+        if let value = Int(token), (1...999_999).contains(value) { return value }
+        let roman = token.uppercased()
+        guard !roman.isEmpty, roman.range(of: #"^M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})$"#, options: .regularExpression) != nil else { return nil }
+        let weights: [Character: Int] = ["I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1_000]
+        var value = 0, previous = 0
+        for letter in roman.reversed() {
+            guard let weight = weights[letter] else { return nil }
+            value += weight < previous ? -weight : weight
+            previous = max(previous, weight)
+        }
+        return value > 0 ? value : nil
+    }
     private static func comparisonKey(_ text: String) -> String {
         var key = "", digit = false
-        for value in NarrationText.normalizeWhitespace(text).precomposedStringWithCanonicalMapping.lowercased().unicodeScalars {
+        for value in NarrationText.normalizeWhitespace(text).precomposedStringWithCanonicalMapping.lowercased().unicodeScalars where !CharacterSet.whitespacesAndNewlines.contains(value) {
             if CharacterSet.decimalDigits.contains(value) {
                 if !digit { key += "#" }; digit = true
             } else { key.unicodeScalars.append(value); digit = false }
@@ -64,10 +80,11 @@ enum PDFLayoutAnalysis {
             if !verified.isEmpty { pages[page, default: []] += verified }
         }
         guard !pages.isEmpty else { return .init() }
-        let titles = Set(([document.title, document.author].compactMap { $0 } + document.blocks.filter { $0.kind == .heading && $0.origin == .authored }.map(\.text)).map(comparisonKey).filter { !$0.isEmpty })
         let folioPattern = try NSRegularExpression(pattern: #"^(?:page[ ]+)?([0-9]{1,6})(?:[ ]*(?:/|of)[ ]*[0-9]{1,6})?$"#, options: .caseInsensitive)
         var candidates: [Candidate] = [], groups: [String: Set<Int>] = [:]
         var folioOffsets: [String: Set<Int>] = [:]
+        var sequenceOffsets: [String: [Int: Set<Int>]] = [:]
+        var sequenceAnchors: [String: [Int: [Int: Set<Int>]]] = [:]
         for (page, lines) in pages {
             try Task.checkCancellation()
             let body = lines.filter { line in
@@ -77,23 +94,33 @@ enum PDFLayoutAnalysis {
             guard body.reduce(0, { $0 + $1.value.length }) >= 120,
                   let bodyTop = body.map({ $0.value.bounds.y + $0.value.bounds.height }).max(),
                   let bodyBottom = body.map({ $0.value.bounds.y }).min(),
-                  let bodyHeight = body.map({ $0.value.bounds.height }).min() else { continue }
+                  !body.isEmpty else { continue }
+            let heights = body.map { $0.value.bounds.height }.sorted()
+            let bodyHeight = heights[heights.count / 2]
             for line in lines {
                 let b = line.value.bounds
-                guard line.value.length <= 160, b.height <= min(0.035, bodyHeight * 1.1), b.width > 0,
+                guard line.value.length <= 160, b.height <= min(0.04, bodyHeight * 1.6), b.width > 0,
                       (b.y >= 0.92 && b.y - bodyTop >= 0.03) || (b.y + b.height <= 0.08 && bodyBottom - b.y - b.height >= 0.03) else { continue }
                 let source = document.blocks[line.block].text as NSString
                 let text = source.substring(with: NSRange(location: line.value.location, length: line.value.length))
                 let key = comparisonKey(text)
-                guard !key.isEmpty, key.range(of: #"©|copyright|licen[cs]e|all rights|https?://|www\.|@"#, options: .regularExpression) == nil else { continue }
+                guard !key.isEmpty, key.range(of: #"©|copyright|licen[cs]e|allrights|allerechte|droitsréservés|https?://|www\.|@"#, options: .regularExpression) == nil else { continue }
                 let normalized = NarrationText.normalizeWhitespace(text) as NSString
                 let match = folioPattern.firstMatch(in: normalized as String, range: NSRange(location: 0, length: normalized.length))
-                let folio = match.flatMap { Int(normalized.substring(with: $0.range(at: 1))) }
-                guard titles.contains(key) || folio != nil else { continue }
+                let pureFolio = match.flatMap { folio(normalized.substring(with: $0.range(at: 1))) } ?? folio(normalized as String)
+                let words = (normalized as String).split(whereSeparator: \.isWhitespace).map(String.init)
+                let sequenceNumber = pureFolio ?? (words.count <= 12 ? words.last.flatMap(folio) ?? words.first.flatMap(folio) : nil)
+                guard b.height <= min(0.035, bodyHeight * 1.1) || sequenceNumber != nil else { continue }
                 let reason = b.y >= 0.92 ? "recurring PDF header" : "recurring PDF footer"
                 let group = "\(line.basis.rawValue)/\(line.rotation)/\(reason)/\(Int((b.y * 40).rounded()))/\(Int((b.x * 20).rounded()))/\(key)"
-                candidates.append(.init(line: line, key: group, reason: reason, folio: folio)); groups[group, default: []].insert(page)
-                if let folio { folioOffsets[group, default: []].insert(folio - page) }
+                let anchor = b.x < 0.4 ? b.x : b.x + b.width
+                let sequence = "\(line.basis.rawValue)/\(line.rotation)/\(reason)/\(Int((b.y * 40).rounded()))/\(Int((b.height * 100).rounded()))"
+                candidates.append(.init(line: line, key: group, reason: reason, sequenceKey: sequence, folio: sequenceNumber)); groups[group, default: []].insert(page)
+                if let pureFolio { folioOffsets[group, default: []].insert(pureFolio - page) }
+                if let sequenceNumber {
+                    sequenceOffsets[sequence, default: [:]][sequenceNumber - page, default: []].insert(page)
+                    sequenceAnchors[sequence, default: [:]][sequenceNumber - page, default: [:]][page % 2, default: []].insert(Int((anchor * 20).rounded()))
+                }
             }
         }
         let parityPages = [0, 1].map { parity in pages.keys.filter { $0 % 2 == parity }.count }
@@ -106,10 +133,21 @@ enum PDFLayoutAnalysis {
             }
             // A constant year or repeated reference number is not a folio.
             let sequentialFolio = folioOffsets[key].map { $0.count == 1 } ?? true
-            if pages.count >= 4 && sequentialFolio && (common || alternating) { accepted.insert(key) }
+            let sorted = occurrences.sorted()
+            let localRun = sorted.indices.dropFirst().contains { position in
+                position >= 2 && sorted[position] - sorted[position - 2] <= 4
+            }
+            if pages.count >= 4 && sequentialFolio && (common || alternating || localRun) { accepted.insert(key) }
         }
         var result = Result()
-        for candidate in candidates where accepted.contains(candidate.key) {
+        let lexicon = DocumentWordLexicon()
+        for candidate in candidates {
+            let sequential = candidate.folio.map { value in
+                let offset = value - candidate.line.page
+                let anchors = sequenceAnchors[candidate.sequenceKey]?[offset] ?? [:]
+                return (sequenceOffsets[candidate.sequenceKey]?[offset]?.count ?? 0) >= 3 && anchors.values.allSatisfy { $0.count == 1 }
+            } ?? false
+            guard accepted.contains(candidate.key) || (pages.count >= 4 && sequential) else { continue }
             let line = candidate.line, range = NSRange(location: line.value.location, length: line.value.length)
             result.byBlock[line.block, default: []].append(range)
             result.omissions.append(.init(source: .init(blockIndex: line.block, location: range.location, length: range.length), pageIndex: line.page,
@@ -117,11 +155,21 @@ enum PDFLayoutAnalysis {
         }
         result.omissions.sort { ($0.source.blockIndex, $0.source.location) < ($1.source.blockIndex, $1.source.location) }
         for key in result.byBlock.keys { result.byBlock[key]?.sort { $0.location < $1.location } }
+        for (index, block) in document.blocks.enumerated() {
+            guard block.origin == .authored, block.kind == .paragraph, block.narrationText == nil,
+                  block.pdfLayout?.basis == .cropBox, block.pdfLayout?.rotation == 0,
+                  !excludedBlocks.contains(index), let page = block.pdfPageIndex else { continue }
+            let lines = (pages[page] ?? []).filter { $0.block == index }.map(\.value)
+            if let ordered = PDFColumnReadingOrder.order(lines, text: block.text) { result.readingOrder[index] = ordered }
+            let cuts = try PDFLetterSpacing.cuts(block.text, lines: lines, lexicon: lexicon)
+            if !cuts.isEmpty { result.letterCuts[index] = cuts }
+        }
         result.joins = try continuations(document, pages: pages, omissions: result.byBlock)
         if experimentalWordJoining {
-            let words = try PDFWordJoining.analyze(document, pages: pages, omissions: result.byBlock)
+            let words = try PDFWordJoining.analyze(document, pages: pages, omissions: result.byBlock, readingOrder: result.readingOrder, lexicon: lexicon)
             result.joins = PDFWordJoining.boundedJoins(result.joins.union(words.pageCuts.keys), document: document)
             result.wordCuts = words.cuts
+            result.lineJoins = words.lineJoins
             for (index, range) in words.pageCuts where result.joins.contains(index) {
                 result.wordCuts[index, default: []].append(range)
                 result.directJoins.insert(index)

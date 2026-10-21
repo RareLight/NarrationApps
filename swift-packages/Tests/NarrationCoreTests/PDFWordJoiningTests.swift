@@ -63,10 +63,12 @@ final class PDFWordJoiningTests: XCTestCase {
         XCTAssertEqual(doc, original)
     }
 
-    func testDraftCompoundLimitationIsOptInNotAnImplicitDefault() throws {
+    func testRecognizedCompoundKeepsItsHyphenAndUnknownWordsAbstain() throws {
         let doc = document(["A well-", "known example."])
         XCTAssertTrue(try NarrationPlanner.prepareForSpeech(doc, settings: .init()).chunks[0].text.contains("well- known"))
-        XCTAssertTrue(try NarrationPlanner.prepareForSpeech(doc, settings: .init(), options: enabled).chunks[0].text.contains("wellknown"))
+        XCTAssertTrue(try NarrationPlanner.prepareForSpeech(doc, settings: .init(), options: enabled).chunks[0].text.contains("well-known"))
+        let unknown = document(["An unknown qzxv-", "plmok word must stay intact."])
+        XCTAssertTrue(try NarrationPlanner.prepareForSpeech(unknown, settings: .init(), options: enabled).chunks[0].text.contains("qzxv- plmok"))
     }
 
     func testParagraphGapUppercaseAndIdentifiersAreNotWordCuts() throws {

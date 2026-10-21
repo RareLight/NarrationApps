@@ -800,3 +800,109 @@ extension SchedulingTests {
         try fixture.assertClean()
     }
 }
+
+extension SchedulingTests {
+    private func waitForQueue(_ control: BatchQueueControl, until predicate: (BatchQueueState) -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while !predicate(control.state), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(predicate(control.state), "Queue did not reach the expected boundary")
+    }
+
+    func testControlledPauseReleasesAdmissionAndReordersWaitingDocuments() async throws {
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let inputs = try [fixture.input("one.txt"), fixture.input("two.txt"), fixture.input("three.txt")]
+        let request = try fixture.request(inputs)
+        let control = BatchQueueControl(batch: request.id, jobs: inputs.map(\.id))
+        let events = PreparationEventLog()
+        let configuration = fixture.configuration()
+        let coordinator = QueueCoordinator(configuration: configuration)
+        let work = Task {
+            try await coordinator.run(request, control: control) { event in
+                events.append(event)
+                if case .speech(let value) = event, value.identity.job == inputs[0].id, value.phase == .chunkWritten {
+                    control.setPaused(true)
+                }
+            }
+        }
+        defer { work.cancel(); control.setPaused(false) }
+        try await waitForQueue(control) { $0.phase == .paused }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.documents[0].destination.path))
+        XCTAssertTrue(control.reorderPending([inputs[2].id, inputs[1].id]))
+        let admitted = expectation(description: "Background work can acquire while Libro is paused")
+        let background = Task {
+            let lease = try await InferenceLease.acquire(at: configuration.inferenceLeaseFile, priority: .background)
+            withExtendedLifetime(lease) { admitted.fulfill() }
+        }
+        await fulfillment(of: [admitted], timeout: 2)
+        background.cancel()
+        _ = try? await background.value
+        control.setPaused(false)
+        let summary = try await work.value
+        XCTAssertEqual(summary.documents.map(\.id), [inputs[0].id, inputs[2].id, inputs[1].id])
+        XCTAssertEqual(summary.successfulCount, 3)
+        XCTAssertEqual(try fixture.records().filter { $0["event"] as? String == "launch" }.count, 1)
+        try fixture.assertClean()
+    }
+
+    func testSkipDuringPublicationPreservesExistingOutputAndContinuesWithNextItem() async throws {
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let inputs = try [fixture.input("one.txt"), fixture.input("two.txt")]
+        let original = Data("Completed audio must survive a skipped replacement".utf8)
+        try original.write(to: fixture.output.appendingPathComponent("one.wav"))
+        let request = try fixture.request(inputs, replaceExisting: true)
+        let control = BatchQueueControl(batch: request.id, jobs: inputs.map(\.id))
+        let summary = try await QueueCoordinator(configuration: fixture.configuration()).run(request, control: control) { event in
+            if case .speech(let value) = event, value.identity.job == inputs[0].id, value.phase == .publishing {
+                _ = control.skip(job: inputs[0].id)
+            }
+        }
+        XCTAssertEqual(summary.documents.map(\.state), [.skipped, .published])
+        XCTAssertEqual(summary.skippedCount, 1)
+        XCTAssertFalse(summary.cancelled)
+        XCTAssertEqual(try Data(contentsOf: request.documents[0].destination), original)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.documents[1].destination.path))
+        XCTAssertEqual(try fixture.records().filter { $0["event"] as? String == "launch" }.count, 2)
+        try fixture.assertClean()
+    }
+
+    func testSkipPausedAnalysisThenStopWaitingQueueWithoutStartingWorker() async throws {
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let inputs = try [fixture.input("one.txt"), fixture.input("two.txt")]
+        let request = try fixture.request(inputs)
+        let control = BatchQueueControl(batch: request.id, jobs: inputs.map(\.id))
+        let coordinator = QueueCoordinator(configuration: fixture.configuration())
+        let work = Task {
+            try await coordinator.run(request, control: control) { event in
+                if case .preparing(_, let job) = event, job == inputs[0].id { control.setPaused(true) }
+            }
+        }
+        defer { work.cancel(); control.setPaused(false) }
+        try await waitForQueue(control) { $0.phase == .paused && $0.current == inputs[0].id }
+        XCTAssertTrue(control.skip(job: inputs[0].id))
+        try await waitForQueue(control) { $0.phase == .paused && $0.current == nil }
+        work.cancel()
+        let summary = try await work.value
+        XCTAssertEqual(summary.documents.map(\.state), [.skipped, .cancelled])
+        XCTAssertTrue(summary.cancelled)
+        XCTAssertFalse(try fixture.records().contains { $0["event"] as? String == "launch" })
+        try fixture.assertClean()
+    }
+
+    func testCancellationAfterReorderingAccountsForEveryDocumentOnce() async throws {
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let inputs = try [fixture.input("one.txt"), fixture.input("two.txt"), fixture.input("three.txt")]
+        let request = try fixture.request(inputs)
+        let control = BatchQueueControl(batch: request.id, jobs: inputs.map(\.id))
+        let summary = try await QueueCoordinator(configuration: fixture.configuration()).run(request, control: control) { event in
+            if case .preparing(_, let job) = event {
+                if job == inputs[0].id { _ = control.reorderPending([inputs[2].id, inputs[1].id]) }
+                if job == inputs[2].id { withUnsafeCurrentTask { $0?.cancel() } }
+            }
+        }
+        XCTAssertTrue(summary.cancelled)
+        XCTAssertEqual(summary.successfulCount, 1)
+        XCTAssertEqual(Set(summary.documents.map(\.id)), Set(inputs.map(\.id)))
+        XCTAssertEqual(summary.documents.count, 3)
+        try fixture.assertClean()
+    }
+}

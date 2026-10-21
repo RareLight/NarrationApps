@@ -28,7 +28,7 @@ public enum PDFExtractionError: Error, LocalizedError, Sendable {
 }
 
 public enum PDFDocumentExtractor {
-    public static let version = "PDFKit/RecognizeDocuments-2/layout-1"
+    public static let version = "PDFKit/RecognizeDocuments-2/layout-1/image-tables-1/table-flow-2"
     public typealias Recognition = @Sendable (CGImage) async throws -> [ContentBlock]
     public typealias Preview = @Sendable (PDFExtractionPreview) async throws -> Void
 
@@ -47,7 +47,7 @@ public enum PDFDocumentExtractor {
         progress(.init(stage: .readingPDFStructure))
         let alternatives = PDFImageMetadata.alternatives(pdf)
         var blocks: [ContentBlock] = [], totalBytes = 0, ocrPages = 0, geometryLines = 0
-        var geometrySkipped = Set<Int>()
+        var geometrySkipped = Set<Int>(), tablePages = 0, tableRecognitionIncomplete = false
         // A small first prefix, then doubling prefixes: less than 3 full-document
         // equivalents of provisional planning, with backpressure from the reader.
         var nextPreviewPage = min(5, max(1, (pageCount + 19) / 20))
@@ -57,6 +57,7 @@ public enum PDFDocumentExtractor {
             .init(title: metadataTitle ?? title, author: author, blocks: blocks,
                 warnings: warnings + ["Complex PDF reading order should be reviewed."] +
                     (ocrPages > 0 ? ["Includes OCR text; review recognition accuracy."] : []) +
+                    (tableRecognitionIncomplete ? ["Some image-table content could not be recognized within the analysis limits; narration identifies the original table."] : []) +
                     (geometrySkipped.isEmpty ? [] : ["Layout evidence unavailable for \(geometrySkipped.count) PDF pages; uncertain text is preserved."]),
                 extractorVersion: version, outline: outline)
         }
@@ -73,7 +74,7 @@ public enum PDFDocumentExtractor {
             let usable = scalars.filter { CharacterSet.alphanumerics.contains($0) }.count
             let broken = scalars.filter { $0.value == 0xfffd || ($0.value < 32 && !CharacterSet.whitespacesAndNewlines.contains($0)) }.count
             let needsOCR = forceOCR || usable == 0 || (PDFImageMetadata.hasImage(page) && usable < 80) || broken * 20 > max(scalars.count, 1)
-            let pageBlocks: [ContentBlock]
+            var pageBlocks: [ContentBlock]
             if needsOCR {
                 guard ocrPages < limits.maximumOCRPages, ProcessInfo.processInfo.systemUptime < deadline else {
                     throw PDFExtractionError.ocrLimit
@@ -101,6 +102,33 @@ public enum PDFDocumentExtractor {
                 pageBlocks = rawBlocks.enumerated().map { position, block in
                     .init(kind: block.kind, text: block.text, origin: .authored, pdfLayout: layouts?[position])
                 }
+                guard pageBlocks.reduce(totalBytes, { $0 + $1.text.utf8.count }) <= limits.maximumTextBytes else { throw PDFExtractionError.textLimit }
+                if PDFImageMetadata.hasImage(page), page.rotation == 0,
+                   page.bounds(for: .cropBox) == page.bounds(for: .mediaBox),
+                   let table = PDFImageTable.candidate(pageBlocks) {
+                    // Count targeted image-table recognition against the same OCR
+                    // page/time budget. Native prose and geometry remain untouched.
+                    var recognized: [ContentBlock] = []
+                    if tablePages < 20, ocrPages < limits.maximumOCRPages, ProcessInfo.processInfo.systemUptime < deadline {
+                        tablePages += 1; ocrPages += 1
+                        do {
+                            progress(.init(stage: .renderingOCR, completed: index, total: pageCount, currentPage: index + 1))
+                            let crop = try autoreleasepool { PDFImageTable.crop(try render(page, maximumDimension: 4096), to: table.bounds) }
+                            if let crop {
+                                progress(.init(stage: .waitingForOCR, completed: index, total: pageCount, currentPage: index + 1))
+                                if let recognize { recognized = try await recognize(crop) }
+                                else { recognized = try await StructuredDocumentOCR.recognize(crop, onInferenceAcquired: {
+                                    progress(.init(stage: .recognizingText, completed: index, total: pageCount, currentPage: index + 1))
+                                }) }
+                            }
+                        } catch is CancellationError { throw CancellationError() }
+                        catch { tableRecognitionIncomplete = true }
+                        try Task.checkCancellation()
+                        if ProcessInfo.processInfo.systemUptime >= deadline { recognized = [] }
+                    }
+                    if !recognized.contains(where: { $0.kind == .table }) { tableRecognitionIncomplete = true }
+                    pageBlocks += PDFImageTable.recovered(recognized, caption: table.label)
+                }
             }
             let pageGeometryCount = pageBlocks.reduce(0) { $0 + ($1.pdfLayout?.lines.count ?? 0) }
             let retainPageGeometry = pageGeometryCount <= PDFTextGeometry.maximumLinesPerPage && pageGeometryCount <= PDFTextGeometry.maximumLines - geometryLines
@@ -112,10 +140,10 @@ public enum PDFDocumentExtractor {
                 if retainPageGeometry, let candidate = block.pdfLayout, candidate.lines.count <= PDFTextGeometry.maximumLinesPerPage,
                    candidate.lines.count <= PDFTextGeometry.maximumLines - geometryLines {
                     layout = candidate; geometryLines += candidate.lines.count
-                } else { layout = nil; geometrySkipped.insert(index) }
+                } else { layout = nil; if block.kind == .paragraph { geometrySkipped.insert(index) } }
                 blocks.append(.init(kind: block.kind, text: block.text, headingLevel: block.headingLevel, narrationText: block.narrationText,
                                     footnoteReferences: block.footnoteReferences, footnoteID: block.footnoteID, pdfPageIndex: index,
-                                    origin: needsOCR ? .ocr : .authored, pdfLayout: layout))
+                                    origin: block.origin ?? (needsOCR ? .ocr : .authored), pdfLayout: layout))
             }
             for caption in authored {
                 blocks.append(.init(kind: .caption, text: caption, narrationText: "Image description: " + caption,

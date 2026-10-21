@@ -27,7 +27,7 @@ let package = Package(
         .target(name: "Pronunciation"),
         .target(name: "NarrationUI", dependencies: ["NarrationCore", "AudioOutput", .product(name: "AppPresentation", package: "apppresentation")]),
         .testTarget(name: "NarrationUITests", dependencies: ["NarrationUI", "NarrationCore"]),
-        .target(name: "PronunciationUI", dependencies: ["Pronunciation", "NarrationCore", "NativeSpeech", "ProcessingPipeline", "AudioOutput"]),
+        .target(name: "PronunciationUI", dependencies: ["Pronunciation", "NarrationCore", "NativeSpeech", "ProcessingPipeline", "AudioOutput", .product(name: "AppPresentation", package: "apppresentation")]),
         .testTarget(name: "PronunciationTests", dependencies: ["Pronunciation", "NarrationCore"]),
         .testTarget(name: "PronunciationUITests", dependencies: ["PronunciationUI", "Pronunciation", "NarrationCore", "AudioOutput"]),
         .target(name: "NarrationCore", dependencies: ["Pronunciation"]),

@@ -19,6 +19,7 @@ public struct ChunkScheduler: Sendable {
     public func render(projection: NarrationPlan, batchID: UUID, jobID: UUID, workspace: URL,
                        settings: SpeechSettings, destination: URL,
                        outputFormat: AudioOutputFormat = .wav, session: NativeSpeechSession? = nil, coverArtwork: CoverArtwork? = nil,
+                       checkpoint: (@Sendable () async throws -> Void)? = nil,
                        beforePublication: @Sendable () throws -> Void = {},
                        preparationProgress: @Sendable (Int, Int) -> Void = { _, _ in },
                        progress: @Sendable (SpeechProgress) -> Void = { _ in }) async throws {
@@ -26,10 +27,12 @@ public struct ChunkScheduler: Sendable {
         let owned = try session ?? NativeSpeechSession(configuration: configuration, workspace: workspace,
             settings: settings, leaseFile: configuration.inferenceLeaseFile, identity: identity)
         do {
+            if let checkpoint { try await checkpoint() }
             try await owned.prepare()
-            let plan = try await owned.prepareSpeech(projection, progress: preparationProgress)
+            if let checkpoint { try await checkpoint() }
+            let plan = try await owned.prepareSpeech(projection, checkpoint: checkpoint, progress: preparationProgress)
             try await owned.render(plan: plan, destination: destination, outputFormat: outputFormat, coverArtwork: coverArtwork,
-                identity: identity, beforePublication: beforePublication, progress: progress)
+                identity: identity, checkpoint: checkpoint, beforePublication: beforePublication, progress: progress)
             if session == nil { await owned.close() }
         } catch { await owned.close(); throw error }
     }

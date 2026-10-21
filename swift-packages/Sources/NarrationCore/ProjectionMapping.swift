@@ -82,10 +82,10 @@ struct MappedProjection {
                 spokenLocation: previous.spokenLocation, spokenLength: previous.spokenLength + mapping.spokenLength)
         } else { mappings.append(mapping) }
     }
-    static func source(_ raw: String, block: Int, canonical: Bool) throws -> Self {
+    static func source(_ raw: String, block: Int, canonical: Bool, sourceOffset: Int = 0) throws -> Self {
         var result = Self(), offset = 0, whitespaceStart: Int?, whitespaceLength = 0
         let rawSource = raw as NSString
-        func range(_ start: Int, _ length: Int) -> ExtractedTextRange { .init(blockIndex: block, location: start, length: length) }
+        func range(_ start: Int, _ length: Int) -> ExtractedTextRange { .init(blockIndex: block, location: sourceOffset + start, length: length) }
         for character in raw {
             if offset % 1024 == 0 { try Task.checkCancellation() }
             let value = String(character), width = value.utf16.count
@@ -141,6 +141,42 @@ struct MappedProjection {
         guard result.mappings.count <= 100_000, result.length <= ns.length * 8 + 256 else { throw NarrationError.invalidInput("Spoken-form mapping or expansion budget exceeded. No text was truncated.") }
         return result
     }
+    /// Equation edits use verified source-line ranges. A reordered line may have
+    /// a different spoken offset, so resolve each edit through the retained map.
+    func replacingSourceRanges(_ edits: [ProjectionEdit]) throws -> Self {
+        guard !edits.isEmpty else { return self }
+        let sourced = mappings.filter { $0.source != nil && $0.spokenLength > 0 }.sorted { $0.source!.location < $1.source!.location }
+        var resolved: [ProjectionEdit] = [], cursor = 0
+        for edit in edits.sorted(by: { $0.range.location < $1.range.location }) {
+            try Task.checkCancellation()
+            var low: Int?, high: Int?
+            while cursor < sourced.count, let source = sourced[cursor].source, source.location + source.length <= edit.range.location { cursor += 1 }
+            var index = cursor
+            while index < sourced.count, let source = sourced[index].source, source.location < NSMaxRange(edit.range) {
+                let mapping = sourced[index]
+                index += 1
+                let overlap = NSIntersectionRange(edit.range, NSRange(location: source.location, length: source.length))
+                guard overlap.length > 0 else { continue }
+                let linear = mapping.rule == nil && source.length == mapping.spokenLength
+                let start = mapping.spokenLocation + (linear ? overlap.location - source.location : 0)
+                let end = linear ? start + overlap.length : mapping.spokenLocation + mapping.spokenLength
+                low = min(low ?? start, start); high = max(high ?? end, end)
+            }
+            if let low, let high, high > low {
+                let range = NSRange(location: low, length: high - low)
+                // Never span interleaved content from another source line.
+                let covered = ProjectionMapping.intersecting(mappings, location: low, length: high - low) ?? []
+                let unrelated = covered.filter { value in
+                    if value.spokenLength == 0 { return false }
+                    guard let source = value.source else { return value.rule != "pdf-continuation-space-1" }
+                    return NSIntersectionRange(edit.range, NSRange(location: source.location, length: source.length)).length == 0
+                }
+                guard unrelated.isEmpty else { throw NarrationError.invalidInput("Scientific source alignment failed. No text was truncated.") }
+                resolved.append(.init(range: range, replacement: edit.replacement, rule: edit.rule))
+            }
+        }
+        return try applying(resolved.sorted { $0.range.location < $1.range.location })
+    }
     func joining(_ next: Self, directly: Bool = false) throws -> Self {
         var result = self
         // A discretionary word split needs no invented separator; its explicit
@@ -151,6 +187,41 @@ struct MappedProjection {
         for mapping in next.mappings { result.appendMapping(mapping.shiftedSpoken(by: offset)) }
         guard result.mappings.count <= 100_000 else { throw NarrationError.invalidInput("PDF continuation mapping budget exceeded.") }
         return result
+    }
+
+    func cleaningCitationWhitespace() throws -> Self {
+        let expression = try NSRegularExpression(pattern: #" +(?=[.,;:!?])| {2,}"#)
+        let ns = text as NSString
+        let edits = expression.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { match in
+            ProjectionEdit(range: match.range, replacement: NSMaxRange(match.range) < ns.length && ".,;:!?".contains(ns.substring(with: NSRange(location: NSMaxRange(match.range), length: 1))) ? "" : " ", rule: "citation-whitespace-1")
+        }
+        return try applying(edits)
+    }
+
+    static func orderedPDF(_ raw: String, block: Int, lines: [PDFTextLine], margins: [NSRange], wordCuts: [NSRange], lineJoins: [Int: Int], letterCuts: [NSRange], citations: [NSRange], canonical: Bool) throws -> Self {
+        let ns = raw as NSString
+        var result: Self?, previous: PDFTextLine?
+        for line in lines {
+            try Task.checkCancellation()
+            let range = NSRange(location: line.location, length: line.length)
+            var part = try source(ns.substring(with: range), block: block, canonical: canonical, sourceOffset: range.location)
+            let localMargins = margins.filter { NSIntersectionRange($0, range).length > 0 }
+            let localCuts = wordCuts.filter { NSIntersectionRange($0, range).length > 0 }
+            part = try part.removingSourceRanges(localMargins).removingSourceRanges(localCuts, rule: PDFWordJoining.rule)
+            part = try part.removingSourceRanges(letterCuts.filter { NSIntersectionRange($0, range).length > 0 }, rule: "pdf-letter-spacing-1")
+            part = try part.removingSourceRanges(citations.filter { NSIntersectionRange($0, range).length > 0 }, rule: "academic-citation-1")
+            // A cut may only bridge the same adjacent source lines it was verified against.
+            let directly = previous.map { before in
+                lineJoins[before.location] == line.location || wordCuts.contains { cut in
+                    cut.location >= before.location && cut.location < before.location + before.length && NSMaxRange(cut) >= line.location
+                }
+            } ?? false
+            if !part.text.isEmpty {
+                result = try result.map { try $0.joining(part, directly: directly) } ?? part
+                previous = line
+            }
+        }
+        return result ?? Self()
     }
 
     /// Source spans from verified PDF lines become mapped spoken omissions.

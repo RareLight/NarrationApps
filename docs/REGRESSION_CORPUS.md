@@ -15,10 +15,13 @@ The root full tier runs all mandatory suites; quick scopes allow focused tests.
 | Markdown, RTF, HTML and inline code | `DocumentProcessingTests/SemanticIntakeTests.swift`, `IntakeTests.swift`; authored blocks, code protection and omission policy |
 | Native PDF, OCR structure, images/caption dedup | `DocumentProcessingTests/PDFLayoutTests.swift`, `SemanticIntakeTests.swift`; bounded synthetic geometry, table/image provenance, no duplicate speech |
 | Progressive Libro PDF previews | `DocumentProcessingTests/DocumentPreparationProgressTests.swift`, `Libro/macos/LibroCore/Tests/LibroCoreTests/DocumentPreviewAnalysisTests.swift`; early rounded/capped prefixes, cancellation before later OCR, cumulative limits, immutable prefix source and canonical final narration for both engines |
-| EPUB, authored navigation/notes/cover | `DocumentProcessingTests/EPUBIntakeTests.swift`, `DocumentNavigationTests.swift`; generated EPUB 2/3 spine/metadata/ALT, unsafe archive failures, legacy absent metadata |
+| EPUB, authored navigation/notes/cover | `DocumentProcessingTests/EPUBIntakeTests.swift`, `DocumentNavigationTests.swift`; generated EPUB 2/3 spine/metadata/ALT, unsafe archive failures, legacy absent metadata; fiction page-marker/footer exclusion with chapter, dialogue and intentional typography preservation across citation choices |
 | Mapped quantities, letter A, punctuation, dictionary | `NarrationCoreTests/SpokenFormTests.swift`, `PronunciationTests/PronunciationTests.swift`; independent spoken text, captured overrides, omissions/source spans, original blocks |
 | PDF margins/continuations and normalization | `NarrationCoreTests/PDFMarginTests.swift`, `PDFContinuationTests.swift`; conservative abstention, source mappings, full prose retention |
-| Experimental PDF printed-word joins | `NarrationCoreTests/PDFWordJoiningTests.swift`, `DocumentProcessingTests/PDFLayoutTests.swift`; default/legacy preservation, native PDFKit lines, both engines, UTF-16 omissions, overrides, excluded sections and bounded page seams; compound ambiguity remains explicit |
+| Experimental PDF printed-word joins | `NarrationCoreTests/PDFWordJoiningTests.swift`, `DocumentProcessingTests/PDFLayoutTests.swift`; default/legacy preservation, native PDFKit lines, both engines, UTF-16 omissions, overrides, excluded sections, bounded page seams and dictionary-preserved compounds/unknown words |
+| Academic citations | `NarrationCoreTests/AcademicCitationTests.swift`, `DocumentProcessingTests/DocumentNavigationTests.swift`; off-by-default independent choices, verified reference lists, explanatory-note/body preservation, reciprocal EPUB 2 links, geometric bibliography boundaries, source ranges and legacy/acoustic compatibility |
+| Scientific equations and tables | `NarrationCoreTests/ScientificNarrationTests.swift`, `DocumentProcessingTests/ScientificIntakeTests.swift`; explicit linear grammar, one complex-equation cue per document in narration order, named display functions, inline/foreign-prose and wrapped-URL abstention, detached-limit geometry, zero-length whitespace mappings and override precedence; prose/merged tables, brief heading retention, numeric labels/disclosure, top/middle/bottom insets and captions, linked notes, targeted OCR limits and cancellation |
+| PDF column/typography reconstruction | `NarrationCoreTests/PDFReconstructionTests.swift`, `PDFMarginTests.swift`; supported column order, wide titles, permutation/source preservation, safe column word joins, Roman/changing-label folios and dictionary-verified spacing with label-sequence abstention |
 | Native regional phones, dotted leaders/subtokens, overlong words | `Fixtures/Longform/frontend.json` and [fixture provenance](../swift-packages/Tests/Fixtures/Longform/README.md); actual offline US/GB helper preparation |
 | Vocabulary, 510-token ceiling, no truncation and legacy prepared plans | `NarrationCoreTests/PreparedSpeechTests.swift`; invalid vocabulary/alignment rejects explicitly; optional fields decode old artifacts |
 | Worker protocol/prepared spool ownership and cleanup | `NativeSpeechTests/PreparedSpeechTransferTests.swift`, `ProcessingPipelineTests/SchedulingTests.swift`, `ModelPreparationTests.swift`; limits, invalid messages, joins, timeouts, ordered generation and atomic preservation |
@@ -28,6 +31,17 @@ The root full tier runs all mandatory suites; quick scopes allow focused tests.
 | Retained snapshots, library/episode/settings compatibility | `VoiceRelay/Tests/VoiceRelayCoreTests/`; Store, SpeechQueue, LibraryBackup, AudioRetention, NativeSpeechAdapter, SourceReview and Delivery tests; synthetic SQLite, injected transports and old optional fields |
 | Inert app lifecycle, Sync/setup, event ordering | `VoiceRelay/Tests/VoiceRelayAppTests/`; storage-injected models, cancellation/join, stale event protection, no live Safari/Keychain/server |
 | Helper-only MLX, independent presentation, compatible locks | Root `scripts/check-contracts.swift`; parsed package graphs plus actual Xcode GUI products; transitive checks, six separately owned locks |
+
+Libro's `QueueIntakePolicyTests.swift` covers explicit re-addition without
+duplicating active/unrelated rows, processing-time overwrite/skip/cancel choices,
+all-existing batches and late output creation. `FileDropTests.swift` and shared
+`EPUBIntakeTests.swift` cover unpacked EPUB discovery as one document, stable
+normalization, matching prose/cover, resource-link rejection, budgets and cancellation.
+`QueueOrderingTests.swift` covers multi-row insertion indices, retained scan order,
+reordered progress and compact status labels. Shared `BatchQueueControlTests.swift`
+and `SchedulingTests.swift` cover pause/resume, releasing background admission,
+reordered execution, late/stale Skip, output preservation, stopped paused waiters
+and cancellation accounting after a reorder, using isolated fake workers only.
 
 ## Performance and native safety
 
