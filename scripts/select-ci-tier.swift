@@ -20,10 +20,12 @@ let release = paths.contains {
         $0.contains(".xcode") || $0.contains(".xcworkspace") || $0.contains("Worker") ||
         $0.contains("prepare-") || $0.contains("build-") || $0.hasPrefix("scripts/") ||
         $0.hasPrefix("swift-packages/Sources/") || $0.hasPrefix("swift-packages/AppPresentation/Sources/") ||
-        $0.contains("ThirdPartyNotices/")
+        $0.contains("ThirdPartyNotices/") || $0.contains("/Packaging/") || $0.hasSuffix(".xcconfig")
 }
 let full = paths.contains {
     $0.contains("Sources/") || $0.contains("Tests/") || $0.contains("Fixtures/") ||
-        $0.hasPrefix("swift-packages/scripts/")
+        $0.hasPrefix("swift-packages/scripts/") || $0.hasPrefix("Libro/macos/Libro/App/") ||
+        $0.hasPrefix("Libro/scripts/") || $0.hasPrefix("Libro/macos/scripts/") ||
+        $0.hasPrefix("VoiceRelay/scripts/")
 }
 print(release ? "release" : (full ? "full" : "quick"))

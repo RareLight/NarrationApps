@@ -9,9 +9,6 @@ struct Baseline: Codable {
     struct Component: Codable {
         let name: String
         let path: String
-        let cloneURL: String
-        let branch: String
-        let revision: String
     }
 
     struct Toolchain: Codable {
@@ -44,17 +41,13 @@ struct Baseline: Codable {
     }
 
     func validate() throws {
-        guard schemaVersion == 1, rootRevisionPolicy == "containing-git-commit",
+        guard schemaVersion == 2, rootRevisionPolicy == "containing-git-commit",
             Set(components.map(\.name)) == ["Libro", "VoiceRelay"], components.count == 2,
             validationRecord == "docs/IMPLEMENTATION_STATUS.md"
         else { throw ToolError("Unsupported baseline schema, component inventory or revision policy.") }
         for component in components {
-            guard component.path == component.name,
-                component.revision.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil,
-                component.cloneURL.range(
-                    of: #"^(git@github\.com:|https://github\.com/)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git$"#,
-                    options: .regularExpression) != nil
-            else { throw ToolError("Invalid path, full commit ID or GitHub clone URL for \(component.name).") }
+            guard component.path == component.name
+            else { throw ToolError("Invalid monorepo component path for \(component.name).") }
         }
         guard verifiedToolchain.architecture == "arm64",
             [
@@ -107,62 +100,60 @@ struct SourceState: Codable {
     let name: String
     let revision: String?
     let dirty: Bool?
-    let baselineAvailable: Bool
-    let matchesBaseline: Bool
 }
 
-func sourceState(_ root: URL, component: Baseline.Component?, runner: Runner = capture) throws -> SourceState {
-    let directory = component.map { root.appendingPathComponent($0.path) } ?? root
-    guard FileManager.default.fileExists(atPath: directory.appendingPathComponent(".git").path) else {
-        return SourceState(
-            name: component?.name ?? "root", revision: nil, dirty: nil,
-            baselineAvailable: false, matchesBaseline: false)
+func sourceState(_ root: URL, runner: Runner = capture) throws -> SourceState {
+    guard FileManager.default.fileExists(atPath: root.appendingPathComponent(".git").path) else {
+        return SourceState(name: "root", revision: nil, dirty: nil)
     }
-    let head = try git(directory, ["rev-parse", "HEAD"], runner: runner)
-    let status = try git(directory, ["status", "--porcelain", "--untracked-files=normal"], runner: runner)
+    let head = try git(root, ["rev-parse", "HEAD"], runner: runner)
+    let status = try git(root, ["status", "--porcelain", "--untracked-files=normal"], runner: runner)
     guard head.status == 0, status.status == 0 else {
-        throw ToolError("Cannot inspect Git state for \(directory.lastPathComponent).")
+        throw ToolError("Cannot inspect NarrationApps Git state.")
     }
     let revision = head.output.trimmingCharacters(in: .whitespacesAndNewlines)
-    let available =
-        try component.map {
-            try git(directory, ["cat-file", "-e", "\($0.revision)^{commit}"], runner: runner).status == 0
-        } ?? true
-    return SourceState(
-        name: component?.name ?? "root", revision: revision, dirty: !status.output.isEmpty,
-        baselineAvailable: available, matchesBaseline: component.map { revision == $0.revision } ?? true)
+    return SourceState(name: "root", revision: revision, dirty: !status.output.isEmpty)
+}
+
+func sourceLayoutProblems(_ root: URL, baseline: Baseline, runner: Runner = capture) throws -> [String] {
+    var problems: [String] = []
+    for component in baseline.components {
+        let directory = root.appendingPathComponent(component.path)
+        if (try? directory.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            problems.append("\(component.name) must be a source directory in this checkout, not a symbolic link.")
+            continue
+        }
+        if FileManager.default.fileExists(atPath: directory.appendingPathComponent(".git").path) {
+            problems.append("\(component.name) contains nested Git metadata; use the complete monorepo checkout.")
+        }
+        let paths =
+            component.name == "Libro"
+            ? ["Libro/macos/LibroCore/Package.swift", "Libro/macos/Libro/Libro.xcodeproj/project.pbxproj"]
+            : ["VoiceRelay/Package.swift", "VoiceRelay/VoiceRelay.xcodeproj/project.pbxproj"]
+        for path in paths {
+            let tracked = try git(root, ["ls-files", "--error-unmatch", "--", path], runner: runner).status == 0
+            if !FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) || !tracked {
+                problems.append("Missing monorepo source: \(path). Restore it from the containing Git commit.")
+            }
+        }
+    }
+    return problems
 }
 
 func health(_ root: URL, strict: Bool, runner: Runner = capture) throws -> Bool {
     let baseline = try Baseline.load(root)
     var healthy = true
-    let rootState = try sourceState(root, component: nil, runner: runner)
+    let rootState = try sourceState(root, runner: runner)
     if let revision = rootState.revision {
         print("root HEAD: \(revision); dirty=\(rootState.dirty == true); dirty work is not a committed composition.")
     } else {
         print("UNAVAILABLE root Git checkout: run this tool from the complete NarrationApps source layout.")
         healthy = false
     }
-    for component in baseline.components {
-        let state = try sourceState(root, component: component, runner: runner)
-        guard let revision = state.revision else {
-            print(
-                "UNAVAILABLE \(component.name): missing independent checkout. Use setup --clone-apps only with network authorization."
-            )
-            healthy = false
-            continue
-        }
-        print("\(component.name): \(revision); dirty=\(state.dirty == true); matchesBaseline=\(state.matchesBaseline)")
-        if !state.baselineAvailable {
-            print("WARNING \(component.name): recorded commit unavailable locally; no fetch attempted.")
-        }
-        if !state.matchesBaseline || state.dirty == true {
-            print(
-                "WARNING \(component.name): deliberate development divergence is allowed; preserve edits. --strict-baseline enforces the checkpoint."
-            )
-        }
-        if strict && (!state.baselineAvailable || !state.matchesBaseline || state.dirty == true) { healthy = false }
-    }
+    if strict && rootState.dirty == true { healthy = false }
+    let problems = try sourceLayoutProblems(root, baseline: baseline, runner: runner)
+    problems.forEach { print("ERROR \($0)") }
+    if !problems.isEmpty { healthy = false }
     for (tool, args) in [
         ("/usr/bin/uname", ["-m"]), ("/usr/bin/xcode-select", ["-p"]),
         ("/usr/bin/xcodebuild", ["-version"]), ("/usr/bin/xcrun", ["swift", "--version"]),

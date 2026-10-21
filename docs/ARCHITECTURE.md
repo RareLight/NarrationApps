@@ -1,7 +1,7 @@
 # Shared architecture
 
 Current contract, October 15, 2026. Product boundaries and package installation
-are in [PACKAGE_BOUNDARIES.md](PACKAGE_BOUNDARIES.md); the app repositories own
+are in [PACKAGE_BOUNDARIES.md](PACKAGE_BOUNDARIES.md); the app directories own
 GUI/workflow, preferences, source authorization and app-specific persistence.
 
 ## Processing boundaries

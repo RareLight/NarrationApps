@@ -23,8 +23,8 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Acquire recorded app sources and pinned dependencies
-        run: bash scripts/develop.sh setup --clone-apps --resolve
+      - name: Acquire pinned dependencies for the monorepo
+        run: bash scripts/develop.sh setup --resolve
       - name: Validate source checkpoint
         run: bash scripts/develop.sh health --strict-baseline
       - name: Run shared entry points

@@ -48,7 +48,7 @@ acceptance is operator B07, alongside the existing B06 baseline flow checks.
 Libro's progressive preview/layout follow-up is implemented; first-page latency,
 live layout and cancellation/reopening acceptance are operator L20.
 The October 18 citation/margin/column follow-up is authorized, including read-only
-text comparisons against the three operator-supplied books. Its scope and evidence
+opt-in text comparisons against locally selected documents. Its scope and evidence
 are in [narration cleanup](DOCUMENT_CLEANUP.md) and the current status.
 The scientific-PDF follow-up adds conservative equation and table handling with
 explicit source-reference fallbacks. Its scope and remaining transcription limits
@@ -71,7 +71,7 @@ transcription and those larger extraction changes remain deferred research.
    unsupported complex layouts, chaptered audio, caption scheduling and broader citation/homograph
    changes remain separate future scope; the implemented outline/control increment
    is recorded above.
-3. Resolve reported app-specific acceptance failures in their owning repository;
+3. Resolve reported app-specific acceptance failures in their app directories;
    keep shared bugs/tests canonical in the packages. Add focused regressions and
    repeat affected gates before the next operator candidate.
 4. When distribution is planned, complete account/entitlement, clean-Mac and

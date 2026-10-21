@@ -10,8 +10,7 @@ import Foundation
                 case "health":
                     exit(try health(options.root, strict: options.strict) ? 0 : 1)
                 case "setup":
-                    try setup(
-                        options.root, cloneApps: options.cloneApps, prepare: options.prepare, resolve: options.resolve)
+                    try setup(options.root, prepare: options.prepare, resolve: options.resolve)
                 case "check":
                     exit(try validate(options))
                 default:
@@ -29,7 +28,6 @@ struct Options {
     var command: String
     var root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     var strict = false
-    var cloneApps = false
     var prepare = false
     var resolve = false
     var tier = "full"
@@ -60,7 +58,9 @@ struct Options {
             case "--root":
                 root = URL(fileURLWithPath: try value()).standardizedFileURL
             case "--strict-baseline" where command == "health": strict = true
-            case "--clone-apps" where command == "setup": cloneApps = true
+            case "--clone-apps" where command == "setup":
+                throw ToolError(
+                    "Both apps are included in the monorepo. Clone NarrationApps once, then use setup --resolve.")
             case "--prepare-dependencies" where command == "setup": prepare = true
             case "--resolve" where command == "setup": resolve = true
             case "--tier" where command == "check": tier = try value()

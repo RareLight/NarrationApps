@@ -18,7 +18,7 @@ stage records are reference evidence, not additional operating instructions.
 | [Remaining work](IMPLEMENTATION_PLAN.md) | Current roadmap, proposed features, acceptance and distribution/package-release work |
 | [Cover art and navigation stages](COVER_ART_AND_NAVIGATION_PLAN.md) | Implemented export/feed covers, outlines, heading dedup and narration controls; evidence and acceptance gates |
 | [Operator checklist](OPERATOR_VALIDATION.md) | Single current manual validation list, separated by app |
-| [Repository layout and migration](REPOSITORY_LAYOUT.md) | Active parent, independent repositories, cleanup and archival gates |
+| [Repository layout and migration](REPOSITORY_LAYOUT.md) | Monorepo layout, private assets and original-folder archival gates |
 | [Package boundaries](PACKAGE_BOUNDARIES.md) | Local Xcode/SwiftPM integration and independent releases |
 | [Document processing](DOCUMENT_PROCESSING.md) | PDF/OCR, semantic source fidelity, images and deduplication |
 | [Narration cleanup](DOCUMENT_CLEANUP.md) | Citation choices, recurring margins, supported columns and private text review |

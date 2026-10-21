@@ -10,10 +10,10 @@ before making changes. Shared capability/remaining work is indexed in
 Use Apple Silicon, macOS 27+, Xcode with the macOS 27 SDK and Swift 6.2+.
 Native audio fixtures use Apple frameworks. No Python runtime, uv or external
 FFmpeg/ffprobe tools are required. Pinned native sources are prepared by the shared
-SwiftNarration repository; real model installation remains an explicit app action.
+SwiftNarration package; real model installation remains an explicit app action.
 Do not update dependency pins incidentally.
 
-From the repository root:
+From the `VoiceRelay/` directory:
 
 ```sh
 bash ../swift-packages/scripts/check.sh

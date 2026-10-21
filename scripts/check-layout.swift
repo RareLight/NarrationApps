@@ -43,12 +43,13 @@ for project in projects {
     require(sharedCount == 2, "Both shared package references must resolve under swift-packages")
 }
 for app in ["Libro", "VoiceRelay"] {
-    require(manager.fileExists(atPath: root.appendingPathComponent("\(app)/.git").path), "\(app) must retain independent Git history")
+    require(!manager.fileExists(atPath: root.appendingPathComponent("\(app)/.git").path), "\(app) must use root Git history")
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-    process.arguments = ["-C", root.path, "check-ignore", "-q", app + "/"]
+    process.arguments = ["-C", root.path, "ls-files", "--error-unmatch", "--", "\(app)/AGENTS.md"]
+    process.standardOutput = FileHandle.nullDevice
     try process.run(); process.waitUntilExit()
-    require(process.terminationStatus == 0, "Root Git must ignore \(app)/")
+    require(process.terminationStatus == 0, "Root Git must track \(app) sources")
 }
 if !failures.isEmpty { failures.forEach { print($0) }; exit(1) }
-print("Workspace layout: both projects/scheme, local packages and independent ignored app repositories passed.")
+print("Workspace layout: both projects/scheme, local packages and monorepo app sources passed.")

@@ -18,18 +18,15 @@ CI resource, secret, remote, billable machine or service was provisioned.
 
 ## Activation requires the operator
 
-1. Choose/publish the root remote and make all recorded app commits retrievable.
-   Existing checkpoint commits are local; no remote availability is promised.
+1. Publish the monorepo manually to its configured origin after source review.
 2. Review official provider/runner and action documentation. Authorize any cost.
    Register a dedicated, access-controlled arm64 runner with
    `narration-xcode-27-1`; do not use the production app user or private libraries.
-3. Provide least-privilege source-only access to both recorded app origins through
-   a managed SSH agent/known-hosts policy. No credentials enter a URL or repository.
-   Do not disable host-key verification. Root's checkout token is not assumed to
-   read either independent app repository.
-4. Use fresh disposable job workspaces. Setup refuses existing app paths rather
-   than resetting them; configure ephemeral runner cleanup outside this workflow.
-   Never copy DerivedData or SwiftPM workspace state into another checkout.
+3. Provide least-privilege access to the single source repository. Both apps are
+   included in that checkout. No credentials enter a URL or repository.
+4. Use fresh disposable job workspaces; setup only prepares pinned dependencies.
+   Configure ephemeral runner cleanup outside this workflow. Never copy DerivedData
+   or SwiftPM workspace state into another checkout.
 5. After review, install the template as `.github/workflows/foundation.yml` and
    explicitly enable `NARRATION_FOUNDATION_CI_ENABLED=true`. Only trusted main
    pushes/manual dispatch run: untrusted PR code must never execute on this runner.

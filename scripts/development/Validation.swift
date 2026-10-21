@@ -151,7 +151,7 @@ struct StepRecord: Codable {
 }
 
 struct ValidationSummary: Encodable {
-    let schemaVersion = 1
+    let schemaVersion = 2
     let started: Date
     var finished: Date?
     let tier: String
@@ -225,12 +225,10 @@ func executePlan(_ steps: [Step], runner: Runner, record: (StepRecord) throws ->
 }
 
 func validate(_ options: Options, runner: Runner = boundedRun) throws -> Int32 {
-    let baseline = try Baseline.load(options.root)
+    _ = try Baseline.load(options.root)
     let evidence = options.root.appendingPathComponent(".local/validation/\(options.tier)-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: evidence, withIntermediateDirectories: true)
-    let source =
-        try [sourceState(options.root, component: nil)]
-        + baseline.components.map { try sourceState(options.root, component: $0) }
+    let source = try [sourceState(options.root)]
     var toolchain: [String: String] = [:]
     for (name, executable, arguments) in [
         ("xcode", "/usr/bin/xcodebuild", ["-version"]), ("swift", "/usr/bin/swift", ["--version"]),

@@ -2,7 +2,7 @@
 
 This repository owns the combined Xcode workspace, shared documentation/project
 scripts, and the SwiftNarration and AppPresentation packages under `swift-packages/`.
-Libro and VoiceRelay are independent nested Git repositories ignored here. Each
+It also owns both applications under `Libro/` and `VoiceRelay/`. Each
 app can build against the shared packages without the other app's source.
 See the [layout and archival record](docs/REPOSITORY_LAYOUT.md).
 
@@ -42,17 +42,14 @@ DRC, trimming or crossfade is added. Speech samples retain their Float32 values.
 The podcast/sample AAC-LC profile is mono 64 kbps/24 kHz; Libro's native-rate
 exports are described in [architecture](docs/ARCHITECTURE.md).
 
-## Coordinated source baseline
+## Source checkout
 
-[DevelopmentBaseline.json](DevelopmentBaseline.json) records compatible app revisions,
-their clone locations and the verified toolchain. The root revision is the Git commit
-containing that manifest; it is not embedded in itself. Libro and VoiceRelay retain
-independent histories and are excluded from root Git, so save/restore each app at its
-recorded revision separately. Branch names describe development lines; commit IDs
-identify the baseline. The local annotated tag `native-unification-2026-10-16`
-marks the coordinated checkpoint in all three repositories. Model assets, private settings and generated evidence remain
-outside versioned source. The root repository currently has no configured remote;
-these are local commits, not a remote backup or publication.
+Clone `git@github.com:RareLight/NarrationApps.git` once. Both apps and the shared
+packages use the containing commit; no submodules or separate app clones are needed.
+[DevelopmentBaseline.json](DevelopmentBaseline.json) records component paths and the
+verified toolchain. [Migration provenance](docs/MONOREPO_MIGRATION.md) explains the
+sanitized history import and local recovery copies. Models, personal documents,
+credentials and generated evidence stay outside versioned source.
 
 ## Local development
 
@@ -69,7 +66,7 @@ source integration, not a global library installation.
 ```sh
 bash scripts/develop.sh health
 # Only with explicit network authorization:
-bash scripts/develop.sh setup --prepare-dependencies
+bash scripts/develop.sh setup --resolve
 bash scripts/check.sh
 ```
 

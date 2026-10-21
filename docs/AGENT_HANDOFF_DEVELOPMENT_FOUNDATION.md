@@ -1,5 +1,9 @@
 # Handoff prompt: NarrationApps development foundation
 
+> Historical foundation record. Repository/checkout/pin instructions below describe
+> the former three-repository layout. Current setup and evidence use the monorepo;
+> follow [CONTRIBUTING.md](../CONTRIBUTING.md) and [migration provenance](MONOREPO_MIGRATION.md).
+
 Original implementation request, retained as provenance. Current completion,
 evidence and external blockers are owned by
 [the checklist](DEVELOPMENT_FOUNDATION_CHECKLIST.md) and

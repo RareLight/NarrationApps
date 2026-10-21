@@ -23,7 +23,7 @@ consumer demonstrates that need; no speculative extra package exists today.
 
 Keep the shared package directory at `swift-packages` inside NarrationApps. Each app
 depends on these package sources;
-neither app depends on the other app's repository. Add `swift-packages/` and
+neither app depends on the other app's source. Add `swift-packages/` and
 `swift-packages/AppPresentation/` as two local packages in Xcode and link only the needed
 products to each target. Helpers link NativeSpeechEngine; GUIs use contracts/UI.
 
@@ -50,16 +50,15 @@ cross-app admission or invalidate checkpoints.
 ## Develop both apps in one Xcode workspace
 
 Open [NarrationApps.xcworkspace](../NarrationApps.xcworkspace) when working on
-Libro and VoiceRelay together. The root repository owns the workspace and `swift-packages/`; `Libro/` and
-`VoiceRelay/` are independent nested repositories ignored by the root Git history. Close
+Libro and VoiceRelay together. The monorepo owns the workspace, both app directories
+and `swift-packages/`. Close
 standalone Libro/VoiceRelay project windows and any separately opened shared
 packages first: Xcode refuses to open a local package already owned by another
 project/workspace, then reports its products as missing. Reinstalling Xcode or
 changing app dependencies does not solve that ownership conflict. This is an
 editor/workspace restriction, separate from running the installed apps together.
 
-The workspace references both existing projects without copying files, merging
-repositories or adding dependencies between the apps. Select **Libro** or
+The workspace references both existing projects without copying files or adding dependencies between the apps. Select **Libro** or
 **VoiceRelay** to run/profile/archive that app. **Build Both Apps** is build-only;
 it compiles both apps and helpers with a single resolved package graph. It is not
 an archive/distribution scheme. Debug and Release use the same workspace graph.
@@ -83,7 +82,7 @@ canonical remote pins plus VoiceRelay's TOMLDecoder pin; standalone project lock
 remain independent. Update the workspace lock deliberately with shared dependency
 changes. Workspace build products/caches and per-user state remain ignored.
 
-A single app can still use its standalone project without the other repository.
+A single app can still use its standalone project without the other app's source.
 For simultaneous GUI work, open only the combined workspace. Additional editor
 windows must belong to that same workspace, not reopen either `.xcodeproj`.
 See [Apple's workspace guidance](https://developer.apple.com/documentation/xcode/managing-multiple-projects-and-their-dependencies).
@@ -92,7 +91,7 @@ See [Apple's workspace guidance](https://developer.apple.com/documentation/xcode
 
 Keep common implementation/tests under `swift-packages/`, cross-app docs here and
 project support under root `scripts/`; keep app workflows/preferences in their own
-ignored nested repositories. Apps can adopt a shared change by rebuilding local packages;
+monorepo directories. Apps can adopt a shared change by rebuilding local packages;
 they do not copy source or maintain a sibling app checkout. Current integration
 uses local paths, with manifests, dependency locks and patches under version control.
 Build caches, models, credentials and generated media remain private/ignored.

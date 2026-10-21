@@ -1,6 +1,6 @@
 # Libro
 
-Active development layout: this repository is an independent Git repository nested under `/path/to/NarrationApps`.
+Active development layout: `Libro/` is part of the NarrationApps monorepo.
 See the [layout and archival record](../docs/REPOSITORY_LAYOUT.md).
 
 Native batch document narration for Apple Silicon Macs running macOS 27.0+.

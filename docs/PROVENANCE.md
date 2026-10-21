@@ -2,7 +2,7 @@
 
 SwiftNarration's original extraction/audio/assets/IPC fixtures were moved from
 Libro; semantic document and presentation foundations came from VoiceRelay.
-App-specific GUI/workflow remains in each owning repository. The current native
+App-specific GUI/workflow remains in each app directory. The current native
 intake, pronunciation, preparation and audio implementations are maintained here
 once, with synthetic shared regressions. Source-only migration baselines remain
 private ignored evidence, not additional maintained implementations.

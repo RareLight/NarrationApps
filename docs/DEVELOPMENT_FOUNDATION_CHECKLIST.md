@@ -1,5 +1,9 @@
 # Development foundation implementation checklist
 
+> Historical foundation record. Repository/checkout/pin instructions below describe
+> the former three-repository layout. Current setup and evidence use the monorepo;
+> follow [CONTRIBUTING.md](../CONTRIBUTING.md) and [migration provenance](MONOREPO_MIGRATION.md).
+
 Updated October 16, 2026. This plan turns the organization/maintenance assessment
 into bounded engineering stages. DF0 is retained; DF1/DF2/DF4–DF8 local engineering
 and verification are complete as recorded below. DF3 official provider/action

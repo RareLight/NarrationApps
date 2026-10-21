@@ -1,8 +1,8 @@
 # Contributing to NarrationApps
 
-Root owns the workspace, `docs/`, `scripts/` and `swift-packages/`. Libro and
-VoiceRelay are ignored, independent repositories, not submodules. Shared fixes
-and tests belong in the packages; app workflows/history stay in their owners.
+One Git repository owns the workspace, `docs/`, `scripts/`, `swift-packages/`,
+`Libro/` and `VoiceRelay/`. Shared fixes and tests belong in the packages;
+app-specific workflows remain in their app directories.
 AppPresentation is an independent zero-dependency package. Start with
 [architecture](docs/ARCHITECTURE.md), [current status](docs/IMPLEMENTATION_STATUS.md)
 and the relevant [Libro](Libro/AGENTS.md), [VoiceRelay](VoiceRelay/CONTRIBUTING.md)
@@ -10,25 +10,19 @@ or [package](swift-packages/AGENTS.md) instructions.
 
 ## Setup
 
-Root cloning does not include either app, private preferences, credentials or
-models. `DevelopmentBaseline.json` is the Codable-validated compatible composition;
-its containing Git commit identifies root. Branch names are informational.
-The coordinated local tag is immutable. These checkpoint commits are local;
-remote availability has not been established. No root remote is configured.
+Clone `git@github.com:RareLight/NarrationApps.git` once; both apps are included.
+Private preferences, credentials, documents and models are excluded.
+`DevelopmentBaseline.json` validates component paths and records the tested toolchain;
+its containing commit identifies the entire source composition.
 
 - `bash scripts/develop.sh health`: offline, read-only checkout/tool readiness.
-- `bash scripts/develop.sh health --strict-baseline`: additionally require clean,
-  exact recorded app commits. Development divergence normally produces warnings.
-- `bash scripts/develop.sh setup --clone-apps`: explicitly authorized network
-  source acquisition into absent app paths only, detached at manifest commits.
-  Unavailable remote commits fail without occupying the app path. Existing folders
-  are preserved, never fetched/reset/stashed/checked out.
+- `bash scripts/develop.sh health --strict-baseline`: additionally require a clean
+  monorepo working tree. App sources must be tracked by root with no nested Git metadata.
 - `bash scripts/develop.sh setup --prepare-dependencies`: explicit pinned source
   preparation, patches and LAME; may use network. Never installs speech models.
 - `bash scripts/develop.sh setup --resolve`: existing workspace preparation/
   resolution plus locked shared/LibroCore/VoiceRelay fixture-graph acquisition.
-  Review lockfile diffs. Do not promise a fresh clone works until
-  owners publish the required commits and root.
+  Review lockfile diffs. `--clone-apps` is retired because app sources are included.
 
 Use native arm64 Xcode/Swift with an SDK supporting the manifest deployment target.
 The manifest records a tested toolchain, not a claim about other SDKs. Open only
@@ -57,10 +51,11 @@ current test bundle and the manual ownership of GUI/listening/protected/live gat
 | Fake atomic packaging, app docs | `VoiceRelay/scripts/` |
 | GUI, listening, private inputs, services, distribution | [Operator checklist](docs/OPERATOR_VALIDATION.md) |
 
-Inspect all three statuses before and after work. Make focused commits in each
-owner; after validated app commits update their full SHAs in the root manifest
-and commit root. Never embed root's own SHA in itself. Do not rewrite checkpoint
-tags, publish, configure remotes or change signing settings without authorization.
+Inspect root `git status` before and after work. Commit coordinated changes once
+from the root. App directories inherit that same Git history; no app revision pins
+need updating. Keep package manifests/lockfiles separately owned by their build
+graphs. See [migration provenance](docs/MONOREPO_MIGRATION.md) for original history
+recovery. Publication and signing-account operations remain explicit actions.
 
 Use synthetic isolated fixtures. Never commit private prose, URLs, model files,
 settings, credentials, recordings or backups. Preserve completed/published audio.

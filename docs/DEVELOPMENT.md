@@ -34,8 +34,8 @@ Full retains the existing package/app scripts as owners and runs shared tests on
 Existing explicitly opt-in acoustic tests remain reported skips, not acoustic passes.
 Inherited private review/native opt-ins are removed by the tier runner.
 
-Every run creates `.local/validation/<tier>-<id>/summary.json`: actual three source
-revisions/dirty state, actual toolchain/SDK/architecture, selection, step kind,
+Every run creates `.local/validation/<tier>-<id>/summary.json`: the containing monorepo
+revision/dirty state (summary schema 2), actual toolchain/SDK/architecture, selection, step kind,
 outcome, skips/test observations and evidence paths. Each log retains at most the
 last 2 MiB. Output is private/ignored; default runners use only synthetic prose.
 An interrupted run remains `running`, not green. Failure stops dependent steps and
@@ -90,21 +90,21 @@ installer/player and services remain in [operator validation](OPERATOR_VALIDATIO
 ## Tooling regressions
 
 `bash scripts/test-development.sh` uses native Swift, fake runners and tiny
-independent Git repositories in an owned disposable sibling. It checks malformed
-manifests, missing/unavailable revisions, deliberate divergence, unsupported tool
-selection, repeat setup preservation, arguments, selection and failure evidence.
+tiny Git repositories under ignored `.local/`. It checks malformed manifests,
+missing/untracked app sources, nested repositories, dirty-root strict mode, symbolic
+links, unsupported tools, setup preservation, selection and failure evidence.
 It does not contact remotes or use the archival source trees.
 
 ## Scoped formatting and document ownership
 
 Use the installed `swift format`, with the identical explicit
-`.devin/swift-format.json` in each repository. Four spaces, a 120-column target,
+`.devin/swift-format.json` in each formatting scope. Four spaces, a 120-column target,
 stable multiline strings/import ordering and no automatic privacy rewriting keep
 the rules modest. There is no formatter package dependency.
 
 `bash scripts/format.sh lint all` strictly checks only each owner's
 `.devin/format-files.txt`; `apply` is the explicit fixing mode. Choose `root`,
-`Libro` or `VoiceRelay` instead of `all` for one repository. Initial enforcement
+`Libro` or `VoiceRelay` instead of `all` for one source scope. Initial enforcement
 covers the native tooling plus one small extracted file per app, not a wholesale
 legacy reformat. Graduate additional maintained files in formatting-only commits
 after behavior changes are committed and reviewed. The script rejects generated,

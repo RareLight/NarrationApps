@@ -39,6 +39,63 @@ swift-packages/Sources/NativeSpeech/Resources/.voice-samples-*/
 # Private local validation assets and migration evidence
 .local/
 
-# Independent app repositories (their Git histories stay separate)
-/Libro/
-/VoiceRelay/
+# Private inputs, credentials, model weights and generated output
+.cache/
+.codex/
+models/
+reference_voices/
+tests_output/
+dist/
+var/
+.env
+.env.*
+config.toml
+*.local.xcconfig
+*.p8
+*.p12
+*.pfx
+*.key
+*.pem
+*.mobileprovision
+*.provisionprofile
+*.bin
+*.ckpt
+*.safetensors
+*.npz
+*.npy
+*.gguf
+*.ggml
+*.pt
+*.pth
+*.onnx
+*.mlmodelc/
+*.mlpackage/
+*.sqlite*
+*.db
+*.db-*
+*.voicerelaybackup/
+Bookmarks.plist
+*.pdf
+*.epub
+*.doc
+*.docx
+*.rtf
+*.wav
+*.m4a
+*.m4b
+*.mp3
+*.aac
+*.flac
+*.mp4
+*.mov
+*.log
+*.har
+*.app/
+*.zip
+*.bundle
+*.dmg
+Screenshot*.png
+feed.xml
+
+# Maintained synthetic product samples, not user recordings
+!swift-packages/Sources/NativeSpeech/Resources/VoiceSamples/*.m4a

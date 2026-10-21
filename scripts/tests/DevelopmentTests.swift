@@ -4,7 +4,7 @@ import Foundation
 enum DevelopmentTests {
     static func main() throws {
         let source = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let fixture = source.deletingLastPathComponent().appendingPathComponent(".NarrationApps-fixture-\(UUID().uuidString)")
+        let fixture = source.appendingPathComponent(".local/tooling-fixture-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: fixture, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: fixture) }
         var count = 0
@@ -31,7 +31,7 @@ enum DevelopmentTests {
         try altered { $0["schemaVersion"] = 99 }
         try altered { $0["rootRevisionPolicy"] = "self-sha" }
         try altered { $0["components"] = [] }
-        for (field, value) in [("path", "../Libro"), ("path", "/Libro"), ("revision", "main"), ("cloneURL", "file:///private")] {
+        for (field, value) in [("path", "../Libro"), ("path", "/Libro")] {
             try altered {
                 var components = $0["components"] as! [[String: Any]]
                 components[0][field] = value
@@ -44,7 +44,8 @@ enum DevelopmentTests {
         try rejects { _ = try Options(["health", "--clone-apps"]) }
         try rejects { _ = try Options(["setup", "--unknown"]) }
         try rejects { _ = try Options(["health", "--root"]) }
-        try rejects { try setup(fixture, cloneApps: false, prepare: false, resolve: false) }
+        try rejects { _ = try Options(["setup", "--clone-apps"]) }
+        try rejects { try setup(fixture, prepare: false, resolve: false) }
 
         let seed = fixture.appendingPathComponent("seed")
         try FileManager.default.createDirectory(at: seed, withIntermediateDirectories: true)
@@ -59,36 +60,34 @@ enum DevelopmentTests {
         _ = try checkedGit(seed, ["-c", "user.name=Fixture", "-c", "user.email=fixture@localhost",
             "-c", "commit.gpgsign=false", "commit", "-qm", "fixture"])
         let revision = try checkedGit(seed, ["rev-parse", "HEAD"])
-        var object = original
-        var components = object["components"] as! [[String: Any]]
-        for index in components.indices { components[index]["revision"] = revision }
-        object["components"] = components
-        try JSONSerialization.data(withJSONObject: object).write(to: manifest)
+        let baseline = try Baseline.load(fixture)
+        let libro = fixture.appendingPathComponent("Libro")
+        for path in ["Libro/macos/LibroCore/Package.swift", "Libro/macos/Libro/Libro.xcodeproj/project.pbxproj",
+            "VoiceRelay/Package.swift", "VoiceRelay/VoiceRelay.xcodeproj/project.pbxproj"] {
+            let file = fixture.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("synthetic source".utf8).write(to: file)
+        }
+        _ = try checkedGit(fixture, ["init", "-q"])
+        _ = try checkedGit(fixture, ["add", "DevelopmentBaseline.json", "Libro", "VoiceRelay"])
+        _ = try checkedGit(fixture, ["-c", "user.name=Fixture", "-c", "user.email=fixture@localhost",
+            "-c", "commit.gpgsign=false", "commit", "-qm", "root fixture"])
+        try expect(try sourceLayoutProblems(fixture, baseline: baseline).isEmpty, "apps tracked by containing repository")
+        try expect(try sourceState(fixture).dirty == true, "untracked files are reported in the one root state")
+        let retained = libro.appendingPathComponent("private-edit")
+        try Data("preserve me".utf8).write(to: retained)
+        let state = try sourceState(fixture)
+        try expect(state.revision == checkedGit(fixture, ["rev-parse", "HEAD"]) && state.dirty == true,
+            "single root revision includes app edits")
         var calls: [Command] = []
         let runner: Runner = { command in
             calls.append(command)
-            if command.arguments.first == "clone" {
-                return try capture(Command(executable: "/usr/bin/git",
-                    arguments: ["clone", "--no-checkout", seed.path, command.arguments.last!], directory: fixture))
-            }
-            return try capture(command)
+            return Result(status: 0, output: "synthetic preparation")
         }
-        try setup(fixture, cloneApps: true, prepare: false, resolve: false, runner: runner)
-        try expect(calls.filter { $0.arguments.first == "clone" }.count == 2, "explicit setup clones only missing apps")
-        let libro = fixture.appendingPathComponent("Libro")
-        let retained = libro.appendingPathComponent("private-edit")
-        try Data("preserve me".utf8).write(to: retained)
-        calls = []
-        try setup(fixture, cloneApps: true, prepare: false, resolve: false, runner: runner)
-        try expect(calls.isEmpty, "repeat setup preserves existing folders without git actions")
+        try setup(fixture, prepare: true, resolve: false, runner: runner)
+        try expect(!calls.contains { $0.arguments.contains("clone") || $0.arguments.contains("checkout") },
+            "setup never clones or checks out app repositories")
         try expect(try String(contentsOf: retained, encoding: .utf8) == "preserve me", "private edit preserved")
-        let baseline = try Baseline.load(fixture)
-        let state = try sourceState(fixture, component: baseline.components[0])
-        try expect(state.matchesBaseline && state.dirty == true && state.baselineAvailable, "dirty state accurately recorded")
-        _ = try checkedGit(fixture, ["init", "-q"])
-        _ = try checkedGit(fixture, ["add", "DevelopmentBaseline.json"])
-        _ = try checkedGit(fixture, ["-c", "user.name=Fixture", "-c", "user.email=fixture@localhost",
-            "-c", "commit.gpgsign=false", "commit", "-qm", "root fixture"])
         var toolFailure = false
         var architecture = "arm64"
         var sdk = "27.0"
@@ -121,17 +120,17 @@ enum DevelopmentTests {
         sdk = "27.0"; toolFailure = true
         try expect(try !health(fixture, strict: false, runner: diagnosticRunner), "missing selected tools rejected")
         try expect(try checkedGit(libro, ["status", "--porcelain"]) == before, "health does not change app checkout")
-        components[0]["revision"] = String(repeating: "0", count: 40)
-        object["components"] = components
-        try JSONSerialization.data(withJSONObject: object).write(to: manifest)
-        let missing = try sourceState(fixture, component: Baseline.load(fixture).components[0])
-        try expect(!missing.baselineAvailable && !missing.matchesBaseline, "unavailable checkpoint diagnosed without fetch")
         let absent = fixture.appendingPathComponent("absent")
         try FileManager.default.createDirectory(at: absent, withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: object).write(to: absent.appendingPathComponent("DevelopmentBaseline.json"))
-        try rejects { try setup(absent, cloneApps: true, prepare: false, resolve: false, runner: runner) }
-        try expect(!FileManager.default.fileExists(atPath: absent.appendingPathComponent("Libro").path), "unavailable commit never installs partial app")
-        try expect(try sourceState(absent, component: baseline.components[0]).revision == nil, "missing app state explicit")
+        try data.write(to: absent.appendingPathComponent("DevelopmentBaseline.json"))
+        try expect(try sourceState(absent).revision == nil, "missing root checkout explicit")
+        try rejects { try setup(absent, prepare: false, resolve: true) }
+        try expect(!FileManager.default.fileExists(atPath: absent.appendingPathComponent("Libro").path),
+            "incomplete checkout never acquires app sources")
+        let nested = libro.appendingPathComponent(".git")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try expect(try !sourceLayoutProblems(fixture, baseline: baseline).isEmpty, "nested repository rejected")
+        try FileManager.default.removeItem(at: nested)
         for arguments in [
             ["check", "--tier", "typo"], ["check", "--filter", "foo"],
             ["check", "--tier", "full", "--scope", "shared"],
@@ -177,6 +176,7 @@ enum DevelopmentTests {
         let runs = try FileManager.default.contentsOfDirectory(at: fixture.appendingPathComponent(".local/validation"), includingPropertiesForKeys: nil)
         let report = try JSONSerialization.jsonObject(with: Data(contentsOf: runs[0].appendingPathComponent("summary.json"))) as! [String: Any]
         try expect(report["outcome"] as? String == "failed" && report["tier"] as? String == "quick", "machine summary reflects selected failed gate")
+        try expect((report["source"] as? [[String: Any]])?.count == 1, "evidence records one monorepo revision")
         let reportSteps = report["steps"] as! [[String: Any]]
         try expect(reportSteps[1]["outcome"] as? String == "not-run", "summary never greens unrun steps")
         try expect(report["operatorAcceptance"] as? String == "not-performed", "operator acceptance remains separate")
@@ -188,14 +188,9 @@ enum DevelopmentTests {
         try expect(!nativePrerequisites(configured), "missing configured native assets unavailable")
         let absentLink = absent.appendingPathComponent("Libro")
         try FileManager.default.createSymbolicLink(atPath: absentLink.path, withDestinationPath: "missing-target")
-        calls = []
-        try setup(absent, cloneApps: true, prepare: false, resolve: false, runner: runner)
+        try rejects { try setup(absent, prepare: true, resolve: false) }
         try expect(try FileManager.default.destinationOfSymbolicLink(atPath: absentLink.path) == "missing-target", "dangling app link preserved")
-        try expect(calls.filter { $0.arguments.first == "clone" }.allSatisfy { $0.arguments.last!.hasSuffix("/VoiceRelay") }, "unexpected app path never replaced")
-        _ = try checkedGit(libro, ["-c", "user.name=Fixture", "-c", "user.email=fixture@localhost",
-            "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm", "development divergence"])
-        let diverged = try sourceState(fixture, component: baseline.components[0])
-        try expect(!diverged.matchesBaseline && diverged.baselineAvailable, "available checkpoint differs from development HEAD without reset")
+        try expect(try !sourceLayoutProblems(absent, baseline: baseline).isEmpty, "app symbolic link rejected")
         var previous = revision
         for (path, tier) in [
             ("Notes.md", "quick"), ("Sources/Synthetic.swift", "full"), ("Package.swift", "release"),
@@ -204,6 +199,11 @@ enum DevelopmentTests {
             ("NarrationApps.xcworkspace/contents.xcworkspacedata", "release"),
             ("swift-packages/scripts/check.sh", "full"),
             ("swift-packages/ThirdPartyNotices/Notice.md", "release"),
+            ("Libro/macos/Libro/App/Main.swift", "full"),
+            ("Libro/macos/LibroCore/Tests/Synthetic.swift", "full"),
+            ("VoiceRelay/Sources/VoiceRelayApp/Window.swift", "full"),
+            ("VoiceRelay/scripts/check-packaging.sh", "full"),
+            ("VoiceRelay/Packaging/NativeSpeech.xcconfig", "release"),
         ] {
             let file = seed.appendingPathComponent(path)
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -217,7 +217,7 @@ enum DevelopmentTests {
             previous = try checkedGit(seed, ["rev-parse", "HEAD"])
         }
         var acquisition: [Command] = []
-        try setup(fixture, cloneApps: false, prepare: true, resolve: true, runner: { command in
+        try setup(fixture, prepare: true, resolve: true, runner: { command in
             if command.executable == "/usr/bin/git" { return try capture(command) }
             acquisition.append(command)
             return Result(status: 0, output: "synthetic source acquisition")
@@ -229,6 +229,6 @@ enum DevelopmentTests {
         try expect(resolutions.allSatisfy { $0.arguments.contains("--force-resolved-versions") }, "setup preserves fixture locks")
         try expect(resolutions.contains { $0.arguments.contains("Libro/macos/.build/CoreTests") }, "Libro resolution uses the fixture-owned scratch path")
         try expect(!acquisition.contains { $0.arguments == ["swift-packages/scripts/prepare-dependencies.sh"] }, "combined setup does not duplicate preparation")
-        print("Development tooling: \(count) assertions passed; disposable sibling, no network/models/apps.")
+        print("Development tooling: \(count) assertions passed; isolated local fixtures, no network/models/apps.")
     }
 }

@@ -1,6 +1,6 @@
 # VoiceRelay
 
-Active development layout: this repository is an independent Git repository nested under `/path/to/NarrationApps`.
+Active development layout: `VoiceRelay/` is part of the NarrationApps monorepo.
 See the [layout and archival record](../docs/REPOSITORY_LAYOUT.md).
 
 VoiceRelay turns Safari Reading List articles into a private podcast using local
