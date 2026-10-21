@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><g id="binding"><g transform="rotate(-11 512 512)">
+    <path fill="#6085C1" d="M323 219H681C714 219 753 247 753 282V783C753 818 730 845 693 845H329C296 845 276 822 276 790V272C276 239 290 219 323 219Z" />
+  </g>
+</g><g id="pages"><g transform="rotate(-11 512 512)">
+    <path fill="#F2FAF7" d="M326 762H708C726 762 736 777 736 794V801C736 818 725 829 708 829H326C307 829 296 816 296 796C296 776 307 762 326 762Z" />
+  </g>
+</g><g id="cover"><g transform="rotate(-11 512 512)">
+    <path fill="#C8E8EF" d="M322 194H680C715 194 738 217 738 252V742C738 777 716 796 682 796H322C296 796 278 778 278 750V250C278 218 294 194 322 194Z" />
+  </g>
+</g><g id="spine"><g transform="rotate(-11 512 512)">
+    <path fill="#9ABFCF" d="M322 194H337V741C337 766 345 785 367 796H322C296 796 278 778 278 750V250C278 218 294 194 322 194Z" />
+  </g>
+</g><g id="voice"><g transform="rotate(-11 512 512)" fill="#244B71">
+    <rect x="390" y="450" width="34" height="94" rx="17" />
+    <rect x="453" y="408" width="34" height="178" rx="17" />
+    <rect x="516" y="371" width="34" height="252" rx="17" />
+    <rect x="579" y="427" width="34" height="140" rx="17" />
+    <rect x="642" y="468" width="34" height="58" rx="17" />
+  </g>
+</g></svg>

@@ -1,0 +1,1 @@
+macos/Libro/App/LibroDocumentPreview.swift

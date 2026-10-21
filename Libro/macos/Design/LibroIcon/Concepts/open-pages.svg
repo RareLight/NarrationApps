@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Open Pages — original concept study</title>
+  <defs><linearGradient id="background" x2="0" y2="1"><stop stop-color="#385170"/><stop offset="1" stop-color="#23365C"/></linearGradient></defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#background)"/>
+  <path fill="#6085C1" d="M178 435Q322 385 512 465Q702 385 846 435V786Q686 752 512 827Q338 752 178 786Z"/>
+  <path fill="#D5EBEF" d="M199 408Q342 365 498 436V791Q345 717 199 759Z"/>
+  <path fill="#F2FAF7" d="M526 436Q681 365 825 408V759Q678 717 526 791Z"/>
+  <path fill="none" stroke="#9ABFCF" stroke-width="14" stroke-linecap="round" d="M250 482Q344 464 437 504M250 540Q344 522 437 562M250 598Q344 580 437 620M576 504Q670 464 774 482M576 562Q670 522 774 540M576 620Q670 580 774 598"/>
+  <g fill="#C8E8EF"><rect x="366" y="255" width="34" height="84" rx="17"/><rect x="429" y="214" width="34" height="166" rx="17"/><rect x="492" y="177" width="34" height="240" rx="17"/><rect x="555" y="229" width="34" height="136" rx="17"/><rect x="618" y="269" width="34" height="56" rx="17"/></g>
+</svg>

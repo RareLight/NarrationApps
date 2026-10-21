@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Spoken Document — original concept study</title>
+  <defs><linearGradient id="background" x2="0" y2="1"><stop stop-color="#385170"/><stop offset="1" stop-color="#23365C"/></linearGradient></defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#background)"/>
+  <g transform="rotate(-8 450 500)"><path fill="#9ABFCF" d="M268 193H584L679 290V792Q679 830 641 830H268Q230 830 230 792V231Q230 193 268 193Z"/><path fill="#F2FAF7" d="M264 176H580L664 276V764Q664 802 626 802H264Q226 802 226 764V214Q226 176 264 176Z"/><path fill="#C8E8EF" d="M579 176V241Q579 277 615 277H664Z"/><path stroke="#9ABFCF" stroke-width="20" stroke-linecap="round" d="M297 341H561M297 398H561M297 455H480M297 667H487M297 724H529"/></g>
+  <path fill="#C8E8EF" d="M508 464H742Q797 464 797 519V635Q797 690 742 690H617L536 756V690H508Q453 690 453 635V519Q453 464 508 464Z"/>
+  <g fill="#244B71"><rect x="499" y="554" width="25" height="54" rx="12.5"/><rect x="548" y="528" width="25" height="106" rx="12.5"/><rect x="597" y="504" width="25" height="154" rx="12.5"/><rect x="646" y="539" width="25" height="84" rx="12.5"/><rect x="695" y="564" width="25" height="34" rx="12.5"/></g>
+</svg>

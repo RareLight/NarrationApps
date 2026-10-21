@@ -1,0 +1,621 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 71;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		074E92BBE7084FD3988DA58E /* App/IntakeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B48E1083D71A476A997BC35E /* App/IntakeModel.swift */; };
+		10B51A969E4F242F17B88406 /* App/LibroApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC1C6FF747A9524174F17C4 /* App/LibroApp.swift */; };
+		1FFC94B1BF034BC18DF9C0D8 /* App/LibroSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97753B1D118401F82E26F41 /* App/LibroSettingsView.swift */; };
+		22B575B1728FB1B8F951F66A /* Worker/WorkerMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F16744B7350406D43A58FF /* Worker/WorkerMain.swift */; };
+		2ECF33268C9C7214ED56E0AA /* LibroCore in Frameworks */ = {isa = PBXBuildFile; productRef = 33D69C9690A9998D8D4A1229 /* LibroCore */; };
+		732943C520234733AA658574 /* App/LibroSpeechSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40FBC2B64EF049D0B8D29267 /* App/LibroSpeechSetupView.swift */; };
+		91178D9C100243BDB2649379 /* App/DocumentQueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E34EC419CA4D2593344709 /* App/DocumentQueueView.swift */; };
+		9267B4B7756817FA057F51FE /* LibroCore in Frameworks */ = {isa = PBXBuildFile; productRef = CD133579BA2FB1354850D8F3 /* LibroCore */; };
+		9604EF5B431C48B686AF814B /* App/NarrationControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E11D66161C3436DBC8A89E2 /* App/NarrationControls.swift */; };
+		B20000000000000000000001 /* AppPresentation in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000001 /* AppPresentation */; };
+		B20000000000000000000002 /* NativeSpeechEngine in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000002 /* NativeSpeechEngine */; };
+		B20000000000000000000003 /* PronunciationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000003 /* PronunciationUI */; };
+		B20000000000000000000004 /* NarrationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000004 /* NarrationUI */; };
+		B90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices in Resources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices */; };
+		C81C019B76B042E1B2EF1101 /* Resources/AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C81C019B76B042E1B2EF1102 /* Resources/AppIcon.icon */; };
+		C918E7C2A7474450A3575AE2 /* App/LibroDocumentPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9343CDF140846F2A4E905B2 /* App/LibroDocumentPreview.swift */; };
+		E9BB6229E1674CFF8A79B501 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib in Embed MP3 Encoder */ = {isa = PBXBuildFile; fileRef = E9BB6229E1674CFF8A79B502 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		F5F7DE2B7047390DE36C91C9 /* LibroSpeechWorker in Embed Native Worker */ = {isa = PBXBuildFile; fileRef = F7507973396415592C8F0DD8 /* LibroSpeechWorker */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		FD6055210BEA481D8DA07A00 /* App/IntakeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 066019BBF21C45B99F972F3F /* App/IntakeView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2197037DA9A43A8A8C916559 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 244210E48437B6556980A702 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 057915FFAC4B36A21EC54E6A;
+			remoteInfo = LibroSpeechWorker;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		83616CCFF07F3969F6A8B556 /* Embed Native Worker */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				F5F7DE2B7047390DE36C91C9 /* LibroSpeechWorker in Embed Native Worker */,
+			);
+			name = "Embed Native Worker";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E9BB6229E1674CFF8A79B503 /* Embed MP3 Encoder */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				E9BB6229E1674CFF8A79B501 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib in Embed MP3 Encoder */,
+			);
+			name = "Embed MP3 Encoder";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		066019BBF21C45B99F972F3F /* App/IntakeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/IntakeView.swift; sourceTree = "<group>"; };
+		40FBC2B64EF049D0B8D29267 /* App/LibroSpeechSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/LibroSpeechSetupView.swift; sourceTree = "<group>"; };
+		763D774377779C412BB71F6F /* Libro.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Libro.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7A2242B09BA5CE9CA8DD66E7 /* Configuration/Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/Shared.xcconfig; sourceTree = "<group>"; };
+		7E11D66161C3436DBC8A89E2 /* App/NarrationControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/NarrationControls.swift; sourceTree = "<group>"; };
+		A425048EFBC181F45D8343FD /* LibroCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = LibroCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A9343CDF140846F2A4E905B2 /* App/LibroDocumentPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/LibroDocumentPreview.swift; sourceTree = "<group>"; };
+		B48E1083D71A476A997BC35E /* App/IntakeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/IntakeModel.swift; sourceTree = "<group>"; };
+		C7F16744B7350406D43A58FF /* Worker/WorkerMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Worker/WorkerMain.swift; sourceTree = "<group>"; };
+		C81C019B76B042E1B2EF1102 /* Resources/AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = Resources/AppIcon.icon; sourceTree = "<group>"; };
+		C97753B1D118401F82E26F41 /* App/LibroSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/LibroSettingsView.swift; sourceTree = "<group>"; };
+		D0E34EC419CA4D2593344709 /* App/DocumentQueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DocumentQueueView.swift; sourceTree = "<group>"; };
+		DCC1C6FF747A9524174F17C4 /* App/LibroApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/LibroApp.swift; sourceTree = "<group>"; };
+		E9BB6229E1674CFF8A79B502 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; path = "../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib"; sourceTree = "<group>"; };
+		F39DB396A68008CF77BCB592 /* Configuration/App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/App.xcconfig; sourceTree = "<group>"; };
+		F7507973396415592C8F0DD8 /* LibroSpeechWorker */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = LibroSpeechWorker; sourceTree = BUILT_PRODUCTS_DIR; };
+		F90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "../../../swift-packages/ThirdPartyNotices"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		736BF95996D40C71307E3727 /* ../LibroCore/Tests/LibroCoreTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = ../LibroCore/Tests/LibroCoreTests; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1D8F1B3471D2E25D61346D3D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B20000000000000000000002 /* NativeSpeechEngine in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		50382C61F2DA5E3FC37FEF78 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9267B4B7756817FA057F51FE /* LibroCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		91024282FFD499F5807DB5BC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B20000000000000000000001 /* AppPresentation in Frameworks */,
+				B20000000000000000000003 /* PronunciationUI in Frameworks */,
+				B20000000000000000000004 /* NarrationUI in Frameworks */,
+				2ECF33268C9C7214ED56E0AA /* LibroCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0035FE99EA2940F7FA633A58 = {
+			isa = PBXGroup;
+			children = (
+				DCC1C6FF747A9524174F17C4 /* App/LibroApp.swift */,
+				B48E1083D71A476A997BC35E /* App/IntakeModel.swift */,
+				40FBC2B64EF049D0B8D29267 /* App/LibroSpeechSetupView.swift */,
+				066019BBF21C45B99F972F3F /* App/IntakeView.swift */,
+				D0E34EC419CA4D2593344709 /* App/DocumentQueueView.swift */,
+				7E11D66161C3436DBC8A89E2 /* App/NarrationControls.swift */,
+				C97753B1D118401F82E26F41 /* App/LibroSettingsView.swift */,
+				A9343CDF140846F2A4E905B2 /* App/LibroDocumentPreview.swift */,
+				C81C019B76B042E1B2EF1102 /* Resources/AppIcon.icon */,
+				C7F16744B7350406D43A58FF /* Worker/WorkerMain.swift */,
+				736BF95996D40C71307E3727 /* ../LibroCore/Tests/LibroCoreTests */,
+				7A2242B09BA5CE9CA8DD66E7 /* Configuration/Shared.xcconfig */,
+				0A3E27B8CA818264D75C8D81 /* Products */,
+				F39DB396A68008CF77BCB592 /* Configuration/App.xcconfig */,
+				E9BB6229E1674CFF8A79B502 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib */,
+				95A644CC307FEEE100CF9C60 /* Recovered References */,
+			);
+			sourceTree = "<group>";
+		};
+		0A3E27B8CA818264D75C8D81 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				763D774377779C412BB71F6F /* Libro.app */,
+				F7507973396415592C8F0DD8 /* LibroSpeechWorker */,
+				A425048EFBC181F45D8343FD /* LibroCoreTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		95A644CC307FEEE100CF9C60 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				F90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		057915FFAC4B36A21EC54E6A /* LibroSpeechWorker */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B923383171C2E8EF1CA8515C /* Build configuration list for PBXNativeTarget "LibroSpeechWorker" */;
+			buildPhases = (
+				D0FF2A6F085568BC43342B1F /* Sources */,
+				1D8F1B3471D2E25D61346D3D /* Frameworks */,
+				A41761BD932C70E2AEA38264 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = LibroSpeechWorker;
+			packageProductDependencies = (
+				D20000000000000000000002 /* NativeSpeechEngine */,
+			);
+			productName = LibroSpeechWorker;
+			productReference = F7507973396415592C8F0DD8 /* LibroSpeechWorker */;
+			productType = "com.apple.product-type.tool";
+		};
+		4142ACB81F833AD11FC2A6C3 /* LibroCoreTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 81E1DC6C205DA91DF0465737 /* Build configuration list for PBXNativeTarget "LibroCoreTests" */;
+			buildPhases = (
+				E6ED56AB314E3DD3E605699F /* Sources */,
+				50382C61F2DA5E3FC37FEF78 /* Frameworks */,
+				0CDFFED32319A39D08F3F8AA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				736BF95996D40C71307E3727 /* ../LibroCore/Tests/LibroCoreTests */,
+			);
+			name = LibroCoreTests;
+			packageProductDependencies = (
+				CD133579BA2FB1354850D8F3 /* LibroCore */,
+			);
+			productName = LibroCoreTests;
+			productReference = A425048EFBC181F45D8343FD /* LibroCoreTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		AC44A5EE06496B21A17CA082 /* Libro */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 671B466153DB183FE9E409BE /* Build configuration list for PBXNativeTarget "Libro" */;
+			buildPhases = (
+				D8AFF257B45D0C513672EC45 /* Sources */,
+				91024282FFD499F5807DB5BC /* Frameworks */,
+				DC549ACCB7C726C62ECFD4E2 /* Resources */,
+				83616CCFF07F3969F6A8B556 /* Embed Native Worker */,
+				76C97A059D0F523A8095539D /* Embed MLX Metal Library */,
+				E9BB6229E1674CFF8A79B503 /* Embed MP3 Encoder */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A4A727C0E4740C6D54E9C11A /* PBXTargetDependency */,
+			);
+			name = Libro;
+			packageProductDependencies = (
+				D20000000000000000000001 /* AppPresentation */,
+				D20000000000000000000003 /* PronunciationUI */,
+				D20000000000000000000004 /* NarrationUI */,
+				33D69C9690A9998D8D4A1229 /* LibroCore */,
+			);
+			productName = Libro;
+			productReference = 763D774377779C412BB71F6F /* Libro.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		244210E48437B6556980A702 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2720;
+				TargetAttributes = {
+					057915FFAC4B36A21EC54E6A = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					AC44A5EE06496B21A17CA082 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+				};
+			};
+			buildConfigurationList = 4AA05EC3301949773ED0AC0A /* Build configuration list for PBXProject "Libro" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 0035FE99EA2940F7FA633A58;
+			packageReferences = (
+				A20000000000000000000001 /* XCLocalSwiftPackageReference "../../../swift-packages" */,
+				62389C075E76AF4A0B3DAE2B /* XCLocalSwiftPackageReference "../LibroCore" */,
+				A20000000000000000000004 /* XCLocalSwiftPackageReference "../../../swift-packages/AppPresentation" */,
+			);
+			productRefGroup = 0A3E27B8CA818264D75C8D81 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AC44A5EE06496B21A17CA082 /* Libro */,
+				057915FFAC4B36A21EC54E6A /* LibroSpeechWorker */,
+				4142ACB81F833AD11FC2A6C3 /* LibroCoreTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		0CDFFED32319A39D08F3F8AA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A41761BD932C70E2AEA38264 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DC549ACCB7C726C62ECFD4E2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices in Resources */,
+				C81C019B76B042E1B2EF1101 /* Resources/AppIcon.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		76C97A059D0F523A8095539D /* Embed MLX Metal Library */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(LIBRO_MLX_METAL_LIBRARY)",
+				"$(SRCROOT)/Configuration/embed-worker-resources.sh",
+			);
+			name = "Embed MLX Metal Library";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/mlx.metallib",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "bash \"$SRCROOT/Configuration/embed-worker-resources.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D0FF2A6F085568BC43342B1F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				22B575B1728FB1B8F951F66A /* Worker/WorkerMain.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D8AFF257B45D0C513672EC45 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				10B51A969E4F242F17B88406 /* App/LibroApp.swift in Sources */,
+				074E92BBE7084FD3988DA58E /* App/IntakeModel.swift in Sources */,
+				732943C520234733AA658574 /* App/LibroSpeechSetupView.swift in Sources */,
+				FD6055210BEA481D8DA07A00 /* App/IntakeView.swift in Sources */,
+				91178D9C100243BDB2649379 /* App/DocumentQueueView.swift in Sources */,
+				9604EF5B431C48B686AF814B /* App/NarrationControls.swift in Sources */,
+				1FFC94B1BF034BC18DF9C0D8 /* App/LibroSettingsView.swift in Sources */,
+				C918E7C2A7474450A3575AE2 /* App/LibroDocumentPreview.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E6ED56AB314E3DD3E605699F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A4A727C0E4740C6D54E9C11A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 057915FFAC4B36A21EC54E6A /* LibroSpeechWorker */;
+			targetProxy = 2197037DA9A43A8A8C916559 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0B0C687DF8B6B8DC790B519C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		1B104479E55E37CF8A63CBDF /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = F39DB396A68008CF77BCB592 /* Configuration/App.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 49Q8Z24JCT;
+				ENABLE_TESTABILITY = NO;
+				INFOPLIST_FILE = App/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Libro Text-to-Speech";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.librotts.Libro;
+				PRODUCT_NAME = Libro;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		22341BB87F410D35D057D37C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7A2242B09BA5CE9CA8DD66E7 /* Configuration/Shared.xcconfig */;
+			buildSettings = {
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = org.librotts.coretests;
+				PRODUCT_NAME = LibroCoreTests;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		73EBF6644258C120893E685D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+			};
+			name = Debug;
+		};
+		9B5D4A7B58AA5594D10BB51D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7A2242B09BA5CE9CA8DD66E7 /* Configuration/Shared.xcconfig */;
+			buildSettings = {
+				ENABLE_TESTABILITY = YES;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.librotts.worker;
+				PRODUCT_NAME = LibroSpeechWorker;
+				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A188B1844D481F2A55033242 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7A2242B09BA5CE9CA8DD66E7 /* Configuration/Shared.xcconfig */;
+			buildSettings = {
+				ENABLE_TESTABILITY = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = org.librotts.coretests;
+				PRODUCT_NAME = LibroCoreTests;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		B00CCDD09424E369308D67FA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = F39DB396A68008CF77BCB592 /* Configuration/App.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 49Q8Z24JCT;
+				ENABLE_TESTABILITY = YES;
+				INFOPLIST_FILE = App/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Libro Text-to-Speech";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.librotts.Libro;
+				PRODUCT_NAME = Libro;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		F08FA60D479E604EEE69F611 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7A2242B09BA5CE9CA8DD66E7 /* Configuration/Shared.xcconfig */;
+			buildSettings = {
+				ENABLE_TESTABILITY = NO;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.librotts.worker;
+				PRODUCT_NAME = LibroSpeechWorker;
+				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		4AA05EC3301949773ED0AC0A /* Build configuration list for PBXProject "Libro" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				73EBF6644258C120893E685D /* Debug */,
+				0B0C687DF8B6B8DC790B519C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		671B466153DB183FE9E409BE /* Build configuration list for PBXNativeTarget "Libro" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B00CCDD09424E369308D67FA /* Debug */,
+				1B104479E55E37CF8A63CBDF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		81E1DC6C205DA91DF0465737 /* Build configuration list for PBXNativeTarget "LibroCoreTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				22341BB87F410D35D057D37C /* Debug */,
+				A188B1844D481F2A55033242 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B923383171C2E8EF1CA8515C /* Build configuration list for PBXNativeTarget "LibroSpeechWorker" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9B5D4A7B58AA5594D10BB51D /* Debug */,
+				F08FA60D479E604EEE69F611 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		62389C075E76AF4A0B3DAE2B /* XCLocalSwiftPackageReference "../LibroCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../LibroCore;
+		};
+		A20000000000000000000001 /* XCLocalSwiftPackageReference "../../../swift-packages" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../../swift-packages";
+		};
+		A20000000000000000000004 /* XCLocalSwiftPackageReference "../../../swift-packages/AppPresentation" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../../swift-packages/AppPresentation";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		33D69C9690A9998D8D4A1229 /* LibroCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 62389C075E76AF4A0B3DAE2B /* XCLocalSwiftPackageReference "../LibroCore" */;
+			productName = LibroCore;
+		};
+		CD133579BA2FB1354850D8F3 /* LibroCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 62389C075E76AF4A0B3DAE2B /* XCLocalSwiftPackageReference "../LibroCore" */;
+			productName = LibroCore;
+		};
+		D20000000000000000000001 /* AppPresentation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000004 /* XCLocalSwiftPackageReference "../../../swift-packages/AppPresentation" */;
+			productName = AppPresentation;
+		};
+		D20000000000000000000002 /* NativeSpeechEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000001 /* XCLocalSwiftPackageReference "../../../swift-packages" */;
+			productName = NativeSpeechEngine;
+		};
+		D20000000000000000000003 /* PronunciationUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000001 /* XCLocalSwiftPackageReference "../../../swift-packages" */;
+			productName = PronunciationUI;
+		};
+		D20000000000000000000004 /* NarrationUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000001 /* XCLocalSwiftPackageReference "../../../swift-packages" */;
+			productName = NarrationUI;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 244210E48437B6556980A702 /* Project object */;
+}

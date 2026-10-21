@@ -1,0 +1,47 @@
+# macOS / Xcode / SwiftPM generated state
+.DS_Store
+.build/
+DerivedData/
+.swiftpm/
+xcuserdata/
+*.xcuserstate
+*.xcarchive/
+*.xcresult/
+*.dSYM/
+*.dSYM.zip
+*.hmap
+*.profraw
+*.profdata
+
+# Private model assets, recordings, local settings and distribution output
+models/
+reference_voices/
+tests_output/
+dist/
+.local/
+*.safetensors
+*.npz
+*.wav
+*.m4a
+*.m4b
+*.mp3
+*.aac
+*.log
+.env
+.env.*
+*.local.xcconfig
+*.p12
+*.pfx
+*.key
+*.pem
+*.mobileprovision
+*.provisionprofile
+
+# Local development output and private agent configuration
+build/
+.cache/
+.codex/
+config.toml
+
+# Regenerable icon review images
+macos/Design/LibroIcon/Previews/
