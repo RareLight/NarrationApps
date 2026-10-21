@@ -7,6 +7,10 @@ packages and per-build-graph lockfiles retain their existing paths and ownership
 
 The origin is `git@github.com:RareLight/NarrationApps.git`. No push is performed by
 this migration; the operator will publish manually after reviewing the repository.
+The existing GitHub starter commit `fe3e2423f35268167ac9ae2a5c10458aba524ed4`
+is retained as an ancestor. Its AGPL license agrees with the project license;
+its additional generated-output exclusions and speech-library credit are retained.
+The local branch can therefore be published with a normal `git push -u origin main`.
 
 ## Imported history and privacy
 
@@ -47,6 +51,36 @@ three-repository layout; preserve any newer monorepo work before doing so.
 
 ## Validation
 
-Migration validation results are recorded here after execution. Automated gates
-use synthetic isolated inputs; GUI, listening, protected files, live services and
-signing accounts remain operator-owned. Operator test bundles are preserved.
+The full isolated gate passes at source commit
+`db2ad570fce7a72ee0ce528fc9439308521394ac`, with a clean source tree:
+`.local/validation/full-4CD31DAF-DDD8-4CF8-B94F-4F70819C4758/summary.json`.
+This includes the updated development tooling regressions (78 assertions), layout,
+documentation, shared/app fixtures, pinned preparation and isolated packaging tests.
+Existing opt-in skips remain skips rather than acoustic or private-document passes.
+
+Both apps pass fresh combined arm64 **Debug and Release** workspace builds in
+`.build/MonorepoValidation/`, plus all four full bundle audits: ad-hoc signatures,
+helper-only MLX, resources/notices/samples and offline packaged Metal probes.
+The Libro audits also verify its bundled codec. Logs and bundle reports are in
+`.local/monorepo-migration/`; existing operator builds are preserved.
+
+This host initially reported a missing Metal compiler through Xcode's default shim.
+The component installer confirmed installed Metal Toolchain `27A266a`. Fixture
+validation used the installed toolchain's explicit `TOOLCHAINS` path; workspace
+builds used `-toolchain com.apple.dt.toolchain.Metal.32023.921.5`, verified in effective
+build settings. These are command-local selections, with no project/signing changes.
+`xcodebuild -showComponent MetalToolchain -json` reports the current local identifier
+and search path for reproducing that selection.
+
+A fresh source-only local clone passes layout and documentation checks without
+separate app acquisition. All **466 checked product/source/resource files** match
+the original tips. The complete imported history passes Gitleaks 8.30.1 with no
+findings, plus path/home-directory/private-identity/model/large-blob checks.
+The largest reachable blob is the intended podcast cover image (1,078,151 bytes).
+Thirteen representative private/generated paths pass ignore checks; the tracked
+tree contains no Git links, symlinks, caches or private migration storage.
+Git object integrity checks pass. Detailed inventories and import maps remain local.
+
+No speech models, real credentials or personal documents were used in validation.
+GUI, listening, protected files, live services and signing accounts remain
+operator-owned. No application was installed or launched, and no push was performed.
