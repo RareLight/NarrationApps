@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>Children</key><array><dict>
+  <key>Title</key><string>com.apple.ReadingList</string>
+  <key>Children</key><array>
+    <dict>
+      <key>WebBookmarkUUID</key><string>synthetic-one</string>
+      <key>URLString</key><string>https://source-review.invalid/one</string>
+      <key>URIDictionary</key><dict><key>title</key><string>Synthetic entry — Café 日本語</string></dict>
+      <key>ReadingList</key><dict><key>DateAdded</key><date>2026-10-01T12:00:00Z</date></dict>
+    </dict>
+    <dict>
+      <key>WebBookmarkUUID</key><string>synthetic-two</string>
+      <key>URLString</key><string>https://source-review.invalid/two</string>
+      <key>URIDictionary</key><dict><key>title</key><string>Second synthetic entry</string></dict>
+    </dict>
+  </array>
+</dict></array></dict></plist>
