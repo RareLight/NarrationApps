@@ -8,7 +8,8 @@ See the [layout and archival record](docs/REPOSITORY_LAYOUT.md).
 
 The apps provide native document, book and article narration on Apple Silicon
 Macs running macOS 27.0+. Open [NarrationApps.xcworkspace](NarrationApps.xcworkspace)
-from this root for simultaneous Xcode development.
+from this root for simultaneous Xcode development. Native speech inference uses
+the pinned [mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift) library.
 
 The current Kokoro baseline is **Heart (`af_heart`), 1.0×**, actual phoneme packing
 with a 200-token target and structural pauses. This profile passed operator A/B

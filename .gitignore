@@ -99,3 +99,13 @@ feed.xml
 
 # Maintained synthetic product samples, not user recordings
 !swift-packages/Sources/NativeSpeech/Resources/VoiceSamples/*.m4a
+
+# Additional generated-output exclusions from the GitHub starter
+*.hmap
+timeline.xctimeline
+playground.xcworkspace
+Carthage/Build/
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
