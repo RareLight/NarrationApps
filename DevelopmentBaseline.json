@@ -8,14 +8,14 @@
       "path": "Libro",
       "cloneURL": "git@github.com:RareLight/Libro-TTS.git",
       "branch": "unification",
-      "revision": "a85732a76db4e7a5ea34f86fc4dac4989a3b44c3"
+      "revision": "522b83cc4f9bc888bae93978ee71f1ae078621ae"
     },
     {
       "name": "VoiceRelay",
       "path": "VoiceRelay",
       "cloneURL": "git@github.com:RareLight/VoiceRelay.git",
       "branch": "unification",
-      "revision": "9e34c49d7948897ed8c0372a95ba0e35b102ab7e"
+      "revision": "7c8036fa79fc9c2ff24918851834b5d908fb3d58"
     }
   ],
   "verifiedToolchain": {
