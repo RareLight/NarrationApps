@@ -153,6 +153,13 @@ final class IntakeModel {
         didSet { UserDefaults.standard.set(describeImages, forKey: "LibroDescribeImages") }
     }
     var activeBatch: BatchRequest?
+    var queueControl: BatchQueueControl?
+    var queueState: BatchQueueState?
+    var batchOrder: [UUID] = []
+    let dragSession = UUID()
+    var currentJob: UUID? { queueState?.current }
+    var pauseRequested: Bool { queueState?.pauseRequested == true }
+    var isStopping: Bool { isGenerating && generationTask?.isCancelled == true }
     var activityProgress: BatchActivityProgress?
     var speechProgress: SpeechProgress?
     var generationStatus = ""
@@ -163,18 +170,20 @@ final class IntakeModel {
     var probeStatus = ""
     var outcomes: [UUID: DocumentOutcome] = [:]
     var retryQueued = Set<UUID>()
+    var skippedExisting = Set<UUID>()
     var playingDocument: UUID?
     var reopenWindow: (() -> Void)?
     var isGenerating: Bool { activeBatch != nil }
     var activeIDs: Set<UUID> { Set(activeBatch?.documents.map(\.id) ?? []) }
-    var candidates: [InputDocument] { documents.filter { !activeIDs.contains($0.id) && (outcomes[$0.id] == nil || retryQueued.contains($0.id)) } }
+    var candidates: [InputDocument] { documents.filter { !activeIDs.contains($0.id) && !skippedExisting.contains($0.id) && (outcomes[$0.id] == nil || retryQueued.contains($0.id)) } }
     var displayedDocuments: [InputDocument] {
-        (activeBatch?.documents.map(\.input) ?? []) + documents.filter { !activeIDs.contains($0.id) }
+        let active = Dictionary(uniqueKeysWithValues: (activeBatch?.documents.map(\.input) ?? []).map { ($0.id, $0) })
+        return batchOrder.compactMap { active[$0] } + documents.filter { !activeIDs.contains($0.id) }
     }
-    var hasFinished: Bool { !outcomes.isEmpty }
+    var hasFinished: Bool { !outcomes.isEmpty || !skippedExisting.isEmpty }
     var selectedDocument: InputDocument? { selection.count == 1 ? displayedDocuments.first { selection.contains($0.id) } : nil }
     var hasSelectedAudio: Bool { selectedDocument.map { outcomes[$0.id]?.state == .published } ?? false }
-    var hasSelectedFailure: Bool { selectedDocument.map { outcomes[$0.id]?.state == .failed || outcomes[$0.id]?.state == .cancelled } ?? false }
+    var canQueueSelectedAgain: Bool { selectedDocument.map { !busy && !activeIDs.contains($0.id) && !retryQueued.contains($0.id) && (outcomes[$0.id] != nil || skippedExisting.contains($0.id)) } ?? false }
     var generationBlocker: GenerationBlocker? {
         .evaluate(isGenerating: isGenerating, isPreparing: isPreparingModel, busy: busy || debugToolsBusy, planning: planning,
                   workspaceAvailable: workspace?.url != nil, outputAvailable: output?.url != nil,
@@ -193,7 +202,7 @@ final class IntakeModel {
     var canManageSpeechSetup: Bool { speechSetupDisabledReason == nil }
     var canPrepareModel: Bool { workspace?.url != nil && canManageSpeechSetup }
     var cancellable: Bool { hasCoverWork || pronunciationPreview.hasOwnedWork || scanner != nil || reader != nil || hasOwnedProbe || isGenerating || isPreparingModel }
-    var inputCancelLabel: String { scanner != nil ? "Cancel Import" : (reader != nil ? "Cancel Read" : "Cancel Check") }
+    var inputCancelLabel: String { scanner != nil ? "Cancel Import" : (reader != nil ? "Cancel Analysis" : "Cancel Check") }
     var hasOwnedProbe: Bool { probeProcess != nil }
     var activityStatus: String { scanner != nil ? (coverScanProgress ?? "Scanning inputs… \(scanCount) entries checked.") : status }
     var planning: Bool { planner != nil }
@@ -218,7 +227,8 @@ final class IntakeModel {
     private var removed = Set<String>()
     private var scopes: [String: DirectoryAccess] = [:]
     private var scanner: Task<(intake: IntakeResult, covers: [String: String]), Error>?
-    private var reader: Task<(text: String, warnings: [String], document: SemanticDocument), Error>?
+    private var reader: Task<Void, Error>?
+    private var previewOperation: UUID?
     private var planner: Task<[PlannedDocument], Error>?
     private var planOperation = UUID()
     private var operation = UUID()
@@ -290,6 +300,8 @@ final class IntakeModel {
 
     func add(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
+        let previousReader = reader
+        previewOperation = nil; preview = nil
         scanner?.cancel(); reader?.cancel()
         scanner = nil; reader = nil
         for url in urls {
@@ -307,6 +319,7 @@ final class IntakeModel {
         let removedPaths = removed
         let previousCoverWork = coverTask
         let task = Task.detached(priority: .userInitiated) {
+            _ = await previousReader?.result
             await previousCoverWork?.value
             try Task.checkCancellation()
             let access = selection.map { DirectoryAccess($0) }
@@ -346,7 +359,12 @@ final class IntakeModel {
                 }
                 let discoveredPaths = Set(discovered.map { $0.source.path })
                 let retainedActive = activeBatch?.documents.map(\.input).filter { !discoveredPaths.contains($0.source.path) } ?? []
-                documents = discovered + retainedActive
+                let byID = Dictionary(uniqueKeysWithValues: (discovered + retainedActive).map { ($0.id, $0) })
+                documents = QueueOrdering.retainingOrder(documents.map(\.id), discovered: (discovered + retainedActive).map(\.id)).compactMap { byID[$0] }
+                let requeued = QueueIntakePolicy.requeuedIDs(documents: discovered, selected: urls, active: activeIDs)
+                skippedExisting.subtract(requeued)
+                for id in requeued where outcomes[id] != nil { retryQueued.insert(id) }
+                for id in requeued { states[id] = nil }
                 let sourceKeys = Set(documents.map { DocumentCoverPreferences.key($0.source) })
                 var updatedCovers = coverDigests
                 for (key, digest) in imported.covers where sourceKeys.contains(key) &&
@@ -358,6 +376,7 @@ final class IntakeModel {
                 let excluded = result.excludedOutput ? " Selected output subtree excluded." : ""
                 status = "\(documents.count) documents; \(result.ignoredCount) unsupported or linked items ignored; \(result.issues.count) input errors.\(excluded)"
                 importSummary = status
+                if let root = workspace?.url { makeDebugLog(root)?.record("intake settled documents=\(documents.count) ignored=\(result.ignoredCount) errors=\(result.issues.count)") }
                 replan()
             } catch is CancellationError {
                 if operation == token { status = "Input scan cancelled." }
@@ -373,6 +392,7 @@ final class IntakeModel {
         status = "Receiving dropped files and folders…"
         Task {
             let result = await FileDrop.load(providers)
+            if let root = workspace?.url { makeDebugLog(root)?.record("intake drop items=\(providers.count) resolved=\(result.urls.count) unavailable=\(result.unavailableItems)") }
             guard !result.urls.isEmpty else {
                 status = "The dropped items did not provide accessible file locations. Use Add Files or Add Folder to select them."
                 announce(status)
@@ -424,13 +444,14 @@ final class IntakeModel {
         outputScopes = outputScopes.filter { !selection.contains($0.key) }
         savedNames = savedNames.filter { !selection.contains($0.key) }
         retryQueued.subtract(selection)
+        skippedExisting.subtract(selection)
         selection.removeAll(); replan()
     }
 
     func clear() {
         guard !busy, !isGenerating else { return }
         documents = []; roots = []; scopes = [:]; removed = []; names = [:]; states = [:]
-        outcomes = [:]; retryQueued = []; batchSummary = nil; notificationSummary = nil
+        outcomes = [:]; retryQueued = []; skippedExisting = []; batchSummary = nil; notificationSummary = nil
         stopPlayback(); outputScopes = [:]; savedNames = [:]
         issues = []; selection = []; importSummary = nil; dropError = nil
         status = "Add documents or drop files and folders here."; replan()
@@ -441,6 +462,60 @@ final class IntakeModel {
         cancelIntake()
         if isPreparingModel { preparationStatus = "Cancelling preparation… waiting for the helper to stop."; preparationTask?.cancel() }
         if isGenerating { generationStatus = "Cancelling… waiting for the native worker to stop."; generationTask?.cancel() }
+    }
+
+    func togglePause() {
+        guard isGenerating else { return }
+        queueControl?.setPaused(!pauseRequested)
+        queueState = queueControl?.state
+    }
+    func confirmStop() {
+        guard let batch = activeBatch?.id else { return }
+        let alert = NSAlert()
+        alert.messageText = "Stop the queue?"
+        alert.informativeText = "Unfinished audio will be discarded. Saved files are kept."
+        alert.addButton(withTitle: "Keep Processing")
+        alert.addButton(withTitle: "Stop Queue")
+        if alert.runModal() == .alertSecondButtonReturn, activeBatch?.id == batch { cancel() }
+    }
+    func confirmSkip() {
+        guard let control = queueControl, let batch = activeBatch?.id,
+              let job = queueState?.current, queueState?.canSkip == true else { return }
+        let name = activeBatch?.documents.first { $0.id == job }?.input.source.lastPathComponent ?? "this document"
+        let alert = NSAlert()
+        alert.messageText = "Skip \(name)?"
+        alert.informativeText = "Discard this item's unfinished audio and move to the next item after the current operation finishes. Saved files are kept."
+        alert.addButton(withTitle: "Keep Processing")
+        alert.addButton(withTitle: "Skip Item")
+        if alert.runModal() == .alertSecondButtonReturn {
+            guard activeBatch?.id == batch, queueControl === control else { return }
+            if control.skip(job: job) { queueState = control.state }
+        }
+    }
+    func canDrag(_ document: InputDocument) -> Bool {
+        !busy && (!activeIDs.contains(document.id) || queueState?.pending.contains(document.id) == true)
+    }
+    func dragPayload(_ document: InputDocument) -> QueueRowDrag {
+        let ids = selection.contains(document.id) ? displayedDocuments.filter { selection.contains($0.id) && canDrag($0) }.map(\.id) : [document.id]
+        return .init(queue: dragSession, ids: ids)
+    }
+    func moveQueue(_ items: [QueueRowDrag], to index: Int) {
+        guard !busy, !items.isEmpty, items.allSatisfy({ $0.queue == dragSession }) else { return }
+        let rows = displayedDocuments, order = rows.map(\.id), ids = Set(items.flatMap(\.ids))
+        let pending = Set(queueControl?.state.pending ?? [])
+        guard let moved = QueueOrdering.moving(order, ids: ids, to: index, active: batchOrder, pending: pending) else { return }
+        if let control = queueControl {
+            if ids.isSubset(of: pending) {
+                // Current/finished rows and next-batch membership remain fixed.
+                guard control.reorderPending(moved.filter { pending.contains($0) }) else { return }
+                batchOrder = moved.filter { activeIDs.contains($0) }
+                activityProgress?.reorderPending(jobs: batchOrder)
+                queueState = control.state
+            }
+        }
+        let byID = Dictionary(uniqueKeysWithValues: documents.map { ($0.id, $0) })
+        documents = moved.compactMap { byID[$0] }
+        replan()
     }
 
     func cancelIntake() {
@@ -473,34 +548,58 @@ final class IntakeModel {
 
     func showPreview(_ document: InputDocument) {
         guard !busy else { return }
-        let token = UUID(); operation = token; busy = true
-        status = "Reading document text…"
-        states[document.id] = "Reading…"
+        let token = UUID(); operation = token; previewOperation = token; busy = true
+        status = "Analyzing document text…"
+        states[document.id] = "Analyzing text…"
         let imageDescriptions = describeImages, selectedSettings = settings, options = narrationOptions
+        let recipient = self
         let task = Task.detached(priority: .userInitiated) {
-            let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Reading a Libro document")
+            let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Analyzing a Libro document")
             defer { ProcessInfo.processInfo.endActivity(activity) }
-            let semantic = try await InferenceLease.withPriority(.interactive) {
-                try await DocumentReader.readSemantic(document, describeImages: imageDescriptions)
+            let dictionary = try PronunciationStore().load().dictionary
+            try await InferenceLease.withPriority(.interactive) {
+                try await DocumentPreviewAnalysis.run(document, describeImages: imageDescriptions,
+                    settings: selectedSettings, pronunciations: dictionary, options: options) { content in
+                        try Task.checkCancellation()
+                        try await recipient.receivePreview(content, document: document, token: token)
+                    }
             }
-            let plan = try NarrationPlanner.prepare(semantic, settings: selectedSettings, pronunciations: PronunciationStore().load().dictionary, options: options)
-            return (text: plan.chunks.map(\.text).joined(separator: "\n\n"), warnings: Array(Set(semantic.warnings + plan.notices)).sorted(), document: semantic)
         }
         reader = task
         Task {
             do {
-                let content = try await task.value
+                try await task.value
                 guard operation == token else { return }
-                preview = Preview(id: document.id, title: document.source.lastPathComponent, text: content.text, isPDF: document.kind == .pdf, warnings: content.warnings, document: content.document)
                 states[document.id] = "Text ready"
-                status = "Text preview ready."
+                status = preview == nil ? "Text analysis complete." : "Text preview ready."
             } catch is CancellationError {
-                if operation == token { states[document.id] = "Reading cancelled"; status = "Reading cancelled." }
+                if operation == token {
+                    states[document.id] = "Analysis cancelled"; status = "Text analysis cancelled."
+                    preview?.issue = "Analysis cancelled. Only the loaded pages are shown."
+                }
             } catch {
-                if operation == token { states[document.id] = error.localizedDescription; status = "Document text could not be read." }
+                if operation == token {
+                    states[document.id] = error.localizedDescription; status = "Document text could not be analyzed."
+                    preview?.issue = "Analysis could not finish: " + error.localizedDescription
+                }
             }
             if operation == token { busy = false; reader = nil }
         }
+    }
+
+    private func receivePreview(_ content: DocumentPreviewContent, document: InputDocument, token: UUID) throws {
+        guard operation == token, previewOperation == token, !Task.isCancelled else { throw CancellationError() }
+        preview = .init(id: document.id, title: document.source.lastPathComponent, content: content)
+        if let completed = content.completedPages, let total = content.totalPages {
+            states[document.id] = "Analyzing text · \(completed)/\(total) pages available"
+            status = "Preview available. Analyzing remaining text…"
+        }
+    }
+
+    func dismissPreview() {
+        previewOperation = nil
+        preview = nil
+        reader?.cancel()
     }
 
     func setTextEncoding(_ encoding: TextFileEncoding, for document: InputDocument) {
@@ -508,6 +607,7 @@ final class IntakeModel {
               outcomes[document.id]?.state != .published || retryQueued.contains(document.id),
               let index = documents.firstIndex(where: { $0.id == document.id }) else { return }
         documents[index].textEncoding = encoding
+        skippedExisting.remove(document.id)
         if preview?.id == document.id { preview = nil }
         if outcomes[document.id] != nil { retryQueued.insert(document.id) }
         states[document.id] = "Ready · \(encoding.label)"
@@ -680,44 +780,74 @@ final class IntakeModel {
     }
 
     func generate() {
-        guard canGenerate else { return }
+        guard canGenerate, let destination = output?.url, let root = workspace?.url else { return }
         let inputs = planned.map(\.input), references = coverDigests, store = coverStore
-        let supportsArt = outputFormat.supportsCoverArtwork
+        let format = outputFormat, overrides = names, selectedSettings = settings
+        let options = narrationOptions, imageDescriptions = describeImages
         busy = true
         coverTask = Task {
-            defer { coverTask = nil }
+            defer { coverTask = nil; busy = hasIntakeWork }
             do {
+                let planningWork = Task.detached(priority: .userInitiated) {
+                    let scope = DirectoryAccess(destination)
+                    defer { withExtendedLifetime(scope) {} }
+                    return try BatchPlanner.plan(inputs, output: destination, names: overrides, format: format)
+                }
+                let plans = try await withTaskCancellationHandler { try await planningWork.value } onCancel: { planningWork.cancel() }
+                try Task.checkCancellation()
+                let replacements = plans.filter(\.replacesExisting)
+                var choice = ExistingOutputChoice.skip
+                if !replacements.isEmpty {
+                    let alert = NSAlert()
+                    alert.messageText = "Audio files already exist"
+                    let listed = replacements.prefix(12).map(\.relativeOutput).joined(separator: "\n")
+                    let remainder = replacements.count > 12 ? "\n…and \(replacements.count - 12) more." : ""
+                    alert.informativeText = "\(replacements.count) queued documents already have audio in the selected output folder. Overwrite those files or skip those documents and process the rest.\n\n" + listed + remainder
+                    alert.addButton(withTitle: "Skip Existing")
+                    alert.addButton(withTitle: "Overwrite Existing")
+                    alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+                    switch alert.runModal() {
+                    case .alertFirstButtonReturn: choice = .skip
+                    case .alertSecondButtonReturn: choice = .overwrite
+                    default: choice = .cancel
+                    }
+                }
+                guard let selection = QueueProcessingSelection(plans: plans, choice: choice) else { return }
+                try Task.checkCancellation()
+                if selection.documents.isEmpty {
+                    skippedExisting.formUnion(selection.skipped)
+                    retryQueued.subtract(selection.skipped)
+                    status = "Skipped \(selection.skipped.count) documents with existing audio. Existing files were kept."
+                    generationStatus = status
+                    announce(status); replan()
+                    return
+                }
                 let work = Task.detached(priority: .userInitiated) {
-                    supportsArt ? try DocumentCoverPreferences.snapshot(inputs, references: references, store: store) : [:]
+                    format.supportsCoverArtwork ? try DocumentCoverPreferences.snapshot(selection.documents.map(\.input), references: references, store: store) : [:]
                 }
                 let covers = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
                 try Task.checkCancellation()
-                busy = hasIntakeWork
-                beginGeneration(covers: covers)
-            } catch { busy = hasIntakeWork; planningError = error.localizedDescription }
+                skippedExisting.formUnion(selection.skipped)
+                retryQueued.subtract(selection.skipped)
+                let request = BatchRequest(documents: selection.documents, outputDirectory: destination, workspace: root,
+                    settings: selectedSettings, describeImages: imageDescriptions, replaceExisting: selection.replaceExisting,
+                    outputFormat: format, coverArtwork: covers, narrationOptions: options)
+                beginGeneration(request)
+            } catch is CancellationError { status = "Batch start cancelled." }
+            catch { planningError = error.localizedDescription }
         }
     }
 
-    private func beginGeneration(covers: [UUID: CoverArtwork]) {
-        guard canGenerate, let destination = output?.url, let root = workspace?.url else { return }
-        let plans = planned
-        let replacements = plans.filter(\.replacesExisting)
-        var approved = false
-        if !replacements.isEmpty {
-            let alert = NSAlert()
-            alert.messageText = "Replace existing audio?"
-            alert.informativeText = replacements.map(\.relativeOutput).joined(separator: "\n")
-            alert.addButton(withTitle: "Cancel")
-            alert.addButton(withTitle: "Replace and Generate")
-            guard alert.runModal() == .alertSecondButtonReturn else { return }
-            approved = true
-        }
-        let request = BatchRequest(documents: plans, outputDirectory: destination, workspace: root,
-                                   settings: settings, describeImages: describeImages, replaceExisting: approved, outputFormat: outputFormat, coverArtwork: covers, narrationOptions: narrationOptions)
+    private func beginGeneration(_ request: BatchRequest) {
+        guard !isGenerating else { return }
+        let destination = request.outputDirectory, root = request.workspace
         let log = makeDebugLog(root)
-        log?.record("batch=\(request.id) started documents=\(plans.count) model=\(settings.model.rawValue) voice=\(settings.voice) speed=\(settings.speed) format=\(request.outputFormat.rawValue) app=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown") os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
+        log?.record("batch=\(request.id) started documents=\(request.documents.count) model=\(request.settings.model.rawValue) voice=\(request.settings.voice) speed=\(request.settings.speed) format=\(request.outputFormat.rawValue) app=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown") os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
         activityProgress = .init(batch: request.id, jobs: request.documents.map(\.id))
         activeBatch = request; speechProgress = nil; batchSummary = nil; notificationSummary = nil
+        batchOrder = request.documents.map(\.id)
+        let control = BatchQueueControl(batch: request.id, jobs: batchOrder)
+        queueControl = control; queueState = control.state
         retryQueued.subtract(request.documents.map(\.id))
         for document in request.documents { outcomes[document.id] = nil; states[document.id] = "Waiting" }
         let outputScope = DirectoryAccess(destination)
@@ -739,21 +869,21 @@ final class IntakeModel {
         generationTask = Task { [self] in
             await pronunciationPreview.stopAndWait()
             do {
-                let summary = try await coordinator.run(request, debugLog: log) { [weak self] event in
+                let summary = try await coordinator.run(request, debugLog: log, control: control) { [weak self] event in
                     if case .speech(let value) = event, value.phase == .chunkWritten { updates.store(value) }
                     else if case .textPreparation(let value) = event { updates.storeText(value) }
                     else { Task { @MainActor in self?.receive(event) } }
                 }
                 for outcome in summary.documents {
                     outcomes[outcome.id] = outcome
+                    if summary.cancelled, outcome.state == .cancelled { retryQueued.insert(outcome.id) }
                     if outcome.state == .published {
                         outputScopes[outcome.id] = outputScope
                         savedNames[outcome.id] = request.documents.first { $0.id == outcome.id }?.relativeOutput
                     }
                 }
                 batchSummary = summary
-                generationStatus = summary.cancelled ? "Batch cancelled: \(summary.successfulCount) saved; \(summary.failedCount) failed." :
-                    "Batch complete: \(summary.successfulCount) saved; \(summary.failedCount) failed."
+                generationStatus = (summary.cancelled ? "Stopped" : "Complete") + ": \(summary.successfulCount) saved; \(summary.failedCount) failed; \(summary.skippedCount) skipped."
                 announce(generationStatus)
                 Self.logger.info("Settled batch \(summary.id.uuidString, privacy: .public), saved \(summary.successfulCount), failed \(summary.failedCount), cancelled \(summary.cancelled)")
                 Task { await notify(summary) }
@@ -761,6 +891,7 @@ final class IntakeModel {
                 generationStatus = "Batch cancelled before generation."
                 for document in request.documents {
                     outcomes[document.id] = DocumentOutcome(id: document.id, state: .cancelled, destination: document.destination)
+                    retryQueued.insert(document.id)
                 }
             } catch {
                 generationStatus = error.localizedDescription
@@ -773,7 +904,8 @@ final class IntakeModel {
             log?.record("batch=\(request.id) settled: \(generationStatus)")
             if log?.writeFailed == true { debugLogStatus = "Debug logging stopped because its file could not be written. Processing was unaffected." }
             progressTask?.cancel(); progressTask = nil
-            activeBatch = nil; activityProgress = nil; speechProgress = nil; batchScopes = []
+            activeBatch = nil; queueControl = nil; queueState = nil; batchOrder = []
+            activityProgress = nil; speechProgress = nil; batchScopes = []
             if let activity { ProcessInfo.processInfo.endActivity(activity); self.activity = nil }
             generationTask = nil; status = generationStatus
             replan()
@@ -784,6 +916,9 @@ final class IntakeModel {
     private func receive(_ event: BatchEvent) {
         guard let batch = activeBatch, generationTask?.isCancelled != true else { return }
         switch event {
+        case .control(let value) where value.batch == batch.id:
+            guard value.sequence >= (queueState?.sequence ?? 0) else { return }
+            queueState = value
         case .preparing(let id, let job) where id == batch.id:
             guard outcomes[job] == nil, activityProgress?.beginPreparation(job: job) == true else { return }
             states[job] = "Preparing text…"
@@ -826,12 +961,22 @@ final class IntakeModel {
     }
 
     func rowStatus(_ document: InputDocument) -> String {
+        if currentJob == document.id {
+            switch queueState?.phase {
+            case .paused: return "Paused"
+            case .pausing: return "Pausing…"
+            case .skipping: return "Skipping…"
+            default: break
+            }
+        }
+        if skippedExisting.contains(document.id) { return "Skipped: audio already exists" }
         if retryQueued.contains(document.id) { return isGenerating ? "Queued for next batch" : "Queued for retry" }
         if let outcome = outcomes[document.id] {
             switch outcome.state {
             case .published: return "Saved"
             case .failed: return "Failed: " + (outcome.message ?? "Unknown failure. Open Details.")
             case .cancelled: return "Cancelled"
+            case .skipped: return "Skipped"
             }
         }
         return states[document.id] ?? (isGenerating ? "Queued for next batch" : "Queued")
@@ -867,6 +1012,7 @@ final class IntakeModel {
     }
 
     func retry(_ document: InputDocument) {
+        skippedExisting.remove(document.id)
         retryQueued.insert(document.id); states[document.id] = "Queued for retry"; replan()
     }
 
@@ -877,16 +1023,17 @@ final class IntakeModel {
             NSWorkspace.shared.activateFileViewerSelecting([outcome.destination])
         }
     }
-    func retrySelected() { if let document = selectedDocument, hasSelectedFailure { retry(document) } }
+    func retrySelected() { if let document = selectedDocument, canQueueSelectedAgain { retry(document) } }
 
     func clearFinished() {
         guard !busy, !isGenerating else { return }
-        selection = Set(outcomes.keys).subtracting(retryQueued)
+        selection = Set(outcomes.keys).union(skippedExisting).subtracting(retryQueued)
         removeSelected()
     }
 
     func retryUnfinished() {
-        for document in documents where outcomes[document.id]?.state == .failed || outcomes[document.id]?.state == .cancelled {
+        for document in documents where outcomes[document.id]?.state == .failed || outcomes[document.id]?.state == .cancelled || outcomes[document.id]?.state == .skipped {
+            skippedExisting.remove(document.id)
             retryQueued.insert(document.id)
         }
         replan()

@@ -4,6 +4,20 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class FileDropTests: XCTestCase {
+    func testUnpackedEPUBDropKeepsTheBookTogether() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let book = root.appendingPathComponent("Unpacked Book.epub")
+        try FileManager.default.createDirectory(at: book, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("application/epub+zip".utf8).write(to: book.appendingPathComponent("mimetype"))
+        try Data("chapter content".utf8).write(to: book.appendingPathComponent("chapter.txt"))
+        let result = await FileDrop.load([NSItemProvider(object: book as NSURL), NSItemProvider(object: root as NSURL)])
+        XCTAssertEqual(result.unavailableItems, 0)
+        let collected = try InputCollector.collect(result.urls)
+        XCTAssertEqual(collected.documents.count, 1)
+        XCTAssertEqual(collected.documents.first?.source, book.standardizedFileURL.resolvingSymlinksInPath())
+        XCTAssertEqual(collected.documents.first?.kind, .epub)
+    }
     func testNativeURLAndFileReferenceGroupsMatchDirectIntakeAndDeduplicate() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Libro file drop \(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

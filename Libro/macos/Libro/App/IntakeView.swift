@@ -19,90 +19,67 @@ struct IntakeView: View {
     @Environment(\.openSettings) private var openSettings
     @State private var dropTarget = false
     @State private var showingNextBatchSettings = false
+    @State private var showingDetails = false
+    @State private var showingIssueNotice = false
+    @State private var issueNoticeMessages: [String] = []
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
+            Group {
                 if let batch = model.activeBatch {
-                    Label("Current batch · \(batch.documents.count) documents", systemImage: "waveform").appFont(.headline)
-                    Text(batchDescription(batch)).appFont(.callout).foregroundStyle(.secondary)
                     HStack {
-                        Text("\(model.candidates.count) documents waiting for the next batch")
-                            .appFont(.caption).foregroundStyle(.secondary)
+                        Text(batchDescription(batch)).appFont(.callout).foregroundStyle(.secondary)
                         Spacer()
                         Button("Next Batch Settings…") { showingNextBatchSettings = true }
                     }
-                } else {
-                    NarrationControls(model: model)
-                    setupStatus
-                }
-            }.padding(16)
+                } else { NarrationControls(model: model) }
+            }.padding(.horizontal, 16).padding(.vertical, 10)
             Divider()
             if model.displayedDocuments.isEmpty {
                 ContentUnavailableView {
                     Label("Add documents", systemImage: "doc.badge.plus")
                 } description: {
-                    Text("Drop TXT, Markdown, RTF, PDF files, or folders. Subfolders are included.")
+                    Text("Drop documents or folders, or use Add Documents.")
                 } actions: {
                     Button("Add Documents…") { model.openInputs() }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                DocumentQueueView(model: model).padding(.top, 12)
-            }
+            } else { DocumentQueueView(model: model).padding(.top, 8) }
             Divider()
-            VStack(alignment: .leading, spacing: 10) {
-                if let batch = model.activeBatch {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Current batch saves to").appFont(.caption).foregroundStyle(.secondary)
-                            Text(batch.outputDirectory.path).lineLimit(2).truncationMode(.middle)
-                                .textSelection(.enabled).help(batch.outputDirectory.path)
-                        }
-                        Spacer()
-                        Button("Reveal current batch output folder", systemImage: "folder") { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: batch.outputDirectory.path) }
-                            .labelStyle(.iconOnly)
-                    }
-                } else {
-                    DirectoryRow(model: model, label: "Save audio to", selection: model.output, role: .output)
-                }
-                inputAndPlanningFeedback
-                activity
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        if !model.isGenerating {
-                            Text("\(model.candidates.count) \(model.candidates.count == 1 ? "document" : "documents") queued")
-                                .appFont(.caption).foregroundStyle(.secondary)
-                            if let blocker = model.generationBlocker, blocker != .preparation, blocker != .intake, blocker != .planning {
-                                Text(blocker.message).appFont(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                    if model.outcomes.values.contains(where: { $0.state != .published }) {
-                        Button("Queue Unfinished") { model.retryUnfinished() }
-                            .disabled(model.documents.allSatisfy { model.outcomes[$0.id]?.state == .published || model.retryQueued.contains($0.id) || model.outcomes[$0.id] == nil })
-                            .help("Queue failed or cancelled documents for the next batch")
-                    }
-                    if model.isGenerating { Button("Cancel Batch") { model.cancel() } }
-                    else {
-                        Button("Generate Audio") { model.generate() }.buttonStyle(.borderedProminent)
-                            .disabled(!model.canGenerate).help(model.generationBlocker?.message ?? "Generate the queued documents")
-                    }
-                }
-            }.padding(16)
+            HStack(alignment: .center, spacing: 24) {
+                coverControls
+                Spacer(minLength: 12)
+                transportControls
+            }.padding(.horizontal, 16).padding(.vertical, 10)
+            Divider()
+            statusBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .overlay { if dropTarget { RoundedRectangle(cornerRadius: 8).stroke(.tint, lineWidth: 3).padding(4).allowsHitTesting(false) } }
-        .onDrop(of: [.fileURL], isTargeted: $dropTarget) { providers in model.importDrop(providers) }
+        .onDrop(of: [.fileURL], isTargeted: $dropTarget) { model.importDrop($0) }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Button("Add Documents…", systemImage: "doc.badge.plus") { model.openInputs() }.labelStyle(.titleAndIcon)
+                Button("Add Documents…", systemImage: "doc.badge.plus") { model.openInputs() }
+                    .help("Add documents to the queue")
                 Menu("Queue Actions", systemImage: "ellipsis") {
                     Button("Add Folder…", systemImage: "folder.badge.plus") { model.openInputs(foldersOnly: true) }
+                    Button("Queue Unfinished") { model.retryUnfinished() }
+                        .disabled(!model.outcomes.values.contains { $0.state == .failed || $0.state == .cancelled || $0.state == .skipped })
                     Divider()
                     Button("Remove Selected", systemImage: "minus") { model.removeSelected() }.disabled(model.selection.isEmpty || model.busy || model.isGenerating)
                     Button("Clear Finished") { model.clearFinished() }.disabled(!model.hasFinished || model.busy || model.isGenerating)
                     Button("Clear Queue") { model.clear() }.disabled(model.documents.isEmpty || model.busy || model.isGenerating)
+                    Divider()
+                    Button("Queue Details…", systemImage: "info.circle") { showingIssueNotice = false; showingDetails = true }
+                }
+                .popover(isPresented: $showingIssueNotice, arrowEdge: .top) { issueNotice }
+                .onChange(of: issueMessages) { previous, current in
+                    let added = current.filter { !previous.contains($0) }
+                    if current.isEmpty { showingIssueNotice = false }
+                    else if !added.isEmpty {
+                        issueNoticeMessages = added
+                        showingIssueNotice = true
+                    }
                 }
             }
         }
@@ -137,130 +114,217 @@ struct IntakeView: View {
                     Button("Queue Again") {
                         if let document = model.documents.first(where: { $0.id == details.id }) { model.retry(document) }
                         model.failureDetails = nil
-                    }.help("Queue this document; use Generate Audio to start the next batch")
+                    }.help("Queue this document; use Start to process the next batch")
                     Spacer()
                     Button("Done") { model.failureDetails = nil }.keyboardShortcut(.defaultAction)
                 }
             }.padding().frame(width: 560).onExitCommand { model.failureDetails = nil }
         }
-        .sheet(item: $model.preview) { preview in
-            VStack(alignment: .leading, spacing: 12) {
-                Text(preview.title).appFont(.headline)
-                if preview.isPDF { Text("PDF reading order and repeated headers may need review.").appFont(.caption).foregroundStyle(.secondary) }
-                ForEach(preview.warnings, id: \.self) { warning in
-                    Text(warning).appFont(.caption).foregroundStyle(.secondary)
-                }
-                LibroDocumentPreview(preview: preview)
-                Button("Done") { model.preview = nil }.keyboardShortcut(.defaultAction)
-            }.padding().frame(minWidth: 560, minHeight: 420).onExitCommand { model.preview = nil }
+        .sheet(isPresented: Binding(get: { model.preview != nil }, set: { if !$0 { model.dismissPreview() } })) {
+            LibroDocumentPreview(model: model)
         }
     }
 
-    @ViewBuilder private var setupStatus: some View {
-        if model.workspace?.url == nil {
-            HStack {
-                Label(model.workspace?.error ?? "Choose a Libro workspace to use local models.", systemImage: "exclamationmark.triangle")
-                    .appFont(.callout)
-                Spacer()
-                Button("Model Settings…") { model.settingsTab = .models; openSettings() }
+    private var transportControls: some View {
+        HStack(spacing: 16) {
+            transportButton(model.isGenerating ? (model.pauseRequested ? "Resume" : "Pause") : "Start",
+                symbol: model.isGenerating && !model.pauseRequested ? "pause.fill" : "play.fill",
+                color: .green, disabled: model.isStopping || (!model.isGenerating && !model.canGenerate),
+                help: model.isGenerating ? "Pause or resume at the next safe operation boundary"
+                    : (model.generationBlocker?.message ?? "Process queued documents")) {
+                if model.isGenerating { model.togglePause() } else { model.generate() }
             }
-        } else if model.isPreparingModel {
-            HStack { Text(model.preparationIsCheck ? "Checking speech setup…" : "Installing speech model…"); Spacer(); Button(model.preparationIsCheck ? "Cancel Check" : "Cancel Installation") { model.cancel() } }
-        } else if model.checkingAssets {
-            HStack { ProgressView().controlSize(.small); Text(model.readiness).appFont(.callout) }
-        } else if !model.assetsReady || model.setupVerificationFailed {
-            HStack(alignment: .center) {
-                Label(model.setupVerificationFailed ? model.preparationStatus : model.readiness, systemImage: "exclamationmark.triangle")
-                    .appFont(.callout).lineLimit(2)
-                Spacer()
-                Button("Speech Setup…") { model.settingsTab = .models; openSettings() }
-                    .help("Install a model or check speech setup in Models settings")
+            transportButton("Skip", symbol: "forward.end.fill", color: .blue,
+                disabled: model.queueState?.canSkip != true || model.isStopping,
+                help: "Confirm and skip the current item; unfinished audio is discarded") { model.confirmSkip() }
+            transportButton("Stop", symbol: "stop.fill", color: .red,
+                disabled: !model.isGenerating || model.isStopping,
+                help: "Stop the queue; saved audio is kept") { model.confirmStop() }
+        }.fixedSize()
+    }
+
+    private func transportButton(_ title: String, symbol: String, color: Color, disabled: Bool, help: String,
+                                 action: @escaping () -> Void) -> some View {
+        VStack(spacing: 3) {
+            Button(action: action) {
+                Image(systemName: symbol).appFont(.title2).frame(minWidth: 24, minHeight: 24)
+                    .foregroundStyle(disabled ? Color.secondary : color)
+            }
+            .buttonStyle(.glass).buttonBorderShape(.circle).controlSize(.large)
+            .disabled(disabled).accessibilityLabel(title).help(help)
+            Text(title).appFont(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
+        }
+    }
+
+    private var outputControls: some View {
+        let url = model.activeBatch?.outputDirectory ?? model.output?.url
+        return HStack(spacing: 8) {
+            Text("Save Location:").fixedSize()
+            Text(url?.path ?? "Choose a folder…")
+                .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                .frame(maxWidth: 280, alignment: .leading).help(url?.path ?? "No folder selected")
+            Button("Browse…") { model.browse(.output) }
+                .controlSize(.small).fixedSize()
+                .disabled(model.busy || model.isGenerating)
+                .help(model.isGenerating ? "Change the next destination in Next Batch Settings" : "Choose the output folder")
+        }.frame(maxWidth: 440, alignment: .trailing).layoutPriority(1)
+    }
+
+    @ViewBuilder private var coverControls: some View {
+        if !model.selection.isEmpty {
+            if model.outputFormat.supportsCoverArtwork {
+                CoverArtworkPicker(title: model.selection.count > 1 ? "Selected Covers" : "Cover Art",
+                    url: model.selectedCoverURL, selected: model.selectionHasCover,
+                    choose: model.chooseCover, remove: model.removeCover,
+                    failure: { model.planningError = $0 })
+                    .disabled(model.busy || model.isGenerating)
+            } else {
+                Text("WAV keeps cover choices for later exports").appFont(.caption).foregroundStyle(.secondary)
             }
         } else {
-            HStack {
-                Label("Ready for offline generation", systemImage: "checkmark.circle").appFont(.caption).foregroundStyle(.secondary)
-                Spacer()
-            }
-        }
-    }
-
-    @ViewBuilder private var inputAndPlanningFeedback: some View {
-        if let error = model.planningError, model.output?.url != nil {
-            Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red).textSelection(.enabled)
-        }
-        if let error = model.dropError { Label(error, systemImage: "exclamationmark.triangle").textSelection(.enabled) }
-        if let message = model.debugLogStatus { Label(message, systemImage: "exclamationmark.triangle").textSelection(.enabled) }
-        if model.planning { ProgressView("Checking output destinations…").controlSize(.small) }
-        if model.planned.contains(where: \.replacesExisting) {
-            Label("\(model.planned.filter(\.replacesExisting).count) existing outputs. Libro will ask before replacing them.", systemImage: "doc.on.doc")
+            Label("Select an item to edit its cover", systemImage: "photo")
                 .appFont(.caption).foregroundStyle(.secondary)
         }
-        if let summary = model.importSummary {
-            DisclosureGroup(model.issues.isEmpty ? "Import details" : "Input errors · \(model.issues.count)") {
-                Text(summary).appFont(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                if !model.issues.isEmpty {
-                    ScrollView {
-                        ForEach(Array(model.issues.enumerated()), id: \.offset) { _, issue in
-                            Text("\(issue.source.lastPathComponent): \(issue.message)").textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }.frame(maxHeight: 100)
+    }
+
+    private var statusBar: some View {
+        HStack(spacing: 12) {
+            Button { if !model.assetsReady || model.workspace?.url == nil || model.setupVerificationFailed { model.settingsTab = .models; openSettings() } else { showingDetails = true } } label: {
+                Label(appStatus, systemImage: appStatusSymbol).lineLimit(1)
+            }.buttonStyle(.plain).help(model.speechSetupDisabledReason ?? "\(model.readiness) · Click for queue details")
+            Divider().frame(height: 16)
+            Text(queueCounts).monospacedDigit().lineLimit(1).help("Queue totals; completed files are retained")
+            Divider().frame(height: 16)
+            HStack(spacing: 8) {
+                if hasIssues {
+                    Button("Review issues", systemImage: "exclamationmark.circle") { showingDetails = true }
+                        .buttonStyle(.plain).lineLimit(1).help("Show import, destination and queue diagnostics")
+                } else {
+                    Text(activityLabel).lineLimit(1).truncationMode(.middle)
+                        .help(model.isGenerating ? model.generationStatus : model.status)
                 }
-            }.appFont(.callout)
+                if model.isGenerating && model.queueState?.phase != .paused {
+                    if let fraction = activityFraction { ProgressView(value: fraction).frame(width: 100) }
+                    else { ProgressView().controlSize(.small) }
+                } else if model.isPreparingModel, let progress = model.preparationProgress, progress.totalBytes > 0 {
+                    ProgressView(value: Double(progress.completedBytes) / Double(progress.totalBytes)).frame(width: 100)
+                } else if model.busy || model.isPreparingModel || model.planning { ProgressView().controlSize(.small) }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            if model.busy || model.isPreparingModel {
+                Button("Cancel") { model.cancel() }.controlSize(.small)
+            }
+            Divider().frame(height: 16)
+            outputControls
         }
+        .appFont(.caption).padding(.horizontal, 12).padding(.vertical, 8)
+        .background(.bar)
+        .popover(isPresented: $showingDetails, arrowEdge: .top) { details }
     }
 
-    @ViewBuilder private var activity: some View {
-        if model.isGenerating {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(model.generationStatus).appFont(.callout).lineLimit(2).truncationMode(.middle)
-                    .help(model.generationStatus).textSelection(.enabled)
-                if let progress = model.activityProgress?.preparation?.progress {
-                    if let fraction = progress.fractionCompleted {
-                        ProgressView(value: fraction) {
-                            Text(progress.countLabel ?? "Preparing document…").appFont(.caption)
-                        }.accessibilityLabel(progress.countLabel ?? "Document preparation")
-                    } else { ProgressView().controlSize(.small) }
-                } else if let progress = model.speechProgress, progress.phase != .publishing {
-                    ProgressView(value: Double(progress.completedChunks), total: Double(max(1, progress.totalChunks))) {
-                        Text("\(progress.completedChunks) of \(progress.totalChunks) chunks").appFont(.caption)
-                    }
-                    DisclosureGroup("Generation details") {
-                        Text("\(progress.completedChunks) of \(progress.totalChunks) chunks")
-                            .appFont(.caption).foregroundStyle(.secondary)
-                    }
-                } else { ProgressView().controlSize(.small) }
+    private var appStatus: String {
+        if model.isPreparingModel { return model.preparationIsCheck ? "Checking model" : "Installing model" }
+        if model.checkingAssets { return "Checking model" }
+        if model.workspace?.url == nil { return "Choose workspace" }
+        if !model.assetsReady || model.setupVerificationFailed { return "Model setup needed" }
+        return "Ready"
+    }
+    private var appStatusSymbol: String {
+        if model.checkingAssets || model.isPreparingModel { return "clock" }
+        return model.workspace?.url != nil && model.assetsReady && !model.setupVerificationFailed ? "checkmark.circle" : "exclamationmark.triangle"
+    }
+    private var queueCounts: String {
+        let waiting = model.candidates.count + (model.queueState?.pending.count ?? 0)
+        let saved = model.outcomes.values.filter { $0.state == .published }.count
+        let failed = model.outcomes.values.filter { $0.state == .failed }.count
+        let skipped = Set(model.outcomes.filter { $0.value.state == .skipped }.keys).union(model.skippedExisting).count
+        return "\(waiting) queued · \(saved) saved" + (failed > 0 ? " · \(failed) failed" : "") + (skipped > 0 ? " · \(skipped) skipped" : "")
+    }
+    private var issueMessages: [String] {
+        let messages = [model.planningError, model.output?.error, model.workspace?.error, model.dropError,
+            model.setupVerificationFailed ? model.preparationStatus : nil]
+            .compactMap { $0 } + model.issues.map { "\($0.source.lastPathComponent): \($0.message)" }
+            + model.documents.compactMap { document -> String? in
+                guard let outcome = model.outcomes[document.id], outcome.state == .failed else { return nil }
+                return "\(document.source.lastPathComponent): \(outcome.message ?? "Generation failed.")"
             }
-        } else if model.isPreparingModel {
-            PreparationProgressView(model: model)
-        } else if model.busy && !model.hasOwnedProbe {
+        return messages.filter { !$0.isEmpty }.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+    }
+    private var hasIssues: Bool { !issueMessages.isEmpty }
+    private var issueNotice: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Queue issue", systemImage: "exclamationmark.triangle").appFont(.headline)
+            ForEach(Array(issueNoticeMessages.prefix(3).enumerated()), id: \.offset) { _, message in
+                Text(message).lineLimit(4).textSelection(.enabled)
+            }
             HStack {
-                ProgressView().controlSize(.small)
-                Text(model.activityStatus).appFont(.callout)
-                Spacer(); Button(model.inputCancelLabel) { model.cancelIntake() }
+                Button("View diagnostics…") { showingIssueNotice = false; showingDetails = true }
+                Spacer()
+                Button("Dismiss") { showingIssueNotice = false }
             }
-        } else if let summary = model.batchSummary {
-            Label(model.generationStatus, systemImage: summary.cancelled ? "stop.circle" : (summary.failedCount > 0 ? "exclamationmark.circle" : "checkmark.circle"))
-                .appFont(.callout).textSelection(.enabled)
-            idleFeedback
-        } else {
-            if let summary = model.notificationSummary { Text(summary).appFont(.callout) }
-            idleFeedback
-        }
+        }.appFont(.callout).padding(12).frame(width: 340)
     }
-
-    @ViewBuilder private var idleFeedback: some View {
-        if model.status != "Add documents or drop files and folders here.", model.status != model.importSummary,
-           model.status != model.generationStatus, model.status != model.probeStatus {
-            Text(model.status).appFont(.callout).textSelection(.enabled)
-        } else if model.batchSummary == nil, !model.generationStatus.isEmpty {
-            Text(model.generationStatus).appFont(.callout).textSelection(.enabled)
+    private var activityLabel: String {
+        if model.isStopping { return "Stopping…" }
+        if hasIssues { return "Review details" }
+        if model.isGenerating {
+            switch model.queueState?.phase {
+            case .paused: return "Paused"
+            case .pausing: return "Pausing…"
+            case .skipping: return "Skipping…"
+            default: break
+            }
+            if let progress = model.activityProgress?.preparation?.progress {
+                return QueueStatusPresentation.preparation(progress)
+            }
+            if let speech = model.speechProgress {
+                return speech.phase == .publishing ? "Saving audio…" : "Narrating \(speech.completedChunks)/\(speech.totalChunks)"
+            }
+            return "Starting…"
         }
+        if model.isPreparingModel { return model.preparationIsCheck ? "Checking setup…" : "Installing…" }
+        if model.busy { return model.hasCoverWork ? "Preparing…" : "Analyzing inputs…" }
+        if model.planning { return "Checking destinations…" }
+        if let summary = model.batchSummary { return summary.cancelled ? "Stopped" : "Batch complete" }
+        return "Drop documents to add · Double-click to preview"
     }
-
+    private var activityFraction: Double? {
+        if let progress = model.activityProgress?.preparation?.progress { return progress.fractionCompleted }
+        if let progress = model.speechProgress, progress.totalChunks > 0, progress.phase != .publishing {
+            return Double(progress.completedChunks) / Double(progress.totalChunks)
+        }
+        return nil
+    }
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Queue Details").appFont(.headline)
+            if model.isPreparingModel { PreparationProgressView(model: model) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(detailMessages.enumerated()), id: \.offset) { _, text in
+                        Text(text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }.frame(maxHeight: 250)
+            HStack {
+                if !model.assetsReady || model.setupVerificationFailed { Button("Model Settings…") { showingDetails = false; model.settingsTab = .models; openSettings() } }
+                Spacer()
+                Button("Done") { showingDetails = false }.keyboardShortcut(.defaultAction)
+            }
+        }.padding(16).frame(width: 440)
+    }
+    private var detailMessages: [String] {
+        let values: [String?] = issueMessages.map(Optional.some) + [model.debugLogStatus,
+            model.isGenerating ? model.generationStatus : nil,
+            model.isPreparingModel ? model.preparationStatus : nil,
+            model.busy ? model.activityStatus : nil, model.readiness,
+            model.status, model.importSummary, model.notificationSummary, model.notificationStatus,
+            model.generationBlocker?.message,
+            "Pause finishes the current operation before waiting. Skip discards unfinished audio. Saved files are kept.",
+            "Drag rows to reorder waiting items. Current and finished batch items stay fixed; new imports belong to the next batch."]
+        return values.compactMap { $0 }.filter { !$0.isEmpty }.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+    }
     private func batchDescription(_ batch: BatchRequest) -> String {
         let narration = batch.settings.model == .kokoro ? "Kokoro · \(VoicePresentation.name(batch.settings.voice)) · \(String(format: "%.2f", batch.settings.speed))×" : "Soprano"
         return "\(narration) · \(batch.outputFormat.rawValue.uppercased())"
     }
 }
-

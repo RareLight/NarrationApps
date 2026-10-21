@@ -33,4 +33,10 @@ public struct BatchActivityProgress {
         speechStarted = true; preparation = nil
         return true
     }
+    public mutating func reorderPending(jobs: [UUID]) {
+        let previous = positions.sorted { $0.value < $1.value }.map(\.key)
+        guard Set(jobs) == Set(previous), jobs.count == previous.count,
+              Array(jobs.prefix(position + 1)) == Array(previous.prefix(position + 1)) else { return }
+        positions = Dictionary(uniqueKeysWithValues: jobs.enumerated().map { ($0.element, $0.offset) })
+    }
 }

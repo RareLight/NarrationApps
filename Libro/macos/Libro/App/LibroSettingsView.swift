@@ -14,14 +14,14 @@ import OSLog
 @preconcurrency import UserNotifications
 
 enum SettingsTab: String, SettingsPane {
-    case general = "General", models = "Models", pronunciation = "Pronunciation", troubleshooting = "Troubleshooting"
+    case general = "General", document = "Document", models = "Models", pronunciation = "Pronunciation", troubleshooting = "Troubleshooting"
     var id: Self { self }
     var title: String { rawValue }
     var systemImage: String {
-        switch self { case .general: "gearshape"; case .models: "shippingbox"; case .pronunciation: "text.word.spacing"; case .troubleshooting: "stethoscope" }
+        switch self { case .general: "gearshape"; case .document: "doc.text"; case .models: "shippingbox"; case .pronunciation: "text.word.spacing"; case .troubleshooting: "stethoscope" }
     }
     var help: String {
-        switch self { case .general: "Appearance, narration and completion alerts"; case .models: "Speech models, storage and setup"; case .pronunciation: "Shared word pronunciations and live voice previews"; case .troubleshooting: "Debug logs and helper diagnostics" }
+        switch self { case .general: "Appearance and completion alerts"; case .document: "Choose what text is read and how printed words are joined"; case .models: "Speech models, storage and setup"; case .pronunciation: "Shared word pronunciations and live voice previews"; case .troubleshooting: "Debug logs and helper diagnostics" }
     }
 }
 
@@ -78,6 +78,7 @@ struct LibroSettingsView: View {
             Group {
                 switch model.settingsTab {
                 case .general: general
+                case .document: document
                 case .models: models
                 case .pronunciation:
                     PronunciationSettingsView(preview: model.pronunciationPreview, configuration: model.pronunciationConfiguration,
@@ -93,19 +94,26 @@ struct LibroSettingsView: View {
         Form {
             AppearanceSettingsSection(textSize: $textSize)
             Section {
-                NarrationOptionsControls(options: $model.narrationOptions)
-            } header: {
-                SettingsSectionHeader(title: "Document Narration", explanation: "Controls explicitly marked notes and auxiliary sections in future batches. Unclassified prose and bibliographies are retained. Preview shows the resulting narration.")
-            }
-            ImageDescriptionSettingsSection(enabled: $model.describeImages,
-                additionalHelp: "Applies to the next batch. The current batch keeps its settings.")
-                .disabled(model.isGenerating || model.isPreparingModel)
-            Section {
                 Text(model.notificationStatus ?? "Notification permission is requested when you first generate audio.")
                     .appFont(.secondary)
             } header: {
                 SettingsSectionHeader(title: "Completion alerts", explanation: "Libro requests macOS notification permission when you first generate audio. One private summary follows each completed batch; cancelled batches do not send a success alert.")
             }
+        }.formStyle(.grouped)
+    }
+
+    private var document: some View {
+        Form {
+            Section {
+                Text("These choices affect new previews and future batches. Original documents and finished recordings stay unchanged.")
+                    .appFont(.secondary).foregroundStyle(.secondary)
+                NarrationOptionsControls(options: $model.narrationOptions, showsExamples: true)
+            } header: {
+                SettingsSectionHeader(title: "Text to read", explanation: "Choose which marked sections are spoken and how split PDF words are joined. Preview a document to check its narration.")
+            }
+            ImageDescriptionSettingsSection(enabled: $model.describeImages,
+                additionalHelp: "Applies to the next batch. The current batch keeps its settings.", showsExample: true)
+                .disabled(model.isGenerating || model.isPreparingModel)
         }.formStyle(.grouped)
     }
 

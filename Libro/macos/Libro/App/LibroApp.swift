@@ -46,10 +46,15 @@ struct LibroApp: App {
                     .disabled(model.selectedDocument == nil || model.busy)
                 Button("Play or Stop Selected Audio") { model.playSelected() }.disabled(!model.hasSelectedAudio)
                 Button("Reveal Selected Audio") { model.revealSelected() }.disabled(!model.hasSelectedAudio)
-                Button("Queue Selected Document Again") { model.retrySelected() }.disabled(!model.hasSelectedFailure)
+                Button("Queue Selected Document Again") { model.retrySelected() }.disabled(!model.canQueueSelectedAgain)
                 Divider()
-                Button("Generate Audio") { model.generate() }.keyboardShortcut("g", modifiers: [.command, .shift]).disabled(!model.canGenerate)
-                Button("Cancel Processing") { model.cancel() }.keyboardShortcut(".").disabled(!model.cancellable)
+                Button("Start Queue") { model.generate() }.keyboardShortcut("g", modifiers: [.command, .shift]).disabled(!model.canGenerate)
+                Button(model.pauseRequested ? "Resume Queue" : "Pause Queue") { model.togglePause() }
+                    .keyboardShortcut("p", modifiers: [.command, .shift]).disabled(!model.isGenerating || model.isStopping)
+                Button("Skip Current Item…") { model.confirmSkip() }.disabled(model.queueState?.canSkip != true || model.isStopping)
+                Button(model.isGenerating ? "Stop Queue…" : "Cancel Processing") {
+                    if model.isGenerating { model.confirmStop() } else { model.cancel() }
+                }.keyboardShortcut(".").disabled(!model.cancellable || model.isStopping)
             }
         }
         Window("Set Up Libro Speech", id: "speech-setup") {

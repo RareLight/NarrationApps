@@ -7,25 +7,25 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		074E92BBE7084FD3988DA58E /* App/IntakeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B48E1083D71A476A997BC35E /* App/IntakeModel.swift */; };
 		10B51A969E4F242F17B88406 /* App/LibroApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC1C6FF747A9524174F17C4 /* App/LibroApp.swift */; };
+		1FFC94B1BF034BC18DF9C0D8 /* App/LibroSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97753B1D118401F82E26F41 /* App/LibroSettingsView.swift */; };
 		22B575B1728FB1B8F951F66A /* Worker/WorkerMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F16744B7350406D43A58FF /* Worker/WorkerMain.swift */; };
 		2ECF33268C9C7214ED56E0AA /* LibroCore in Frameworks */ = {isa = PBXBuildFile; productRef = 33D69C9690A9998D8D4A1229 /* LibroCore */; };
+		732943C520234733AA658574 /* App/LibroSpeechSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40FBC2B64EF049D0B8D29267 /* App/LibroSpeechSetupView.swift */; };
+		91178D9C100243BDB2649379 /* App/DocumentQueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E34EC419CA4D2593344709 /* App/DocumentQueueView.swift */; };
 		9267B4B7756817FA057F51FE /* LibroCore in Frameworks */ = {isa = PBXBuildFile; productRef = CD133579BA2FB1354850D8F3 /* LibroCore */; };
+		9604EF5B431C48B686AF814B /* App/NarrationControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E11D66161C3436DBC8A89E2 /* App/NarrationControls.swift */; };
 		B20000000000000000000001 /* AppPresentation in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000001 /* AppPresentation */; };
 		B20000000000000000000002 /* NativeSpeechEngine in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000002 /* NativeSpeechEngine */; };
 		B20000000000000000000003 /* PronunciationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000003 /* PronunciationUI */; };
 		B20000000000000000000004 /* NarrationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000004 /* NarrationUI */; };
 		B90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices in Resources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices */; };
 		C81C019B76B042E1B2EF1101 /* Resources/AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C81C019B76B042E1B2EF1102 /* Resources/AppIcon.icon */; };
+		C918E7C2A7474450A3575AE2 /* App/LibroDocumentPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9343CDF140846F2A4E905B2 /* App/LibroDocumentPreview.swift */; };
 		E9BB6229E1674CFF8A79B501 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib in Embed MP3 Encoder */ = {isa = PBXBuildFile; fileRef = E9BB6229E1674CFF8A79B502 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		F5F7DE2B7047390DE36C91C9 /* LibroSpeechWorker in Embed Native Worker */ = {isa = PBXBuildFile; fileRef = F7507973396415592C8F0DD8 /* LibroSpeechWorker */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		C918E7C2A7474450A3575AE2 = {isa = PBXBuildFile; fileRef = A9343CDF140846F2A4E905B2; };
-		1FFC94B1BF034BC18DF9C0D8 = {isa = PBXBuildFile; fileRef = C97753B1D118401F82E26F41; };
-		9604EF5B431C48B686AF814B = {isa = PBXBuildFile; fileRef = 7E11D66161C3436DBC8A89E2; };
-		91178D9C100243BDB2649379 = {isa = PBXBuildFile; fileRef = D0E34EC419CA4D2593344709; };
-		FD6055210BEA481D8DA07A00 = {isa = PBXBuildFile; fileRef = 066019BBF21C45B99F972F3F; };
-		732943C520234733AA658574 = {isa = PBXBuildFile; fileRef = 40FBC2B64EF049D0B8D29267; };
-		074E92BBE7084FD3988DA58E = {isa = PBXBuildFile; fileRef = B48E1083D71A476A997BC35E; };
+		FD6055210BEA481D8DA07A00 /* App/IntakeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 066019BBF21C45B99F972F3F /* App/IntakeView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -64,23 +64,23 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		066019BBF21C45B99F972F3F /* App/IntakeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/IntakeView.swift; sourceTree = "<group>"; };
+		40FBC2B64EF049D0B8D29267 /* App/LibroSpeechSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/LibroSpeechSetupView.swift; sourceTree = "<group>"; };
 		763D774377779C412BB71F6F /* Libro.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Libro.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A2242B09BA5CE9CA8DD66E7 /* Configuration/Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/Shared.xcconfig; sourceTree = "<group>"; };
+		7E11D66161C3436DBC8A89E2 /* App/NarrationControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/NarrationControls.swift; sourceTree = "<group>"; };
 		A425048EFBC181F45D8343FD /* LibroCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = LibroCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A9343CDF140846F2A4E905B2 /* App/LibroDocumentPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/LibroDocumentPreview.swift; sourceTree = "<group>"; };
+		B48E1083D71A476A997BC35E /* App/IntakeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/IntakeModel.swift; sourceTree = "<group>"; };
 		C7F16744B7350406D43A58FF /* Worker/WorkerMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Worker/WorkerMain.swift; sourceTree = "<group>"; };
 		C81C019B76B042E1B2EF1102 /* Resources/AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = Resources/AppIcon.icon; sourceTree = "<group>"; };
+		C97753B1D118401F82E26F41 /* App/LibroSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/LibroSettingsView.swift; sourceTree = "<group>"; };
+		D0E34EC419CA4D2593344709 /* App/DocumentQueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DocumentQueueView.swift; sourceTree = "<group>"; };
 		DCC1C6FF747A9524174F17C4 /* App/LibroApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/LibroApp.swift; sourceTree = "<group>"; };
 		E9BB6229E1674CFF8A79B502 /* ../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; path = "../../../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib"; sourceTree = "<group>"; };
 		F39DB396A68008CF77BCB592 /* Configuration/App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/App.xcconfig; sourceTree = "<group>"; };
 		F7507973396415592C8F0DD8 /* LibroSpeechWorker */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = LibroSpeechWorker; sourceTree = BUILT_PRODUCTS_DIR; };
 		F90000000000000000000001 /* ../../../swift-packages/ThirdPartyNotices */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "../../../swift-packages/ThirdPartyNotices"; sourceTree = "<group>"; };
-		A9343CDF140846F2A4E905B2 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/LibroDocumentPreview.swift"; sourceTree = "<group>"; };
-		C97753B1D118401F82E26F41 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/LibroSettingsView.swift"; sourceTree = "<group>"; };
-		7E11D66161C3436DBC8A89E2 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/NarrationControls.swift"; sourceTree = "<group>"; };
-		D0E34EC419CA4D2593344709 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/DocumentQueueView.swift"; sourceTree = "<group>"; };
-		066019BBF21C45B99F972F3F = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/IntakeView.swift"; sourceTree = "<group>"; };
-		40FBC2B64EF049D0B8D29267 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/LibroSpeechSetupView.swift"; sourceTree = "<group>"; };
-		B48E1083D71A476A997BC35E = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/IntakeModel.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -122,13 +122,13 @@
 			isa = PBXGroup;
 			children = (
 				DCC1C6FF747A9524174F17C4 /* App/LibroApp.swift */,
-				B48E1083D71A476A997BC35E,
-				40FBC2B64EF049D0B8D29267,
-				066019BBF21C45B99F972F3F,
-				D0E34EC419CA4D2593344709,
-				7E11D66161C3436DBC8A89E2,
-				C97753B1D118401F82E26F41,
-				A9343CDF140846F2A4E905B2,
+				B48E1083D71A476A997BC35E /* App/IntakeModel.swift */,
+				40FBC2B64EF049D0B8D29267 /* App/LibroSpeechSetupView.swift */,
+				066019BBF21C45B99F972F3F /* App/IntakeView.swift */,
+				D0E34EC419CA4D2593344709 /* App/DocumentQueueView.swift */,
+				7E11D66161C3436DBC8A89E2 /* App/NarrationControls.swift */,
+				C97753B1D118401F82E26F41 /* App/LibroSettingsView.swift */,
+				A9343CDF140846F2A4E905B2 /* App/LibroDocumentPreview.swift */,
 				C81C019B76B042E1B2EF1102 /* Resources/AppIcon.icon */,
 				C7F16744B7350406D43A58FF /* Worker/WorkerMain.swift */,
 				736BF95996D40C71307E3727 /* ../LibroCore/Tests/LibroCoreTests */,
@@ -333,13 +333,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				10B51A969E4F242F17B88406 /* App/LibroApp.swift in Sources */,
-				074E92BBE7084FD3988DA58E,
-				732943C520234733AA658574,
-				FD6055210BEA481D8DA07A00,
-				91178D9C100243BDB2649379,
-				9604EF5B431C48B686AF814B,
-				1FFC94B1BF034BC18DF9C0D8,
-				C918E7C2A7474450A3575AE2,
+				074E92BBE7084FD3988DA58E /* App/IntakeModel.swift in Sources */,
+				732943C520234733AA658574 /* App/LibroSpeechSetupView.swift in Sources */,
+				FD6055210BEA481D8DA07A00 /* App/IntakeView.swift in Sources */,
+				91178D9C100243BDB2649379 /* App/DocumentQueueView.swift in Sources */,
+				9604EF5B431C48B686AF814B /* App/NarrationControls.swift in Sources */,
+				1FFC94B1BF034BC18DF9C0D8 /* App/LibroSettingsView.swift in Sources */,
+				C918E7C2A7474450A3575AE2 /* App/LibroDocumentPreview.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

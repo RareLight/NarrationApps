@@ -11,6 +11,11 @@
 <key>LSMinimumSystemVersion</key><string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 <key>LSApplicationCategoryType</key><string>$(INFOPLIST_KEY_LSApplicationCategoryType)</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>UTExportedTypeDeclarations</key><array>
+<dict><key>UTTypeIdentifier</key><string>app.libro.queue-rows</string>
+<key>UTTypeDescription</key><string>Libro queue rows</string>
+<key>UTTypeConformsTo</key><array><string>public.data</string></array></dict>
+</array>
 <key>CFBundleDocumentTypes</key><array>
 <dict><key>CFBundleTypeName</key><string>Narration documents and folders</string>
 <key>CFBundleTypeRole</key><string>Viewer</string>

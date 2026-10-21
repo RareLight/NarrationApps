@@ -1,5 +1,36 @@
 # Libro validation
 
+## Native queue controls
+
+The October 20 follow-up adds native glass Start/Pause/Resume, confirmed Skip and
+separate Stop controls below the divider beside cover editing, native table drag
+reordering, and one concise status bar with Save Location/path/Browse. Queue Actions
+retains full diagnostics and anchors popovers for new import/destination/setup/generation
+errors; issue messages are also clickable. The
+[current status](../../docs/IMPLEMENTATION_STATUS.md#native-queue-controls-and-compact-status)
+owns automated evidence and the new review candidate. Operator L02/L05/L12/L13
+cover appearance, interactions, safe boundaries and narrower/larger-text windows.
+All 35 shared control/scheduling and 32 LibroCore tests pass, along with the full
+fixture gate, both workspace configurations and all four complete bundle audits.
+
+The destination path remains selectable and truncates in the middle when space
+is limited. The shared current status above records automated evidence and the
+latest separate review candidate. GUI acceptance remains operator-owned.
+The transport/status-footer candidate is
+`../../.build/TransportFooterValidation/Build/Products/Release/Libro.app`;
+the full fixture gate, Debug/Release builds and all four bundle audits pass.
+
+## EPUB queue and output choices
+
+The October 20 follow-up accepts unpacked `.epub` folders as one book and requeues
+explicitly re-added finished sources. Existing audio is handled at Generate Audio
+through Overwrite Existing / Skip Existing / Cancel; skipped rows can be queued
+again. All 21 EPUB and five queue/drop tests, the final full fixture gate, both
+workspace configurations and all four complete bundle audits pass. The
+[shared current status](../../docs/IMPLEMENTATION_STATUS.md#epub-queue-and-existing-outputs)
+owns automated evidence and the fresh review build path. L05/L13/L16 remain
+operator-owned for Finder drop, dialog interaction and actual-book listening.
+
 The operator confirmed on October 16, 2026 that both relocated apps build and run.
 This accepts the basic workspace/build/launch smoke check; detailed document,
 listening, setup, persistence and live-service cases below remain separate.
@@ -18,7 +49,7 @@ Coordinated quick/full/native/release commands and evidence are documented in th
 root [development gates](../../docs/DEVELOPMENT.md).
 
 The [consolidated checklist](../../docs/OPERATOR_VALIDATION.md#libro)
-is the only manual test list: L01–L19 for Libro, B01–B06 for shared behavior and
+is the only manual test list: L01–L20 for Libro, B01–B07 for shared behavior and
 conditional installation/distribution checks. The earlier A/B profile choice is
 complete; final GUI/playback, OCR/caption quality and the original private
 12-page PDF/600-word Markdown memory retest remain operator-owned. Synthetic
@@ -54,6 +85,16 @@ manual overrides/removal and cancellation
 through L17 in the consolidated checklist. Covers stay uncropped, original source
 bytes/audio stay unchanged, and a missing optional cover must not stop other imports.
 
+## Progressive PDF preview candidate
+
+The shared [current status](../../docs/IMPLEMENTATION_STATUS.md#libro-progressive-pdf-previews)
+records the live narration/source preview follow-up and its automated evidence.
+PDF previews begin at the rounded-up first 5%, capped at five pages, then grow in
+the background. Partial results are labeled; closing cancels the remaining work.
+Review layout, resizing, scrolling, completion and close/reopen behavior through
+operator L20. Existing cover-row changes remain in this candidate; prior app
+bundles and completed recordings are preserved.
+
 ## Existing feature gates
 
 For package-resolution and diagnostic steps use [troubleshooting](TROUBLESHOOTING.md).
@@ -77,3 +118,18 @@ operator checks.
 When checking L17, confirm the empty-selection hint points to cover art and WAV
 explains which formats support it. The existing-output confirmation should list
 the conflicting output filenames; Cancel must leave those files untouched.
+
+The October 18 Settings follow-up adds Document between General and Models. L02/L19
+now covers its plain-language text controls, hover help, changing illustrative
+examples and image descriptions. Examples start collapsed behind Show example,
+with a trailing rotating chevron; Pronunciation remains only in its own pane.
+L04 also covers the centered 75%-width pronunciation list and editing buttons,
+which resize with the window. Saved choices/defaults and batch capture semantics
+are unchanged; VoiceRelay shares the new control labels and dictionary layout.
+
+The citation/column follow-up renames Footnotes and adds two off-by-default citation
+choices. L19 covers independent inline/endnote filtering and explanatory-note
+preservation; B06/B07 covers always-on recurring margins, supported columns and
+dictionary-constrained word repairs. Three operator-authorized book comparisons
+stay private under the parent's `.local/document-cleanup/`; see the shared status
+for final automated evidence. GUI/listening acceptance remains separate.
