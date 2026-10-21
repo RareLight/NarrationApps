@@ -109,6 +109,17 @@ struct SyncMenuProgress: View {
 final class VoiceRelayApplicationDelegate: NSObject, NSApplicationDelegate {
     var model: AppModel?
     private var terminationTask: Task<Void, Never>?
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        captureLoginLaunch()
+    }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        captureLoginLaunch()
+    }
+    private func captureLoginLaunch() {
+        if LoginLaunchContext.isLoginItemLaunch(NSAppleEventManager.shared().currentAppleEvent) {
+            model?.launchedAtLogin = true
+        }
+    }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
         if terminationTask == nil {
@@ -129,6 +140,7 @@ struct VoiceRelayApp: App {
     init() {
         umask(0o077)
         let model = AppModel()
+        model.launchedAtLogin = LoginLaunchContext.isLoginItemLaunch(NSAppleEventManager.shared().currentAppleEvent)
         _model = State(initialValue: model)
         delegate.model = model
     }
@@ -143,19 +155,22 @@ struct VoiceRelayApp: App {
                     .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
             }
             .windowResizability(.contentSize)
-            .defaultLaunchBehavior(model.runtimeSetupNeededAtLaunch ? .presented : .suppressed)
+            .defaultLaunchBehavior(model.runtimeSetupNeededAtLaunch && !model.launchedAtLogin ? .presented : .suppressed)
             .restorationBehavior(.disabled)
             Settings {
 
                 SettingsView(model: model).appTextSizing(model.textSize).background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
             }
             .windowResizability(.contentMinSize)
+            .restorationBehavior(model.launchedAtLogin ? .disabled : .automatic)
             Window("VoiceRelay", id: "articles") {
                 WorkspaceView(model: model).appTextSizing(model.textSize)
                     .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
                     .frame(minWidth: 760, minHeight: 480)
             }
             .defaultSize(width: 980, height: 640)
+            .defaultLaunchBehavior(model.launchedAtLogin ? .suppressed : .automatic)
+            .restorationBehavior(model.launchedAtLogin ? .disabled : .automatic)
             WindowGroup("Article Preview", for: URL.self) { $url in
                 if let url {
                     let profile = model.previewProfiles[url]
@@ -167,6 +182,7 @@ struct VoiceRelayApp: App {
                 }
             }
             .defaultSize(width: 720, height: 560)
+            .restorationBehavior(model.launchedAtLogin ? .disabled : .automatic)
             .commands { LibraryCommands(model: model) }
             WindowGroup("VoiceRelay Help", for: AppHelpTopic.self) { $topic in
                 if let topic {
@@ -175,6 +191,7 @@ struct VoiceRelayApp: App {
                         .frame(minWidth: 420, minHeight: 320)
                 }
             }.defaultSize(width: 560, height: 500)
+                .restorationBehavior(model.launchedAtLogin ? .disabled : .automatic)
         }.commands { AppHelpCommands(model: model); TextSizeCommands(model: model) }
     }
 }

@@ -57,7 +57,12 @@ private enum SkipNativeFixture: Error { case unavailable }
     let phase = try #require(objects.values.first { $0["isa"] as? String == "PBXCopyFilesBuildPhase" && $0["name"] as? String == "Embed Native Worker" })
     // Destination 1 is already relative to the app wrapper; Contents/Helpers
     // must not include CONTENTS_FOLDER_PATH (which includes VoiceRelay.app).
-    #expect(phase["dstSubfolderSpec"] as? String == "1")
+    if let destination = phase["dstSubfolder"] as? String {
+        // Current Xcode writes the symbolic destination; older projects use spec 1.
+        #expect(destination == "Wrapper")
+    } else {
+        #expect(phase["dstSubfolderSpec"] as? String == "1")
+    }
     #expect(phase["dstPath"] as? String == "Contents/Helpers")
 }
 

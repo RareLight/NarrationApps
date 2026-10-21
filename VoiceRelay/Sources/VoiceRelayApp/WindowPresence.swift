@@ -1,5 +1,46 @@
 import AppKit
 import SwiftUI
+import ServiceManagement
+import Carbon
+
+enum LoginLaunchContext {
+    static func isLoginItemLaunch(_ event: NSAppleEventDescriptor?) -> Bool {
+        guard event?.eventID == kAEOpenApplication else { return false }
+        return event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+    }
+}
+
+enum LoginItemStatus: Equatable {
+    case notRegistered, enabled, requiresApproval, notFound
+    var requested: Bool { self == .enabled || self == .requiresApproval }
+}
+
+/// The OS registration is the source of truth; no preference silently re-enables a revoked item.
+@MainActor
+protocol LoginItemService {
+    var status: LoginItemStatus { get }
+    func setEnabled(_ enabled: Bool) async throws
+    func openSettings()
+}
+
+@MainActor
+final class MainAppLoginItemService: LoginItemService {
+    private let service = SMAppService.mainApp
+    var status: LoginItemStatus {
+        switch service.status {
+        case .notRegistered: .notRegistered
+        case .enabled: .enabled
+        case .requiresApproval: .requiresApproval
+        case .notFound: .notFound
+        @unknown default: .notFound
+        }
+    }
+    func setEnabled(_ enabled: Bool) async throws {
+        if enabled { try service.register() }
+        else { try await service.unregister() }
+    }
+    func openSettings() { SMAppService.openSystemSettingsLoginItems() }
+}
 
 /// Only ordinary scene windows register here. MenuBarExtra's framework windows never count.
 @MainActor

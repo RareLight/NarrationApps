@@ -48,7 +48,10 @@ to have isolated figure geometry. Exact UI labels/ownership are in
 Known local footnote links retain markers in source and resolve narration at their
 first reference with explicit note cues. Repeated references do not repeat a note;
 unresolved/unreferenced material produces visible notices rather than invented
-text. Consecutive table/code omissions are announced once per run. Decorative
+text. Clear tables read labelled entries; uncertain tables identify the original,
+with consecutive unavailable-table/code cues announced once per run. Shared
+[scientific narration](../../docs/SCIENTIFIC_NARRATION.md) defines the conservative
+equation/table rules and their limits. Decorative
 separators can remain in source while omitted from speech. Actual reading order,
 OCR and caption quality still require operator review.
 

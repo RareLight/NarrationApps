@@ -1,5 +1,25 @@
 # Native validation
 
+October 19 inset-flow follow-up: verbose tables read as prose and complex PDF math
+gets one reference notice per document. Extraction/narration policy aliases retain
+completed chunks and native backend identity for unchanged speech requests; the
+authentic separator-upgrade checkpoint fixture passes. The full isolated gate,
+both workspace configurations and all four complete ad-hoc bundle audits pass.
+The shared
+[current status](../../docs/IMPLEMENTATION_STATUS.md#prose-insets-and-equation-flow)
+records corpus/full/build evidence and remaining operator B08 acceptance. Fresh
+review apps use `.build/FlowNarrationValidation/Build/Products/Release/` in the parent.
+
+October 19 scientific-text follow-up: the shared full gate and both workspace
+configurations pass, with complete ad-hoc bundle checks. Shared equations/table
+policies and 15 focused regressions are recorded in the
+[current status](../../docs/IMPLEMENTATION_STATUS.md#scientific-equations-and-tables).
+VoiceRelay's one-cell-table fixture now verifies its content is spoken exactly once;
+unavailable-table/code runs retain their suppression policy. Fresh review apps are
+under `.build/ScientificNarrationValidation/Build/Products/Release/` relative to the
+parent repository. GUI/listening, protected-file and live-service acceptance remain
+separate; scientific source quality is operator B08.
+
 The operator confirmed on October 16, 2026 that both relocated apps build and run.
 This accepts the basic workspace/build/launch smoke check; detailed document,
 listening, setup, persistence and live-service cases below remain separate.

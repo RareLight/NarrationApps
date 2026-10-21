@@ -7,6 +7,7 @@ import AudioOutput
 import ImageIO
 #if canImport(Security)
 import Security
+import LocalAuthentication
 #endif
 @testable import VoiceRelayCore
 
@@ -1198,7 +1199,7 @@ private final class SessionCredentialFixture: DeliveryCredentialStore, @unchecke
     try session.writePassword("new-secret", username: "user", host: "host")
     try session.writePassword("new-secret", username: "user", host: "host")
     #expect(try session.readPassword(username: "user", host: "host") == "new-secret")
-    #expect(base.writes == 1 && base.reads == 1)
+    #expect(base.writes == 2 && base.reads == 1) // every explicit Save applies the current access policy
     try session.deletePassword(username: "user", host: "host")
     #expect(session.presence(username: "user", host: "host") == .missing)
     #expect(try session.readPassword(username: "user", host: "host") == nil)
@@ -1229,8 +1230,58 @@ private final class SessionCredentialFixture: DeliveryCredentialStore, @unchecke
     #expect(query[kSecUseDataProtectionKeychain as String] as? Bool == true)
     #expect(query[kSecAttrSynchronizable as String] as? Bool == false)
     #expect(query[kSecAttrAccount as String] as? String == "host:user")
+    #expect(KeychainCredentialStore.accessibility == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+    #expect(KeychainCredentialStore.accessFlags.isEmpty)
     // In-memory policy construction only: no item, prompt, biometric or Keychain access.
     _ = try KeychainCredentialStore.accessControl()
+}
+
+@Test func deliveryKeychainBackgroundReadsNeverPromptAndExplicitSaveMigratesExistingItem() throws {
+    var oldPolicy = true, password = "fixture-secret", writes = 0
+    var readQueries: [[String: Any]] = [], additions: [[String: Any]] = [], updates: [[String: Any]] = []
+    let store = KeychainCredentialStore(operations: .init(read: { query in
+        readQueries.append(query)
+        return oldPolicy ? (errSecInteractionNotAllowed, nil) : (errSecSuccess, Data(password.utf8) as CFData)
+    }, add: { attributes in
+        additions.append(attributes); return errSecDuplicateItem
+    }, update: { query, attributes in
+        #expect(query[kSecAttrAccount as String] as? String == "host:user")
+        #expect((query[kSecUseAuthenticationContext as String] as? LAContext)?.interactionNotAllowed == false)
+        updates.append(attributes)
+        guard attributes[kSecAttrAccessControl as String] != nil,
+              let bytes = attributes[kSecValueData as String] as? Data else { return errSecParam }
+        password = String(decoding: bytes, as: UTF8.self); oldPolicy = false; writes += 1
+        return errSecSuccess
+    }, delete: { _ in Issue.record("Migration must never delete the existing credential"); return errSecParam }))
+    let session = SessionDeliveryCredentialStore(base: store)
+    for _ in 0..<3 {
+        do { _ = try session.readPassword(username: "user", host: "host"); Issue.record("Expected protected-item failure") }
+        catch { #expect(error.localizedDescription.contains("Save Password")) }
+    }
+    #expect(readQueries.count == 1)
+    #expect((readQueries.first?[kSecUseAuthenticationContext as String] as? LAContext)?.interactionNotAllowed == true)
+    try session.writePassword(password, username: " user ", host: "HOST")
+    #expect(writes == 1 && additions.count == 1 && updates.count == 1)
+    #expect(try session.readPassword(username: "user", host: "host") == "fixture-secret")
+    // A fresh app session reads the durable item without authorization, even with no cached grant.
+    let restarted = SessionDeliveryCredentialStore(base: store)
+    #expect(try restarted.readPassword(username: "user", host: "host") == "fixture-secret")
+    #expect(readQueries.count == 2)
+    #expect(readQueries.allSatisfy { ($0[kSecUseAuthenticationContext as String] as? LAContext)?.interactionNotAllowed == true })
+    try session.writePassword(password, username: "user", host: "host")
+    #expect(writes == 2) // unchanged password still refreshes access control
+}
+
+@Test func deliveryKeychainFailedMigrationPreservesExistingItemAndSession() throws {
+    var updates = 0
+    let store = KeychainCredentialStore(operations: .init(read: { _ in (errSecSuccess, Data("old-secret".utf8) as CFData) },
+        add: { _ in errSecDuplicateItem }, update: { _, _ in updates += 1; return errSecUserCanceled },
+        delete: { _ in Issue.record("Failed Save must never delete a credential"); return errSecParam }))
+    let session = SessionDeliveryCredentialStore(base: store)
+    #expect(try session.readPassword(username: "user", host: "host") == "old-secret")
+    #expect(throws: DeliveryError.self) { try session.writePassword("new-secret", username: "user", host: "host") }
+    #expect(updates == 1)
+    #expect(try session.readPassword(username: "user", host: "host") == "old-secret")
 }
 #endif
 

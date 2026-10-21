@@ -13,6 +13,11 @@ struct ConfigurationView: View {
             if !model.speechRuntimeAvailable { speechSetup }
             AppearanceSettingsSection(textSize: $model.textSize)
             Section {
+                StartupControls(model: model)
+            } header: {
+                SectionHelpHeader(title: "Startup", explanation: "Off by default. When enabled, VoiceRelay starts in the menu bar after you sign in and continues your configured automation. Quit stops it until you open it again or next log in.")
+            }
+            Section {
                 Picker("Language and region", selection: $model.preferences.languageRegion) {
                     ForEach(SpeechLanguageRegion.allCases) { region in Text(region.label).tag(region) }
                 }
@@ -94,6 +99,7 @@ struct SpeechRuntimeOnboardingView: View {
                 }
             }
             SpeechRuntimeTestIndicator(model: model)
+            StartupControls(model: model)
             HStack {
                 Spacer()
                 if model.runtimeBusy {
@@ -108,6 +114,33 @@ struct SpeechRuntimeOnboardingView: View {
         }.padding(24).frame(width: 460 * max(1, AppTypography.scale(size: textSize, dynamic: dynamicType)))
             .onChange(of: model.runtimeTestResult) { _, result in
                 if result == .success { dismissWindow() }
+            }
+    }
+}
+
+struct StartupControls: View {
+    @Bindable var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Start VoiceRelay at login", isOn: Binding(
+                get: { model.launchAtLoginEnabled }, set: { model.setLaunchAtLogin($0) }))
+                .disabled(!model.canChangeLoginItem)
+            if model.loginItemBusy { ProgressView().controlSize(.small).accessibilityLabel("Updating startup setting") }
+            if model.loginItemStatus == .requiresApproval {
+                Text("Allow VoiceRelay in Login Items to finish enabling automatic startup.")
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Open Login Items Settings") { model.openLoginItemSettings() }
+                    .disabled(!model.canChangeLoginItem)
+            }
+            if model.loginItemStatus == .notFound {
+                Text("VoiceRelay’s login item is unavailable. Use the installed, signed app.")
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let error = model.loginItemError { InlineNotice(message: error) }
+        }.onAppear { model.refreshLoginItemStatus() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { model.refreshLoginItemStatus() }
             }
     }
 }
@@ -175,7 +208,7 @@ struct DeliveryPaneView: View {
 
             } header: {
                 SectionHelpHeader(title: "Upload destination",
-                    explanation: "Feed folder holds feed.xml and audio/. Save your upload password in Keychain; macOS may ask you to unlock it.", helpTopic: .publishing)
+                    explanation: "Feed folder holds feed.xml and audio/. Save your upload password in device-local Keychain for background publishing after your first login, including while the screen is locked. Re-save an older password once to update access; macOS may request authorization when saving.", helpTopic: .publishing)
             }
             Section {
                 TextField("Public folder URL", text: $publicFolderText)

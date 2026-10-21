@@ -46,8 +46,10 @@ launch only when automation is enabled. Each enabled/configured app session atte
 server reconciliation even if the prior session checked less than five minutes ago;
 reuse current audio proofs and keep upload backoff intact. Startup progress is neutral,
 and Publishing failures keep a direct Publishing Settings route alongside outbox issues.
-Persistent LaunchAgent/XPC ownership and SMAppService
-enrollment are no longer required. The inactive agent/XPC prototype and standalone
+Optional main-app SMAppService login-item enrollment is user-controlled, off by
+default, and available in initial setup and General Settings. Registration is the
+OS source of truth; never silently re-enable revoked consent. It does not create
+an agent or daemon. Persistent LaunchAgent/XPC ownership is not used. The inactive agent/XPC prototype and standalone
 layout-reproduction projects were removed at the user's request; do not reintroduce them.
 
 Delivery is configured in the Publishing settings pane: complete HTTPS Feed folder
@@ -55,7 +57,10 @@ and Public folder URLs plus channel details persist in UserDefaults. feed.xml
 and lowercase audio/ are implicit under each folder; the subscription URL is
 read-only with Copy. URL drafts normalize when committed using Foundation
 URLComponents; no credentials enter URLs or diagnostics. The password lives
-only in Keychain ("VoiceRelay Podcast Upload" service). Test Connection is a
+only in Keychain ("VoiceRelay Podcast Upload" service). Credentials use device-local data protection after first
+unlock, without user-presence flags. Automatic reads must never prompt. Explicit
+Save upgrades the access control of an existing item in place, even with unchanged
+password bytes; cancellation preserves the existing credential. Test Connection is a
 manual read-only folder probe; a readable ancestor permits a missing-folder
 result saying upload will create it. It does not confirm write permission or
 public mapping. Editing inputs resets the test status. Changed destinations

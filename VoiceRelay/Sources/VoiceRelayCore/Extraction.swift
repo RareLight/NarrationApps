@@ -23,7 +23,10 @@ public enum ArticleExtractor {
         } catch { throw RelayError.extraction(error.localizedDescription) }
     }
     static func chunkFingerprintVersion(_ version: String) -> String {
+        // Text, indices and provenance remain part of each request fingerprint;
+        // table policy changes do not invalidate otherwise identical audio.
         version.replacingOccurrences(of: "semantic-5-images", with: "semantic-4-images").replacingOccurrences(of: "/anchors-1", with: "")
+            .replacingOccurrences(of: "/table-prose-2", with: "").replacingOccurrences(of: "/table-flow-2", with: "")
     }
     public static func semanticBlocks(html: String, baseURL: URL) throws -> [ContentBlock] {
         try HTMLDocumentExtractor.semanticBlocks(html: html, baseURL: baseURL)

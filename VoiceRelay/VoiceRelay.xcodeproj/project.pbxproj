@@ -7,14 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-        B20000000000000000000002 /* VoiceRelaySpeechWorker in Embed Native Worker */ = {isa = PBXBuildFile; fileRef = F20000000000000000000002; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-        B20000000000000000000001 /* AppPresentation in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000001 /* AppPresentation */; };
+		706038754237405C9DBF42D3 /* Sources/VoiceRelayApp/AppModelEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B435156B1CF468E8F47FA04 /* Sources/VoiceRelayApp/AppModelEvents.swift */; };
+		AEEBCDF43EF64AE4A943B6BA /* Sources/VoiceRelayApp/AppModelSpeechSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF4B1312873448AA8E69DA9A /* Sources/VoiceRelayApp/AppModelSpeechSetup.swift */; };
 		B10000000000000000000001 /* VoiceRelayApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* VoiceRelayApp.swift */; };
 		B10000000000000000000002 /* WorkerMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* WorkerMain.swift */; };
 		B10000000000000000000003 /* CoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000003 /* CoreTests.swift */; };
 		B10000000000000000000004 /* Acknowledgements in Resources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000004 /* Acknowledgements */; };
+		BA1800000000000000000001 /* VoiceRelay_Cover.png in Resources */ = {isa = PBXBuildFile; fileRef = FA1800000000000000000001 /* VoiceRelay_Cover.png */; };
 		B10000000000000000000005 /* VoiceRelayCore in Frameworks */ = {isa = PBXBuildFile; productRef = D10000000000000000000001 /* VoiceRelayCore */; };
-		B10000000000000000000006 /* VoiceRelayCore in Frameworks */ = {isa = PBXBuildFile; productRef = D10000000000000000000002 /* VoiceRelayCore */; };
+		B10000000000000000000006 /* NativeSpeechEngine in Frameworks */ = {isa = PBXBuildFile; productRef = D10000000000000000000002 /* NativeSpeechEngine */; };
 		B10000000000000000000007 /* VoiceRelayCore in Frameworks */ = {isa = PBXBuildFile; productRef = D10000000000000000000003 /* VoiceRelayCore */; };
 		B10000000000000000000008 /* SourceReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000010 /* SourceReviewView.swift */; };
 		B10000000000000000000009 /* SourceReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000011 /* SourceReviewTests.swift */; };
@@ -23,17 +24,42 @@
 		B10000000000000000000018 /* AppPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000018 /* AppPresentation.swift */; };
 		B10000000000000000000019 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000019 /* SettingsViews.swift */; };
 		B1000000000000000000001A /* MenuBarViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000001A /* MenuBarViews.swift */; };
-        B90000000000000000000001 /* ThirdPartyNotices in Resources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001; };
-        B20000000000000000000003 /* PronunciationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000003 /* PronunciationUI */; };
-        B20000000000000000000004 /* NarrationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000004 /* NarrationUI */; };
-        B20000000000000000000005 /* AudioOutput in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000005 /* AudioOutput */; };
-		FEFD934D5BBD42AB8AE09DBE = {isa = PBXBuildFile; fileRef = 75C7382263904AAFBBFF5D41; };
-		AEEBCDF43EF64AE4A943B6BA = {isa = PBXBuildFile; fileRef = CF4B1312873448AA8E69DA9A; };
-		706038754237405C9DBF42D3 = {isa = PBXBuildFile; fileRef = 1B435156B1CF468E8F47FA04; };
-		C334E2DD0B0B4F719DFF0DEF = {isa = PBXBuildFile; fileRef = 377F33843F254AF29A86DC59; };
+		B20000000000000000000001 /* AppPresentation in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000001 /* AppPresentation */; };
+		B20000000000000000000002 /* VoiceRelaySpeechWorker in Embed Native Worker */ = {isa = PBXBuildFile; fileRef = F20000000000000000000002 /* VoiceRelaySpeechWorker */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		B20000000000000000000003 /* PronunciationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000003 /* PronunciationUI */; };
+		B20000000000000000000004 /* NarrationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000004 /* NarrationUI */; };
+		B20000000000000000000005 /* AudioOutput in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000005 /* AudioOutput */; };
+		B90000000000000000000001 /* ../swift-packages/ThirdPartyNotices in Resources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001 /* ../swift-packages/ThirdPartyNotices */; };
+		C334E2DD0B0B4F719DFF0DEF /* Sources/VoiceRelayApp/AppModelHealth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377F33843F254AF29A86DC59 /* Sources/VoiceRelayApp/AppModelHealth.swift */; };
+		FEFD934D5BBD42AB8AE09DBE /* Sources/VoiceRelayApp/AppModelSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75C7382263904AAFBBFF5D41 /* Sources/VoiceRelayApp/AppModelSync.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A20000000000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C10000000000000000000002;
+			remoteInfo = VoiceRelaySpeechWorker;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E40000000000000000000001 /* Embed Native Worker */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = Contents/Helpers;
+			dstSubfolder = Wrapper;
+			files = (
+				B20000000000000000000002 /* VoiceRelaySpeechWorker in Embed Native Worker */,
+			);
+			name = "Embed Native Worker";
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		1B435156B1CF468E8F47FA04 /* Sources/VoiceRelayApp/AppModelEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/VoiceRelayApp/AppModelEvents.swift; sourceTree = "<group>"; };
+		377F33843F254AF29A86DC59 /* Sources/VoiceRelayApp/AppModelHealth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/VoiceRelayApp/AppModelHealth.swift; sourceTree = "<group>"; };
+		75C7382263904AAFBBFF5D41 /* Sources/VoiceRelayApp/AppModelSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/VoiceRelayApp/AppModelSync.swift; sourceTree = "<group>"; };
 		900000000000000000000001 /* Audio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Audio.swift; sourceTree = "<group>"; };
 		900000000000000000000002 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
 		900000000000000000000003 /* Extraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extraction.swift; sourceTree = "<group>"; };
@@ -50,10 +76,12 @@
 		900000000000000000000010 /* SpeechQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechQueue.swift; sourceTree = "<group>"; };
 		900000000000000000000012 /* AudioRetention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRetention.swift; sourceTree = "<group>"; };
 		900000000000000000000014 /* Delivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Delivery.swift; sourceTree = "<group>"; };
+		CF4B1312873448AA8E69DA9A /* Sources/VoiceRelayApp/AppModelSpeechSetup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/VoiceRelayApp/AppModelSpeechSetup.swift; sourceTree = "<group>"; };
 		F10000000000000000000001 /* VoiceRelayApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceRelayApp.swift; path = Sources/VoiceRelayApp/VoiceRelayApp.swift; sourceTree = "<group>"; };
 		F10000000000000000000002 /* WorkerMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WorkerMain.swift; path = Sources/VoiceRelaySpeechWorker/WorkerMain.swift; sourceTree = "<group>"; };
 		F10000000000000000000003 /* CoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CoreTests.swift; path = Tests/VoiceRelayCoreTests/CoreTests.swift; sourceTree = "<group>"; };
 		F10000000000000000000004 /* Acknowledgements */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Acknowledgements; sourceTree = "<group>"; };
+		FA1800000000000000000001 /* VoiceRelay_Cover.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon/VoiceRelay_Cover.png; sourceTree = SOURCE_ROOT; };
 		F10000000000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Packaging/Info.plist; sourceTree = "<group>"; };
 		F10000000000000000000006 /* Package.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Package.swift; sourceTree = "<group>"; };
 		F10000000000000000000007 /* Package.resolved */ = {isa = PBXFileReference; lastKnownFileType = text; path = Package.resolved; sourceTree = "<group>"; };
@@ -73,13 +101,9 @@
 		F10000000000000000000019 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsViews.swift; path = Sources/VoiceRelayApp/SettingsViews.swift; sourceTree = "<group>"; };
 		F1000000000000000000001A /* MenuBarViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MenuBarViews.swift; path = Sources/VoiceRelayApp/MenuBarViews.swift; sourceTree = "<group>"; };
 		F20000000000000000000001 /* VoiceRelay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = VoiceRelay.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		F20000000000000000000002 /* voicerelay */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = VoiceRelaySpeechWorker; sourceTree = BUILT_PRODUCTS_DIR; };
+		F20000000000000000000002 /* VoiceRelaySpeechWorker */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = VoiceRelaySpeechWorker; sourceTree = BUILT_PRODUCTS_DIR; };
 		F20000000000000000000003 /* VoiceRelayCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = VoiceRelayCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-        F90000000000000000000001 /* ThirdPartyNotices */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "../swift-packages/ThirdPartyNotices"; sourceTree = "<group>"; };
-		75C7382263904AAFBBFF5D41 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/VoiceRelayApp/AppModelSync.swift"; sourceTree = "<group>"; };
-		CF4B1312873448AA8E69DA9A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/VoiceRelayApp/AppModelSpeechSetup.swift"; sourceTree = "<group>"; };
-		1B435156B1CF468E8F47FA04 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/VoiceRelayApp/AppModelEvents.swift"; sourceTree = "<group>"; };
-		377F33843F254AF29A86DC59 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/VoiceRelayApp/AppModelHealth.swift"; sourceTree = "<group>"; };
+		F90000000000000000000001 /* ../swift-packages/ThirdPartyNotices */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "../swift-packages/ThirdPartyNotices"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -108,16 +132,16 @@
 			isa = PBXFrameworksBuildPhase;
 			files = (
 				B10000000000000000000005 /* VoiceRelayCore in Frameworks */,
-                B20000000000000000000001 /* AppPresentation in Frameworks */,
-                B20000000000000000000003 /* PronunciationUI in Frameworks */,
-                B20000000000000000000004 /* NarrationUI in Frameworks */,
-                B20000000000000000000005 /* AudioOutput in Frameworks */,
+				B20000000000000000000001 /* AppPresentation in Frameworks */,
+				B20000000000000000000003 /* PronunciationUI in Frameworks */,
+				B20000000000000000000004 /* NarrationUI in Frameworks */,
+				B20000000000000000000005 /* AudioOutput in Frameworks */,
 			);
 		};
 		E10000000000000000000002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
-				B10000000000000000000006 /* VoiceRelayCore in Frameworks */,
+				B10000000000000000000006 /* NativeSpeechEngine in Frameworks */,
 			);
 		};
 		E10000000000000000000003 /* Frameworks */ = {
@@ -129,6 +153,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		955A530C3084296B002AA222 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				F90000000000000000000001 /* ../swift-packages/ThirdPartyNotices */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		A10000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
@@ -148,6 +180,7 @@
 				F1000000000000000000000E /* AGENTS.md */,
 				F1000000000000000000000F /* runtime */,
 				A10000000000000000000003 /* Products */,
+				955A530C3084296B002AA222 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -155,10 +188,10 @@
 			isa = PBXGroup;
 			children = (
 				F10000000000000000000001 /* VoiceRelayApp.swift */,
-				377F33843F254AF29A86DC59,
-				1B435156B1CF468E8F47FA04,
-				CF4B1312873448AA8E69DA9A,
-				75C7382263904AAFBBFF5D41,
+				377F33843F254AF29A86DC59 /* Sources/VoiceRelayApp/AppModelHealth.swift */,
+				1B435156B1CF468E8F47FA04 /* Sources/VoiceRelayApp/AppModelEvents.swift */,
+				CF4B1312873448AA8E69DA9A /* Sources/VoiceRelayApp/AppModelSpeechSetup.swift */,
+				75C7382263904AAFBBFF5D41 /* Sources/VoiceRelayApp/AppModelSync.swift */,
 				F10000000000000000000010 /* SourceReviewView.swift */,
 				F10000000000000000000014 /* WindowPresence.swift */,
 				F1000000000000000000001A /* MenuBarViews.swift */,
@@ -168,6 +201,7 @@
 				A10000000000000000000004 /* VoiceRelayCore */,
 				F1000000000000000000000C /* CSQLite */,
 				F1000000000000000000000B /* Resources */,
+				FA1800000000000000000001 /* VoiceRelay_Cover.png */,
 			);
 			name = Sources;
 			sourceTree = "<group>";
@@ -176,7 +210,7 @@
 			isa = PBXGroup;
 			children = (
 				F20000000000000000000001 /* VoiceRelay.app */,
-				F20000000000000000000002 /* voicerelay */,
+				F20000000000000000000002 /* VoiceRelaySpeechWorker */,
 				F20000000000000000000003 /* VoiceRelayCoreTests.xctest */,
 			);
 			name = Products;
@@ -208,30 +242,7 @@
 		};
 /* End PBXGroup section */
 
-/* Begin PBXContainerItemProxy section */
-        A20000000000000000000002 = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000001; proxyType = 1; remoteGlobalIDString = C10000000000000000000002; remoteInfo = VoiceRelaySpeechWorker; };
-/* End PBXContainerItemProxy section */
-/* Begin PBXTargetDependency section */
-        A20000000000000000000003 = {isa = PBXTargetDependency; target = C10000000000000000000002; targetProxy = A20000000000000000000002; };
-/* End PBXTargetDependency section */
-/* Begin PBXCopyFilesBuildPhase section */
-        E40000000000000000000001 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = "Contents/Helpers"; dstSubfolderSpec = 1; files = (B20000000000000000000002, ); name = "Embed Native Worker"; runOnlyForDeploymentPostprocessing = 0; };
-/* End PBXCopyFilesBuildPhase section */
-/* Begin PBXShellScriptBuildPhase section */
-        E40000000000000000000002 = {
-            isa = PBXShellScriptBuildPhase;
-            buildActionMask = 2147483647;
-            files = ();
-            inputPaths = ("$(NARRATION_MLX_METAL_LIBRARY)", "$(SRCROOT)/Packaging/embed-worker-resources.sh", );
-            name = "Embed MLX Metal Library";
-            outputPaths = ("$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/mlx.metallib", );
-            runOnlyForDeploymentPostprocessing = 0;
-            shellPath = /bin/bash;
-            shellScript = "bash \"$SRCROOT/Packaging/embed-worker-resources.sh\"\n";
-        };
-/* End PBXShellScriptBuildPhase section */
 /* Begin PBXNativeTarget section */
-
 		C10000000000000000000001 /* VoiceRelay */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = C20000000000000000000001 /* Build configuration list for PBXNativeTarget "VoiceRelay" */;
@@ -239,19 +250,21 @@
 				E20000000000000000000001 /* Sources */,
 				E10000000000000000000001 /* Frameworks */,
 				E30000000000000000000001 /* Resources */,
-                E40000000000000000000001 /* Embed Native Worker */,
-                E40000000000000000000002 /* Embed MLX Metal Library */,
+				E40000000000000000000001 /* Embed Native Worker */,
+				E40000000000000000000002 /* Embed MLX Metal Library */,
 			);
 			buildRules = (
 			);
-			dependencies = (A20000000000000000000003, );
-            name = VoiceRelay;
+			dependencies = (
+				A20000000000000000000003 /* PBXTargetDependency */,
+			);
+			name = VoiceRelay;
 			packageProductDependencies = (
 				D10000000000000000000001 /* VoiceRelayCore */,
-                D20000000000000000000001 /* AppPresentation */,
-                D20000000000000000000003 /* PronunciationUI */,
-                D20000000000000000000004 /* NarrationUI */,
-                D20000000000000000000005 /* AudioOutput */,
+				D20000000000000000000001 /* AppPresentation */,
+				D20000000000000000000003 /* PronunciationUI */,
+				D20000000000000000000004 /* NarrationUI */,
+				D20000000000000000000005 /* AudioOutput */,
 			);
 			productName = VoiceRelay;
 			productReference = F20000000000000000000001 /* VoiceRelay.app */;
@@ -268,10 +281,10 @@
 			);
 			name = VoiceRelaySpeechWorker;
 			packageProductDependencies = (
-				D10000000000000000000002 /* VoiceRelayCore */,
+				D10000000000000000000002 /* NativeSpeechEngine */,
 			);
 			productName = VoiceRelaySpeechWorker;
-			productReference = F20000000000000000000002 /* voicerelay */;
+			productReference = F20000000000000000000002 /* VoiceRelaySpeechWorker */;
 			productType = "com.apple.product-type.tool";
 		};
 		C10000000000000000000003 /* VoiceRelayCoreTests */ = {
@@ -309,10 +322,10 @@
 			);
 			mainGroup = A10000000000000000000001;
 			packageReferences = (
-                A20000000000000000000001 /* SwiftNarration */,
+				A20000000000000000000001 /* XCLocalSwiftPackageReference "../swift-packages" */,
 				D00000000000000000000001 /* XCLocalSwiftPackageReference "." */,
-				A20000000000000000000004 /* AppPresentation */,
-            );
+				A20000000000000000000004 /* XCLocalSwiftPackageReference "../swift-packages/AppPresentation" */,
+			);
 			preferredProjectObjectVersion = 110;
 			productRefGroup = A10000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -329,21 +342,41 @@
 		E30000000000000000000001 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
-                B90000000000000000000001 /* ThirdPartyNotices in Resources */,
+				B90000000000000000000001 /* ../swift-packages/ThirdPartyNotices in Resources */,
 				B10000000000000000000004 /* Acknowledgements in Resources */,
+				BA1800000000000000000001 /* VoiceRelay_Cover.png in Resources */,
 			);
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		E40000000000000000000002 /* Embed MLX Metal Library */ = {
+			isa = PBXShellScriptBuildPhase;
+			inputPaths = (
+				"$(NARRATION_MLX_METAL_LIBRARY)",
+				"$(SRCROOT)/Packaging/embed-worker-resources.sh",
+			);
+			name = "Embed MLX Metal Library";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/mlx.metallib",
+			);
+			shellPath = /bin/bash;
+			shellScript = (
+				"bash \"$SRCROOT/Packaging/embed-worker-resources.sh\"",
+				"",
+			);
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		E20000000000000000000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
 				B10000000000000000000001 /* VoiceRelayApp.swift in Sources */,
-				C334E2DD0B0B4F719DFF0DEF,
-				706038754237405C9DBF42D3,
-				AEEBCDF43EF64AE4A943B6BA,
-				FEFD934D5BBD42AB8AE09DBE,
+				C334E2DD0B0B4F719DFF0DEF /* Sources/VoiceRelayApp/AppModelHealth.swift in Sources */,
+				706038754237405C9DBF42D3 /* Sources/VoiceRelayApp/AppModelEvents.swift in Sources */,
+				AEEBCDF43EF64AE4A943B6BA /* Sources/VoiceRelayApp/AppModelSpeechSetup.swift in Sources */,
+				FEFD934D5BBD42AB8AE09DBE /* Sources/VoiceRelayApp/AppModelSync.swift in Sources */,
 				B10000000000000000000008 /* SourceReviewView.swift in Sources */,
 				B1000000000000000000000F /* WindowPresence.swift in Sources */,
 				B1000000000000000000001A /* MenuBarViews.swift in Sources */,
@@ -366,6 +399,14 @@
 			);
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A20000000000000000000003 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C10000000000000000000002 /* VoiceRelaySpeechWorker */;
+			targetProxy = A20000000000000000000002 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		C30000000000000000000001 /* Debug configuration for PBXNativeTarget "VoiceRelay" */ = {
@@ -436,12 +477,16 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					/usr/lib/swift,
+				);
 				PRODUCT_NAME = VoiceRelaySpeechWorker;
-                SKIP_INSTALL = YES;
-                SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
-                SWIFT_VERSION = 6.0;
-                LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "/usr/lib/swift");
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -453,12 +498,16 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					/usr/lib/swift,
+				);
 				PRODUCT_NAME = VoiceRelaySpeechWorker;
-                SKIP_INSTALL = YES;
-                SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
-                SWIFT_VERSION = 6.0;
-                LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "/usr/lib/swift");
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
@@ -625,34 +674,56 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-        A20000000000000000000001 /* SwiftNarration */ = {isa = XCLocalSwiftPackageReference; relativePath = "../swift-packages"; };
+		A20000000000000000000001 /* XCLocalSwiftPackageReference "../swift-packages" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../swift-packages";
+		};
+		A20000000000000000000004 /* XCLocalSwiftPackageReference "../swift-packages/AppPresentation" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../swift-packages/AppPresentation";
+		};
 		D00000000000000000000001 /* XCLocalSwiftPackageReference "." */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = .;
 		};
-        A20000000000000000000004 /* AppPresentation */ = {isa = XCLocalSwiftPackageReference; relativePath = "../swift-packages/AppPresentation"; };
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-        D20000000000000000000001 /* AppPresentation */ = {isa = XCSwiftPackageProductDependency; package = A20000000000000000000004 /* AppPresentation */; productName = AppPresentation; };
 		D10000000000000000000001 /* VoiceRelayCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = VoiceRelayCore;
 		};
-		D10000000000000000000002 /* VoiceRelayCore */ = {
-            isa = XCSwiftPackageProductDependency;
-            package = A20000000000000000000001 /* SwiftNarration */;
-            productName = NativeSpeechEngine;
-        };
+		D10000000000000000000002 /* NativeSpeechEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000001 /* XCLocalSwiftPackageReference "../swift-packages" */;
+			productName = NativeSpeechEngine;
+		};
 		D10000000000000000000003 /* VoiceRelayCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = VoiceRelayCore;
 		};
-        D20000000000000000000003 /* PronunciationUI */ = {isa = XCSwiftPackageProductDependency; package = A20000000000000000000001; productName = PronunciationUI; };
-        D20000000000000000000004 /* NarrationUI */ = {isa = XCSwiftPackageProductDependency; package = A20000000000000000000001; productName = NarrationUI; };
-        D20000000000000000000005 /* AudioOutput */ = {isa = XCSwiftPackageProductDependency; package = A20000000000000000000001; productName = AudioOutput; };
+		D20000000000000000000001 /* AppPresentation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000004 /* XCLocalSwiftPackageReference "../swift-packages/AppPresentation" */;
+			productName = AppPresentation;
+		};
+		D20000000000000000000003 /* PronunciationUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000001 /* XCLocalSwiftPackageReference "../swift-packages" */;
+			productName = PronunciationUI;
+		};
+		D20000000000000000000004 /* NarrationUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000001 /* XCLocalSwiftPackageReference "../swift-packages" */;
+			productName = NarrationUI;
+		};
+		D20000000000000000000005 /* AudioOutput */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000001 /* XCLocalSwiftPackageReference "../swift-packages" */;
+			productName = AudioOutput;
+		};
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A00000000000000000000001 /* Project object */;

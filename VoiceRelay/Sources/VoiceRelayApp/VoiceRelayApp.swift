@@ -94,16 +94,40 @@ final class AppModel {
         deliverySettingsChanged()
     } }
     @ObservationIgnored private var coverImportTask: Task<Void, Never>?
+    @ObservationIgnored private var preparingDefaultPodcastCover = false
+    @ObservationIgnored private let defaultPodcastCoverURL: URL?
+    @ObservationIgnored private var deliverySettingsLoadFailed = false
     var podcastCoverError: String?
     var coverImporting = false
-    let podcastCoverStore = CoverArtworkStore.application("VoiceRelay")
+    let podcastCoverStore: CoverArtworkStore
     var podcastCoverURL: URL? { deliverySettings.podcastCoverDigest.flatMap { try? podcastCoverStore.url(for: $0) } }
     func choosePodcastCover(_ url: URL) {
+        importPodcastCover(url, isDefault: false)
+    }
+    /// Only an unset choice adopts the bundled cover; explicit Remove survives relaunch.
+    func prepareDefaultPodcastCover() {
+        guard !preview, !stopping, !deliverySettingsLoadFailed, deliverySettings.podcastCoverDigest == nil,
+              deliverySettings.podcastCoverConfigured != true else { return }
+        guard let url = defaultPodcastCoverURL else {
+            podcastCoverError = "The default podcast cover is unavailable. Choose a cover in Publishing."
+            return
+        }
+        importPodcastCover(url, isDefault: true)
+    }
+    private func importPodcastCover(_ url: URL, isDefault: Bool) {
         guard !preview, !stopping, !libraryMaintenanceBusy, !coverImporting else { return }
         coverImporting = true; podcastCoverError = nil
+        preparingDefaultPodcastCover = isDefault
         let store = podcastCoverStore
         coverImportTask = Task {
-            defer { coverImporting = false; coverImportTask = nil }
+            defer {
+                coverImporting = false; coverImportTask = nil; preparingDefaultPodcastCover = false
+                if isDefault {
+                    let force = pendingDeliveryForce ?? false; pendingDeliveryForce = nil
+                    let check = pendingDeliveryCheck; pendingDeliveryCheck = false
+                    triggerDelivery(force: force, reconcileNow: check)
+                }
+            }
             do {
                 let work = Task.detached(priority: .userInitiated) {
                     let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
@@ -112,9 +136,10 @@ final class AppModel {
                 let digest = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
                 try Task.checkCancellation()
                 guard !stopping, !libraryMaintenanceBusy else { return }
+                if isDefault, deliverySettings.podcastCoverDigest != nil || deliverySettings.podcastCoverConfigured == true { return }
                 var updated = deliverySettings; updated.podcastCoverDigest = digest; updated.podcastCoverConfigured = true
                 deliverySettings = updated
-                deliveryStatus = "Podcast cover selected. It will publish with the next feed update."
+                if !isDefault { deliveryStatus = "Podcast cover selected. It will publish with the next feed update." }
             } catch is CancellationError { }
             catch { podcastCoverError = error.localizedDescription }
         }
@@ -159,6 +184,36 @@ final class AppModel {
     var isQueueResetPending = false
     let notices = NoticeDismissalState()
     var preview = false
+    var launchedAtLogin = false
+    private(set) var loginItemStatus: LoginItemStatus = .notRegistered
+    private(set) var loginItemBusy = false
+    var loginItemError: String?
+    @ObservationIgnored private let loginItemService: (any LoginItemService)?
+    @ObservationIgnored private var loginItemTask: Task<Void, Never>?
+    var launchAtLoginEnabled: Bool { loginItemStatus.requested }
+    var canChangeLoginItem: Bool { !preview && !stopping && !loginItemBusy && loginItemService != nil }
+    func refreshLoginItemStatus() {
+        guard !preview, !loginItemBusy, let loginItemService else { return }
+        let status = loginItemService.status
+        if status != loginItemStatus { loginItemError = nil }
+        loginItemStatus = status
+    }
+    func setLaunchAtLogin(_ enabled: Bool) {
+        guard canChangeLoginItem, let loginItemService else { return }
+        refreshLoginItemStatus()
+        guard enabled != launchAtLoginEnabled else { return }
+        loginItemBusy = true; loginItemError = nil
+        loginItemTask = Task {
+            defer { loginItemStatus = loginItemService.status; loginItemBusy = false; loginItemTask = nil }
+            do { try await loginItemService.setEnabled(enabled) }
+            catch { loginItemError = "The startup setting could not be changed. Check VoiceRelay in System Settings → General → Login Items & Extensions." }
+        }
+    }
+    func openLoginItemSettings() {
+        guard canChangeLoginItem else { return }
+        loginItemService?.openSettings()
+    }
+    func waitForLoginItemChange() async { if let loginItemTask { await loginItemTask.value } }
     var textSize = AppTextSize() {
         didSet { if !preview { defaults.set(textSize.percent, forKey: "interfaceTextSizePercent") } }
     }
@@ -250,11 +305,18 @@ final class AppModel {
          credentialStore: (any DeliveryCredentialStore)? = nil,
          runtimeSetup: (@Sendable (Bool, URL) throws -> Void)? = nil,
          runtimeInstalled: (@Sendable (URL) -> Bool)? = nil,
-         readingListReader: (@Sendable (URL) async throws -> ReadingListSnapshot)? = nil) {
+         readingListReader: (@Sendable (URL) async throws -> ReadingListSnapshot)? = nil,
+         loginItemService: (any LoginItemService)? = nil,
+         podcastCoverStore: CoverArtworkStore? = nil,
+         defaultPodcastCoverURL: URL? = nil) {
         storageOverride = storage; backendOverride = backend; enqueueFetchOverride = enqueueFetch
         archiveFetchOverride = archiveFetch
         runtimeSetupOverride = runtimeSetup
         runtimeInstalledOverride = runtimeInstalled
+        self.loginItemService = preview ? nil : (loginItemService ?? (storage == nil ? MainAppLoginItemService() : nil))
+        self.podcastCoverStore = podcastCoverStore ?? .application("VoiceRelay")
+        self.defaultPodcastCoverURL = defaultPodcastCoverURL ?? (storage == nil && !preview
+            ? Bundle.main.url(forResource: "VoiceRelay_Cover", withExtension: "png") : nil)
         let domain = defaults == nil && (preview || storage != nil) ? InertDefaultsDomain() : nil
         let defaults = defaults ?? domain?.defaults ?? .standard
         inertDefaults = domain
@@ -275,6 +337,7 @@ final class AppModel {
             return
         }
         debugLoggingEnabled = defaults.bool(forKey: "debugLoggingEnabled")
+        refreshLoginItemStatus()
         textSize = AppTextSize(percent: defaults.object(forKey: "interfaceTextSizePercent") as? Int ?? 100)
         describeArticleImages = defaults.object(forKey: "describeArticleImages") as? Bool ?? true
         libraryReviewRequired = defaults.bool(forKey: "libraryReviewRequired")
@@ -284,6 +347,7 @@ final class AppModel {
             if runtimeInstalled != nil { onboarding.assess(installed: speechRuntimeInstalled) }
             return
         }
+        prepareDefaultPodcastCover()
         if let bytes = defaults.data(forKey: "speechPreferences") {
             do {
                 let saved = try JSONDecoder().decode(SpeechPreferences.self, from: bytes)
@@ -305,6 +369,7 @@ final class AppModel {
     private func loadDeliverySettings() {
         guard let bytes = defaults.data(forKey: "deliverySettings") else { return }
         guard var saved = try? JSONDecoder().decode(DeliverySettings.self, from: bytes) else {
+            deliverySettingsLoadFailed = true
             self.error = "Saved Publishing settings could not be read. Publishing is disabled until they are fixed."
             return
         }
@@ -312,6 +377,7 @@ final class AppModel {
         deliverySettings = saved
         do { try saved.validate() }
         catch {
+            deliverySettingsLoadFailed = true
             self.error = (error as? RelayError)?.localizedDescription ?? "Saved delivery settings are invalid."
         }
     }
@@ -445,6 +511,11 @@ final class AppModel {
         guard !preview, !stopping, !audioMutationBusy, !libraryMaintenanceBusy, !libraryReviewRequired, !deliveryCredentialBusy, deliverySettings.enabled,
               (try? deliverySettings.validate()) != nil,
               let makeTransport = deliveryTransportFactory, let credential = deliveryCredentialStore else { return }
+        if preparingDefaultPodcastCover {
+            pendingDeliveryForce = (pendingDeliveryForce ?? false) || force
+            pendingDeliveryCheck = pendingDeliveryCheck || reconcileNow
+            return
+        }
         if deliveryTask != nil {
             pendingDeliveryForce = (pendingDeliveryForce ?? false) || force
             pendingDeliveryCheck = pendingDeliveryCheck || reconcileNow
@@ -488,7 +559,7 @@ final class AppModel {
                             guard let self, self.uploadRunID == uploadToken, !self.stopping else { return }
                             self.recordUploadProgress(event)
                         }
-                    })
+                    }, artworkStore: podcastCoverStore)
                 try Task.checkCancellation()
                 if let summary = try? await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings) {
                     recordDeliveryPublication(summary)
@@ -1373,6 +1444,7 @@ final class AppModel {
     func waitForDelivery() async { while let deliveryTask { await deliveryTask.value } }
     func waitForDeliveryTest() async { if let deliveryTestTask { await deliveryTestTask.value } }
     func waitForCredentialMutation() async { if let deliveryCredentialTask { await deliveryCredentialTask.value } }
+    func waitForPodcastCoverImport() async { if let coverImportTask { await coverImportTask.value } }
     func waitForLibraryMaintenance() async { if let libraryMaintenanceTask { await libraryMaintenanceTask.value } }
     func waitForRuntimeSetup() async { if let runtimeTask { await runtimeTask.value } }
     func waitForSourcePruning() async { if let sourcePruneTask { await sourcePruneTask.value } }
@@ -1388,13 +1460,14 @@ final class AppModel {
         let mutation = queueMutationTask, audioMutation = audioMutationTask, preview = previewTask
         let delivery = deliveryTask, deliveryTest = deliveryTestTask, automation = automationTask, credential = deliveryCredentialTask
         let runtime = runtimeTask, maintenance = libraryMaintenanceTask, sourcePrune = sourcePruneTask
-        let sync = syncTask, settings = settingsBookkeepingTask, cover = coverImportTask
+        let sync = syncTask, settings = settingsBookkeepingTask, cover = coverImportTask, loginItem = loginItemTask
         previewRequestID = UUID()
         current?.cancel(); enqueue?.cancel(); library?.cancel(); mutation?.cancel()
         audioMutation?.cancel(); preview?.cancel(); delivery?.cancel(); deliveryTest?.cancel(); automation?.cancel()
         credential?.cancel(); deliveryCredentialStore?.cancelAuthentication()
         runtime?.cancel(); maintenance?.cancel(); sourcePrune?.cancel()
         sync?.cancel(); settings?.cancel(); cover?.cancel()
+        loginItem?.cancel()
         sourceReview.cancel()
         await sourceReview.stop()
         if let current { await current.value }
@@ -1413,6 +1486,7 @@ final class AppModel {
         if let sync { await sync.value }
         if let settings { await settings.value }
         if let cover { await cover.value }
+        if let loginItem { await loginItem.value }
         deliveryCredentialStore?.clearSession()
         deliveryPassword = ""; deliveryPasswordStored = false; deliveryPasswordChecked = false
     }

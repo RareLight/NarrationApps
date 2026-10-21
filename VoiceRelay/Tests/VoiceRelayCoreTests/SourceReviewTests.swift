@@ -4,7 +4,7 @@ import SwiftSoup
 import Testing
 @testable import VoiceRelayCore
 
-@Test func narrationCollapsesOmissionRunsWithoutChangingSourceBlocks() throws {
+@Test func narrationCollapsesUncertainTableAndCodeRunsWithoutChangingSourceBlocks() throws {
     let blocks: [ContentBlock] = [
         ContentBlock(kind: .paragraph, text: "Opening prose."),
         ContentBlock(kind: .table, text: "First table"),
@@ -22,7 +22,7 @@ import Testing
         blocks: blocks, warnings: [], extractorVersion: ArticleExtractor.version)
     let plan = try Narration.prepare(article, limit: 120)
     let spoken = plan.chunks.map(\.text).joined(separator: "\n")
-    #expect(spoken.components(separatedBy: "Table omitted from narration.").count - 1 == 2)
+    #expect(spoken.components(separatedBy: "Table.").count - 1 == 2)
     #expect(spoken.components(separatedBy: "Code block omitted from narration.").count - 1 == 1)
     #expect(spoken.contains("A spoken boundary.") && spoken.hasSuffix("End of article."))
     #expect(!spoken.contains("First table") && !spoken.contains("first code"))
@@ -43,7 +43,8 @@ import Testing
                  ContentBlock(kind: .footnote, text: "Spoken note.", footnoteID: "note")],
         warnings: [], extractorVersion: ArticleExtractor.version)
     let spoken = try Narration.prepare(article, limit: 120).chunks.map(\.text).joined(separator: "\n")
-    #expect(spoken.components(separatedBy: "Table omitted from narration.").count - 1 == 4)
+    #expect(spoken.components(separatedBy: "Table omitted from narration.").count - 1 == 2)
+    #expect(spoken.components(separatedBy: "Table.").count - 1 == 2)
     #expect(spoken.contains("Footnote:") && spoken.contains("End Footnote") && spoken.contains("Spoken note."))
 }
 

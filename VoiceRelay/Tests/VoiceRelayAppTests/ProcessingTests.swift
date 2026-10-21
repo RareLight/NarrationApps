@@ -1426,6 +1426,31 @@ private final class MutableFlag: @unchecked Sendable {
     func set(_ new: Bool) { lock.withLock { value = new } }
 }
 
+@Test @MainActor func defaultPodcastCoverHoldsInitialDeliveryUntilArtworkIsReady() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent("icon/VoiceRelay_Cover.png")
+    let credentials = RecordingCredentials(password: "fixture"), transport = StubDeliveryTransport()
+    let store = CoverArtworkStore(root: root.appendingPathComponent("art"))
+    let model = AppModel(storage: storage, deliveryTransport: { transport }, credentialStore: credentials,
+        podcastCoverStore: store, defaultPodcastCoverURL: source)
+    model.deliverySettings = appDeliverySettings()
+    model.prepareDefaultPodcastCover()
+    model.triggerDelivery(force: true)
+    model.triggerDelivery(force: true)
+    #expect(!model.deliveryBusy && credentials.reads.isEmpty && transport.calls.isEmpty)
+    await model.waitForPodcastCoverImport()
+    await model.waitForDelivery()
+    let digest = try #require(model.deliverySettings.podcastCoverDigest)
+    let feedPath = try #require(model.deliverySettings.feedFolderURL).appendingPathComponent("feed.xml").path
+    let feed = try #require(transport.bodies[feedPath])
+    #expect(try ServerFeedSnapshot(feed).channelArtworkURL?.lastPathComponent == "artwork-" + digest + ".jpg")
+    let puts = transport.calls.filter { $0.method == "PUT" }
+    #expect(try #require(puts.firstIndex { $0.path.hasSuffix(".jpg") }) < #require(puts.firstIndex { $0.path.hasSuffix("feed.xml") }))
+    #expect(credentials.reads.count == 1 && model.deliveryError == nil)
+    await model.shutdown()
+}
+
 @Test @MainActor func deliverySettingsPersistWithoutPasswordAndReload() async throws {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }

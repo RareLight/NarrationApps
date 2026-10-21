@@ -69,6 +69,14 @@ The result appears beside Check: Speech setup not checked, Speech setup ready or
 Publishing and source refreshes do not disable speech setup controls; active audio
 work and library maintenance do, with a reason shown in General.
 
+**Start VoiceRelay at login** is off by default. Opt in during initial speech setup
+or in **Settings → General → Startup**. If macOS requires approval, use **Open Login
+Items Settings**. VoiceRelay starts in the menu bar after sign-in, without opening
+library/setup windows, and resumes your configured automation. Quit stops the app;
+it next starts when you open it or log in again. Turn the option off to stop future
+automatic launches. Changes in System Settings are reflected when you return to
+Settings. This starts the ordinary app at login, not a service before sign-in.
+
 ## Everyday use
 
 **General → Appearance → Text size** adjusts text throughout the library,
@@ -136,7 +144,10 @@ under each folder. **Subscription URL** is read-only with **Copy** for Overcast
 or another podcatcher.
 
 **Podcast Cover** in Publishing accepts a square, opaque JPEG/PNG of at least
-1400 pixels per side; larger images are reduced to at most 3000 pixels. Choose,
+1400 pixels per side; larger images are reduced to at most 3000 pixels. VoiceRelay
+starts with the bundled icon-derived cover when no cover has been chosen. Replace
+it freely, or Remove it to keep the show without art; custom covers and explicit
+removals persist across launches. Choose,
 Replace or Remove applies to the overall show. Episode pictures still come from
 article preview/social metadata. Artwork is verified before the feed references
 it; a failed change preserves the previous feed. Cover-only changes do not
@@ -156,11 +167,15 @@ redundant slashes, dot segments, default ports and trailing slashes are handled.
 A pasted feed.xml URL resolves to its parent. Credentials or query parameters
 require a field-specific correction and are never echoed in diagnostics.
 
-Passwords persist only in the device-local Data Protection Keychain. macOS chooses
-available authentication methods, which can include Touch ID, supported Apple
-Watch authorization or your Mac password. Successful access is reused until Quit;
-opening Settings does not query Keychain. Cancelling does not cause automatic
-reprompting. Saving/removing credentials may require separate system confirmation.
+Passwords persist only in the device-local Data Protection Keychain, accessible
+after the first unlock following a reboot, including while the screen is locked.
+Background publishing never opens an authentication prompt. For a password saved
+by an older build, enter it again and choose **Save Password** once to update its
+access policy; macOS may ask for authorization during that explicit Save. Cancelling
+preserves the previous item. Successful reads are cached until Quit; opening
+Settings does not query Keychain. Passwords never enter preferences or backups.
+Keep a stable app signing identity; changing identity/distribution channels can
+separately affect Keychain authorization even in Release builds.
 
 **Test Connection** probes folders read-only; it proves neither write permission
 nor the public website mapping. A readable ancestor permits a missing-folder

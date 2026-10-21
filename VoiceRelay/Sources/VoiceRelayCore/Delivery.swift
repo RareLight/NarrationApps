@@ -260,8 +260,7 @@ public final class SessionDeliveryCredentialStore: DeliveryCredentialStore, @unc
     public func writePassword(_ password: String, username: String, host: String) throws {
         try operationLock.withLock {
             let identity = Identity(username, host)
-            // Re-saving the same password need not ask Keychain for modification access.
-            if case .success(let saved) = lock.withLock({ passwords[identity] }), saved == password { return }
+            // Explicit Save also upgrades an older item's access policy, even for unchanged bytes.
             try base.writePassword(password, username: identity.username, host: identity.host)
             lock.withLock { passwords[identity] = .success(password) }
         }
@@ -283,14 +282,35 @@ public final class SessionDeliveryCredentialStore: DeliveryCredentialStore, @unc
 /// macOS Keychain generic-password items keyed by host:username. No password is logged or returned elsewhere.
 public final class KeychainCredentialStore: DeliveryCredentialStore, @unchecked Sendable {
     public static let service = "VoiceRelay Podcast Upload"
+    /// Injected operations keep policy/migration fixtures entirely outside the real Keychain.
+    struct Operations: @unchecked Sendable {
+        var read: ([String: Any]) -> (OSStatus, CFTypeRef?)
+        var add: ([String: Any]) -> OSStatus
+        var update: ([String: Any], [String: Any]) -> OSStatus
+        var delete: ([String: Any]) -> OSStatus
+        static let system = Operations(read: { query in
+            var item: CFTypeRef?
+            let status = SecItemCopyMatching(query as CFDictionary, &item)
+            return (status, item)
+        }, add: { SecItemAdd($0 as CFDictionary, nil) },
+           update: { SecItemUpdate($0 as CFDictionary, $1 as CFDictionary) },
+           delete: { SecItemDelete($0 as CFDictionary) })
+    }
+    static var accessibility: CFString { kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly }
+    static let accessFlags: SecAccessControlCreateFlags = []
+    private let operations: Operations
     private let contextLock = NSLock()
     private var authenticationContext = LAContext()
-    public init() { authenticationContext.localizedReason = "Unlock VoiceRelay delivery for this app session." }
+    public convenience init() { self.init(operations: .system) }
+    init(operations: Operations) {
+        self.operations = operations
+        authenticationContext.localizedReason = "Save VoiceRelay’s password for background publishing."
+    }
     public func cancelAuthentication() {
         let cancelled = contextLock.withLock {
             let previous = authenticationContext
             authenticationContext = LAContext()
-            authenticationContext.localizedReason = "Unlock VoiceRelay delivery for this app session."
+            authenticationContext.localizedReason = "Save VoiceRelay’s password for background publishing."
             return previous
         }
         cancelled.invalidate()
@@ -304,8 +324,7 @@ public final class KeychainCredentialStore: DeliveryCredentialStore, @unchecked 
                 kSecAttrSynchronizable as String: false]
     }
     static func accessControl() throws -> SecAccessControl {
-        guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            [.biometryAny, .devicePasscode, .companion, .or], nil) else {
+        guard let access = SecAccessControlCreateWithFlags(nil, accessibility, accessFlags, nil) else {
             throw DeliveryError.credentialUnavailable("The protected delivery credential could not be configured.")
         }
         return access
@@ -313,11 +332,15 @@ public final class KeychainCredentialStore: DeliveryCredentialStore, @unchecked 
     func context() -> LAContext {
         contextLock.withLock { authenticationContext }
     }
-    public func hasPassword(username: String, host: String) throws -> Bool {
+    private func backgroundQuery(_ username: String, _ host: String) -> [String: Any] {
         var query = base(username, host)
         let context = LAContext(); context.interactionNotAllowed = true
         query[kSecUseAuthenticationContext as String] = context
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        return query
+    }
+    public func hasPassword(username: String, host: String) throws -> Bool {
+        let query = backgroundQuery(username, host)
+        let (status, _) = operations.read(query)
         if status == errSecItemNotFound { return false }
         guard status == errSecSuccess else {
             throw DeliveryError.credentialUnavailable(Self.readNotice(status))
@@ -325,11 +348,9 @@ public final class KeychainCredentialStore: DeliveryCredentialStore, @unchecked 
         return true
     }
     public func readPassword(username: String, host: String) throws -> String? {
-        var query = base(username, host)
-        query[kSecUseAuthenticationContext as String] = context()
+        var query = backgroundQuery(username, host)
         query[kSecReturnData as String] = true; query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        let (status, item) = operations.read(query)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = item as? Data,
               let password = String(data: data, encoding: .utf8) else {
@@ -339,23 +360,25 @@ public final class KeychainCredentialStore: DeliveryCredentialStore, @unchecked 
     }
     private static func readNotice(_ status: OSStatus) -> String {
         switch status {
+        case errSecInteractionNotAllowed, errSecAuthFailed: "The saved password needs background access. Enter it again and choose Save Password in Publishing. macOS may request authorization once."
         case errSecUserCanceled: "Keychain access was cancelled. Allow VoiceRelay to access the saved password and try again."
-        case errSecAuthFailed: "Keychain access was denied. Allow VoiceRelay to access the saved password and try again."
         case errSecMissingEntitlement: "Protected Keychain access requires the signed VoiceRelay app and its provisioning profile. Check Xcode signing settings."
         default: DeliveryError.credentialNotice
         }
     }
     public func writePassword(_ password: String, username: String, host: String) throws {
         var attributes = base(username, host)
+        let access = try Self.accessControl()
         attributes[kSecValueData as String] = Data(password.utf8)
-        attributes[kSecAttrAccessControl as String] = try Self.accessControl()
+        attributes[kSecAttrAccessControl as String] = access
         attributes[kSecUseAuthenticationContext as String] = context()
-        let added = SecItemAdd(attributes as CFDictionary, nil)
+        let added = operations.add(attributes)
         if added == errSecDuplicateItem {
-            let update = [kSecValueData as String: Data(password.utf8)]
+            let update: [String: Any] = [kSecValueData as String: Data(password.utf8),
+                kSecAttrAccessControl as String: access]
             var query = base(username, host)
             query[kSecUseAuthenticationContext as String] = context()
-            let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+            let status = operations.update(query, update)
             guard status == errSecSuccess else {
                 throw DeliveryError.credentialUnavailable(Self.readNotice(status))
             }
@@ -366,7 +389,7 @@ public final class KeychainCredentialStore: DeliveryCredentialStore, @unchecked 
     public func deletePassword(username: String, host: String) throws {
         var query = base(username, host)
         query[kSecUseAuthenticationContext as String] = context()
-        let status = SecItemDelete(query as CFDictionary)
+        let status = operations.delete(query)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw DeliveryError.credentialUnavailable(Self.readNotice(status))
         }

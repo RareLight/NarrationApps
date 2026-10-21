@@ -223,7 +223,9 @@ func unsafeDeliveryURLsRejected(_ value: String) {
     let a = SemanticArticle(title: "Special", originalURL: URL(string: "https://articles.example")!, finalURL: URL(string: "https://articles.example")!, canonicalURL: nil, author: nil, blocks: blocks, warnings: [], extractorVersion: ArticleExtractor.version)
     let plan = try Narration.prepare(a, limit: 50)
     #expect(plan.notices.count >= 3)
-    #expect(plan.chunks.map(\.text).joined().contains("Table omitted"))
+    // A simple one-cell table now reads its content instead of an omission cue.
+    #expect(plan.chunks.map(\.text).joined().components(separatedBy: "Cell").count - 1 == 1)
+    #expect(!plan.chunks.map(\.text).joined().contains("Table omitted"))
     #expect(!plan.chunks.map(\.text).joined().contains("let x = 1"))
     #expect(plan.chunks.allSatisfy { $0.text.count <= 50 })
 }

@@ -1,5 +1,9 @@
 # VoiceRelay icon sources
 
+`VoiceRelay_Cover.png` is the authored 1700×1700 opaque podcast cover derived from
+the app icon. Xcode copies this file directly into the app resources as the default
+show artwork. Publishing can replace or remove it; startup preserves that choice.
+
 The Xcode app builds the canonical Icon Composer document at
 [`../icon/VoiceRelay.icon`](../icon/VoiceRelay.icon). Edit that native document
 for shipped icon changes.

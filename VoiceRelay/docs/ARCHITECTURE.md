@@ -1,6 +1,6 @@
 # VoiceRelay architecture
 
-Current application contract, October 16, 2026. Shared processing lives in the
+Current application contract, October 18, 2026. Shared processing lives in the
 independent [SwiftNarration packages](../../docs/ARCHITECTURE.md).
 VoiceRelay owns Safari discovery, source authorization, retained identity/text,
 SQLite queue/recovery, Publishing/Keychain, backup and GUI lifecycle.
@@ -22,8 +22,15 @@ SQLite queue/recovery, Publishing/Keychain, backup and GUI lifecycle.
 The GUI links shared contracts/assets, not MLX. Xcode embeds VoiceRelaySpeechWorker,
 Metal and notices. The UI presents Kokoro's supported English voice subset; Soprano
 exists in the shared engine but is not a VoiceRelay voice selector. No product CLI,
-Python helper, external codec executable, persistent agent or service enrollment
-is maintained. See [native provider](KOKORO_PROVIDER.md).
+Python helper, external codec executable or persistent agent is maintained.
+An optional `SMAppService.mainApp` login item launches the ordinary app after sign-in;
+initial setup and General Settings offer the same off-by-default control. Read OS
+status on launch/Settings activation, reflect pending or revoked consent, and never
+register automatically. Login launches suppress default/restored windows using the
+open-application event's login-item marker; ordinary manual launches keep their
+existing window behavior. Quit joins registration work and stops app-owned work;
+the login item does not restart the app until the next login. Injected/inert models
+use fake services or none. See [native provider](KOKORO_PROVIDER.md).
 
 ## Sources, admission and identity
 
@@ -84,8 +91,23 @@ media is preserved even if older scratch has disappeared.
 
 ## Publishing, recovery and cleanup
 
+The main app bundles `icon/VoiceRelay_Cover.png` as its initial podcast artwork.
+After loading preferences, production launch prepares it through the existing
+bounded artwork converter/store off the main actor, only for an unset cover choice.
+Initial publishing waits for that owned import. Explicit custom selection or
+removal wins, including during preparation; Quit cancels/joins the import. Injected
+models import only on explicit fixture request into a supplied temporary store.
+The bundle checker verifies exact source/resource bytes in Debug and Release.
+
 Publishing owns HTTPS Feed/Public folder URLs, channel preferences and credentials;
-passwords are device-local Keychain data. Test Connection reads folders and does
+passwords are device-local data-protection Keychain items, accessible after the first
+unlock following a reboot, including while locked. No biometric/passcode/companion
+flags are required. Background reads disallow authentication UI; older protected
+items report a sanitized instruction to re-save in Publishing. Explicit Save updates
+the password and access control together in place (also for unchanged bytes), with
+interactive authorization permitted only for explicit mutations. Failed/cancelled
+updates preserve the old item and cached value. Service/account identity is unchanged;
+no legacy/plaintext fallback is used. Test Connection reads folders and does
 not establish write permission or public mapping. Rendering/opening Settings must
 not access Keychain, contact servers or write metadata. Credential session reuse
 ends at Quit; denied access must not trigger automatic repeated prompts.
