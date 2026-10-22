@@ -7,7 +7,7 @@ intake, pronunciation, preparation and audio implementations are maintained here
 once, with synthetic shared regressions. Source-only migration baselines remain
 private ignored evidence, not additional maintained implementations.
 
-Project code is under the repository [AGPL-3.0 license](../swift-packages/LICENSE). Dependencies,
+Project code is under the repository [AGPL-3.0 license](../LICENSE). Dependencies,
 models/voices and pronunciation data retain their original terms. Exact pinned
 sources, patches, resource hashes, codec provenance and notice collection are in
 [DEPENDENCIES.md](DEPENDENCIES.md); original texts in `ThirdPartyNotices/` must not
@@ -22,7 +22,7 @@ copyright and adaptation record are retained in
 and included by both apps' existing notice-packaging flow. This adds no Readium
 package or binary dependency.
 
-The private `.build/longform/accepted/` records preserve source/sample/helper hashes,
+Optional private `.build/longform/accepted/` records preserve source/sample/helper hashes,
 operator selection and final artifact checks. Historical public stage summaries
 are indexed in [README.md](README.md); they are not current setup commands or
 permission to expose private source documents, caches, credentials or audio.

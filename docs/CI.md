@@ -7,18 +7,20 @@ the action pin still require official-documentation review before activation:
 [runner images](https://github.com/actions/runner-images),
 [self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners),
 [workflow syntax](https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions).
-Online verification was not performed without network approval.
+This documentation review does not perform that provider/security review or
+activate remote execution.
 
 The inactive template is [.devin/ci/github-actions.yml](../.devin/ci/github-actions.yml).
 It is intentionally not installed under `.github/workflows/`. Local YAML parsing
 is structural evidence only, not GitHub schema/provider execution acceptance.
 It uses an immutable checkout action revision (v4.2.2); review current support,
-upstream identity and security status before activation. No new runtime dependency,
-CI resource, secret, remote, billable machine or service was provisioned.
+upstream identity and security status before activation. The template
+does not provision a runner, secrets, billable machine or service.
 
 ## Activation requires the operator
 
-1. Publish the monorepo manually to its configured origin after source review.
+1. Confirm the intended source commit is available in the configured monorepo
+   origin. Initial source publication is complete; CI remains inactive.
 2. Review official provider/runner and action documentation. Authorize any cost.
    Register a dedicated, access-controlled arm64 runner with
    `narration-xcode-27-1`; do not use the production app user or private libraries.
@@ -47,7 +49,8 @@ workers/probes are individually network-denied, separate from setup acquisition.
 
 No cache is shared across jobs/checkouts. Future cache proposals must key Xcode
 build, SDK, architecture, absolute checkout path, all lockfiles and patch hashes.
-There is no scheduled GUI or product automation and no models are downloaded.
+There is no CI-scheduled GUI/product automation, and this workflow does not
+download speech models.
 The generic workflow never runs native inference. Native gates require a separately
 authorized compatible model-equipped machine, idle apps and serialized GPU work;
 use the documented native tier locally rather than pretending hosted CI ran it.

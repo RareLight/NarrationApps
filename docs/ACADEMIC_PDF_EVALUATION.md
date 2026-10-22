@@ -1,11 +1,12 @@
 # Difficult academic PDFs: evaluation and next steps
 
-October 19, 2026. This expands the [scientific narration](SCIENTIFIC_NARRATION.md)
+Evaluation performed October 19, 2026; current-scope notes reviewed October 21. This expands the [scientific narration](SCIENTIFIC_NARRATION.md)
 review with five public papers. Downloaded papers, extracted prose, renders and
 model/settings exports stay in ignored `.local/academic-corpus/`; third-party full
 texts are not bundled as fixtures. Its `audit.json` records versions, input hashes,
-page counts, source comparisons and plan checks. `run-final.sh` reproduces the
-explicit local reviews. Normal fixture runs use synthetic material only.
+page counts, source comparisons and plan checks. The private `run-final.sh` was
+local evaluation tooling, not a maintained fresh-clone command or a product
+requirement. Normal fixture runs use synthetic material only.
 
 ## Corpus and observed limits
 

@@ -1,6 +1,7 @@
 # Consolidated app validation checklist
 
-Updated October 16, 2026. This is the single current operator checklist for Libro
+Current instructions reviewed October 21, 2026; prior operator results retain
+their original dates. This is the single current operator checklist for Libro
 and VoiceRelay. Earlier UI, beta, Settings, pronunciation and longform handoffs
 are consolidated here; their implementation/build evidence remains in the
 [implementation status](IMPLEMENTATION_STATUS.md) and
@@ -12,15 +13,14 @@ live-service cases below remain unconfirmed unless explicitly recorded elsewhere
 
 ## Before starting
 
-For the development-foundation-only final smoke, focus on the existing setup,
-Settings, small synthetic import/preview/queue and Stop/Quit flows: Libro
-L01/L02/L05/L12/L18 and VoiceRelay V01/V02/V10 in an authorized disposable test
-setup. This is not a request to repeat model downloads, live Publishing, listening
-or private-document quality tests; those existing unreported cases stay open.
+Select the app build and relevant checklist IDs before testing. A documentation
+review does not require repeating model downloads, live Publishing or private-
+document/listening checks. Use an authorized disposable setup for those cases.
 
-Use the active workspace at
-`/path/to/NarrationApps/NarrationApps.xcworkspace`.
-First complete the [relocation smoke and archival gate](REPOSITORY_LAYOUT.md#migration-validation-and-archival-gate).
+Open `NarrationApps.xcworkspace` from the monorepo root. The
+[layout/archival gate](REPOSITORY_LAYOUT.md#migration-validation-and-archival-gate)
+records the earlier relocation; do not restore nested repositories or require the
+archived originals to test current source.
 
 Earlier feature validation used synthetic generated fixtures at
 `.build/cover-navigation/fixtures` (EPUB notes/appendix/bibliography/duplicate
@@ -29,16 +29,14 @@ maintained Swift fixtures/tests remain. Use equivalent disposable documents and
 artwork for the operator checks below. Actual-document/player acceptance remains
 separate from automated fixture tests.
 
-- Quit older copies of each app. Current ad-hoc Release apps, relative to the
-  NarrationApps root, are
-  `.build/WorkspaceDerivedData/Build/Products/Release/Libro.app` and
-  `.build/WorkspaceDerivedData/Build/Products/Release/VoiceRelay.app`, built together
-  with stable Xcode 27.1. Use the [combined workspace](../NarrationApps.xcworkspace)
-  for simultaneous GUI development; select each app scheme to run it. These include
-  the EPUB/encoding changes and PDF subtoken-range fix; earlier `accepted/` exports
-  predate these. Current sources also include cover art, authored navigation and
-  explicit note/auxiliary narration controls. Rebuild and
-  re-archive current sources before testing a new exported copy.
+- Quit older copies of each app. The latest recorded automated ad-hoc products
+  are `.build/MonorepoValidation/Build/Products/Release/Libro.app` and
+  `.build/MonorepoValidation/Build/Products/Release/VoiceRelay.app`, relative to the
+  monorepo root. Local generated products may be absent on another machine.
+  Select an operator candidate explicitly; preserve any earlier bundle already
+  under active review. The [migration record](MONOREPO_MIGRATION.md#validation)
+  identifies the tested source/toolchain. Rebuild/re-archive changed source before
+  attributing results to it. Use the combined workspace for both apps.
 - Use a separate output folder and disposable test articles. Keep existing models,
   finished audio and the live library intact. For fresh-install tests, use a
   separate macOS user/test installation rather than deleting working caches.
@@ -46,12 +44,14 @@ separate from automated fixture tests.
   credentials and live Publishing tests; the ad-hoc copies do not establish
   account/entitlement acceptance. Installation/relocation and restore tests are
   conditional; mark N/A until a suitable test user/library is available.
-- Automated suites, archives, signatures, offline workers and arbitration already
-  passed. The twelve-pair A/B listening decision is complete; you do not need to
+- Dated engineering records include passed suites, builds, archives, signatures,
+  offline workers and arbitration at their recorded revisions. The earlier A/B
+  listening decision is complete; you do not need to
   repeat it. New Kokoro settings use Heart at 1.0× with the accepted pause profile;
   existing saved speeds and admitted jobs keep their values.
 - New Kokoro spoken forms expand explicit kilograms, Celsius/Fahrenheit and
-  AM/PM times; use B05 for their listening/preview acceptance. Contextual `lead`/`read`
+  AM/PM times. Delivery A matched listening, including letter A, is accepted;
+  use B05 for remaining app-preview checks. Contextual `lead`/`read`
   and unsupported/ambiguous forms remain limitations. See the
   [normalization record](TEXT_NORMALIZATION_RESEARCH.md).
 
@@ -125,7 +125,7 @@ separate from automated fixture tests.
   unreadable PDF, duplicate output names and an unavailable destination. Recovery
   messages/Details are actionable; cancelling replacement or a failed job preserves
   existing complete output. Re-selecting a destination restores normal generation.
-  Queue files whose audio already exists: enqueue succeeds. Generate Audio offers
+  Queue files whose audio already exists: enqueue succeeds. Start Queue offers
   Overwrite Existing, Skip Existing and Cancel. Check a mixed batch and an all-existing
   batch; skipped rows are visible, Queue Again works, and Cancel preserves the queue.
   If a previously failed item is skipped, Queue Unfinished must queue it again;
@@ -334,7 +334,8 @@ separate from automated fixture tests.
   preferences remain intact. Preview/sample playback should stop conflicting playback within each app.
 
 - [ ] **B05 — New spoken forms (both apps).** In Libro, import the synthetic
-  `spoken-forms.txt` beside the `.build/text-processing/delivery-a/listening/index.html` (archived listening fixtures).
+  a disposable text document with the examples below. If retained locally, the
+  archived `.build/text-processing/delivery-a/listening/` fixtures can also be used.
   In VoiceRelay, preview a disposable authorized article containing equivalent
   quantities/times. The operator accepted the matched listening and
   `.build/text-processing/letter-a/listening/index.html` (archived corrected letter A clips).
@@ -350,10 +351,12 @@ separate from automated fixture tests.
   and Soprano should retain their existing behavior. Matched Heart/Michael/Emma
   listening at 1.0× is accepted; check app-generated equivalents: numbers, sign,
   unit, AM/PM and sentence cadence must be clear, without level changes. Restore
-  temporary overrides afterward. Do not begin Delivery B until this review.
+  temporary overrides afterward. Delivery B is already implemented; this item
+  does not restart its historical approval gate.
 
 - [ ] **B06 — Paragraph and PDF reading flow (both apps).** Use the
-  `.build/text-processing/delivery-b/listening/index.html` (archived Delivery B fixture page).
+  `.build/text-processing/delivery-b/listening/index.html` if retained locally
+  (archived Delivery B fixture page), or equivalent disposable fixtures.
   In Libro, preview `paragraphs.txt` and `reading-flow.pdf`: blank lines remain
   paragraphs, single line wraps stay within them, `[12]` and hard hyphens remain,
   and only the discretionary soft hyphen disappears in speech. Compare PDF source
@@ -389,9 +392,8 @@ separate from automated fixture tests.
 - [ ] **B08 — Scientific equations and tables (both apps).** Compare original
   pages with narration for the authorized scientific PDFs or equivalent
   disposable documents, using a fresh import/analysis. Retained snapshots are not
-  implicitly re-extracted. The dedicated review apps are under
-  `.build/FlowNarrationValidation/Build/Products/Release/` (prose insets and
-  deduplicated equation notices; earlier review bundles remain available).
+  implicitly re-extracted. Use the explicitly selected current build. `.build/FlowNarrationValidation/` is an
+  earlier per-feature candidate, not a required or automatically current bundle.
   Clear linear notation should name operators/variables;
   detected complex expressions should produce one original-text reference notice
   per document, without repeating after prose, new pages or headings. Each omitted

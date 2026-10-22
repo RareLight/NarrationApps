@@ -8,8 +8,9 @@ Test Connection remains a read-only folder probe, not a synchronization action.
 Every configured/enabled app launch attempts reconciliation, including relaunches
 within the five-minute cadence. This bypasses only the scan's cadence gate: valid
 audio proofs, conditional feed requests and upload retry delays remain effective.
-Cancelled/unavailable Keychain access is remembered for the session; only explicit
-retry can prompt again. Startup shows Checking Publishing; failures offer Review
+Cancelled/unavailable Keychain access is remembered for the session. Background
+reads never prompt; explicit Save Password may request authorization to update an
+older credential. Failed access remains actionable in Publishing. Startup shows Checking Publishing; failures offer Review
 Publishing directly, independently of Uploads warnings.
 
 ## Identity and conflict policy

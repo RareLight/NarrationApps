@@ -13,7 +13,7 @@ operator-selected common phrase:
 > Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!
 
 The preceding voice-specific introductions are retained only in private build
-evidence. All 29 current records include a schema-3 prepared-speech plan with
+evidence. The current sample manifest is schema 3; all 29 records include a prepared-speech plan with
 policy, frontend/resource provenance and final utterances. Kokoro uses the accepted
 200-phoneme pause profile; Soprano retains its text frontend.
 
@@ -100,7 +100,7 @@ concurrent-writer rejection and original-level/quiet-to-loud ratio checks. The f
 four-argument `NarrationNativeCheck ... samples` mode has been replaced by this tool.
 
 To explicitly exercise every real native voice in an isolated temporary directory,
-after building the helper:
+after building the helper, from `NarrationApps/swift-packages/`:
 
 ```sh
 VOICE_SAMPLE_NATIVE_CHECK=1 swift test --disable-sandbox --no-parallel --jobs 4 \
@@ -112,7 +112,8 @@ quality and both apps' Play Sample UI remain operator acceptance checks.
 
 
 The [longform implementation](KOKORO_LONGFORM_IMPLEMENTATION.md) now carries the
-exact common spoken projection through helper preparation and rendering. Future
-schema-3 manifests include actual prepared utterances and readable regional,
-frontend, style and assembly provenance. Existing bundled schema-2 recordings are
-preserved until the operator accepts the profile and requests regeneration.
+exact common spoken projection through helper preparation and rendering. The current
+schema-3 manifest includes actual prepared utterances and readable regional,
+frontend, style and assembly provenance. The prior schema-2 recording set is
+historical; all 29 current resources use the accepted profile and common phrase.
+Do not regenerate them as part of routine builds or a documentation update.

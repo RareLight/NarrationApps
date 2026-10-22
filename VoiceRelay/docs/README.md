@@ -1,18 +1,20 @@
 # VoiceRelay documentation
 
-| Guide | Purpose |
+| Reader/task | Guide |
 | --- | --- |
-| [App guide](../README.md) | Build/setup and everyday source, queue, Publishing and backup use |
-| [Architecture](ARCHITECTURE.md) | App-specific ownership, lifecycle, persistence and safety contracts |
-| [Source handling](SOURCE_REVIEW.md) | Safari/web/PDF authorization, previews, archive lookup and provenance |
-| [Native speech adapter](KOKORO_PROVIDER.md) | App/backend integration with shared prepared speech |
-| [Server recovery](SERVER_RECOVERY.md) | Identity, reconciliation, proofs, conflicts and cleanup behavior |
-| [Contributing](../CONTRIBUTING.md) | Safe engineering checks and source conventions |
-| [Current validation](VALIDATION.md) | Automated evidence, operator ownership and source-only checks |
-| [Consolidated operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay) | Only current manual test list |
-| [Release checklist](RELEASE_CHECKLIST.md) | Engineering/package and conditional distribution gates |
-| [Shared docs](../../docs/README.md) | Canonical packages, parsing, pronunciation, samples, audio and remaining work |
+| Get started | [App overview](../README.md) |
+| Automation, Publishing, covers, credentials, privacy and backups | [User guide](USER_GUIDE.md) |
+| Footnotes, PDF cleanup and pronunciation previews | [Shared narration guide](../../docs/NARRATION_GUIDE.md) |
+| Source access, failed pages, archives and image handling | [Source handling](SOURCE_REVIEW.md) |
+| Matching server copies, verification, conflicts and cleanup | [Server recovery](SERVER_RECOVERY.md) |
+| Build/sign and contribute | [Contributing](../CONTRIBUTING.md), [root setup](../../CONTRIBUTING.md) |
+| Work as an agent | [Scoped instructions](../AGENTS.md) |
+| Understand the application | [Architecture](ARCHITECTURE.md), [native speech adapter](KOKORO_PROVIDER.md) |
+| Read automated evidence | [Validation](VALIDATION.md), [shared status](../../docs/IMPLEMENTATION_STATUS.md) |
+| Perform manual tests or plan a release | [Operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay), [release checklist](RELEASE_CHECKLIST.md) |
 
-The earlier handoffs, validation snapshots and polish notes are retained in Git
-history and the original repository. The guides above describe the native app;
-retired records are not a second setup path.
+The [root index](../../docs/README.md) owns shared references and the distinction
+between current guides and dated implementation records. Old handoffs and per-stage
+paths are background; they are not another setup path. Private migration backups
+retain original independent history that may no longer be reachable by its old ID
+in the sanitized monorepo.

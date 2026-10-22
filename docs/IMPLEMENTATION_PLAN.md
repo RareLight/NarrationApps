@@ -1,86 +1,79 @@
 # Current implementation and remaining work
 
-Updated October 19, 2026. Native unification and Kokoro LF0–LF7 implementation were
-authorized and their automated integration gates are complete. This is the current
-roadmap; completed stages and their evidence are recorded in
-[implementation status](IMPLEMENTATION_STATUS.md).
+Reviewed October 21, 2026. This roadmap separates implemented behavior, remaining
+acceptance and research proposals. Detailed technical contracts live in
+[architecture](ARCHITECTURE.md); engineering evidence lives in
+[current status](IMPLEMENTATION_STATUS.md). Historical stage plans do not schedule
+new work by themselves.
 
 ## Implemented baseline
 
-Both apps consume SwiftNarration and the independent AppPresentation package.
-Shared intake/OCR/image handling, pronunciation editing, native speech preparation,
-supervised helpers, audio and common Settings controls are implemented. App-owned
-Libro batches and VoiceRelay discovery/SQLite/Publishing remain separate.
+One monorepo contains Libro, VoiceRelay, SwiftNarration, AppPresentation and the
+combined Xcode workspace. Both apps share semantic document intake, pronunciation,
+native speech preparation, supervised helpers, audio handling and common Settings.
+Libro owns batches/exports; VoiceRelay owns Reading List discovery, durable queues,
+WebDAV publishing, backup and recovery.
 
-Kokoro uses the operator-selected Heart/1.0× pause profile. All 29 samples were
-regenerated through that pipeline with the selected common phrase. One worker per
-app, safe Libro priority, no normalization/volume leveling, and finished-recording
-preservation remain invariants. Soprano retains its text frontend. Details are in
-[architecture](ARCHITECTURE.md) and [current validation status](IMPLEMENTATION_STATUS.md).
+Current features include:
 
-## Latest implemented feature sequence
+- Text/Markdown/RTF/PDF and DRM-free EPUB intake, bounded OCR/image descriptions,
+  authored navigation, source mappings and legacy text encodings.
+- Libro Start/Pause/Resume/Skip/Stop, queue reordering, progressive PDF previews,
+  automatic cover thumbnails, manual cover choices and existing-output review.
+- Shared footnote/auxiliary choices, off-by-default citation stripping and
+  experimental dictionary-constrained PDF word joining; conservative margin,
+  column and typography cleanup; simple scientific text/table narration.
+- Shared pronunciation editing/live previews and 29 bundled voice samples.
+- VoiceRelay automatic discovery/generation/publishing, Sync Now, Uploads and Server
+  Audio, bounded reconciliation, background-safe credentials, default show art and
+  off-by-default login startup.
+- Explicit pinned source setup, tiered checks, evidence summaries, scoped formatting
+  and an inactive CI template.
 
-The [cover art and document navigation plan](COVER_ART_AND_NAVIGATION_PLAN.md)
-records the implemented increment: Libro embedded export covers, VoiceRelay
-show artwork, authored outlines, local heading deduplication, explicit narration
-controls and bounded spoken-form corrections. CA0–CA3 and DN1–DN3 engineering is complete;
-operator cover/navigation/narration checks L17–L19 and V17–V19 remain open. SF1
-retains the accepted pronunciation baseline without speculative new rules.
+New Kokoro settings use Heart at 1.0× with the accepted pacing profile. Delivery A
+spoken-form listening, including capital-A labels, is accepted. Soprano keeps its
+native frontend. One worker per app, helper-only MLX, safe Libro priority,
+source/finished-recording preservation and unchanged audio levels remain invariants.
 
-## Development foundation
+## Remaining operator acceptance
 
-The coordinated source checkpoint is complete. The detailed
-[development foundation checklist](DEVELOPMENT_FOUNDATION_CHECKLIST.md) covers
-reproducible setup, tiered validation/CI readiness, regression contracts, focused
-app-file cleanup, formatting/documentation and dependency/release maintenance.
-Its [original handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md) records the authorized
-scope; use current checklist/status evidence rather than restarting completed stages.
-Local engineering and final gates are complete; official CI provider/action review,
-source publication/activation and operator acceptance remain separate. Deferred
-product features were not added to this scope.
+Use the [single checklist](OPERATOR_VALIDATION.md) to record results. Unreported
+cases remain open; successful builds or document planning do not mark them passed.
 
-## Next work
+| Area | Remaining acceptance |
+| --- | --- |
+| Libro UI, queue, settings and lifecycle | Relevant L01–L20 interactions, larger text, output dialogs and cancellation |
+| Original document freeze and quality | L06/L08/L10 plus private-document OCR/layout/caption review |
+| Covers, navigation and captured choices | L17–L19 and V17–V19; real exported-player/feed behavior |
+| Progressive previews | L20; actual-document latency, scrolling, completion and close/reopen behavior |
+| PDF flow, word joins and scientific text | B06–B08; source comparison and matched listening |
+| Cross-app operation | Shared dictionary edits, worker priority, waiting/cancellation and playback |
+| VoiceRelay services and recovery | Protected Safari, normal-signed Keychain, WebDAV/readback, podcast playback and disposable-library restore |
+| Installation/distribution | D01/D02 only when a clean test environment or release route is available |
 
-The authorized Readium-style PDF word-joining experiment is implemented in shared
-NarrationCore/NarrationUI, off by default. Current evidence is in
-[implementation status](IMPLEMENTATION_STATUS.md); actual-document/compound/listening
-acceptance is operator B07, alongside the existing B06 baseline flow checks.
-Libro's progressive preview/layout follow-up is implemented; first-page latency,
-live layout and cancellation/reopening acceptance are operator L20.
-The October 18 citation/margin/column follow-up is authorized, including read-only
-opt-in text comparisons against locally selected documents. Its scope and evidence
-are in [narration cleanup](DOCUMENT_CLEANUP.md) and the current status.
-The scientific-PDF follow-up adds conservative equation and table handling with
-explicit source-reference fallbacks. Its scope and remaining transcription limits
-are in [scientific narration](SCIENTIFIC_NARRATION.md); GUI/listening acceptance
-is operator B08.
-The [expanded academic evaluation](ACADEMIC_PDF_EVALUATION.md) records additional
-public-paper tests and proposed structure-preserving intake, regional review and
-math speech integration. Current priorities are readable inset prose in its local
-text flow and one reference notice for complex equations. Advanced mathematical
-transcription and those larger extraction changes remain deferred research.
+Resolve reported acceptance failures in the owning shared package or app, add
+focused regressions and repeat affected gates. Do not change defaults merely to
+make a difficult document pass. Preserve previous operator builds and actual data.
 
-1. Complete the [consolidated operator checklist](OPERATOR_VALIDATION.md): GUI,
-   actual private PDF/Markdown freeze reproduction, final samples/narration,
-   OCR/caption quality, lifecycle and cross-app waiting. Live VoiceRelay Safari,
-   Keychain, WebDAV, podcast playback and test-library restore remain operator-owned.
-2. Validate Delivery B of the [text-processing checklist](TEXT_PROCESSING_IMPROVEMENT_PLAN.md)
-   through B06: paragraph/source fidelity, conservative PDF margin/continuation
-   decisions, progress/cancellation and matched listening. Delivery A listening,
-   including letter A, is operator accepted. TP4–TP7 engineering is implemented;
-   unsupported complex layouts, chaptered audio, caption scheduling and broader citation/homograph
-   changes remain separate future scope; the implemented outline/control increment
-   is recorded above.
-3. Resolve reported app-specific acceptance failures in their app directories;
-   keep shared bugs/tests canonical in the packages. Add focused regressions and
-   repeat affected gates before the next operator candidate.
-4. When distribution is planned, complete account/entitlement, clean-Mac and
-   notarization/installer acceptance. Local ad-hoc artifacts do not establish those.
-5. Before publishing shared packages remotely, establish repository/tag/export or
-   registry strategy and replace reliance on ignored prepared local dependency
-   paths with a release-ready source strategy. See [package management](PACKAGE_BOUNDARIES.md).
+## Proposed research and release work
 
-Do not regenerate finished/published recordings, reset preferences/caches, add a
-product CLI/Python runtime, introduce another worker mode, or operate live services
-as part of routine fixture validation. Continue authorized implementation stages
-after their automated gates pass; operator quality/service gates stay separate.
+These are candidates requiring an explicit scope decision, not unfinished steps
+of an already completed implementation:
+
+- Context-sensitive homographs and broader written-to-spoken forms; see
+  [normalization research](TEXT_NORMALIZATION_RESEARCH.md).
+- Better scientific structure/MathML, region-based review and advanced mathematical
+  speech; see [academic PDF evaluation](ACADEMIC_PDF_EVALUATION.md). Current prose
+  insets and the single complex-equation reference notice are already implemented.
+- Unsupported complex/rotated layouts, chaptered audio exports and broader
+  annotation scheduling. Current authored Contents navigation is implemented.
+- CI provider/action review, runner setup and explicit activation. Source
+  publication does not activate the [CI template](CI.md).
+- Signed public app distribution and independent package/registry releases. Local
+  prepared dependency paths still require a release-ready strategy for remote
+  package consumers; see [package boundaries](PACKAGE_BOUNDARIES.md).
+
+Routine checks must not reset preferences/libraries, fetch old snapshots,
+regenerate published recordings, install models, launch the GUI, operate accounts
+or contact live product services. The current task's authorization determines
+which proposed work, if any, proceeds.

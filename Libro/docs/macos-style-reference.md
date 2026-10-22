@@ -1,7 +1,7 @@
 # Shared macOS design and UX reference
 
 Design baseline: October 9, 2026 · macOS 27 / Xcode 27.
-Current implementation ownership and terminology: October 15, 2026.
+Current implementation ownership and terminology reviewed October 21, 2026.
 
 Use this document when designing or developing our Mac applications. The goal is
 recognizable behavior, restrained native presentation and clear workflows across
@@ -273,7 +273,7 @@ so they cannot intercept ordinary text-field editing.
 | App-specific commands | Discoverable menu labels and shortcuts; avoid reserved combinations |
 
 Libro additionally uses Command-Y/Space for selected-text preview and
-Command-Shift-G to generate. Those are product choices, not universal requirements
+Command-Shift-G for Start Queue. Those are product choices, not universal requirements
 for unrelated apps or overrides of more appropriate existing conventions.
 [Apple: macOS accessibility programming guidance](https://developer.apple.com/library/archive/documentation/Accessibility/Conceptual/AccessibilityMacOSX/OSXAXDeveloping.html)
 
@@ -300,6 +300,12 @@ is known. Prefer “This document contains no narration text after cleanup.”
 
 ## 8. Current native implementation
 
+Libro now uses Start/Pause/Resume, Skip and Stop controls beside cover editing,
+with Save Location and concise status along the bottom. Native table dragging
+reorders eligible waiting rows. Settings has General, Document, Models,
+Pronunciation and Troubleshooting; Document examples start collapsed. These are
+current product examples, not a mandate to give VoiceRelay a batch interface.
+
 Use the shared [AppPresentation conventions](../../docs/SETTINGS_ALIGNMENT.md)
 and [operator checklist](../../docs/OPERATOR_VALIDATION.md#libro)
 for the implemented controls and manual appearance/VoiceOver checks. The retired
@@ -325,6 +331,8 @@ A useful handoff prompt:
 > validate incrementally, and separate fixture/build checks from actual GUI and
 > human accessibility/appearance acceptance. Cite justified deviations.
 
+Use the following as reusable design-review prompts, not a second list of pending
+operator signoffs; report product acceptance through the shared operator IDs.
 Before declaring a UI complete:
 
 - [ ] Identify the first action, main content, task choices, destination and primary

@@ -1,5 +1,11 @@
 # Kokoro longform implementation record
 
+> Dated implementation/listening record. LF0–LF7 are complete; later document
+> projection and monorepo changes are in [current status](IMPLEMENTATION_STATUS.md).
+> Old repository revisions, build paths, test counts and candidate commands below
+> reproduce those stages only. Current setup/checks use [CONTRIBUTING.md](../CONTRIBUTING.md)
+> and [DEVELOPMENT.md](DEVELOPMENT.md); no sample regeneration is implied.
+
 Implementation authorized October 15, 2026, after Settings automated validation.
 The plan is [KOKORO_LONGFORM_PLAN.md](KOKORO_LONGFORM_IMPLEMENTATION.md). Automated evidence
 and operator acceptance are separate. Nothing has been committed, pushed,

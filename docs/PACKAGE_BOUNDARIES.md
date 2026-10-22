@@ -23,9 +23,12 @@ consumer demonstrates that need; no speculative extra package exists today.
 
 Keep the shared package directory at `swift-packages` inside NarrationApps. Each app
 depends on these package sources;
-neither app depends on the other app's source. Add `swift-packages/` and
-`swift-packages/AppPresentation/` as two local packages in Xcode and link only the needed
-products to each target. Helpers link NativeSpeechEngine; GUIs use contracts/UI.
+neither app depends on the other app's source. Existing app projects already
+reference `swift-packages/` and `swift-packages/AppPresentation/` as two local packages.
+For a new consumer, add those packages and link only the needed products. Helpers link NativeSpeechEngine; GUIs use contracts/UI.
+
+Example for a consumer package at the `VoiceRelay/` directory depth (LibroCore
+has different relative depth; do not paste these paths into its manifest):
 
 ```swift
 .package(path: "../swift-packages")

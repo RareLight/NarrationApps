@@ -1,7 +1,7 @@
 # Settings ownership and shared presentation
 
-Settings alignment is implemented. The [original stage plan and automated evidence](SETTINGS_ALIGNMENT.md)
-are historical; the only current manual tests are in the
+Settings alignment is implemented; ownership below was reviewed October 21, 2026.
+Implementation-stage evidence is historical; the only current manual tests are in the
 [consolidated checklist](OPERATOR_VALIDATION.md).
 
 | Owner | Shared responsibility |
@@ -24,7 +24,7 @@ Future document text controls belong in Document.
 Main-window speech and export choices remain part of its batch workflow; Models owns workspace/install/
 offline setup checks and Troubleshooting owns the separate embedded-helper check.
 VoiceRelay has General, Pronunciation, Publishing and Troubleshooting; General owns
-Speech, Reading List and automation, Publishing owns credentials/destination/channel,
+Speech, Reading List, automation and optional login startup; Publishing owns credentials/destination/channel,
 and Troubleshooting owns library backup/review and sanitized session logs.
 
 Common actions use Install Speech Model, Check Speech Setup and Play Sample/Stop

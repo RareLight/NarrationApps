@@ -57,7 +57,7 @@ system's adaptation.
 - Project plist syntax and `git diff --check` passed.
 
 Generated review PNGs are omitted from the active checkout. Reproduce a preview
-from the repository root (create the output directory first):
+from `NarrationApps/Libro/` (create the output directory first):
 
 ```bash
 mkdir -p macos/Design/LibroIcon/Previews

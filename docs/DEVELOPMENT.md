@@ -1,6 +1,7 @@
 # Development gates
 
-Start with [contributor setup](../CONTRIBUTING.md). Run from NarrationApps.
+Start with [contributor setup](../CONTRIBUTING.md). Commands in this guide run
+from the NarrationApps root, except the explicitly identified package harness commands.
 Tests use synthetic isolated inputs; no GUI is launched. Setup is the only
 network-acquisition entry point. Prepare sources before running gates; no test
 runner installs models. Tests/builds run serially at the tier level, with four
@@ -63,7 +64,7 @@ These measurements are not a throughput SLA or a hard whole-system allocation ca
 Listening and actual OCR/caption quality remain operator-owned.
 
 The focused printed-word PDF experiment has an additional offline harness mode:
-after building `NarrationNativeCheck`, invoke it with `WORKER WORKSPACE OUTPUT_DIRECTORY
+from `swift-packages/`, after building `NarrationNativeCheck`, invoke the built harness with `WORKER WORKSPACE OUTPUT_DIRECTORY
 pdf-word-joins`. Use the same isolated workspace/idle-app rules above, once for
 each packaged app helper. It generates a synthetic PDF, checks repaired text and
 source maps against an independent unwrapped control through both native engines,
@@ -90,7 +91,7 @@ installer/player and services remain in [operator validation](OPERATOR_VALIDATIO
 ## Tooling regressions
 
 `bash scripts/test-development.sh` uses native Swift, fake runners and tiny
-tiny Git repositories under ignored `.local/`. It checks malformed manifests,
+Git repositories under ignored `.local/`. It checks malformed manifests,
 missing/untracked app sources, nested repositories, dirty-root strict mode, symbolic
 links, unsupported tools, setup preservation, selection and failure evidence.
 It does not contact remotes or use the archival source trees.
@@ -110,8 +111,9 @@ legacy reformat. Graduate additional maintained files in formatting-only commits
 after behavior changes are committed and reviewed. The script rejects generated,
 patch/notice/golden-fixture paths and compares all three configurations.
 
-The single maintained architecture, roadmap, engineering checklist, status and
-manual list are indexed by [docs/README.md](README.md). App validation pages link
+The current guides and historical records are indexed by [docs/README.md](README.md).
+[Documentation policy](DOCUMENTATION.md) defines audience/ownership and checks for
+nested guides outside the standard documentation scopes. App validation pages link
 to current shared results rather than maintaining rival totals. Historical stage
 counts/provenance remain historical, not today's acceptance. Ignored raw reports
 are optional local evidence; setup and current guides must work without them.

@@ -1,5 +1,11 @@
 # VoiceRelay development
 
+Follow ../AGENTS.md and the current docs index. This is a tracked directory in the
+NarrationApps monorepo, with no independent Git metadata. User-facing labels and
+procedures are maintained in docs/USER_GUIDE.md; root CONTRIBUTING.md and
+docs/DEVELOPMENT.md own coordinated setup/checks. Dated notes below retain current
+behavioral constraints; historical one-time operations are not authorization to repeat them.
+
 The authorized native unification plan in the parent `../docs/IMPLEMENTATION_PLAN.md`
 supersedes previous Python/product CLI work. Shared implementation belongs in ../swift-packages;
 VoiceRelay owns discovery, retained article identity, SQLite and publication.
@@ -172,8 +178,8 @@ retained text and preserve old-host copies. VoiceRelay's Server Audio ×/Remove
 Selections and confirmed pane reset retire feed membership before remote deletion;
 keep pending server removals visible until confirmed. Upload New Items appears only
 for pending audio/publication, disables during delivery and hides after confirmation.
-Show in Finder remains only for legacy local audio. Server Audio normally reflects recorded confirmations. Explicit Publishing → Check
-Publishing automatically reconciles bounded authenticated feed/media before queued
+Show in Finder remains only for legacy local audio. Server Audio normally reflects recorded confirmations. Sync Now and enabled
+Publishing automatically reconcile bounded authenticated feed/media before queued
 generation and through ordinary delivery, with no separate Check Server Audio UI.
 Use original-source identity or unambiguous retained links, streamed SHA-256,
 format inspection and full decode. Prefer longer valid copies at comparable
@@ -372,4 +378,4 @@ notices and Appearance controls, plus SwiftNarration.NarrationUI narration contr
 Keep preference keys, source/automation, Publishing, backup and session log ownership
 here. Speech setup appears once; Install Speech Model explicitly downloads and
 Check Speech Setup initializes offline with joined cleanup. Generic offline failures
-must not suggest a network requirement. See the shared SETTINGS_ALIGNMENT.md plan.
+must not suggest a network requirement. See ../docs/SETTINGS_ALIGNMENT.md for current ownership.

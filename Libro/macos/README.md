@@ -3,7 +3,8 @@
 See [the app guide](../README.md), [documentation index](../docs/README.md),
 [validation](../docs/VALIDATION.md),
 and [shared dependency provenance](../../docs/DEPENDENCIES.md).
-Commands in this guide run from the Libro repository root.
+Commands in this guide run from `NarrationApps/Libro/`, not the monorepo root.
+Complete [root setup](../../CONTRIBUTING.md#setup) first.
 
 This project owns the app and a thin private worker entry point; shared capability
 comes from the SwiftNarration package at `swift-packages`. Xcode links the separate
@@ -59,3 +60,20 @@ Current defaults and known pronunciation limitations are recorded in the
 checklist is [operator validation](../../docs/OPERATOR_VALIDATION.md#libro);
 older stage records are history. No generated build state or private assets should
 be copied when relocating source.
+
+## Standalone builds and Archives
+
+From `Libro/`, after pinned setup:
+
+```sh
+bash macos/scripts/build.sh build
+LIBRO_CONFIGURATION=Release bash macos/scripts/build.sh \
+  -archivePath "$PWD/macos/.build/Archives/Libro.xcarchive" archive
+```
+
+The script prepares pinned source dependencies and uses `macos/.build/DerivedData`
+and `macos/.build/SourcePackages`. It may need network source acquisition; it never
+installs speech models. Normal signing follows the project/local Xcode setup.
+For coordinated ad-hoc engineering builds/Archives and full bundle audits, prefer
+root `bash scripts/check.sh --tier release --adhoc`. Do not replace an existing
+operator candidate as a routine check.

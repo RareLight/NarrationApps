@@ -103,7 +103,8 @@ changes the dictionary after the first document and verifies that the second use
 the original batch snapshot. VoiceRelay fixtures check that changed rules rebuild
 unfinished narration and preserve published audio.
 
-To opt into both real native engines without playing sound:
+From `NarrationApps/swift-packages/`, with both engines explicitly prepared,
+opt into their native renderer checks without playing sound:
 
 ```sh
 NARRATION_PRONUNCIATION_NATIVE=1 swift test --disable-sandbox --no-parallel --jobs 4 \

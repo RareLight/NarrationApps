@@ -1,5 +1,13 @@
 # Cover art and document navigation implementation plan
 
+> Implementation history, reviewed October 21, 2026. The original CA/DN stages are
+> complete. Later work added automatic PDF/EPUB covers and thumbnails, VoiceRelay's
+> default cover, the dedicated Libro Document pane, renamed Footnotes controls,
+> citation choices and progressive previews. “Before this increment” and old UI
+> labels below describe the October 15 baseline. Use [the narration guide](NARRATION_GUIDE.md),
+> [current status](IMPLEMENTATION_STATUS.md) and [operator checklist](OPERATOR_VALIDATION.md)
+> for today's behavior and acceptance; do not restart the stages.
+
 Authorized and implemented October 15, 2026. CA0–CA3 and DN1–DN3 are implemented;
 automated evidence and operator gates are recorded below. SF1 retains the accepted
 spoken-form baseline and its regression coverage: no new lexical rule was added
@@ -11,7 +19,7 @@ acceptance remain operator-owned, including the earlier B06 gate.
 Deliver cover art first, then the highest-value document improvements: authored
 outlines/navigation, local duplicate-heading handling, explicit note/auxiliary
 narration controls, and narrowly justified spoken-form corrections. Keep shared
-behavior in SwiftNarration; neither app must depend on the other's checkout.
+behavior in SwiftNarration; neither app depends on the other app's source.
 
 Libro covers belong to individual document exports. VoiceRelay's user-selected
 cover belongs to the channel/show. Existing episode artwork continues to come

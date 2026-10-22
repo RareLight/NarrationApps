@@ -1,71 +1,50 @@
-# Native validation
+# VoiceRelay validation
 
-October 19 inset-flow follow-up: verbose tables read as prose and complex PDF math
-gets one reference notice per document. Extraction/narration policy aliases retain
-completed chunks and native backend identity for unchanged speech requests; the
-authentic separator-upgrade checkpoint fixture passes. The full isolated gate,
-both workspace configurations and all four complete ad-hoc bundle audits pass.
-The shared
-[current status](../../docs/IMPLEMENTATION_STATUS.md#prose-insets-and-equation-flow)
-records corpus/full/build evidence and remaining operator B08 acceptance. Fresh
-review apps use `.build/FlowNarrationValidation/Build/Products/Release/` in the parent.
+Reviewed October 21, 2026. VoiceRelay includes the shared narration policies,
+optional login startup, background-safe credential reads, default podcast cover,
+source/queue workflows, outbox and server reconciliation. Behavior and limits are
+in the [user guide](USER_GUIDE.md) and [architecture](ARCHITECTURE.md).
 
-October 19 scientific-text follow-up: the shared full gate and both workspace
-configurations pass, with complete ad-hoc bundle checks. Shared equations/table
-policies and 15 focused regressions are recorded in the
-[current status](../../docs/IMPLEMENTATION_STATUS.md#scientific-equations-and-tables).
-VoiceRelay's one-cell-table fixture now verifies its content is spoken exactly once;
-unavailable-table/code runs retain their suppression policy. Fresh review apps are
-under `.build/ScientificNarrationValidation/Build/Products/Release/` relative to the
-parent repository. GUI/listening, protected-file and live-service acceptance remain
-separate; scientific source quality is operator B08.
+## Automated evidence
 
-The operator confirmed on October 16, 2026 that both relocated apps build and run.
-This accepts the basic workspace/build/launch smoke check; detailed document,
-listening, setup, persistence and live-service cases below remain separate.
+The latest recorded product gate is the October 20 monorepo validation: full shared
+and app fixtures, combined Debug/Release builds and all four bundle audits passed.
+[Migration validation](../../docs/MONOREPO_MIGRATION.md#validation) records the source,
+evidence and command-local Metal selection. Later documentation checks are not new
+app builds, live-service tests or operator signoff.
 
-Use isolated synthetic fixtures, native Swift tests and Xcode builds. Prior
-implementation results and retired commands are preserved in Git history and the
-[shared status](../../docs/IMPLEMENTATION_STATUS.md). Root
-[development gates](../../docs/DEVELOPMENT.md) provide the coordinated entry points.
+From the NarrationApps root, after explicit dependency setup:
 
 ```sh
-bash ../swift-packages/scripts/check.sh
-NARRATION_FIXTURE_WORKER="$PWD/../swift-packages/.build/debug/NarrationFixtureWorker" \
-  swift test --disable-sandbox --no-parallel --jobs 4
-bash scripts/check-packaging.sh
-bash scripts/check-docs.sh
+bash scripts/check.sh --tier quick --scope voicerelay
 ```
 
-Packaging fixtures use fake build/copy/sign tools and native Swift atomic exchange;
-they neither sign, launch nor install an app. The suite uses supplied transports
-and storage and does not access Safari, Keychain or live servers. Native model
-checks are separate and use explicitly prepared local assets.
+Use `bash scripts/check.sh` for all coordinated fixtures. The
+[contributor guide](../CONTRIBUTING.md) documents direct app commands; the root
+[development guide](../../docs/DEVELOPMENT.md) owns tiers and opt-in native checks.
 
-Release/Archive must embed VoiceRelaySpeechWorker and its Metal library, omit Python
-and retired executables, and pass code-signature/resource verification. Validate
-actual models offline, one-worker session reuse and interactive/background admission, cancellation/reaping and sampled
-parent/helper memory separately. Audio regressions check exact Float32 values,
-current-file integrity, resampling/rate/gaps, atomic output preservation and native
-AAC absolute quiet/loud levels without normalization or volume leveling.
+Fixtures use isolated stores, fake transports/credentials and synthetic speech
+workers. Packaging fixtures inject fake build/copy/sign tools; they do not sign,
+install or launch the app. Bundle audits verify actual generated resources and
+signatures and probe the packaged Metal helper, but do not contact a real server.
+Offline native speech with prepared models is a separate explicit gate.
 
-The remaining operator tests, current app paths and reporting IDs are maintained
-only in the [consolidated checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay).
-It covers setup, samples/pronunciation, real source/OCR/image quality, lifecycle,
-live Publishing/Keychain, restore and conditional distribution. Historical results
-remain in Git history; automated passes do not
-mark operator acceptance complete.
+## Manual acceptance and candidates
 
-The latest accepted-policy results and current artifacts are maintained in the
-[shared status](../../docs/IMPLEMENTATION_STATUS.md). Earlier stage counts describe
-their own revisions, not today's suite totals. Documentation refreshes are not
-new app acceptance. Delivery A listening/letter A is operator accepted; unreported
-preview and Delivery B B06 checks remain separate. See
-[Delivery A evidence](../../docs/TEXT_PROCESSING_IMPROVEMENT_PLAN.md#delivery-a-evidence).
+The [operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay) owns V01–V20,
+shared B01–B08 and conditional distribution checks. Use a consistently normal-signed
+build for Keychain, provisioning and live Publishing. Ad-hoc signatures cannot
+establish those behaviors. The October 16 launch/build smoke and accepted Delivery A
+listening do not close unreported service, UI, source-quality, restore or reboot checks.
 
-Cover/navigation engineering is recorded in the shared current status. Validate
-Podcast Cover and unchanged per-episode images through V17, Contents through V18,
-and captured note/auxiliary settings through V19. Library backup excludes the
-Publishing cover/configuration. Automated artwork transport tests never upload to
-your real server; use the normal team-signed build and a disposable destination
-for Keychain, feed publication and podcast-cache acceptance.
+The latest automated bundles are under
+`.build/MonorepoValidation/Build/Products/{Debug,Release}/VoiceRelay.app` relative to
+NarrationApps. Select the operator candidate explicitly and preserve earlier bundles
+already under review; local generated products are not guaranteed in a fresh clone.
+Do not treat an old per-feature path or historical test count as today's release.
+
+Podcast-cover publication, per-episode images, Contents and captured narration
+choices are covered by V17–V19. Library backup excludes Publishing artwork/configuration.
+Restoration must use a disposable test library, never the live one. The
+[release checklist](RELEASE_CHECKLIST.md) separates engineering artifacts from
+account, clean-Mac, notarization and public distribution acceptance.

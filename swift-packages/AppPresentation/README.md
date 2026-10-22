@@ -3,7 +3,7 @@
 Independent Swift package for native macOS typography, app-wide text sizing,
 Dynamic Type scaling, a 12-point floor, keyboard text-size commands, adaptive
 Settings navigation, help, notices and Appearance controls.
-Requires macOS 27.0, Swift 6 and SwiftUI/AppKit. It has **no external dependencies**
+Requires macOS 27.0, Swift tools 6.2 or later and SwiftUI/AppKit. It has **no external dependencies**
 and no narration, document, model, audio or worker dependency.
 
 Add this directory as a local package in Xcode and link the AppPresentation
@@ -17,8 +17,8 @@ Each app owns preference persistence, layout, scene/window lifecycle and preview
 ```
 
 Run `swift test --package-path AppPresentation --disable-sandbox --no-parallel`
-from the shared repository. UI-only consumers do not prepare or resolve the
-SwiftNarration/MLX graph. Canonical source remains in this repository; a future
+from the `swift-packages/` directory. UI-only consumers do not prepare or resolve the
+SwiftNarration/MLX graph. Canonical source remains in the NarrationApps monorepo; a future
 Git distribution requires its own package-root repository/release export, or
 per-package registry publishing. A Git subdirectory URL is not a SwiftPM package.
 

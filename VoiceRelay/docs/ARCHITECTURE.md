@@ -1,7 +1,7 @@
 # VoiceRelay architecture
 
-Current application contract, October 18, 2026. Shared processing lives in the
-independent [SwiftNarration packages](../../docs/ARCHITECTURE.md).
+Current application contract reviewed October 21, 2026. Shared processing lives
+in the monorepo's [SwiftNarration packages](../../docs/ARCHITECTURE.md).
 VoiceRelay owns Safari discovery, source authorization, retained identity/text,
 SQLite queue/recovery, Publishing/Keychain, backup and GUI lifecycle.
 

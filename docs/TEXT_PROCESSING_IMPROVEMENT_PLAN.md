@@ -1,5 +1,12 @@
 # Text processing improvement plan
 
+> Delivery history, reviewed October 21, 2026. Delivery A and TP4–TP7 are implemented;
+> later work also added supported columns, outlines, citation controls and dictionary-
+> constrained PDF word joining. The “deferred” list and old execution recipes below
+> describe this plan's original scope, not the present backlog. Current commands
+> are in [DEVELOPMENT.md](DEVELOPMENT.md), behavior in [DOCUMENT_PROCESSING.md](DOCUMENT_PROCESSING.md),
+> and remaining work in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+
 October 15, 2026. **Delivery A listening, including the letter-A correction, is
 operator accepted. The user authorized the next stages; Delivery B (TP4–TP7) is
 implemented within the conservative scope below and awaits operator validation.**
@@ -23,12 +30,12 @@ the then-current advisory documents. These hashes alone do not
 reproduce the working snapshot. No reset, commit, publication or asset download
 was performed for Delivery A.
 
-Follow each repository's AGENTS.md and the current shared
+Follow root and scoped AGENTS.md and the current shared
 [architecture](ARCHITECTURE.md), [status](IMPLEMENTATION_STATUS.md) and
 [roadmap](IMPLEMENTATION_PLAN.md). This draft elaborates proposed text work; it
 does not supersede their contracts or authorize deferred features.
 
-Current implementation belongs to the three repositories in
+Current implementation belongs to the single monorepo in
 [the NarrationApps layout](REPOSITORY_LAYOUT.md). The original external
 comparison is complete; no TextExtractor checkout or Python tooling is needed.
 

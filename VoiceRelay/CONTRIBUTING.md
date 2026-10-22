@@ -13,12 +13,14 @@ FFmpeg/ffprobe tools are required. Pinned native sources are prepared by the sha
 SwiftNarration package; real model installation remains an explicit app action.
 Do not update dependency pins incidentally.
 
-From the `VoiceRelay/` directory:
+For direct app checks, run these from the `VoiceRelay/` directory after root
+`setup --resolve`. The root quick/full tiers are the preferred coordinated entry
+points in [DEVELOPMENT.md](../docs/DEVELOPMENT.md).
 
 ```sh
 bash ../swift-packages/scripts/check.sh
 NARRATION_FIXTURE_WORKER="$PWD/../swift-packages/.build/debug/NarrationFixtureWorker" \
-  swift test --disable-sandbox --no-parallel --jobs 4
+  swift test --disable-sandbox --skip-update --force-resolved-versions --no-parallel --jobs 4
 bash scripts/check-docs.sh
 bash scripts/check-packaging.sh
 bash -n scripts/build-app.sh
@@ -29,7 +31,7 @@ For focused changes append `--filter testName` to the Swift command. After editi
 project.pbxproj, always run `--filter xcodeProjectAppSourcesUseUniqueBuildFileReferences`.
 SwiftPM and Xcode compile the same core, but only an Xcode build validates the
 application's explicit source references, resources and packaging. A signed build
-uses the ignored Signing.local.xcconfig; see [README](README.md#build-and-setup).
+uses the ignored Signing.local.xcconfig; see [signed builds](#signed-builds).
 Do not launch the app, enable provisioning updates or operate accounts as a test.
 
 Fixtures create dedicated private temporary libraries and inject source readers,
@@ -38,6 +40,33 @@ Safari, Application Support, published feeds or another application's data. Mock
 and synthetic audio validate mechanics, not voice quality. Record GUI/Canvas,
 protected Safari, real Keychain, server, runtime downloads and listening separately
 in the [consolidated operator checklist](../docs/OPERATOR_VALIDATION.md#voicerelay).
+
+## Signed builds
+
+Both apps are part of the same Git checkout. Close standalone app/package windows
+and open `NarrationApps.xcworkspace` from its root for concurrent development.
+Use its VoiceRelay scheme. The app and shared package sources are already wired.
+
+From `VoiceRelay/`, copy `Packaging/Signing.example.xcconfig` to the ignored
+`Signing.local.xcconfig` and supply your own development team there. Debug and
+Release load that optional local file. Keep credentials/team-local configuration
+out of the tracked project. Normal Data Protection Keychain behavior needs the
+appropriate Apple Development identity, entitlements and matching profile.
+Ad-hoc engineering builds do not validate account access.
+
+For a standalone project, explicit `bash scripts/resolve-xcode-packages.sh`
+prepares/resolves its graph. For the combined workspace, use root `setup --resolve`
+instead. Then package a normal signed Release candidate from `VoiceRelay/`:
+
+```sh
+bash scripts/build-app.sh release
+```
+
+This builds, stages and verifies the signed app, then replaces
+`VoiceRelay/dist/VoiceRelay.app` atomically. It never launches it. Preserve any bundle
+under active operator testing. A failed staging/copy/signature check keeps the prior
+package. This is local packaging, not Developer ID/notarization acceptance;
+follow [release gates](docs/RELEASE_CHECKLIST.md) for distribution.
 
 ## Ownership and concurrency
 

@@ -45,7 +45,9 @@ notation and recovered image-table text in the source rather than inventing valu
 
 ## Implementation choice
 
-The existing PDFKit/Vision/SwiftSoup/Readium pipeline remains the maintained parser.
+The existing PDFKit/Vision/SwiftSoup pipeline remains the maintained parser; a
+small licensed Readium adaptation supplies optional word-joining logic, not a
+Readium parser or runtime.
 [GROBID's layout-token/segmentation approach](https://grobid.readthedocs.io/en/latest/Principles/)
 and [PdfPig's column/XY-cut analysis](https://github.com/UglyToad/PdfPig/wiki/Document-Layout-Analysis)
 inform the evidence requirements. Their additional model/service or .NET runtimes

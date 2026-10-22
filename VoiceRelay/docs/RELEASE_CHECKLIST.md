@@ -17,7 +17,7 @@ publishing, notarization, developer-account operations or live state changes.
       [dependency maintenance](../../docs/DEPENDENCIES.md#maintenance-procedure-and-ownership);
       use the root release tier for ad-hoc engineering evidence. Do not blindly
       make independent consumer graphs identical.
-- [ ] Review README, Help, beta checks and current validation for the candidate behavior.
+- [ ] Review README, the user guide, Help and current validation for the candidate behavior.
 
 ## Operator acceptance
 
@@ -30,8 +30,8 @@ Operator results are separate from fixture/build/signature evidence.
 - [ ] Choose development-only delivery or distribution to other users. Existing Apple
       Development signing is not a completed public distribution workflow.
 - [ ] Keep the bundle identifier and Keychain entitlement stable. Validate the chosen
-      provisioning/signing policy with a clean account/device; do not change user
-      presence requirements or access groups to bypass signing problems.
+      provisioning/signing policy with a clean account/device; preserve the intended background-compatible
+      Keychain access policy and do not change access groups to bypass signing problems.
 - [ ] For outside-App-Store distribution, prepare Developer ID signing and notarization
       with the appropriate account/certificate/profile. Confirm hardened runtime and
       necessary entitlements against the actual candidate and its nested code.

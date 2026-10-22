@@ -1,6 +1,6 @@
 # Canonical regression corpus
 
-Inventory reviewed October 16, 2026. Fixtures stay with the implementation/tests
+Inventory reviewed October 21, 2026. Fixtures stay with the implementation/tests
 that own their expectations. No duplicate corpus was moved or deleted. All
 authored fixture prose is synthetic; generated PDF/EPUB/audio files are created
 in owned temporary directories. Upstream phoneme expectations retain their pinned
@@ -44,6 +44,8 @@ reordered execution, late/stale Skip, output preservation, stopped paused waiter
 and cancellation accounting after a reorder, using isolated fake workers only.
 
 ## Performance and native safety
+
+Harness source paths in this section are relative to `swift-packages/`.
 
 The native tier reuses `Sources/NarrationNativeCheck/MixedDocumentCheck.swift`:
 12 synthetic PDF pages plus 600 Markdown words, both engines, one worker.

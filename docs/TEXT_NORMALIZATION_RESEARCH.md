@@ -1,6 +1,6 @@
 # Spoken-text normalization and Kokoro pronunciation
 
-Research and decision record, October 15, 2026. This concerns written-to-spoken
+Research and decision record begun October 15, 2026; current-state notes reviewed October 21. This concerns written-to-spoken
 text only. Audio levels and dynamics are never normalized or modified.
 
 Current update: [Delivery A](TEXT_PROCESSING_IMPROVEMENT_PLAN.md#delivery-a-evidence)
@@ -24,9 +24,10 @@ The saved A/B map confirms Heart Pair 4 B, Michael Pair 7 B / Pair 8 B and Emma
 Pair 11 B. The prose ratings misidentify two mapped choices: Pair 9 A is the
 captured baseline, and Pair 12 B is 1.1×. These do not override the operator's
 explicit final choice of the pause profile at 1.0×. Listening establishes a
-preferred cadence in this corpus, not universal lexical correctness. Reported
-`kg`, temperatures, time phrasing and contextual `lead`/`read` remain regressions
-to investigate. Footnote placement is a semantic narration setting, separate from
+preferred cadence in this corpus, not universal lexical correctness. The baseline
+`kg`, temperature and time findings motivated Delivery A; the current mapped
+projection corrects its explicitly supported cases. Contextual `lead`/`read` and
+unsupported ambiguous forms remain unresolved. Footnote placement is a semantic narration setting, separate from
 phonemization and inserted pauses; check its selected policy in the preview.
 
 ## Published practice and existing implementation
@@ -209,6 +210,10 @@ output is `.local/pdf-hyphenation-apple-probe.log`.
 
 ### Initial evaluation criteria
 
+Historical evaluation sequence: the Readium inspection and optional adaptation
+are complete. The current integration is described below; alternative parsers were
+not adopted. This list is not a pending installation or replacement request.
+
 1. Obtain a small nonprivate example from the reported failure: the two extracted
    line fragments and whether it crosses a page/column. Inspect its Unicode scalar
    and retained line evidence. No private book upload or live service is needed.
@@ -266,10 +271,12 @@ the preceding word. Known recurring margins compose through the existing maps.
 
 Repairs precede captured pronunciation rules and native G2P for both engines.
 Original blocks remain unchanged, mapped zero-length spoken omissions retain the
-removed UTF-16 spans, and preview notices disclose the experiment. Upstream's
-compound ambiguity remains: `well-` / `known` becomes `wellknown`, rather than
-meeting the initial ideal compound-preservation criterion. This is why the option
-is explicit and off by default; no dictionary/model guess is silently added.
+removed UTF-16 spans, and preview notices disclose the experiment. The initial October 17 adaptation inherited upstream compound ambiguity. The
+current `hyphenLength` decision checks the English lexicon: recognized compounds
+keep their hyphen (`well-known`), recognized joined words remove the printing
+hyphen, and unknown alternatives remain unchanged. Later layout work also permits
+verified within-column joins on supported multi-column pages. The option remains
+experimental and off by default; it is not arbitrary OCR spelling repair.
 
 Focused and native evidence is maintained in
 [current status](IMPLEMENTATION_STATUS.md); actual-document and matched listening

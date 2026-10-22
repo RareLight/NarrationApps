@@ -1,6 +1,7 @@
 # Current implementation status
 
-Updated October 20, 2026. NarrationApps is one repository containing Libro,
+Current-state documentation reviewed October 21, 2026. Product evidence remains
+the October 20 validation described below. NarrationApps is one repository containing Libro,
 VoiceRelay, SwiftNarration, AppPresentation and the combined Xcode workspace.
 The containing commit identifies all maintained source. See
 [monorepo migration](MONOREPO_MIGRATION.md), [architecture](ARCHITECTURE.md),
@@ -21,7 +22,8 @@ storage. Historical private validation records, document excerpts, local signing
 configuration, obsolete generated icon output and personal home paths are excluded
 from the imported history. Product artwork, license notices and the maintained
 synthetic voice samples remain included. The requested GitHub origin is configured;
-publication is reserved for the operator's manual push.
+the initial source publication was subsequently performed manually. Source
+publication does not imply CI activation or binary distribution.
 
 ## Native queue controls and compact status
 
@@ -98,7 +100,8 @@ preferences and workflows stay with each app.
 
 ## Libro progressive PDF previews
 
-Initial PDF analysis processes the first five percent rounded up to complete pages.
+Initial PDF analysis processes the first five percent rounded up to complete pages,
+capped at five pages and at least one.
 Narration/source previews can populate before full analysis finishes; background
 progress and cancellation retain document/session identity. The interface labels
 this work as text analysis. Preview sizing and controls avoid compressed text layout.
@@ -126,10 +129,26 @@ phoneme packing and structural pauses. Saved speeds, captured jobs and Soprano's
 frontend remain compatible. Audio is never normalized, levelled, limited or given
 gain. MLX stays helper-only, with one worker per app and shared admission priority.
 
-Before this repository migration, the latest full synthetic gate, both Debug and
-Release workspace builds and all four bundle audits passed. Those audits include
+The latest recorded cross-app product validation is the October 20 monorepo gate:
+full synthetic fixtures, Debug and Release workspace builds and all four bundle
+audits passed. Those audits include
 ad-hoc signatures and offline packaged Metal probes. Migration-specific results
 are recorded in [the migration record](MONOREPO_MIGRATION.md).
 Build/fixture evidence does not establish GUI, listening, private-document,
 Keychain, live-server or distribution acceptance. The consolidated
 [operator checklist](OPERATOR_VALIDATION.md) retains those gates.
+
+## Documentation review — October 21
+
+Root and app entry points now distinguish users, power users, developers and agents.
+The [narration guide](NARRATION_GUIDE.md), [documentation index](README.md) and
+[documentation policy](DOCUMENTATION.md) explain current controls, guide ownership,
+command scopes and historical records. UI labels/defaults and setup were checked
+against the current source. No application behavior, dependency pin, audio policy,
+manual acceptance or release state changes as part of this review.
+
+Documentation validation passed the quick tier (static checks and 78 isolated
+development-tool assertions), recorded in
+`.local/validation/quick-E2354F2A-29D0-4FB6-B48D-789DBF3652EA/summary.json`.
+Nested package/build/icon/provenance guide links were checked separately. These
+results validate documentation/tooling, not a new application or live-service run.

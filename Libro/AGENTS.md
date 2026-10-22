@@ -1,5 +1,9 @@
 # Libro development
 
+This is a tracked app directory in the NarrationApps monorepo. ../CONTRIBUTING.md
+owns coordinated setup/checks; README.md is the current user guide. Commands below
+are app-local when run from Libro/. Dated feature plans are context, not new work.
+
 Follow the current architecture/status and remaining roadmap in the parent NarrationApps
 repository, indexed by ../docs/README.md. It supersedes previous CLI/Python work. Both Libro and VoiceRelay use
 the shared packages; keep Libro-specific GUI/workflow in this monorepo directory.

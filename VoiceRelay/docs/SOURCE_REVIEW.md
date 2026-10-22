@@ -1,6 +1,6 @@
 # VoiceRelay source handling
 
-Current application policy, October 15, 2026. Shared parsing/OCR/image/narration
+Current application policy reviewed October 21, 2026. Shared parsing/OCR/image/narration
 algorithms belong to [DocumentProcessing and NarrationCore](../../docs/DOCUMENT_PROCESSING.md).
 VoiceRelay owns the authorized source fetch, archive lookup, retained article
 identity/saved date and integrity-checked snapshots.

@@ -5,12 +5,15 @@ documentation and project scripts in one Git history on `main`. Clone the root
 once; app submodules and separate app checkout pins are not used. The SwiftPM
 packages and per-build-graph lockfiles retain their existing paths and ownership.
 
-The origin is `git@github.com:RareLight/NarrationApps.git`. No push is performed by
-this migration; the operator will publish manually after reviewing the repository.
+The origin is `git@github.com:RareLight/NarrationApps.git`. The migration agent
+performed no push. At the October 21 documentation review, the recorded local
+`origin/main` includes the manually published migration through `0e98444`. Source
+publication is complete; CI activation and public binary distribution are separate.
 The existing GitHub starter commit `fe3e2423f35268167ac9ae2a5c10458aba524ed4`
 is retained as an ancestor. Its AGPL license agrees with the project license;
 its additional generated-output exclusions and speech-library credit are retained.
-The local branch can therefore be published with a normal `git push -u origin main`.
+The preserved ancestor allowed the initial manual push without force. Subsequent
+publication follows ordinary Git review/push practice.
 
 ## Imported history and privacy
 
@@ -41,9 +44,10 @@ review of deliberately forced additions.
 
 ## Local recovery
 
-Ignored `.local/monorepo-migration/` contains the original `root.git`, `Libro.git`
+On the migration machine, ignored `.local/monorepo-migration/` contains the original `root.git`, `Libro.git`
 and `VoiceRelay.git` directories under `original-git/`, import commit maps,
-privacy inventories and local validation evidence. These are private backups;
+privacy inventories and local validation evidence. They are not part of a fresh
+clone. These are private backups;
 never publish that directory or force-add its contents. Existing ignored app data,
 model assets and build caches remain in place. Original sibling checkouts outside
 NarrationApps are unchanged. Restoring the old metadata would restore the former
@@ -83,4 +87,5 @@ Git object integrity checks pass. Detailed inventories and import maps remain lo
 
 No speech models, real credentials or personal documents were used in validation.
 GUI, listening, protected files, live services and signing accounts remain
-operator-owned. No application was installed or launched, and no push was performed.
+operator-owned. Those migration validation runs did not install or launch either application
+or push source; the subsequent manual publication is noted above.

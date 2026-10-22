@@ -1,6 +1,6 @@
 # Shared architecture
 
-Current contract, October 15, 2026. Product boundaries and package installation
+Current contract reviewed October 21, 2026. Product boundaries and package installation
 are in [PACKAGE_BOUNDARIES.md](PACKAGE_BOUNDARIES.md); the app directories own
 GUI/workflow, preferences, source authorization and app-specific persistence.
 
@@ -84,8 +84,10 @@ intake task. Mandatory extraction budgets are cumulative, never reset per prefix
 Captured NarrationOptions can enable an off-by-default experimental Readium-style
 printed-word joiner before pronunciation/G2P for either engine. Verified digital
 PDF line/page seams supply mapped hyphen/whitespace omissions; structural exclusions
-and four-page/200-fragment caps retain unjoinable boundaries. Genuine compound
-hyphens remain ambiguous, disclosed in the control and preview notices. Original
+and four-page/200-fragment caps retain unjoinable boundaries. English dictionary evidence preserves recognized compound hyphens and permits
+verified joined spellings; unknown alternatives remain unchanged. Supported
+within-column evidence can be used on multi-column pages. Remaining layout/spelling
+uncertainty is disclosed in the control and preview notices. Original
 source stays intact; no Readium runtime, second parser or model is introduced.
 
 Optional ProjectionMapping runs connect block-local extracted UTF-16 coordinates

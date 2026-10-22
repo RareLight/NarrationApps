@@ -22,7 +22,8 @@ are documented in [shared architecture](../../docs/ARCHITECTURE.md).
 Legacy character preparation survives for archived developer comparisons, not a
 user mode. Shared mapped spoken forms now correct explicit kilograms, Celsius/
 Fahrenheit quantities and 12-hour AM/PM times, with source preservation and preview
-notices. New forms await operator listening; contextual homographs remain
+notices, including capital-A labels. Delivery A matched listening is accepted;
+unreported app-preview checks remain separate, and contextual homographs remain
 [follow-up work](../../docs/TEXT_NORMALIZATION_RESEARCH.md).
 
 Native podcast audio is mono AAC-LC 64 kbps/24 kHz, with original levels/dynamics

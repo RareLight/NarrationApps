@@ -1,8 +1,11 @@
 # Handoff prompt: NarrationApps development foundation
 
-> Historical foundation record. Repository/checkout/pin instructions below describe
-> the former three-repository layout. Current setup and evidence use the monorepo;
-> follow [CONTRIBUTING.md](../CONTRIBUTING.md) and [migration provenance](MONOREPO_MIGRATION.md).
+> Historical request, not current instructions. DF engineering is complete; the
+> apps now share one monorepo and DevelopmentBaseline schema 2. Old checkout/pin,
+> branch/tag and publication statements below describe October 16 only. Use
+> [CONTRIBUTING.md](../CONTRIBUTING.md), [the completion crosswalk](DEVELOPMENT_FOUNDATION_CHECKLIST.md)
+> and [the current roadmap](IMPLEMENTATION_PLAN.md). Do not execute this prompt
+> again or restore the old repository layout.
 
 Original implementation request, retained as provenance. Current completion,
 evidence and external blockers are owned by
