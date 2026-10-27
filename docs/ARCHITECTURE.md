@@ -138,6 +138,12 @@ Soprano exports as 24 kHz. MP3 uses the prepared native LAME library with Replay
 disabled. Lossy formats are not bit-identical to WAV. There is no normalization,
 volume leveling, dynamic compression, limiter or automatic gain.
 
+NativeAudio's AAC encoder also returns per-input output-frame intervals, measured
+after resampling and actual gap insertion. VoiceRelay uses them with prepared text
+for optional default-on WebVTT episode transcripts; this does not alter PCM or add
+word alignment/ASR. The app owns transcript persistence, verified delivery, RSS
+references and retirement; see [VoiceRelay architecture](../VoiceRelay/docs/ARCHITECTURE.md#publishing-recovery-and-cleanup).
+
 CoverArtwork prepares bounded JPEG derivatives through ImageIO/CoreGraphics.
 Book covers preserve aspect ratio and fit the pinned LAME album-art budget;
 podcast covers use a separate square/opaque profile. AudioOutput embeds MP3 ID3

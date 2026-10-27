@@ -85,6 +85,11 @@ public struct SpeechPreferences: Codable, Sendable, Equatable {
     public var voice: SpeechVoice
     public var speed: Double
     public var narrationOptions: NarrationOptions? = nil
+    public var publishTranscripts: Bool? = nil
+    public var timedTranscriptsEnabled: Bool {
+        get { publishTranscripts ?? true }
+        set { publishTranscripts = newValue }
+    }
     public var effectiveNarrationOptions: NarrationOptions {
         get { narrationOptions ?? .init() }
         set { narrationOptions = newValue }
@@ -214,6 +219,8 @@ public struct ManagedSpeechStorage: Sendable {
 
 public struct PrototypeProfile: Codable, Sendable, Equatable {
     public var narrationOptions: NarrationOptions? = nil
+    /// Captured at admission. Historical jobs without a choice remain unchanged.
+    public var publishTranscripts: Bool? = nil
     public var configurationURL: URL?
     public var safariPlist: URL
     public var database: URL

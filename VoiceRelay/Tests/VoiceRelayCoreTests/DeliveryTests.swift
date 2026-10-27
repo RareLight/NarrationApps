@@ -1987,3 +1987,168 @@ private final class UploadEventRecorder: @unchecked Sendable {
     let old = try JSONDecoder().decode(SpeechPreferences.self, from: Data("{\"voice\":\"af_heart\",\"speed\":1}".utf8))
     #expect(old.effectiveNarrationOptions == .init())
 }
+
+private func transcriptReview(_ path: String, storage: ManagedSpeechStorage, enabled: Bool = true,
+                              interruptAfter: FixtureBoundary? = nil) async throws -> FixtureResult {
+    let coordinator = FixtureCoordinator(), review = try deliveryReview(path)
+    var preferences = SpeechPreferences(); preferences.timedTranscriptsEnabled = enabled
+    _ = try await coordinator.enqueue(review, storage: storage, preferences: preferences)
+    return try await coordinator.runReviewed(root: storage.stateRoot, review: review, backend: DeliveryTestBackend(),
+        interruptAfter: interruptAfter, storage: storage, delivery: deliverySettings())
+}
+
+@Test func timedTranscriptCapturesPreferenceSurvivesEncodingResumeAndBackup() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    do {
+        _ = try await transcriptReview("resume-transcript", storage: storage, interruptAfter: .encoded)
+        Issue.record("Expected the encoded recovery boundary")
+    } catch let error as RelayError { #expect(error == .interrupted) }
+    let before = try #require(NativeStore(url: storage.profile.database, readOnly: true).episodes().first)
+    let transcript = try #require(before.transcript)
+    let resumed = try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: deliveryReview("resume-transcript"),
+        backend: DeliveryTestBackend(), storage: storage, delivery: deliverySettings())
+    #expect(resumed.synthesizedChunks == 0 && resumed.episode.encodedHash == before.encodedHash)
+    #expect(resumed.episode.transcript == transcript)
+    #expect(transcript.vtt.components(separatedBy: " --> ").count - 1 == resumed.narration.chunks.count)
+    #expect(transcript.audioHash == resumed.episode.audioHash)
+    #expect(!FileManager.default.fileExists(atPath: resumed.episode.settings.work.appendingPathComponent(resumed.episode.id).path))
+    _ = try await transcriptReview("disabled-transcript", storage: storage, enabled: false)
+    let episodes = try NativeStore(url: storage.profile.database, readOnly: true).episodes()
+    #expect(episodes.contains { $0.settings.publishTranscripts == false && $0.transcript == nil })
+    let backup = root.appendingPathComponent("backup")
+    _ = try await FixtureCoordinator().backupLibrary(storage: storage, destination: backup)
+    let saved = try NativeStore(url: backup.appendingPathComponent("native.sqlite3"), readOnly: true).episodes()
+    #expect(saved.first { $0.id == resumed.episode.id }?.transcript == transcript)
+}
+
+@Test func timedTranscriptPublishesVerifiedSidecarBeforeRSSAndRetiresAfterFeed() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let generated = try await transcriptReview("transcript-publish", storage: storage)
+    let transcript = try #require(generated.episode.transcript)
+    let path = "/" + transcript.remotePath(id: generated.episode.id, settings: settings)
+    let transport = FakeWebDAVTransport()
+    let result = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(result.uploadedTranscripts == 1 && result.feedUploaded)
+    #expect(transport.body(path) == Data(transcript.vtt.utf8))
+    let calls = transport.recordedCalls
+    let put = try #require(calls.firstIndex { $0.method == "PUT" && $0.path == path })
+    let readback = try #require(calls.indices.first { $0 > put && calls[$0].method == "GET" && calls[$0].path == path })
+    let feedPut = try #require(calls.firstIndex { $0.method == "PUT" && $0.path.hasSuffix("/feed.xml") })
+    #expect(put < readback && readback < feedPut && calls[put].authorized)
+    let feed = try #require(transport.body("/" + settings.remoteFeedPath))
+    let items = try ServerFeedParser.parse(feed), reference = try transcript.reference(id: generated.episode.id, settings: settings)
+    #expect(items.first?.transcripts == [reference])
+    let summary = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+    #expect(summary.pendingTranscripts == 0 && summary.failedTranscripts == 0 && !summary.needsDrain)
+    // Source-free recovery retains the standard RSS reference without fetching it.
+    let recoveredStorage = try deliveryStorage(root: root.appendingPathComponent("recovered"))
+    let recovery = FixtureCoordinator()
+    _ = try await recovery.deliverPending(storage: recoveredStorage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    let recovered = try NativeStore(url: recoveredStorage.profile.database, readOnly: true).episodes()
+    #expect(recovered.first?.transcriptReferences == [reference] && recovered.first?.transcript == nil)
+    // Retire only the owning destination's sidecar, after the feed omits the episode.
+    _ = try await coordinator.removeSavedAudio(ids: [generated.episode.id], storage: storage)
+    let start = transport.recordedCalls.count
+    let retired = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(retired.remoteDeletes == 2)
+    let after = Array(transport.recordedCalls.dropFirst(start))
+    let firstDelete = try #require(after.firstIndex { $0.method == "DELETE" })
+    let removeFeed = try #require(after.firstIndex { $0.method == "PUT" && $0.path.hasSuffix("/feed.xml") })
+    #expect(removeFeed < firstDelete && transport.body(path) == nil)
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).pendingRemoteDeletes.isEmpty)
+    let again = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(again.remoteDeletes == 0)
+}
+
+@Test func timedTranscriptFailureIsolatedAndResumesWithoutAudioOrResynthesis() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings()
+    let first = try await transcriptReview("transcript-failure", storage: storage)
+    let second = try await transcriptReview("transcript-healthy", storage: storage)
+    let failed = try #require(first.episode.transcript)
+    let failedPath = "/" + failed.remotePath(id: first.episode.id, settings: settings)
+    let transport = FakeWebDAVTransport()
+    // Corrupt only this sidecar's readback, while preserving its stored bytes.
+    transport.getResponseFor = { path in
+        guard path == failedPath, transport.objectLength(path) != nil else { return nil }
+        return DeliveryResponse(status: 200, body: Data("wrong transcript".utf8))
+    }
+    let coordinator = FixtureCoordinator()
+    let result = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    #expect(result.uploadedMedia == 2 && result.uploadedTranscripts == 1 && result.retrying == 1 && result.feedUploaded)
+    let feed = try #require(transport.body("/" + settings.remoteFeedPath)), parsed = try ServerFeedParser.parse(feed)
+    #expect(parsed.first { $0.id == first.episode.id }?.transcripts.isEmpty == true)
+    #expect(parsed.first { $0.id == second.episode.id }?.transcripts.count == 1)
+    let summary = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+    #expect(summary.pendingTranscripts == 1 && summary.needsDrain && summary.lastError != nil)
+    let episode = try #require(NativeStore(url: storage.profile.database, readOnly: true).episodes().first { $0.id == first.episode.id })
+    #expect(UploadItem(episode: episode, publication: .published).phase == .transcriptFailed)
+    // Temporary audio may already be released; text remains durably retryable.
+    try? FileManager.default.removeItem(at: first.audioURL)
+    transport.getResponseFor = nil
+    let count = transport.recordedCalls.count
+    let retry = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(retry.uploadedMedia == 0 && retry.uploadedTranscripts >= 1 && retry.feedUploaded)
+    #expect(!transport.recordedCalls.dropFirst(count).contains { $0.method == "PUT" && $0.path.hasSuffix(".m4a") })
+    let final = try ServerFeedParser.parse(#require(transport.body("/" + settings.remoteFeedPath)))
+    #expect(final.first { $0.id == first.episode.id }?.transcripts.count == 1)
+}
+
+@Test func timedTranscriptCancellationAfterPUTAndDestinationChangeAreRecoverable() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings()
+    let generated = try await transcriptReview("transcript-cancel", storage: storage)
+    let transcript = try #require(generated.episode.transcript)
+    let oldPath = "/" + transcript.remotePath(id: generated.episode.id, settings: settings)
+    let transport = FakeWebDAVTransport()
+    transport.throwFor = { method, path in method == "HEAD" && path == oldPath ? CancellationError() : nil }
+    do {
+        _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+        Issue.record("Expected cancellation")
+    } catch is CancellationError {}
+    let pending = try #require(NativeStore(url: storage.profile.database, readOnly: true).episodes().first)
+    #expect(pending.transcript?.delivery?.destinationURL == settings.feedFolderURL)
+    #expect(pending.transcriptReferences == nil && transport.body(oldPath) != nil)
+    transport.throwFor = nil
+    let start = transport.recordedCalls.count
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(!transport.recordedCalls.dropFirst(start).contains { $0.method == "PUT" && $0.path == oldPath })
+    var next = settings
+    next.feedFolderURL = URL(string: "https://webdav.example/new-feed/")
+    next.publicFolderURL = URL(string: "https://podcast.example/new-feed/")
+    let result = try await FixtureCoordinator().deliverPending(storage: storage, settings: next, credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(result.uploadedTranscripts == 1 && result.remoteDeletes == 0)
+    #expect(transport.body(oldPath) != nil)
+    let parsed = try ServerFeedParser.parse(#require(transport.body("/" + next.remoteFeedPath)))
+    #expect(parsed.first?.transcripts.contains(try transcript.reference(id: generated.episode.id, settings: next)) == true)
+}
+
+@Test func timedTranscriptFeedFailureRemainsInOutboxUntilReferenceIsConfirmed() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), transport = FakeWebDAVTransport()
+    let generated = try await transcriptReview("transcript-feed-failure", storage: storage)
+    transport.statusFor = { method, path in method == "PUT" && path.hasSuffix(".vtt") ? 503 : nil }
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport)
+    transport.statusFor = { method, path in method == "PUT" && path.hasSuffix("/feed.xml") ? 503 : nil }
+    let result = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(result.uploadedTranscripts == 1 && !result.feedUploaded)
+    let coordinator = FixtureCoordinator()
+    let summary = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+    #expect(summary.publicationStates[generated.episode.id] == .uploaded)
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        var episode = try #require(store.episodes().first)
+        #expect(episode.transcript?.delivery?.status == .uploaded)
+        #expect(UploadItem(episode: episode, publication: .uploaded, feedError: summary.feedError).isInOutbox)
+        // A stale metadata save must not erase the confirmed transcript copy/link.
+        episode.transcript?.delivery = nil; episode.transcriptReferences = nil
+        try store.save(episode)
+        let preserved = try #require(store.episodes().first)
+        #expect(preserved.transcript?.delivery?.status == .uploaded && preserved.transcriptReferences?.count == 1)
+    } // Release the fixture writer before asking a new drain to own the database.
+    transport.statusFor = nil
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport, force: true)
+    #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings).publicationStates[generated.episode.id] == .published)
+}

@@ -6,7 +6,7 @@ import Testing
 
 private func authoredPodcastCover() -> URL {
     URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        .deletingLastPathComponent().appendingPathComponent("icon/VoiceRelay_Cover.png")
+        .deletingLastPathComponent().appendingPathComponent("icon/VoiceRelay_Cover.jpg")
 }
 
 private func podcastCoverStorage(_ root: URL) -> ManagedSpeechStorage {

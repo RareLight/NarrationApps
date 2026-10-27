@@ -13,7 +13,6 @@
 		B10000000000000000000002 /* WorkerMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* WorkerMain.swift */; };
 		B10000000000000000000003 /* CoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000003 /* CoreTests.swift */; };
 		B10000000000000000000004 /* Acknowledgements in Resources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000004 /* Acknowledgements */; };
-		BA1800000000000000000001 /* VoiceRelay_Cover.png in Resources */ = {isa = PBXBuildFile; fileRef = FA1800000000000000000001 /* VoiceRelay_Cover.png */; };
 		B10000000000000000000005 /* VoiceRelayCore in Frameworks */ = {isa = PBXBuildFile; productRef = D10000000000000000000001 /* VoiceRelayCore */; };
 		B10000000000000000000006 /* NativeSpeechEngine in Frameworks */ = {isa = PBXBuildFile; productRef = D10000000000000000000002 /* NativeSpeechEngine */; };
 		B10000000000000000000007 /* VoiceRelayCore in Frameworks */ = {isa = PBXBuildFile; productRef = D10000000000000000000003 /* VoiceRelayCore */; };
@@ -30,6 +29,7 @@
 		B20000000000000000000004 /* NarrationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000004 /* NarrationUI */; };
 		B20000000000000000000005 /* AudioOutput in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000005 /* AudioOutput */; };
 		B90000000000000000000001 /* ../swift-packages/ThirdPartyNotices in Resources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001 /* ../swift-packages/ThirdPartyNotices */; };
+		BA1800000000000000000001 /* icon/VoiceRelay_Cover.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FA1800000000000000000001 /* icon/VoiceRelay_Cover.jpg */; };
 		C334E2DD0B0B4F719DFF0DEF /* Sources/VoiceRelayApp/AppModelHealth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377F33843F254AF29A86DC59 /* Sources/VoiceRelayApp/AppModelHealth.swift */; };
 		FEFD934D5BBD42AB8AE09DBE /* Sources/VoiceRelayApp/AppModelSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75C7382263904AAFBBFF5D41 /* Sources/VoiceRelayApp/AppModelSync.swift */; };
 /* End PBXBuildFile section */
@@ -81,7 +81,6 @@
 		F10000000000000000000002 /* WorkerMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WorkerMain.swift; path = Sources/VoiceRelaySpeechWorker/WorkerMain.swift; sourceTree = "<group>"; };
 		F10000000000000000000003 /* CoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CoreTests.swift; path = Tests/VoiceRelayCoreTests/CoreTests.swift; sourceTree = "<group>"; };
 		F10000000000000000000004 /* Acknowledgements */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Acknowledgements; sourceTree = "<group>"; };
-		FA1800000000000000000001 /* VoiceRelay_Cover.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon/VoiceRelay_Cover.png; sourceTree = SOURCE_ROOT; };
 		F10000000000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Packaging/Info.plist; sourceTree = "<group>"; };
 		F10000000000000000000006 /* Package.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Package.swift; sourceTree = "<group>"; };
 		F10000000000000000000007 /* Package.resolved */ = {isa = PBXFileReference; lastKnownFileType = text; path = Package.resolved; sourceTree = "<group>"; };
@@ -104,6 +103,7 @@
 		F20000000000000000000002 /* VoiceRelaySpeechWorker */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = VoiceRelaySpeechWorker; sourceTree = BUILT_PRODUCTS_DIR; };
 		F20000000000000000000003 /* VoiceRelayCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = VoiceRelayCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F90000000000000000000001 /* ../swift-packages/ThirdPartyNotices */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "../swift-packages/ThirdPartyNotices"; sourceTree = "<group>"; };
+		FA1800000000000000000001 /* icon/VoiceRelay_Cover.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = icon/VoiceRelay_Cover.jpg; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -201,7 +201,7 @@
 				A10000000000000000000004 /* VoiceRelayCore */,
 				F1000000000000000000000C /* CSQLite */,
 				F1000000000000000000000B /* Resources */,
-				FA1800000000000000000001 /* VoiceRelay_Cover.png */,
+				FA1800000000000000000001 /* icon/VoiceRelay_Cover.jpg */,
 			);
 			name = Sources;
 			sourceTree = "<group>";
@@ -344,7 +344,7 @@
 			files = (
 				B90000000000000000000001 /* ../swift-packages/ThirdPartyNotices in Resources */,
 				B10000000000000000000004 /* Acknowledgements in Resources */,
-				BA1800000000000000000001 /* VoiceRelay_Cover.png in Resources */,
+				BA1800000000000000000001 /* icon/VoiceRelay_Cover.jpg in Resources */,
 			);
 		};
 /* End PBXResourcesBuildPhase section */

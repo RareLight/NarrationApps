@@ -32,6 +32,7 @@ enum ImageNarration {
         article = SemanticArticle(title: input.title, originalURL: input.originalURL, finalURL: input.finalURL, canonicalURL: input.canonicalURL,
                                   author: input.author, blocks: enriched.blocks, warnings: enriched.warnings, extractorVersion: input.extractorVersion,
                                   sourceName: input.sourceName, previewImageURL: input.previewImageURL, archivedCopy: input.archivedCopy, outline: enriched.outline)
+        article.titleOrigin = input.titleOrigin
         return .init(page: review.page, document: .init(article: article, cleanedHTML: document.cleanedHTML),
                      narration: try Narration.prepare(article, limit: chunkLimit, pronunciations: pronunciations, settings: settings, options: options), issue: review.issue, archiveRecoveryFailed: review.archiveRecoveryFailed)
     }

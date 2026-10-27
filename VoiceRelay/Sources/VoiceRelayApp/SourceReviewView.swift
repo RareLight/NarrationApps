@@ -235,8 +235,8 @@ final class ArticlePreviewModel {
         self.inert = inert
         if let review { self.review = review; status = review.issue == nil ? "Article ready." : "Source needs inspection." }
     }
-    func load(_ url: URL, profile: PrototypeProfile? = nil, settings: SpeechSettings = .init(), options: NarrationOptions = .init()) {
-        guard !inert, !busy else { return }
+    func load(_ url: URL, profile: PrototypeProfile? = nil, settings: SpeechSettings = .init(), options: NarrationOptions = .init(), sourceTitle: String? = nil) {
+        guard !inert, review == nil, !busy else { return }
         busy = true; error = nil; status = "Loading article…"
         task = Task {
             defer { busy = false; task = nil }
@@ -246,12 +246,14 @@ final class ArticlePreviewModel {
                 let limit = profile?.chunkMaxCharacters ?? 1800
                 let archives = UserDefaults.standard.bool(forKey: "useArchivedArticles")
                 let descriptions = UserDefaults.standard.object(forKey: "describeArticleImages") as? Bool ?? true
+                let generateTitles = UserDefaults.standard.bool(forKey: "generateMissingTitles")
                 let capturedOptions = profile.map { $0.narrationOptions ?? .init() } ?? options
                 let capturedSettings = profile.map { SpeechSettings(voice: $0.voice ?? settings.voice, speed: Float($0.backendSettings["speed"]?.numericValue ?? Double(settings.speed))) } ?? settings
                 let work = Task.detached {
                     let dictionary = try PronunciationStore().load().dictionary
                     return try await ArticleSourceLoader(limits: limits, useArchives: archives,
-                        describeImages: descriptions, speechSettings: capturedSettings, pronunciations: dictionary, narrationOptions: capturedOptions).load(url, chunkLimit: limit)
+                        describeImages: descriptions, speechSettings: capturedSettings, pronunciations: dictionary, narrationOptions: capturedOptions,
+                        sourceTitle: sourceTitle, generateMissingTitles: generateTitles).load(url, chunkLimit: limit)
                 }
                 let result = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
                 try Task.checkCancellation()
@@ -262,6 +264,29 @@ final class ArticlePreviewModel {
         }
     }
     func cancel() { task?.cancel() }
+    func showSaved(_ saved: ReviewedSource, profile: PrototypeProfile? = nil, settings: SpeechSettings = .init(), options: NarrationOptions = .init()) async {
+        task?.cancel()
+        if let task { await task.value }
+        guard !Task.isCancelled else { return }
+        review = saved; status = "Saved article ready."; error = nil
+        guard !inert, let document = saved.document else { return }
+        busy = true
+        defer { busy = false }
+        let capturedSettings = profile.map { SpeechSettings(voice: $0.voice ?? settings.voice, speed: Float($0.backendSettings["speed"]?.numericValue ?? Double(settings.speed))) } ?? settings
+        let capturedOptions = profile.map { $0.narrationOptions ?? .init() } ?? options
+        let work = Task.detached {
+            try Task.checkCancellation()
+            let dictionary = try PronunciationStore().load().dictionary
+            return try Narration.prepare(document.article, limit: profile?.chunkMaxCharacters ?? 1800,
+                pronunciations: dictionary, settings: capturedSettings, options: capturedOptions)
+        }
+        do {
+            let narration = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+            try Task.checkCancellation()
+            review = .init(page: saved.page, document: document, narration: narration, issue: saved.issue)
+        } catch is CancellationError {}
+        catch { self.error = "The saved narration preview could not be prepared." }
+    }
     private func safe(_ error: any Error) -> String {
         if error is SourceFetchError || error is RelayError || error is ArticleRecoveryError { return error.localizedDescription }
         return "Article preview failed; inspect the source and retry."
@@ -278,6 +303,9 @@ struct ArticlePreviewContent: View {
         VStack(alignment: .leading, spacing: 12) {
             if let review {
                 Text(review.document?.article.title ?? "Source inspection").appFont(.title2)
+                if let origin = review.document?.article.titleOrigin {
+                    Text(origin.label).appFont(.secondary).foregroundStyle(.secondary)
+                }
                 Text("Original: \(review.page.originalURL.absoluteString)\nFinal: \(review.page.finalURL.absoluteString)").appFont(.secondary).textSelection(.enabled)
                 if let copy = review.page.archivedCopy {
                     Text("Archived copy · \(copy.provider.label) · \(copy.capturedAt.formatted(date: .abbreviated, time: .omitted))")
@@ -317,10 +345,13 @@ struct ArticlePreviewView: View {
     let settings: SpeechSettings
     let profile: PrototypeProfile?
     let options: NarrationOptions
+    let savedReview: ReviewedSource?
+    let sourceTitle: String?
     @State private var model: ArticlePreviewModel
     @Environment(\.dismiss) private var dismiss
-    init(url: URL, inert: Bool = false, review: ReviewedSource? = nil, settings: SpeechSettings = .init(), profile: PrototypeProfile? = nil, options: NarrationOptions = .init()) {
+    init(url: URL, inert: Bool = false, review: ReviewedSource? = nil, settings: SpeechSettings = .init(), profile: PrototypeProfile? = nil, options: NarrationOptions = .init(), sourceTitle: String? = nil) {
         self.profile = profile; self.options = options
+        self.savedReview = review; self.sourceTitle = sourceTitle
         self.url = url; self.settings = settings
         _model = State(initialValue: ArticlePreviewModel(inert: inert, review: review))
     }
@@ -339,7 +370,10 @@ struct ArticlePreviewView: View {
                 Button("Close") { dismiss() }.help("Close this article preview")
             }
         }
-        .task { model.load(url, profile: profile, settings: settings, options: options) }
+        .task(id: savedReview?.document?.article.title) {
+            if let savedReview { await model.showSaved(savedReview, profile: profile, settings: settings, options: options) }
+            else { model.load(url, profile: profile, settings: settings, options: options, sourceTitle: sourceTitle) }
+        }
         .onDisappear { model.cancel() }
     }
 }
@@ -529,7 +563,7 @@ extension AppModel {
     var allArticleRows: [ArticleLibraryRow] {
         let jobsBySource = Dictionary(grouping: queueItems, by: \.sourceEntryID)
         var rows = sourceReview.catalog.entries.map { entry in
-            ArticleLibraryRow(id: .source(entry.id), title: entry.title, host: entry.url.host,
+            ArticleLibraryRow(id: .source(entry.id), title: sourceReview.catalog.displayTitle(for: entry), host: entry.url.host,
                 savedAt: entry.addedAt, source: entry,
                 jobs: jobsBySource[entry.id] ?? [],
                 preparationID: pendingAdds[entry.id] == nil ? nil : entry.id,
@@ -663,6 +697,8 @@ extension AppModel {
         if let item = row.jobs.first { previewQueueItem(item, openWindow: openWindow) }
         else if let entry = row.source {
             previewProfiles[entry.url] = nil
+            previewReviews[entry.url] = nil
+            previewSourceTitles[entry.url] = entry.title
             ArticlePreviewNavigation.open(entry.url, using: openWindow, inert: preview)
         }
     }
@@ -793,6 +829,8 @@ struct ArticleSelectionList: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
     @State private var confirmingReset = false
+    @State private var renamingArticle: SpeechQueueItem?
+    @State private var titleDraft = ""
 
     var body: some View {
         let selected = projection.selectedRows(model.articleListSelection)
@@ -816,6 +854,10 @@ struct ArticleSelectionList: View {
             Button("Preview Article") {
                 if let row = rows.first { model.previewArticleRow(row, openWindow: openWindow) }
             }.disabled(!model.canPreviewArticleRows(rows))
+            if rows.count == 1, let item = rows.first?.jobs.first {
+                Button("Edit Title…") { titleDraft = item.title; renamingArticle = item }
+                    .disabled(!model.canRenameArticle(item))
+            }
         } primaryAction: { ids in
             let rows = projection.selectedRows(ids)
             if model.canPreviewArticleRows(rows), let row = rows.first {
@@ -862,6 +904,15 @@ struct ArticleSelectionList: View {
         } message: {
             Text("Remove all queued items? Reading List entries, saved article text and existing audio files will be kept.")
         }
+        .alert("Edit article title", isPresented: Binding(get: { renamingArticle != nil }, set: { if !$0 { renamingArticle = nil } })) {
+            TextField("Title", text: $titleDraft)
+            Button("Save") {
+                if let item = renamingArticle { model.renameArticle(item, title: titleDraft) }
+                renamingArticle = nil
+            }.disabled(titleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || titleDraft.count > 240
+                || renamingArticle.map { !model.canRenameArticle($0) } ?? true)
+            Button("Cancel", role: .cancel) { renamingArticle = nil }
+        } message: { Text("Updates this queued article and its spoken introduction. Available before audio generation begins.") }
     }
     private func showSettings(_ section: SettingsSection) {
         model.settingsSection = section

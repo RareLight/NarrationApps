@@ -1,6 +1,7 @@
 # Consolidated app validation checklist
 
-Current instructions reviewed October 21, 2026; prior operator results retain
+Current instructions reviewed October 21, 2026; title-recovery cases added
+October 23, 2026. Prior operator results retain
 their original dates. This is the single current operator checklist for Libro
 and VoiceRelay. Earlier UI, beta, Settings, pronunciation and longform handoffs
 are consolidated here; their implementation/build evidence remains in the
@@ -29,13 +30,14 @@ maintained Swift fixtures/tests remain. Use equivalent disposable documents and
 artwork for the operator checks below. Actual-document/player acceptance remains
 separate from automated fixture tests.
 
-- Quit older copies of each app. The latest recorded automated ad-hoc products
-  are `.build/MonorepoValidation/Build/Products/Release/Libro.app` and
-  `.build/MonorepoValidation/Build/Products/Release/VoiceRelay.app`, relative to the
+- Quit older copies of each app. The October 23 title-recovery ad-hoc products
+  are `.build/TitleRecoveryValidation-20261023/Build/Products/Release/Libro.app` and
+  `.build/TitleRecoveryValidation-20261023/Build/Products/Release/VoiceRelay.app`, relative to the
   monorepo root. Local generated products may be absent on another machine.
   Select an operator candidate explicitly; preserve any earlier bundle already
-  under active review. The [migration record](MONOREPO_MIGRATION.md#validation)
-  identifies the tested source/toolchain. Rebuild/re-archive changed source before
+  under active review. See the [title-recovery status](IMPLEMENTATION_STATUS.md#voicerelay-article-title-recovery)
+  and earlier [migration record](MONOREPO_MIGRATION.md#validation) for evidence scope.
+  Rebuild/re-archive changed source before
   attributing results to it. Use the combined workspace for both apps.
 - Use a separate output folder and disposable test articles. Keep existing models,
   finished audio and the live library intact. For fresh-install tests, use a
@@ -175,7 +177,7 @@ separate from automated fixture tests.
   omission and retained original source.
 - [ ] **L19 — Document settings.** In Settings → Document (between General and
   Models), compare Read with the text, Read at the end and Do not read for
-  Footnotes. Immediately below, Academic citations has Strip inline citations and
+  Footnotes. Immediately below are Strip inline citations and
   Strip endnote citations, both initially off. Test each independently and together:
   author–year/verified numbered references and bibliographies/citation-only notes
   should be skipped, while explanatory notes, parentheses, dates, quantities and
@@ -218,6 +220,19 @@ separate from automated fixture tests.
   and Troubleshooting. Check 80%/100%/200%, ⌘+/⌘−/⌘0, small/large windows, keyboard,
   VoiceOver and appearance/accessibility options. Open/close Settings and Help during
   work: they remain responsive and Help performs no processing or network operation.
+  Left-click and right-click the waveform menu-bar icon: both open the same popover,
+  immediately without a spring animation, including before any ordinary window
+  opens after login. Check repeated toggling,
+  Escape and outside-click dismissal, Sync Now progress, and Articles/Server Audio/
+  Settings opening and focusing correctly after dismissing the menu.
+  At 80%/100%/200%, check compact command width, wrapped long status/progress text
+  and no width jump during Sync. Each opening starts without a focus outline;
+  Tab/Shift-Tab reveal focus and traverse enabled commands, with Space activating
+  the focused command. Hover feedback and VoiceOver remain available.
+  Check the extra horizontal room and larger icon without clipping. Copy Podcast
+  URL copies the configured public feed address and dismisses the popover; it is
+  disabled before configuration. General's citation toggles share the other
+  narration controls' grouping.
 - [ ] **V03 — Voices and samples.** Check saved voice/speed preferences, new Heart
   1.0× defaults, the shared voice names and 0.05× speed steps. Try every presented
   sample, Stop and switching voices while idle/busy. The new common phrase is
@@ -311,6 +326,28 @@ separate from automated fixture tests.
   sign out/in: it stays closed. Change consent in System Settings and reopen Settings:
   actual OS state/approval is reflected without silent re-registration. Repeat with
   speech setup incomplete; a login launch must not open the setup window.
+
+- [ ] **V21 — Article titles.** Add disposable PDFs whose metadata repeats their
+  original or redirected filename, including differences in case, separators and
+  `.pdf`. Confirm a useful Reading List title or clear printed headline is used;
+  ambiguous layouts retain a fallback. With Article titles generation enabled in
+  General, review actual on-device title quality and the generated-title label;
+  with Apple Intelligence unavailable, preparation must still complete. Check
+  All Articles, Queue, the saved preview and spoken introduction agree. Stop
+  processing and use Edit Title before the first speech attempt; confirm the
+  correction survives refresh/relaunch and appears in newly generated audio/RSS.
+  Started work and published recordings must keep their titles. Tall scanned
+  paragraphs must not be mistaken for large headline type. Safari stays unchanged.
+
+- [ ] **V22 — Timed podcast transcripts.** In General → Episode transcripts,
+  confirm Publish timed transcripts defaults on and persists across relaunch.
+  Queue one article, turn the option off and queue another: only the first gains
+  a transcript. Verify the host serves `.vtt` as `text/vtt` with the episode's
+  access protections. In a compatible player, check segment text, pauses, live
+  scrolling and tap-to-seek against actual audio. Check your installed Overcast
+  TestFlight build separately; supplied-transcript support is unconfirmed. Test
+  a failed sidecar upload and Sync Now retry without new speech. Old recordings
+  and source documents must remain unchanged. Word-level timing is not provided.
 
 ## Both apps together
 
@@ -411,6 +448,26 @@ separate from automated fixture tests.
   See [scope and limits](SCIENTIFIC_NARRATION.md) and the
   [expanded corpus findings](ACADEMIC_PDF_EVALUATION.md); automated preparation passes
   do not establish mathematical transcription, GUI or listening acceptance.
+
+## Model evaluation (developer utility)
+
+- [ ] **M01 — Narrator preferences and finalist confirmation.** Use the
+  [Swift benchmark guide](../tools/TTSBenchmark/README.md) to open the generated
+  blind local-web bracket (`bracket.html` in the run folder, rather than the
+  developer source `bracket-template.html`). In Safari, check that the opening
+  notice disappears, controls align with the audio players, and a narrow window
+  stacks the players without horizontal scrolling. Compare the same passage in each pair; record a
+  preference, tie, neither or pause and resume as needed. Check browser save/reload,
+  progress-file backup/restore, notes and revisions. Names and original audio
+  paths stay hidden; reveal is available only after completing the bracket and
+  explicitly selecting its identity file. Cold/warm variants and
+  product-reference duplicates are performance evidence, not extra entrants.
+  After choosing a top narrator and runners-up, generate the separate held-out
+  blind finalist pack and coherent long-form recordings. Record naturalness,
+  phrasing, wrong/repeated words, pacing, consistency and fatigue; note playback
+  volume changes because audio levels remain unadjusted. Keep undecided results
+  unassessed. This evaluation does not change either app's defaults or approve
+  model integration/licensing for distribution.
 
 ## Conditional installation and distribution checks
 

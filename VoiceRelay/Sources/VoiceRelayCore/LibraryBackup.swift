@@ -77,6 +77,8 @@ enum LibraryBackup {
         }
         _ = try store.catalog(); _ = try store.queue()
         for episode in try store.episodes() {
+            if let transcript = episode.transcript { _ = try transcript.data(for: episode.audioHash ?? episode.encodedHash) }
+            for reference in episode.transcriptReferences ?? [] { try reference.validate() }
             guard UUID(uuidString: episode.id) != nil,
                   ["reviewed-article-speech", "speech-fixture"].contains(episode.settings.backendSelector),
                   episode.settings.webdavURL == nil, episode.settings.webdavUsername == nil else {

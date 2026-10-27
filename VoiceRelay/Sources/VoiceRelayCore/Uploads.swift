@@ -17,6 +17,7 @@ public struct UploadProgress: Sendable {
 public enum UploadPhase: String, Sendable, CaseIterable {
     case waiting, verifyingLocal, transferring, verifyingServer, publishing
     case failed, verificationFailed, localConflict, discarded, published, removing, removalFailed
+    case transcriptWaiting, transcriptFailed
     public var title: String {
         switch self {
         case .waiting: "Awaiting upload"
@@ -31,9 +32,11 @@ public enum UploadPhase: String, Sendable, CaseIterable {
         case .published: "Published · verified"
         case .removing: "Server removal pending"
         case .removalFailed: "Server removal needs retry"
+        case .transcriptWaiting: "Transcript awaiting publication"
+        case .transcriptFailed: "Transcript needs retry"
         }
     }
-    public var needsAttention: Bool { [.failed, .verificationFailed, .localConflict, .removalFailed].contains(self) }
+    public var needsAttention: Bool { [.failed, .verificationFailed, .localConflict, .removalFailed, .transcriptFailed].contains(self) }
     public var active: Bool { [.verifyingLocal, .transferring, .verifyingServer].contains(self) }
 }
 public struct UploadItem: Identifiable, Sendable {
@@ -51,6 +54,11 @@ public struct UploadItem: Identifiable, Sendable {
             else { phase = .removing; detail = nil }
         } else if let notice = episode.localCleanupNotice, episode.localAudioDiscarded == true || publication == .published {
             phase = .localConflict; detail = notice
+        } else if publication == .published || publication == .uploaded,
+                  let transcript = episode.transcript, transcript.audioHash == episode.audioHash,
+                  transcript.delivery?.status != .uploaded {
+            phase = transcript.delivery?.lastError == nil ? .transcriptWaiting : .transcriptFailed
+            detail = transcript.delivery?.lastError
         } else if episode.localAudioDiscarded == true && publication != .published && publication != .uploaded {
             phase = .discarded; detail = "The local copy was removed. Saved article text and any server copy are kept."
         } else if let progress, progress.phase.active || progress.phase == .publishing {

@@ -39,6 +39,11 @@ or remove it. Per-episode artwork remains separate. **Pronunciation** edits the
 shared Libro/VoiceRelay dictionary; the [narration guide](../docs/NARRATION_GUIDE.md)
 explains live previews, document choices and text-quality limits.
 
+**Publish timed transcripts** in General is on by default for newly queued
+articles. VoiceRelay publishes WebVTT text with measured segment timestamps for
+compatible players. See [timed transcripts](docs/USER_GUIDE.md#timed-episode-transcripts)
+for timing limits, retries and player acceptance.
+
 ## Build and setup
 
 Both apps are included in the NarrationApps monorepo. Start with root

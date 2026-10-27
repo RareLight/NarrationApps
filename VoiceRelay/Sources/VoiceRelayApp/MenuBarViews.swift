@@ -6,57 +6,120 @@ import VoiceRelayCore
 
 struct RelayMenu: View {
     @Bindable var model: AppModel
+    var dismissMenu: (() -> Void)? = nil
+    var sceneOpenWindow: OpenWindowAction? = nil
+    var sceneOpenSettings: OpenSettingsAction? = nil
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
-    @Environment(\.appTextSize) private var textSize
-    @Environment(\.dynamicTypeSize) private var dynamicType
     @State private var popoverWindow = MenuPopoverWindowReference()
+    @State private var keyboardNavigation = false
+    @FocusState private var focusedItem: String?
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        PopoverMenuLayout {
             let health = model.appHealth
-            if let section = health.settingsSection {
-                Button { showSettings(section) } label: {
+            Group {
+                if let section = health.settingsSection {
+                    Button { showSettings(section) } label: {
+                        Label(health.title, systemImage: health.symbol)
+                    }.buttonStyle(PopoverMenuButtonStyle(foreground: health.symbol == "xmark.circle.fill" ? .red : .primary))
+                        .focused($focusedItem, equals: "status")
+                        .disabled(model.preview || model.stopping)
+                } else {
                     Label(health.title, systemImage: health.symbol)
-                }.buttonStyle(PopoverMenuButtonStyle(foreground: health.symbol == "xmark.circle.fill" ? .red : .primary))
-                    .disabled(model.preview || model.stopping)
-            } else {
-                Label(health.title, systemImage: health.symbol)
-                    .foregroundStyle(health == .ready ? Color.green : Color.secondary)
-                    .padding(8)
+                        .foregroundStyle(health == .ready ? Color.green : Color.secondary)
+                        .padding(8)
+                }
             }
             if model.syncBusy {
                 SyncMenuProgress(model: model)
             } else {
                 item("Sync Now") { model.syncNow() }.disabled(!model.canSyncNow)
+                    .layoutValue(key: PopoverMenuLayout.WidthSource.self, value: true)
             }
             Divider()
             VStack(spacing: 1) {
                 item("Articles") { model.articleScope = .all; openWorkspace(.articles) }.disabled(model.preview)
                 item("Server Audio") { openWorkspace(.savedAudio) }.disabled(model.preview)
-            }.buttonStyle(PopoverMenuButtonStyle(verticalPadding: 4))
+                item("Copy Podcast URL") { model.copyDeliverySubscriptionURL(); dismissPopover() }
+                    .disabled(model.preview || model.deliverySubscriptionURL == nil)
+            }
+            .buttonStyle(PopoverMenuButtonStyle(verticalPadding: 4))
+            .layoutValue(key: PopoverMenuLayout.WidthSource.self, value: true)
             Divider()
             VStack(spacing: 1) {
                 item("Settings") { showSettings(.general) }.disabled(model.preview)
                 item("Quit VoiceRelay") { model.quit() }.disabled(model.preview)
-            }.buttonStyle(PopoverMenuButtonStyle(verticalPadding: 4))
+            }
+            .buttonStyle(PopoverMenuButtonStyle(verticalPadding: 4))
+            .layoutValue(key: PopoverMenuLayout.WidthSource.self, value: true)
         }.buttonStyle(PopoverMenuButtonStyle())
-            .padding(6).frame(width: 280 * max(1, AppTypography.scale(size: textSize, dynamic: dynamicType)))
+            // Only command labels establish width; status/progress wrap within it.
+            .fixedSize().padding(PopoverMenuLayout.outerPadding)
+            .focusEffectDisabled(!keyboardNavigation)
+            .onKeyPress(.tab) { keyboardNavigation = true; return .ignored }
+            .onChange(of: focusedItem) { _, _ in
+                // AppKit may move focus for Shift-Tab before SwiftUI's key handler.
+                if NSApp.currentEvent?.type == .keyDown, NSApp.currentEvent?.keyCode == 48 {
+                    keyboardNavigation = true
+                }
+            }
             .background(MenuPopoverWindowCapture(reference: popoverWindow, inert: model.preview).frame(width: 0, height: 0))
     }
     private func item(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
+        Button(title, action: action).focused($focusedItem, equals: title)
     }
     private func showSettings(_ section: SettingsSection) {
-        popoverWindow.dismiss()
+        dismissPopover()
         model.settingsSection = section
         WindowPresence.shared.prepareToOpen()
-        openSettings()
+        (sceneOpenSettings ?? openSettings)()
     }
     private func openWorkspace(_ section: WorkspaceSection? = nil) {
-        popoverWindow.dismiss()
+        dismissPopover()
         if let section { model.workspaceSection = section }
         WindowPresence.shared.prepareToOpen()
-        openWindow(id: "articles")
+        (sceneOpenWindow ?? openWindow)(id: "articles")
+    }
+    private func dismissPopover() {
+        if let dismissMenu { dismissMenu() }
+        else { popoverWindow.dismiss() }
+    }
+}
+
+/// Measure commands first, then give status/progress that width and their full
+/// wrapped height. Flexible progress and changing status must not size the popup.
+struct PopoverMenuLayout: Layout {
+    struct WidthSource: LayoutValueKey { static let defaultValue = false }
+    static let outerPadding: CGFloat = 6
+    private let spacing: CGFloat = 2
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let commandWidth = subviews.filter { $0[WidthSource.self] }
+            .map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+        // Expand the complete previous width (including outer padding) by 25%.
+        let width = (commandWidth + 2 * Self.outerPadding) * 1.25 - 2 * Self.outerPadding
+        let rowProposal = ProposedViewSize(width: width, height: nil)
+        let height = subviews.reduce(CGFloat.zero) { $0 + $1.sizeThatFits(rowProposal).height }
+        return CGSize(width: width, height: height + CGFloat(max(0, subviews.count - 1)) * spacing)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rowProposal = ProposedViewSize(width: bounds.width, height: nil)
+        var y = bounds.minY
+        for row in subviews {
+            row.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading, proposal: rowProposal)
+            y += row.sizeThatFits(rowProposal).height + spacing
+        }
+    }
+}
+
+/// Keep live model observation and scene actions in the hosted SwiftUI content.
+private struct StatusItemMenuContent: View {
+    @Bindable var model: AppModel
+    let openWindow: OpenWindowAction
+    let openSettings: OpenSettingsAction
+    let dismiss: () -> Void
+    var body: some View {
+        RelayMenu(model: model, dismissMenu: dismiss, sceneOpenWindow: openWindow, sceneOpenSettings: openSettings)
+            .appTextSizing(model.textSize)
     }
 }
 
@@ -109,11 +172,29 @@ struct SyncMenuProgress: View {
 final class VoiceRelayApplicationDelegate: NSObject, NSApplicationDelegate {
     var model: AppModel?
     private var terminationTask: Task<Void, Never>?
+    private var menuHost: StatusItemPopoverHost?
+    private var terminating = false
+    func installMenu(_ content: @escaping () -> AnyView) {
+        guard !terminating, model?.preview == false else { return }
+        if let menuHost { menuHost.content = content; return }
+        let host = StatusItemPopoverHost(content: content)
+        menuHost = host
+        // Scene updates never perform AppKit status-item creation during layout.
+        DispatchQueue.main.async { [weak self, weak host] in
+            guard self?.terminating == false else { return }
+            host?.start()
+        }
+    }
+    func dismissMenu() { menuHost?.dismiss() }
     func applicationWillFinishLaunching(_ notification: Notification) {
         captureLoginLaunch()
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         captureLoginLaunch()
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        // The native status item and background work outlive ordinary scene windows.
+        false
     }
     private func captureLoginLaunch() {
         if LoginLaunchContext.isLoginItemLaunch(NSAppleEventManager.shared().currentAppleEvent) {
@@ -123,9 +204,11 @@ final class VoiceRelayApplicationDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
         if terminationTask == nil {
+            terminating = true
             terminationTask = Task {
                 defer { terminationTask = nil }
                 await model.shutdown()
+                menuHost?.stop()
                 sender.reply(toApplicationShouldTerminate: true)
             }
         }
@@ -137,6 +220,8 @@ final class VoiceRelayApplicationDelegate: NSObject, NSApplicationDelegate {
 struct VoiceRelayApp: App {
     @NSApplicationDelegateAdaptor(VoiceRelayApplicationDelegate.self) private var delegate
     @State private var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     init() {
         umask(0o077)
         let model = AppModel()
@@ -146,10 +231,6 @@ struct VoiceRelayApp: App {
     }
     var body: some Scene {
         Group {
-            MenuBarExtra("VoiceRelay", systemImage: "waveform.circle") {
-                RelayMenu(model: model).appTextSizing(model.textSize)
-            }
-            .menuBarExtraStyle(.window)
             Window("Set Up VoiceRelay Speech", id: "speech-setup") {
                 SpeechRuntimeOnboardingView(model: model).appTextSizing(model.textSize)
                     .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
@@ -175,7 +256,7 @@ struct VoiceRelayApp: App {
                 if let url {
                     let profile = model.previewProfiles[url]
                     let options = profile.map { $0.narrationOptions ?? .init() } ?? model.preferences.effectiveNarrationOptions
-                    ArticlePreviewView(url: url, inert: model.preview, settings: .init(voice: model.preferences.voice.rawValue, speed: Float(model.preferences.speed)), profile: profile, options: options)
+                    ArticlePreviewView(url: url, inert: model.preview, review: model.previewReviews[url], settings: .init(voice: model.preferences.voice.rawValue, speed: Float(model.preferences.speed)), profile: profile, options: options, sourceTitle: model.previewSourceTitles[url])
                         .id(options.versionSuffix).appTextSizing(model.textSize)
                         .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
                         .frame(minWidth: 560, minHeight: 420)
@@ -193,6 +274,13 @@ struct VoiceRelayApp: App {
             }.defaultSize(width: 560, height: 500)
                 .restorationBehavior(model.launchedAtLogin ? .disabled : .automatic)
         }.commands { AppHelpCommands(model: model); TextSizeCommands(model: model) }
+            .onChange(of: model.preview, initial: true) {
+                let menuModel = model, windowAction = openWindow, settingsAction = openSettings
+                delegate.installMenu { [weak delegate = delegate] in
+                    AnyView(StatusItemMenuContent(model: menuModel, openWindow: windowAction, openSettings: settingsAction,
+                        dismiss: { delegate?.dismissMenu() }))
+                }
+            }
     }
 }
 

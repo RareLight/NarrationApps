@@ -220,6 +220,9 @@ final class AppModel {
     var describeArticleImages = true {
         didSet { if !preview { defaults.set(describeArticleImages, forKey: "describeArticleImages") } }
     }
+    var generateMissingTitles = false {
+        didSet { if !preview { defaults.set(generateMissingTitles, forKey: "generateMissingTitles") } }
+    }
     var useArchivedArticles = false {
         didSet { if !preview { defaults.set(useArchivedArticles, forKey: "useArchivedArticles") } }
     }
@@ -316,7 +319,7 @@ final class AppModel {
         self.loginItemService = preview ? nil : (loginItemService ?? (storage == nil ? MainAppLoginItemService() : nil))
         self.podcastCoverStore = podcastCoverStore ?? .application("VoiceRelay")
         self.defaultPodcastCoverURL = defaultPodcastCoverURL ?? (storage == nil && !preview
-            ? Bundle.main.url(forResource: "VoiceRelay_Cover", withExtension: "png") : nil)
+            ? Bundle.main.url(forResource: "VoiceRelay_Cover", withExtension: "jpg") : nil)
         let domain = defaults == nil && (preview || storage != nil) ? InertDefaultsDomain() : nil
         let defaults = defaults ?? domain?.defaults ?? .standard
         inertDefaults = domain
@@ -340,6 +343,7 @@ final class AppModel {
         refreshLoginItemStatus()
         textSize = AppTextSize(percent: defaults.object(forKey: "interfaceTextSizePercent") as? Int ?? 100)
         describeArticleImages = defaults.object(forKey: "describeArticleImages") as? Bool ?? true
+        generateMissingTitles = defaults.bool(forKey: "generateMissingTitles")
         libraryReviewRequired = defaults.bool(forKey: "libraryReviewRequired")
         loadDeliverySettings()
         // Isolated lifecycle tests supply storage/providers and never read user preferences or Safari.
@@ -440,10 +444,10 @@ final class AppModel {
         }
     }
     var deliverySubscriptionURL: URL? { deliverySettings.publicFeedURL }
-    func copyDeliverySubscriptionURL() {
+    func copyDeliverySubscriptionURL(to pasteboard: NSPasteboard = .general) {
         guard !preview, let url = deliverySubscriptionURL else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(url.absoluteString, forType: .string)
     }
     func refreshDeliveryCredentialState() {
         guard deliverySettings.feedFolderURL?.host != nil,
@@ -563,7 +567,7 @@ final class AppModel {
                 try Task.checkCancellation()
                 if let summary = try? await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings) {
                     recordDeliveryPublication(summary)
-                    deliveryPendingCount = summary.pendingMedia + summary.pendingRemoteDeletes
+                    deliveryPendingCount = summary.pendingMedia + summary.pendingTranscripts + summary.pendingRemoteDeletes
                     deliveryError = summary.lastError
                     if deliveryVerificationID == verificationID, deliverySettings == settings,
                        let checkedAt = summary.reconciledAt, checkedAt >= attemptStartedAt {
@@ -589,7 +593,7 @@ final class AppModel {
                     ?? "Publishing failed; saved progress is retained."
                 if let summary = try? await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings) {
                     recordDeliveryPublication(summary)
-                    deliveryPendingCount = summary.pendingMedia + summary.pendingRemoteDeletes
+                    deliveryPendingCount = summary.pendingMedia + summary.pendingTranscripts + summary.pendingRemoteDeletes
                 }
             }
         }
@@ -597,6 +601,7 @@ final class AppModel {
     private static func deliveryStatusText(_ result: DeliveryResult, hasError: Bool = false) -> String {
         var parts: [String] = []
         if result.uploadedMedia > 0 { parts.append("Uploaded \(result.uploadedMedia)") }
+        if result.uploadedTranscripts > 0 { parts.append("Transcripts uploaded: \(result.uploadedTranscripts)") }
         if result.feedUploaded { parts.append("Feed updated") }
         if result.remoteDeletes > 0 { parts.append("Removed \(result.remoteDeletes) remote") }
         if result.failed > 0 { parts.append("\(result.failed) failed") }
@@ -781,7 +786,7 @@ final class AppModel {
                 if let delivery {
                     recordDeliveryPublication(delivery)
                     if deliveryOn {
-                        deliveryPendingCount = delivery.pendingMedia + delivery.pendingRemoteDeletes
+                        deliveryPendingCount = delivery.pendingMedia + delivery.pendingTranscripts + delivery.pendingRemoteDeletes
                         if deliveryError == nil { deliveryError = delivery.lastError }
                         if allowDelivery && delivery.needsDrain { triggerDelivery() }
                     }
@@ -995,7 +1000,7 @@ final class AppModel {
                     let item = try await coordinator.enqueueReadingList(entry.id, storage: next.storage, preferences: next.preferences,
                         fetch: fetch, useArchives: useArchivedArticles && (storageOverride == nil || archiveFetchOverride != nil),
                         archiveFetch: archiveFetchOverride, debugLog: deliveryDebugLog,
-                        describeImages: describeArticleImages, shouldCommit: { [weak self] in
+                        describeImages: describeArticleImages, generateMissingTitles: generateMissingTitles, shouldCommit: { [weak self] in
                             await MainActor.run { self != nil && !self!.stopping && self!.pendingTokens[entry.id] == next.token }
                         }, admissionControl: next.control)
                     admissionQueue.removeAll { $0.token == next.token }
@@ -1003,6 +1008,7 @@ final class AppModel {
                         pendingAdds[entry.id] = nil; pendingTokens[entry.id] = nil; pendingControls[entry.id] = nil
                         if let index = queueItems.firstIndex(where: { $0.id == item.id }) { queueItems[index] = item }
                         else { queueItems.append(item) }
+                        sourceReview.catalog.setResolvedTitle(item.title, for: entry.id)
                         transferPreparationSelection(sourceID: entry.id, episodeID: item.id)
                         saved += 1
                         // Newly arrived work resumes automation suspended by an explicit Stop.
@@ -1090,6 +1096,23 @@ final class AppModel {
                     status = "Article ready in queue"
                 }
             } catch { self.error = (error as? RelayError)?.localizedDescription ?? "The queue could not be changed."; status = "Needs attention" }
+        }
+    }
+    func canRenameArticle(_ item: SpeechQueueItem) -> Bool {
+        guard let current = queueItems.first(where: { $0.id == item.id }) else { return false }
+        return !preview && !stopping && !running && !processingSpeech && !libraryMaintenanceBusy && !libraryReviewRequired
+            && !queueMutationBusy && !sourceReview.maintenanceSuspended && current.state == .queued && current.attempts == 0
+    }
+    func renameArticle(_ item: SpeechQueueItem, title: String) {
+        guard canRenameArticle(item) else { return }
+        enqueueQueueMutation(targets: [.episode(item.id)]) { [self] in
+            do {
+                let updated = try await coordinator.renameQueuedArticle(item.id, title: title,
+                    stateRoot: storageOverride?.stateRoot ?? AppStorage.managedLibrary)
+                if let index = queueItems.firstIndex(where: { $0.id == updated.id }) { queueItems[index] = updated }
+                if let sourceID = updated.sourceEntryID { sourceReview.catalog.setResolvedTitle(updated.title, for: sourceID) }
+                status = "Article title updated"
+            } catch { self.error = (error as? RelayError)?.localizedDescription ?? "The title could not be changed." }
         }
     }
     var canRemoveQueueSelection: Bool {
@@ -1241,6 +1264,8 @@ final class AppModel {
         status = "Stopping speech and releasing unfinished work…"
     }
     var previewProfiles: [URL: PrototypeProfile] = [:]
+    var previewReviews: [URL: ReviewedSource] = [:]
+    var previewSourceTitles: [URL: String] = [:]
     func previewQueueItem(_ item: SpeechQueueItem, openWindow: OpenWindowAction) {
         guard !preview, !stopping else { return }
         previewTask?.cancel()
@@ -1249,12 +1274,15 @@ final class AppModel {
         previewTask = Task {
             defer { if previewRequestID == request { previewTask = nil } }
             do {
-                let url = try await coordinator.articlePreviewURL(articleID: item.id,
+                let review = try await coordinator.savedArticlePreview(articleID: item.id,
                     stateRoot: storageOverride?.stateRoot ?? AppStorage.managedLibrary)
+                let url = review.page.originalURL
                 let profile = try await coordinator.articlePreviewProfile(articleID: item.id,
                     stateRoot: storageOverride?.stateRoot ?? AppStorage.managedLibrary)
                 guard previewRequestID == request, !Task.isCancelled, !stopping else { return }
                 previewProfiles[url] = profile
+                // Open windows own their review state; retain only the latest handoff here.
+                previewReviews = [url: review]
                 ArticlePreviewNavigation.open(url, using: openWindow, inert: preview)
             } catch is CancellationError {
             } catch {

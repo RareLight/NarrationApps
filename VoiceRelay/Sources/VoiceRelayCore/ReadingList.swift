@@ -25,6 +25,14 @@ public struct ReadingListSnapshot: Sendable {
 public struct ReadingListCatalog: Codable, Sendable {
     public private(set) var entries: [ReadingListEntry] = []
     public private(set) var currentIDs: Set<String> = []
+    /// Local presentation only; Safari's titles and source records remain untouched.
+    private var resolvedTitles: [String: String]? = nil
+    public func displayTitle(for entry: ReadingListEntry) -> String { resolvedTitles?[entry.id] ?? entry.title }
+    public mutating func setResolvedTitle(_ title: String, for entryID: String) {
+        guard currentIDs.contains(entryID) else { return }
+        if resolvedTitles == nil { resolvedTitles = [:] }
+        resolvedTitles?[entryID] = title
+    }
     /// Legacy catalogs still decode this field; exclusion is no longer honored and each
     /// saved reconcile clears it.
     public var excludedIDs: Set<String> = []
@@ -46,7 +54,10 @@ public struct ReadingListCatalog: Codable, Sendable {
         entries.filter { ids.contains($0.id) }
     }
     public mutating func reconcile(_ snapshot: ReadingListSnapshot) {
+        let previousURLs = Dictionary(entries.map { ($0.id, $0.url) }, uniquingKeysWith: { first, _ in first })
+        let updatedURLs = Dictionary(snapshot.entries.map { ($0.id, $0.url) }, uniquingKeysWith: { first, _ in first })
         currentIDs = Set(snapshot.entries.map(\.id))
+        resolvedTitles = resolvedTitles?.filter { currentIDs.contains($0.key) && previousURLs[$0.key] == updatedURLs[$0.key] }
         let updates = Dictionary(snapshot.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let known = Set(entries.map(\.id))
         entries = entries.compactMap { updates[$0.id] }

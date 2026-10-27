@@ -15,6 +15,16 @@ and yields between chunks to pending Libro work. Do not change team/Keychain
 signing settings merely to produce local ad-hoc test artifacts.
 No maintained Python support remains. Audio is never normalized or volume leveled.
 
+Timed transcripts are default-on for new admissions through SpeechPreferences;
+historical profile nil remains disabled. Derive segment cues from prepared text
+and measured output-frame intervals, never estimated word timings or fresh ASR.
+Keep transcript text/audio hashes and independent delivery state durable with
+episode metadata. Add RSS references only after exact-byte sidecar readback;
+sidecar failures must not block audio/other feed entries. Recovery preserves safe
+standard references without fetching arbitrary transcript URLs. Retirement may
+delete only owned current-destination sidecars, after confirmed feed removal.
+Do not claim Overcast/TestFlight or other player acceptance from fixtures/builds.
+
 October 13 additions: all app scenes use shared semantic typography with persisted
 80–200% text sizing, Dynamic Type category scaling and a 12pt floor. General has the
 setting; View commands provide ⌘+/⌘−/⌘0. Scale navigation and use a compact selector
@@ -73,7 +83,8 @@ public mapping. Editing inputs resets the test status. Changed destinations
 require fresh byte-confirmed copies; preserve old remote files and never apply
 old-host deletes to a new destination. Failures use sanitized status text.
 
-Current UX direction: a compact MenuBarExtra window-style popover and one sidebar library window
+Current UX direction: a compact SwiftUI menu in a native NSStatusItem/NSPopover host
+(the same popover opens on left- and right-click) and one sidebar library window
 (Articles with All Articles/Queue scopes, Uploads, Server Audio). Settings uses native pane navigation for
 General, Pronunciation, Publishing and Troubleshooting, with no global Cancel. Generate/Stop
 live with audio work.
@@ -338,8 +349,8 @@ unchanged. Today and This Week precede a separator in the Articles filter and us
 local Calendar saved-date periods; missing dates do not match. Website sorting,
 scope independence and global processing remain unchanged.
 
-October 10 approved menu: compact MenuBarExtra .window popover contains overall
-status, Sync Now, separator, Articles, Server Audio, separator, Settings and Quit
+October 23 menu content: compact menu-bar popover contains overall
+status, Sync Now, separator, Articles, Server Audio, Copy Podcast URL, separator, Settings and Quit
 VoiceRelay. Ready requires current-session verified Reading List, speech runtime
 and WebDAV health; failures link to the affected Settings pane. Pure rendering
 never probes services. Check an installed speech runtime offline at startup.

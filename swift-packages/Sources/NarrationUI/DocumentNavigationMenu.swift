@@ -32,23 +32,17 @@ public struct NarrationOptionsControls: View {
         if showsExamples {
             DocumentTextExample(source: "Main text¹ → more text\n¹ Footnote", narration: noteExample)
         }
-        GroupBox {
-            VStack(alignment: .leading, spacing: 10) {
-            Toggle("Strip inline citations", isOn: $options.stripInlineCitations)
-                .help("Skips recognized author–year references and numbered citations linked to a reference list. Keeps ordinary parentheses and numbers.")
-            if showsExamples {
-                DocumentTextExample(source: "Forests recover (Smith, 2020).",
-                    narration: options.stripInlineCitations ? "Forests recover." : "Forests recover (Smith, 2020).")
-            }
-            Toggle("Strip endnote citations", isOn: $options.stripEndnoteCitations)
-                .help("Skips identified bibliographies and citation-only notes. Keeps notes that explain or add information.")
-            if showsExamples {
-                DocumentTextExample(source: "Main text → reference list → explanatory note",
-                    narration: options.stripEndnoteCitations ? "Main text → explanatory note" : "Main text → reference list → explanatory note")
-            }
-            }
-        } label: {
-            Text("Academic citations")
+        Toggle("Strip inline citations", isOn: $options.stripInlineCitations)
+            .help("Skips recognized author–year references and numbered citations linked to a reference list. Keeps ordinary parentheses and numbers.")
+        if showsExamples {
+            DocumentTextExample(source: "Forests recover (Smith, 2020).",
+                narration: options.stripInlineCitations ? "Forests recover." : "Forests recover (Smith, 2020).")
+        }
+        Toggle("Strip endnote citations", isOn: $options.stripEndnoteCitations)
+            .help("Skips identified bibliographies and citation-only notes. Keeps notes that explain or add information.")
+        if showsExamples {
+            DocumentTextExample(source: "Main text → reference list → explanatory note",
+                narration: options.stripEndnoteCitations ? "Main text → explanatory note" : "Main text → reference list → explanatory note")
         }
         Toggle("Read appendices and extra sections", isOn: $options.includeAuxiliary)
             .help("Only sections marked as extra material are affected. Ordinary body text stays included.")

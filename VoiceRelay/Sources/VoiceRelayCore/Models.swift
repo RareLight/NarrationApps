@@ -1,5 +1,6 @@
 import Foundation
 import NarrationCore
+import DocumentProcessing
 
 public enum RelayError: Error, LocalizedError, Sendable, Equatable {
     case setup(String), extraction(String), artifact(String), storage(String), tool(String), interrupted, writerBusy
@@ -21,7 +22,8 @@ public enum Stage: String, Codable, Sendable {
 public typealias ContentBlock = NarrationCore.ContentBlock
 
 public struct SemanticArticle: Codable, Sendable, Equatable {
-    public let title: String
+    public var title: String
+    public var titleOrigin: DocumentTitle.Origin? = nil
     public let originalURL: URL
     public let finalURL: URL
     public let canonicalURL: URL?
@@ -99,6 +101,9 @@ public struct Episode: Codable, Sendable {
     public var originalSourceIdentity: String? = nil
     public var sourceURL: URL? = nil
     public var artworkURL: URL? = nil
+    public var transcript: EpisodeTranscript? = nil
+    /// Published references, including those retained from a reconciled server feed.
+    public var transcriptReferences: [PodcastTranscriptReference]? = nil
     public var delivery: DeliveryState? = nil
     public var settings: PrototypeProfile
     public var guid: String { id }

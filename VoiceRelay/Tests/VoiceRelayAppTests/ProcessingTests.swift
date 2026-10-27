@@ -1,4 +1,6 @@
 import AppPresentation
+import AppKit
+import SwiftUI
 import Foundation
 import AudioOutput
 import Testing
@@ -288,12 +290,15 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
     let model = AppModel(storage: storage, defaults: defaults)
     #expect(model.preferences.languageRegion == .usEnglish)
+    #expect(model.preferences.timedTranscriptsEnabled)
+    model.preferences.timedTranscriptsEnabled = false
     model.preferences.languageRegion = .ukEnglish
     #expect(model.preferences.voice == .emma)
     model.preferences.voice = .fable
     let data = try #require(defaults.data(forKey: "speechPreferences"))
     let saved = try JSONDecoder().decode(SpeechPreferences.self, from: data)
     #expect(saved.voice == .fable && saved.languageRegion == .ukEnglish)
+    #expect(!saved.timedTranscriptsEnabled)
     _ = ConfigurationView(model: model).body
     #expect(!model.running && model.result == nil && !model.deliveryBusy)
     let previewDefaults = try #require(UserDefaults(suiteName: suite + "-preview"))
@@ -367,6 +372,115 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     #expect(reference.window == nil)
     await model.waitForProcessing()
     #expect(!model.running && !model.stopping)
+}
+
+@Test @MainActor func statusItemButtonAcceptsBothMouseReleasesThroughOneActionWithoutInstallingUI() throws {
+    var contentRequests = 0
+    let host = StatusItemPopoverHost { contentRequests += 1; return AnyView(EmptyView()) }
+    let button = NSStatusBarButton(frame: .zero)
+    host.configure(button)
+    let configuredEvents = NSEvent.EventTypeMask(rawValue: UInt64(button.sendAction(on: [])))
+    #expect(configuredEvents.contains(.leftMouseUp) && configuredEvents.contains(.rightMouseUp))
+    #expect(!configuredEvents.contains(.leftMouseDown) && !configuredEvents.contains(.rightMouseDown))
+    #expect(button.target === host && button.action != nil)
+    #expect(button.image?.isTemplate == true && button.toolTip == "VoiceRelay")
+    let originalImage = try #require(NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: nil))
+    let enlargedImage = try #require(button.image)
+    let originalRaster = try #require(originalImage.cgImage(forProposedRect: nil, context: nil, hints: nil))
+    let enlargedRaster = try #require(enlargedImage.cgImage(forProposedRect: nil, context: nil, hints: nil))
+    #expect(enlargedImage.size.height >= originalImage.size.height * 1.9)
+    #expect(Double(enlargedRaster.width) >= Double(originalRaster.width) * 1.9)
+    #expect(button.symbolConfiguration != nil && button.imageScaling == .scaleProportionallyDown)
+    button.sendAction(on: configuredEvents)
+    button.performClick(nil) // No status item was installed; must not create or show a popover.
+    host.stop(); host.stop()
+    #expect(contentRequests == 0)
+}
+
+@Test @MainActor func statusItemHostIsNotInstalledForInertAppModels() async {
+    let delegate = VoiceRelayApplicationDelegate()
+    let model = AppModel(preview: true)
+    delegate.model = model
+    var contentRequests = 0
+    delegate.installMenu { contentRequests += 1; return AnyView(EmptyView()) }
+    await Task.yield()
+    delegate.dismissMenu()
+    #expect(contentRequests == 0)
+    await model.shutdown()
+}
+
+@Test @MainActor func statusItemClosingLastWindowKeepsBackgroundAppAlive() {
+    let delegate = VoiceRelayApplicationDelegate()
+    #expect(!delegate.applicationShouldTerminateAfterLastWindowClosed(NSApplication.shared))
+}
+
+@Test(arguments: [80, 100, 200]) @MainActor
+func statusItemMenuFitsCommandsAndKeepsWidthDuringSync(percent: Int) async {
+    let model = AppModel(preview: true)
+    let textSize = AppTextSize(percent: percent)
+    func measure() -> CGSize {
+        let controller = NSHostingController(rootView: RelayMenu(model: model)
+            .appTextSizing(textSize).environment(\.dynamicTypeSize, .large))
+        // Measure unattached content only: no status item, window, or services.
+        return controller.sizeThatFits(in: CGSize(width: 1000, height: 2000))
+    }
+    let idle = measure()
+    let initialHealth = model.appHealth.title
+    let fontSize = AppTypography.pointSize(base: NSFont.preferredFont(forTextStyle: .body).pointSize,
+                                           size: textSize, dynamic: .large)
+    let titleWidth = ("Copy Podcast URL" as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: fontSize)]).width
+    #expect(idle.width >= titleWidth)
+    #expect(idle.width < 280 * max(1, CGFloat(percent) / 100) * 0.8)
+    #expect(idle.height > 0)
+    model.syncBusy = true
+    for phase in [SyncPhase.preparing, .reconciling, .generating, .publishing] {
+        model.syncPhase = phase
+        let busy = measure()
+        #expect(abs(busy.width - idle.width) < 1)
+        #expect(busy.height > 0 && busy.height < 2000)
+    }
+    model.processingSpeech = true
+    model.progress = PipelineProgress(stage: .published, completedChunks: 1, totalChunks: 3)
+    model.syncPhase = .generating
+    #expect(model.syncProgressFraction != nil)
+    #expect(abs(measure().width - idle.width) < 1)
+    model.libraryReviewRequired = true // Changing status must not widen the menu.
+    #expect(model.appHealth.title != initialHealth)
+    #expect(abs(measure().width - idle.width) < 1)
+    await model.shutdown()
+}
+
+@Test(arguments: [100.0, 200.0]) @MainActor
+func statusItemMenuAddsTwentyFivePercentToContentWidth(width: Double) {
+    let controller = NSHostingController(rootView: PopoverMenuLayout {
+        Color.clear.frame(width: width, height: 20)
+            .layoutValue(key: PopoverMenuLayout.WidthSource.self, value: true)
+    }.padding(PopoverMenuLayout.outerPadding))
+    let size = controller.sizeThatFits(in: CGSize(width: 1000, height: 1000))
+    #expect(abs(size.width - (width == 100 ? 140 : 265)) < 1)
+}
+
+@Test @MainActor func statusItemCopyPodcastURLUsesConfiguredPublicFeedWithoutChangingSettings() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let model = AppModel(storage: storage)
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+    pasteboard.setString("Keep clipboard unchanged", forType: .string)
+    #expect(model.deliverySubscriptionURL == nil)
+    model.copyDeliverySubscriptionURL(to: pasteboard)
+    #expect(pasteboard.string(forType: .string) == "Keep clipboard unchanged")
+    model.deliverySettings.publicFolderURL = URL(string: "https://synthetic.example/My%20Podcast/")!
+    let settings = model.deliverySettings
+    model.copyDeliverySubscriptionURL(to: pasteboard)
+    #expect(pasteboard.string(forType: .string) == "https://synthetic.example/My%20Podcast/feed.xml")
+    #expect(model.deliverySettings == settings && !model.syncBusy && !model.deliveryBusy)
+    await model.shutdown()
+    let preview = AppModel(preview: true)
+    preview.deliverySettings.publicFolderURL = settings.publicFolderURL
+    pasteboard.clearContents(); pasteboard.setString("Preview is inert", forType: .string)
+    preview.copyDeliverySubscriptionURL(to: pasteboard)
+    #expect(pasteboard.string(forType: .string) == "Preview is inert")
+    await preview.shutdown()
 }
 
 @Test @MainActor func generationActionsReflectReadyRunningCancellingAndStopping() async throws {
@@ -1429,7 +1543,7 @@ private final class MutableFlag: @unchecked Sendable {
 @Test @MainActor func defaultPodcastCoverHoldsInitialDeliveryUntilArtworkIsReady() async throws {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        .deletingLastPathComponent().appendingPathComponent("icon/VoiceRelay_Cover.png")
+        .deletingLastPathComponent().appendingPathComponent("icon/VoiceRelay_Cover.jpg")
     let credentials = RecordingCredentials(password: "fixture"), transport = StubDeliveryTransport()
     let store = CoverArtworkStore(root: root.appendingPathComponent("art"))
     let model = AppModel(storage: storage, deliveryTransport: { transport }, credentialStore: credentials,

@@ -1,5 +1,6 @@
 import Pronunciation
 import NarrationCore
+import DocumentProcessing
 import Foundation
 import SwiftSoup
 
@@ -44,17 +45,22 @@ public struct ArticleSourceLoader: Sendable {
     private let imageFetch: ImageFetch?
     private let imageCaption: ImageCaption?
     private let describeImages: Bool
+    private let generateMissingTitles: Bool
+    private let titleGenerator: DocumentTitles.Generate?
+    private let sourceTitle: String?
     private let narrationOptions: NarrationOptions
     private let speechSettings: SpeechSettings
     private let pronunciations: PronunciationDictionary
     public init(limits: FetchLimits, useArchives: Bool = false, fetch: Fetch? = nil, archiveFetch: ArchiveFetch? = nil,
                 debugLog: DeliveryDebugLog? = nil, imageFetch: ImageFetch? = nil, imageCaption: ImageCaption? = nil,
-                describeImages: Bool = true, speechSettings: SpeechSettings = .init(), pronunciations: PronunciationDictionary = .empty, narrationOptions: NarrationOptions = .init()) {
+                describeImages: Bool = true, speechSettings: SpeechSettings = .init(), pronunciations: PronunciationDictionary = .empty, narrationOptions: NarrationOptions = .init(),
+                sourceTitle: String? = nil, generateMissingTitles: Bool = false, titleGenerator: DocumentTitles.Generate? = nil) {
         self.limits = limits; self.useArchives = useArchives; self.fetch = fetch; self.archiveFetch = archiveFetch
         self.debugLog = debugLog
         self.imageFetch = imageFetch; self.imageCaption = imageCaption
         self.narrationOptions = narrationOptions
         self.describeImages = describeImages; self.speechSettings = speechSettings; self.pronunciations = pronunciations
+        self.sourceTitle = sourceTitle; self.generateMissingTitles = generateMissingTitles; self.titleGenerator = titleGenerator
     }
     public func load(_ url: URL, savedAt: Date? = nil, chunkLimit: Int) async throws -> ReviewedSource {
         try ArticleURL.validate(url); try Task.checkCancellation()
@@ -114,7 +120,10 @@ public struct ArticleSourceLoader: Sendable {
         throw ArticleRecoveryError.unavailable(failure ?? .network)
     }
     private func review(_ page: FetchedPage, chunkLimit: Int) async throws -> ReviewedSource {
-        let work = Task.detached { try Task.checkCancellation(); return try await ReviewedSource.prepareAsync(page, chunkLimit: chunkLimit, settings: speechSettings, pronunciations: pronunciations, options: narrationOptions) }
+        // Injected transports are inert: only an explicit fake generator may run with them.
+        let generator: DocumentTitles.Generate? = generateMissingTitles
+            ? (titleGenerator ?? (fetch == nil && archiveFetch == nil ? DocumentTitles.generateOnDevice : nil)) : nil
+        let work = Task.detached { try Task.checkCancellation(); return try await ReviewedSource.prepareAsync(page, chunkLimit: chunkLimit, settings: speechSettings, pronunciations: pronunciations, options: narrationOptions, sourceTitle: sourceTitle, titleGenerator: generator) }
         let result = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
         try Task.checkCancellation()
         return try await ImageNarration.enrich(result, chunkLimit: chunkLimit,

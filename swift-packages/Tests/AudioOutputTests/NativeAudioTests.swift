@@ -21,7 +21,12 @@ final class NativeAudioTests: XCTestCase {
         let crossings = zip(converted, converted.dropFirst()).filter { $0.0 < 0 && $0.1 >= 0 }.count
         XCTAssertEqual(crossings, 440, accuracy: 2)
         XCTAssertEqual(converted.map { abs($0) }.max()!, 0.1, accuracy: 0.005)
-        try NativeAudio.encode([source, source], destination: output, profile: .init(sampleRate: 24_000, bitRate: 64_000, gapSeconds: 0.15))
+        let timeline = try NativeAudio.encode([source, source], destination: output, profile: .init(sampleRate: 24_000, bitRate: 64_000, gapSeconds: 0.15))
+        XCTAssertEqual(timeline.count, 2)
+        XCTAssertEqual(timeline[0].startFrame, 0)
+        XCTAssertEqual(timeline[0].endFrame, UInt64(converted.count))
+        XCTAssertEqual(timeline[1].startFrame, timeline[0].endFrame + 3_600)
+        XCTAssertEqual(timeline[1].endFrame - timeline[1].startFrame, UInt64(converted.count))
         let info = try NativeAudio.inspect(output)
         XCTAssertEqual(info.codec, "aac"); XCTAssertEqual(info.channels, 1); XCTAssertEqual(info.sampleRate, 24_000)
         XCTAssertEqual(info.duration, 2.15, accuracy: 0.08)
@@ -29,6 +34,23 @@ final class NativeAudioTests: XCTestCase {
         try NativeAudio.decode(output) { decoded += $0 }
         let gap = decoded[25_000..<26_000]
         XCTAssertLessThan(gap.map { abs($0) }.max()!, 0.002)
+    }
+    func testScheduledTimelineCountsOnlyActuallyInsertedSilence() throws {
+        let root = try root()
+        var inputs: [URL] = []
+        for index in 0..<2 {
+            let url = root.appendingPathComponent("segment-\(index).wav"), writer = try AtomicAudioWriter(destination: url)
+            // Each source already has 0.1 seconds of edge silence.
+            let tone = (0..<19_200).map { Float(cos(2 * Double.pi * 440 * Double($0) / 24_000) * 0.1) }
+            try writer.append(samples: [Float](repeating: 0, count: 2_400) + tone + [Float](repeating: 0, count: 2_400), sampleRate: 24_000)
+            try writer.publish(); inputs.append(url)
+        }
+        let timeline = try NativeAudio.encode(inputs, destination: root.appendingPathComponent("scheduled.m4a"),
+            profile: .init(), scheduledGaps: [0.3, 0])
+        // The first decoder buffer sees the leading silence; only 0.1s is added.
+        XCTAssertEqual(timeline[0].endFrame, 24_000)
+        XCTAssertEqual(timeline[1].startFrame, 26_400)
+        XCTAssertEqual(timeline[1].endFrame, 50_400)
     }
     func testNativeDecodePreservesFloatBitsAndRejectsTruncatedAudio() throws {
         let root = try root(), source = root.appendingPathComponent("float.wav")

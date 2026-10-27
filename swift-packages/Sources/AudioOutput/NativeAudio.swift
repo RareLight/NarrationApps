@@ -21,6 +21,17 @@ public struct AudioEncodingProfile: Sendable {
     }
 }
 
+/// Input positions in the final PCM timeline, after resampling and gap insertion.
+/// These are segment boundaries, not inferred word/speech-onset timestamps.
+public struct AudioSegmentTiming: Sendable, Equatable {
+    public let startFrame: UInt64
+    public let endFrame: UInt64
+    public let sampleRate: Int
+    public init(startFrame: UInt64, endFrame: UInt64, sampleRate: Int) {
+        self.startFrame = startFrame; self.endFrame = endFrame; self.sampleRate = sampleRate
+    }
+}
+
 /// Native bounded decoding, mono conversion and streaming AAC assembly. No
 /// gain/normalization is applied. The pull converter owns resampling state for
 /// the complete source file; input is never repeatedly supplied as new audio.
@@ -119,7 +130,8 @@ public enum NativeAudio {
         guard decoded > 0 else { throw AudioOutputError.empty }
     }
 
-    public static func encode(_ inputs: [URL], destination: URL, profile: AudioEncodingProfile, scheduledGaps: [Double]? = nil) throws {
+    @discardableResult
+    public static func encode(_ inputs: [URL], destination: URL, profile: AudioEncodingProfile, scheduledGaps: [Double]? = nil) throws -> [AudioSegmentTiming] {
         guard !inputs.isEmpty, (8_000...192_000).contains(profile.sampleRate),
               profile.gapSeconds.isFinite, (0...10).contains(profile.gapSeconds) else { throw AudioOutputError.invalidPCM }
         if let scheduledGaps {
@@ -130,14 +142,18 @@ public enum NativeAudio {
         let writer = try AtomicAudioWriter(destination: destination, format: .m4a, bitRate: profile.bitRate)
         defer { writer.abort() }
         let assembler = try ZeroFrameAudioAssembler(writer: writer, sampleRate: profile.sampleRate)
+        var timeline: [AudioSegmentTiming] = []
         for (index, input) in inputs.enumerated() {
             var firstBuffer = true
+            var start = writer.frames
             try decode(input, sampleRate: profile.sampleRate) { samples in
+                let before = writer.frames, inserted = assembler.insertedFrames
                 if let scheduledGaps {
                     try assembler.append(samples: samples, gapBeforeSeconds: firstBuffer && index > 0 ? scheduledGaps[index - 1] : 0)
-                    firstBuffer = false
                 } else { try writer.append(samples: samples, sampleRate: profile.sampleRate) }
+                if firstBuffer { start = before + assembler.insertedFrames - inserted; firstBuffer = false }
             }
+            timeline.append(.init(startFrame: start, endFrame: writer.frames, sampleRate: profile.sampleRate))
             if scheduledGaps == nil && index < inputs.count - 1 {
                 var remaining = Int(Double(profile.sampleRate) * profile.gapSeconds)
                 while remaining > 0 {
@@ -149,5 +165,6 @@ public enum NativeAudio {
             }
         }
         try writer.publish()
+        return timeline
     }
 }

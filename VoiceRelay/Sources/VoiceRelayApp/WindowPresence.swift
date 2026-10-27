@@ -3,6 +3,59 @@ import SwiftUI
 import ServiceManagement
 import Carbon
 
+/// One native button opens the same SwiftUI popover for either mouse button.
+/// Own the item directly: macOS 27's MenuBarExtra presentation cannot be driven
+/// reliably by changing its underlying button's target/action.
+@MainActor
+final class StatusItemPopoverHost: NSObject, NSPopoverDelegate {
+    var content: () -> AnyView
+    private var item: NSStatusItem?
+    private let popover = NSPopover()
+
+    init(content: @escaping () -> AnyView) {
+        self.content = content
+        super.init()
+        popover.behavior = .transient
+        popover.animates = false
+        popover.delegate = self
+    }
+    func start() {
+        guard item == nil else { return }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        self.item = item
+        if let button = item.button { configure(button) }
+    }
+    func configure(_ button: NSStatusBarButton) {
+        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.systemFontSize * 2, weight: .regular)
+        let image = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: "VoiceRelay")?
+            .withSymbolConfiguration(configuration)
+        image?.isTemplate = true
+        button.symbolConfiguration = configuration
+        button.imageScaling = .scaleProportionallyDown
+        button.image = image
+        button.toolTip = "VoiceRelay"
+        button.setAccessibilityLabel("VoiceRelay")
+        button.target = self
+        button.action = #selector(toggle(_:))
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    }
+    @objc private func toggle(_ sender: Any?) {
+        guard let button = item?.button else { return }
+        if popover.isShown { dismiss(); return }
+        let controller = NSHostingController(rootView: content())
+        controller.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = controller
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+    func dismiss() { popover.performClose(nil) }
+    func popoverDidClose(_ notification: Notification) { popover.contentViewController = nil }
+    func stop() {
+        dismiss()
+        if let item { NSStatusBar.system.removeStatusItem(item) }
+        item = nil
+    }
+}
+
 enum LoginLaunchContext {
     static func isLoginItemLaunch(_ event: NSAppleEventDescriptor?) -> Bool {
         guard event?.eventID == kAEOpenApplication else { return false }
@@ -42,7 +95,7 @@ final class MainAppLoginItemService: LoginItemService {
     func openSettings() { SMAppService.openSystemSettingsLoginItems() }
 }
 
-/// Only ordinary scene windows register here. MenuBarExtra's framework windows never count.
+/// Only ordinary scene windows register here. The menu popover never counts.
 @MainActor
 final class WindowPresence {
     static let shared = WindowPresence()

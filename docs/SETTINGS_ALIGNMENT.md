@@ -24,7 +24,8 @@ Future document text controls belong in Document.
 Main-window speech and export choices remain part of its batch workflow; Models owns workspace/install/
 offline setup checks and Troubleshooting owns the separate embedded-helper check.
 VoiceRelay has General, Pronunciation, Publishing and Troubleshooting; General owns
-Speech, Reading List, automation and optional login startup; Publishing owns credentials/destination/channel,
+Speech, Reading List, automation, optional login startup and the default-on timed
+episode transcript choice; Publishing owns credentials/destination/channel,
 and Troubleshooting owns library backup/review and sanitized session logs.
 
 Common actions use Install Speech Model, Check Speech Setup and Play Sample/Stop
@@ -51,7 +52,7 @@ with **Read with the text / Read at the end / Do not read**, and use **Read appe
 and extra sections**. Libro places these in Document; VoiceRelay keeps them in
 General → Document Narration. Only marked sections are affected; unclassified prose
 and bibliographies remain included unless citation stripping is selected. Immediately
-after Footnotes, the Academic citations group contains **Strip inline citations**
+after Footnotes are **Strip inline citations**
 and **Strip endnote citations**, both off by default. See [cleanup rules](DOCUMENT_CLEANUP.md).
 Defaults preserve current behavior. Libro persists choices for future
 batches; VoiceRelay captures them when adding queue records. These preferences

@@ -10,6 +10,53 @@ private func source(_ id: String, date: Double? = nil) -> ReadingListEntry {
     ReadingListEntry(id: id, safariID: id, url: URL(string: "https://articles.example/\(id)")!,
         title: "Synthetic \(id)", addedAt: date.map { Date(timeIntervalSinceReferenceDate: $0) })
 }
+
+@Test @MainActor func recoveredArticleTitleIsVisibleAndSearchableWithoutChangingSafariMetadata() throws {
+    let model = AppModel(preview: true)
+    let entry = source("report")
+    model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0))
+    model.sourceReview.catalog.setResolvedTitle("How Wetlands Protect Coastal Communities", for: entry.id)
+    model.articleSearchQuery = "Wetlands"
+    #expect(model.visibleArticleRows.map(\.title) == ["How Wetlands Protect Coastal Communities"])
+    #expect(model.sourceReview.catalog.entries.first?.title == entry.title)
+    model.queueItems = [] // Finishing/removing queue membership must not revert the displayed title.
+    #expect(model.allArticleRows.first?.title == "How Wetlands Protect Coastal Communities")
+    let restored = try JSONDecoder().decode(ReadingListCatalog.self, from: Files.json(model.sourceReview.catalog))
+    model.sourceReview.catalog = restored
+    #expect(model.allArticleRows.first?.title == "How Wetlands Protect Coastal Communities")
+}
+
+@Test @MainActor func savedArticleTitlePreviewDoesNotRefetchOrRegenerate() throws {
+    let url = URL(string: "https://articles.example/report")!
+    let html = "<html><head><title>Original title</title></head><body><article><p>This synthetic article contains enough readable text for a saved preview. Its original wording and identity remain intact when a user corrects its display title before starting audio generation.</p></article></body></html>"
+    let page = FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html, contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
+    let review = try ReviewedSource.prepare(page, chunkLimit: 180)
+    let model = ArticlePreviewModel(review: review)
+    // A file URL is deliberately invalid for article transport even if this guard regresses.
+    model.load(URL(fileURLWithPath: "/synthetic/unavailable"))
+    #expect(!model.busy && model.review?.document?.article == review.document?.article)
+    #expect(model.error == nil)
+}
+
+@Test @MainActor func articleTitleGenerationSettingPersistsAndEditAvailabilityUsesCurrentQueueState() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("title-settings-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let domain = "title-settings-\(UUID())", defaults = try #require(UserDefaults(suiteName: domain))
+    defer { defaults.removePersistentDomain(forName: domain) }
+    let storage = ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"), stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let model = AppModel(storage: storage, defaults: defaults)
+    #expect(!model.generateMissingTitles)
+    model.generateMissingTitles = true
+    #expect(AppModel(storage: storage, defaults: defaults).generateMissingTitles)
+    let unstarted = SpeechQueueItem(id: "queued", title: "A title", state: .queued)
+    model.queueItems = [unstarted]
+    #expect(model.canRenameArticle(unstarted))
+    var current = unstarted; current.state = .running; current.attempts = 1
+    model.queueItems = [current]
+    #expect(!model.canRenameArticle(unstarted))
+    model.queueItems = []
+    #expect(!model.canRenameArticle(unstarted))
+}
 private func job(_ id: String, source: String? = nil, state: SpeechQueueState = .queued) -> SpeechQueueItem {
     SpeechQueueItem(id: id, title: "Synthetic \(id)", sourceEntryID: source, state: state, sourceHost: "articles.example")
 }

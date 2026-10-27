@@ -77,8 +77,8 @@ do {
     var artifacts = ["gui": try digest(gui), "worker": try digest(worker), "metal": try digest(metal)]
     var codecSymbols: [String] = []
     if name == "VoiceRelay" {
-        let original = root.appendingPathComponent("VoiceRelay/icon/VoiceRelay_Cover.png")
-        let bundled = app.appendingPathComponent("Contents/Resources/VoiceRelay_Cover.png")
+        let original = root.appendingPathComponent("VoiceRelay/icon/VoiceRelay_Cover.jpg")
+        let bundled = app.appendingPathComponent("Contents/Resources/VoiceRelay_Cover.jpg")
         let expected = try digest(original)
         try require(try digest(bundled) == expected, "Default podcast cover differs from the authored image.")
         artifacts["defaultPodcastCover"] = expected

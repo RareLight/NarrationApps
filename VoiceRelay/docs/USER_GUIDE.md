@@ -39,11 +39,18 @@ Settings. This starts the ordinary app at login, not a service before sign-in.
 Settings, previews, Help and menu popover. Use **⌘+**, **⌘−** and **⌘0** to enlarge,
 reduce or reset it. The preference persists; small text stays at least 12 points.
 
-The circular waveform menu opens a compact popover with overall status, **Sync Now**,
-**Articles**, **Server Audio**, **Settings** and **Quit VoiceRelay**. Green **Ready**
+Left-click or right-click the circular waveform menu-bar icon to open the same
+compact popover immediately, without an opening animation, with overall status, **Sync Now**,
+**Articles**, **Server Audio**, **Copy Podcast URL**, **Settings** and **Quit VoiceRelay**.
+**Copy Podcast URL** copies the configured subscription address to the clipboard;
+it is unavailable until a Public folder URL is configured. Green **Ready**
 requires a successful Reading List read, verified speech runtime and verified
 WebDAV connection this session. A red problem status opens its affected Settings
 pane. Startup checks the installed speech runtime offline, without downloading.
+The menu fits its command labels with 25% extra horizontal room and follows your text size. Status text and Sync
+progress fit within that width. Keyboard focus outlines appear after you press
+**Tab**; Tab and Shift-Tab navigate commands as usual. The menu-bar symbol uses
+a larger SF Symbols configuration within the standard square click target.
 
 **Sync Now** refreshes the Reading List, checks existing server audio, prepares new
 articles, generates Ready work and publishes it, even when automatic admission and
@@ -89,6 +96,56 @@ Saved-date line. A missing saved date is omitted rather than replaced by the
 voice-generation date. Progress appears only during owned work; publishing is
 shown separately from speech/finalization.
 
+### Article titles
+
+When adding an article, VoiceRelay keeps a useful document title or Reading List
+title. An embedded PDF title that repeats the original or redirected filename is
+treated as a fallback: VoiceRelay looks for a richer opening headline first.
+Capitalization, separators and the `.pdf` extension do not make a filename into
+a distinct title. If no reliable improvement is found, the original title remains.
+The recovered title appears in All Articles, Queue, the spoken introduction and
+the resulting podcast episode; Safari's Reading List is never modified.
+
+**Settings → General → Article titles → Generate missing titles using Apple
+Intelligence** is off by default. When enabled, VoiceRelay can create a short,
+factual title from the opening text if extraction finds no useful title. This
+uses available on-device Apple Intelligence, with no cloud fallback. If it is
+unavailable or generation fails, the article continues with its fallback title.
+The preview identifies generated and recovered titles. For queued articles, the
+preview uses saved text rather than fetching a different copy from the website.
+
+To correct a title, stop audio processing, select a queued article and use its
+context menu's **Edit Title…** before its first audio-generation attempt. The
+correction also updates its spoken introduction. Saved titles are reused; these
+changes do not automatically rename old snapshots or published recordings.
+
+## Timed episode transcripts
+
+**Settings → General → Episode transcripts → Publish timed transcripts** is on by
+default. The choice is captured when an article is queued; changing it affects new
+articles. Existing queued jobs and completed recordings keep their captured choice.
+Old recordings are not regenerated or automatically given estimated transcripts.
+
+Enabled articles produce a WebVTT transcript from the final prepared narration
+text, including its introductions and pronunciation changes. Timestamps describe
+synthesis segments and account for resampling and inserted pauses. They do not
+claim individual word timing or correct words a speech model may omit/mispronounce.
+Original article text and audio levels are unchanged. No extra speech-recognition
+model, cloud transcription service or download is needed.
+
+Sync Now uploads the transcript beside the episode under `audio/`, verifies its
+contents and publishes a standard `podcast:transcript` RSS link. Your host must
+serve `.vtt` files with the `text/vtt` content type and the same access protections
+as your audio. Player support determines whether live scrolling and seeking are
+available. Overcast/TestFlight support for supplied transcripts remains unverified.
+
+A transcript failure leaves audio publishing available and appears in Uploads as
+**Transcript needs retry**. Sync Now retries it without regenerating the recording.
+Transcript text is retained with private episode metadata and included in library
+backups, even after temporary audio/article caches are released. Removing a server
+episode removes its owned transcript after its RSS entry is removed; changing hosts
+preserves copies at the previous destination.
+
 ## Publishing and Server Audio
 
 In **Settings → Publishing**, supply complete HTTPS **Feed folder URL** and
@@ -109,6 +166,10 @@ article preview/social metadata. Artwork is verified before the feed references
 it; a failed change preserves the previous feed. Cover-only changes do not
 regenerate episode audio. The cover is Publishing configuration, separate from
 library backups; restoring a library keeps the current cover configuration.
+The bundled default uses the compressed `VoiceRelay_Cover.jpg`. Existing saved
+covers stay selected; to switch a previously saved default, choose the new JPEG
+in Publishing and use Sync Now. See [artwork troubleshooting](SERVER_RECOVERY.md#podcast-artwork)
+if a podcast player still shows no cover.
 
 In article previews, **Contents** navigates authored headings or PDF bookmarks;
 page-only destinations remain page-only. **General → Document Narration** offers

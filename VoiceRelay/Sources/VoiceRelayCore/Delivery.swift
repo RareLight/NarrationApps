@@ -968,6 +968,7 @@ public struct DeliveryLedger: Codable, Sendable, Equatable {
 public struct DeliveryResult: Sendable, Equatable {
     public var skipped = false
     public var uploadedMedia = 0
+    public var uploadedTranscripts = 0
     public var feedUploaded = false
     public var remoteDeletes = 0
     public var failed = 0
@@ -998,6 +999,8 @@ public enum DeliveryPublicationStatus: Sendable, Equatable {
 public struct DeliverySummary: Sendable, Equatable {
     public var reconciledAt: Date?
     public var pendingMedia = 0
+    public var pendingTranscripts = 0
+    public var failedTranscripts = 0
     public var uploadedMedia = 0
     public var failedMedia = 0
     public var remoteFeedPending = false
@@ -1010,7 +1013,7 @@ public struct DeliverySummary: Sendable, Equatable {
     public var verificationFailedIDs: Set<String> = []
     public var feedError: String?
     public init() {}
-    public var needsDrain: Bool { pendingMedia > 0 || pendingRemoteDeletes > 0 || remoteFeedPending }
+    public var needsDrain: Bool { pendingMedia > 0 || pendingTranscripts > 0 || pendingRemoteDeletes > 0 || remoteFeedPending }
 }
 
 extension FixtureCoordinator {
@@ -1067,15 +1070,32 @@ extension FixtureCoordinator {
                     return (episode.id, hash)
                 })
             }
+            let publishedTranscripts: [String: [PodcastTranscriptReference]]
+            if episodes.contains(where: { $0.transcript != nil }), let feed = ledger.reconciledFeed,
+               Files.hash(feed) == ledger.lastUploadedFeedHash,
+               let snapshot = try? ServerFeedSnapshot(feed) {
+                publishedTranscripts = Dictionary(uniqueKeysWithValues: snapshot.items.map { ($0.id, $0.transcripts) })
+            } else { publishedTranscripts = [:] }
             for episode in episodes {
                 summary.publicationAudioHashes[episode.id] = episode.audioHash
                 let state = DeliveryPublicationStatus.unconfirmed(episode, settings: settings)
-                summary.publicationStates[episode.id] = state == .uploaded && published[episode.id] == episode.audioHash
-                    ? .published : state
+                var transcriptPublished = true
+                if let transcript = episode.transcript, let reference = try? transcript.reference(id: episode.id, settings: settings) {
+                    transcriptPublished = publishedTranscripts[episode.id]?.contains(reference) == true
+                }
+                summary.publicationStates[episode.id] = state == .uploaded && published[episode.id] == episode.audioHash && transcriptPublished ? .published : state
             }
         }
         for episode in episodes {
             if episode.localAudioDiscarded == true && episode.delivery?.status != .uploaded { continue }
+            if let settings = try settings?.normalized(), let transcript = episode.transcript,
+               transcript.audioHash == episode.audioHash, episode.delivery?.status == .uploaded,
+               !transcript.confirmed(id: episode.id, settings: settings) {
+                if transcript.delivery?.status == .failed && transcript.delivery?.destinationURL == settings.feedFolderURL {
+                    summary.failedTranscripts += 1
+                } else { summary.pendingTranscripts += 1 }
+                summary.lastError = summary.lastError ?? transcript.delivery?.lastError
+            }
             switch episode.delivery?.status {
             case .pending: summary.pendingMedia += 1
             case .uploaded: summary.uploadedMedia += 1
@@ -1115,15 +1135,23 @@ extension FixtureCoordinator {
                                                ledger: inout DeliveryLedger) -> Bool {
         var changed = false
         for episode in episodes {
-            guard episode.delivery?.destinationURL == settings.feedFolderURL,
-                  let path = episode.delivery?.remotePath, !path.isEmpty else { continue }
-            if episode.stage == .expired && !ledger.pendingRemoteDeletes.contains(path) {
-                ledger.pendingRemoteDeletes.append(path)
-                ledger.remoteFeedPending = true
-                changed = true
-            } else if episode.stage == .published && ledger.pendingRemoteDeletes.contains(path) {
-                ledger.pendingRemoteDeletes.removeAll { $0 == path }
-                changed = true
+            var paths = episode.ownedTranscriptPaths(settings: settings)
+            if episode.delivery?.destinationURL == settings.feedFolderURL,
+               let path = episode.delivery?.remotePath, !path.isEmpty { paths.append(path) }
+            if let transcript = episode.transcript, ServerRecoveryIdentity.validHash(transcript.sha256),
+               transcript.delivery?.destinationURL == settings.feedFolderURL,
+               transcript.delivery?.remotePath == transcript.remotePath(id: episode.id, settings: settings) {
+                paths.append(transcript.remotePath(id: episode.id, settings: settings))
+            }
+            for path in Set(paths) {
+                if episode.stage == .expired && !ledger.pendingRemoteDeletes.contains(path) {
+                    ledger.pendingRemoteDeletes.append(path)
+                    ledger.remoteFeedPending = true
+                    changed = true
+                } else if episode.stage == .published && ledger.pendingRemoteDeletes.contains(path) {
+                    ledger.pendingRemoteDeletes.removeAll { $0 == path }
+                    changed = true
+                }
             }
         }
         return changed
@@ -1193,6 +1221,7 @@ extension FixtureCoordinator {
         }
         if ledgerChanged { try ledger.save(stateRoot: root) }
         let mediaDue = published.contains { episode in
+            if episode.transcriptUploadDue(settings: settings, force: force, now: now) { return true }
             guard episode.localAudioDiscarded != true else { return false }
             guard let delivery = episode.delivery else { return true }
             if delivery.status == .uploaded && (delivery.destinationURL != settings.feedFolderURL
@@ -1365,6 +1394,7 @@ extension FixtureCoordinator {
             }
             if delivery.lastError != nil { progress?(UploadProgress(episode: episode, phase: delivery.verificationFailed == true ? .verificationFailed : .failed)) }
         }
+        try await deliverTranscripts(store: store, settings: settings, client: client, force: force, now: now, ledger: &ledger, result: &result)
         try ledger.save(stateRoot: root)
         // Self-heal remote-delete intent from durable episode records: a crash between
         // the retire commit and the ledger write must not strand remote media, and a
@@ -1433,6 +1463,13 @@ extension FixtureCoordinator {
                     if var owner = try store.episodes().first(where: { $0.stage == .expired && $0.delivery?.remotePath == path }) {
                         owner.delivery?.remotePath = ""
                         owner.delivery?.lastError = nil
+                        try store.save(owner)
+                    }
+                    for var owner in try store.episodes() where owner.stage == .expired {
+                        if owner.transcript?.delivery?.remotePath == path { owner.transcript?.delivery?.remotePath = "" }
+                        owner.transcriptReferences = owner.transcriptReferences?.filter {
+                            DeliverySettings.join(settings.mediaFolder, $0.url.lastPathComponent) != path
+                        }
                         try store.save(owner)
                     }
                     result.remoteDeletes += 1

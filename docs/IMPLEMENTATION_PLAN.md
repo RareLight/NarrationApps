@@ -27,8 +27,13 @@ Current features include:
 - VoiceRelay automatic discovery/generation/publishing, Sync Now, Uploads and Server
   Audio, bounded reconciliation, background-safe credentials, default show art and
   off-by-default login startup.
+- Default-on timed WebVTT transcripts for newly queued VoiceRelay articles,
+  verified sidecar upload and standard RSS transcript references; segment timing
+  and player-specific acceptance are separate from word-level alignment.
 - Explicit pinned source setup, tiered checks, evidence summaries, scoped formatting
   and an inactive CI template.
+- A standalone Swift model/voice benchmark with explicit model preparation,
+  isolated inference, performance reports and a resumable listening bracket.
 
 New Kokoro settings use Heart at 1.0× with the accepted pacing profile. Delivery A
 spoken-form listening, including capital-A labels, is accepted. Soprano keeps its
@@ -50,6 +55,7 @@ cases remain open; successful builds or document planning do not mark them passe
 | Cross-app operation | Shared dictionary edits, worker priority, waiting/cancellation and playback |
 | VoiceRelay services and recovery | Protected Safari, normal-signed Keychain, WebDAV/readback, podcast playback and disposable-library restore |
 | Installation/distribution | D01/D02 only when a clean test environment or release route is available |
+| Narrator model selection | M01; blind local-web bracket, then held-out and long-form finalist listening |
 
 Resolve reported acceptance failures in the owning shared package or app, add
 focused regressions and repeat affected gates. Do not change defaults merely to
@@ -62,6 +68,12 @@ of an already completed implementation:
 
 - Context-sensitive homographs and broader written-to-spoken forms; see
   [normalization research](TEXT_NORMALIZATION_RESEARCH.md).
+- Product integration of additional models after selection using the
+  [implemented standalone Swift benchmark](../tools/TTSBenchmark/README.md).
+  The [design and evidence](TTS_MODEL_BENCHMARK_PLAN.md) prioritize native
+  MLX-audio-swift models without the earlier 3× speed ceiling. M01 operator bracket
+  preferences and blind finalist confirmation remain separate from engineering
+  validation; new models have not been added to the apps.
 - Better scientific structure/MathML, region-based review and advanced mathematical
   speech; see [academic PDF evaluation](ACADEMIC_PDF_EVALUATION.md). Current prose
   insets and the single complex-equation reference notice are already implemented.

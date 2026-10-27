@@ -211,6 +211,15 @@ final class NativeStore {
                 saved.originalSourceHost = saved.originalSourceHost ?? current.originalSourceHost
                 saved.readingListSavedAt = saved.readingListSavedAt ?? current.readingListSavedAt
                 saved.originalSourceIdentity = saved.originalSourceIdentity ?? current.originalSourceIdentity
+                if current.transcript?.audioHash == (saved.audioHash ?? saved.encodedHash) {
+                    saved.transcript = saved.transcript ?? current.transcript
+                    if saved.transcript?.sha256 == current.transcript?.sha256, saved.transcript?.delivery == nil {
+                        saved.transcript?.delivery = current.transcript?.delivery
+                    }
+                }
+                if current.audioHash != nil && current.audioHash == saved.audioHash {
+                    saved.transcriptReferences = saved.transcriptReferences ?? current.transcriptReferences
+                }
                 // Source removal intent also survives results captured before the source refresh.
                 if current.readingListRemoved == true {
                     saved.readingListRemoved = true

@@ -1,5 +1,7 @@
 import Foundation
 import Darwin
+import DocumentProcessing
+import SwiftSoup
 
 public enum SpeechQueueState: String, Codable, Sendable {
     case queued, running, paused, failed, completed
@@ -226,6 +228,7 @@ extension FixtureCoordinator {
                                    useArchives: Bool = false, archiveFetch: ArticleSourceLoader.ArchiveFetch? = nil,
                                    debugLog: DeliveryDebugLog? = nil,
                                    describeImages: Bool = true,
+                                   generateMissingTitles: Bool = false, titleGenerator: DocumentTitles.Generate? = nil,
                                    shouldCommit: @Sendable () async -> Bool = { true },
                                    admissionControl: QueueAdmissionControl? = nil) async throws -> SpeechQueueItem {
         try Task.checkCancellation(); try preferences.validate(); try storage.validate()
@@ -246,7 +249,8 @@ extension FixtureCoordinator {
                                      timeout: Double(storage.profile.httpTimeoutSeconds))
         let review = try await ArticleSourceLoader(limits: limits, useArchives: useArchives, fetch: fetch,
             archiveFetch: archiveFetch, debugLog: debugLog, describeImages: describeImages,
-            speechSettings: .init(voice: preferences.voice.rawValue, speed: Float(preferences.speed)), narrationOptions: preferences.effectiveNarrationOptions)
+            speechSettings: .init(voice: preferences.voice.rawValue, speed: Float(preferences.speed)), narrationOptions: preferences.effectiveNarrationOptions,
+            sourceTitle: entry.title, generateMissingTitles: generateMissingTitles, titleGenerator: titleGenerator)
             .load(entry.url, savedAt: entry.addedAt, chunkLimit: storage.profile.chunkMaxCharacters)
         let page = review.page
         try Task.checkCancellation()
@@ -269,7 +273,7 @@ extension FixtureCoordinator {
               review.page.bytes.count <= storage.profile.maxArticleBytes else { throw RelayError.setup("Select a readable article before adding speech.") }
         try ArticleURL.validate(review.page.originalURL); try ArticleURL.validate(review.page.finalURL)
         let store = try metadataWriter(storage.stateRoot)
-        let catalog = try store.catalog()
+        var catalog = try store.catalog()
         let sourceEntry = catalog.entries.first { $0.id == sourceEntryID && $0.url == review.page.originalURL }
         if sourceEntryID != nil {
             guard sourceEntry != nil, sourceEntryID.map(catalog.currentIDs.contains) == true else {
@@ -281,6 +285,7 @@ extension FixtureCoordinator {
         settings.channelDescription = "Private local speech; remote delivery disabled"
         settings.voice = preferences.voice.rawValue; settings.backendSettings = ["speed": .number(preferences.speed)]
         settings.narrationOptions = preferences.narrationOptions
+        settings.publishTranscripts = preferences.timedTranscriptsEnabled
         settings.language = preferences.languageRegion.rawValue
         try settings.validate()
         if admissionControl?.isCancelled == true { throw CancellationError() }
@@ -311,11 +316,48 @@ extension FixtureCoordinator {
             }
             if item.sourceHost == nil { item.sourceHost = review.page.originalURL.host }
             try store.saveQueueItem(item)
+            if let sourceEntryID {
+                catalog.setResolvedTitle(episode.title, for: sourceEntryID)
+                try store.saveCatalog(catalog)
+            }
             beforeEnqueueCommit?()
             if admissionControl?.isCancelled == true { throw CancellationError() }
             try store.execute("COMMIT")
             return item
         } catch { try? store.execute("ROLLBACK"); throw error }
+    }
+    /// Explicit metadata correction before any speech attempt. Never rewrites audio or published feeds.
+    public func renameQueuedArticle(_ id: String, title: String, stateRoot: URL = AppStorage.managedLibrary) throws -> SpeechQueueItem {
+        try Task.checkCancellation()
+        guard let title = DocumentTitles.clean(title) else { throw RelayError.setup("Enter a title of 1–240 characters.") }
+        let store = try metadataWriter(stateRoot)
+        guard let item = try store.queue().first(where: { $0.id == id }), item.state == .queued, item.attempts == 0,
+              var episode = try store.episodes().first(where: { $0.id == id }), episode.stage == .extracted,
+              episode.info == nil, episode.delivery == nil, episode.audioHash == nil, episode.encodedHash == nil,
+              let bytes = try store.snapshot(articleID: id) else {
+            throw RelayError.setup("Titles can be changed only before an article starts generating audio.")
+        }
+        let saved = try JSONDecoder().decode(StoredExtraction.self, from: bytes).review()
+        guard let document = saved.document else { throw RelayError.artifact("Saved article text is unavailable.") }
+        var article = document.article
+        article.title = title; article.titleOrigin = .user
+        let html = try SwiftSoup.parse(document.cleanedHTML)
+        try html.title(title)
+        let review = ReviewedSource(page: saved.page, document: .init(article: article, cleanedHTML: try html.outerHtml()), narration: nil, issue: nil)
+        let snapshot = try StoredExtraction(review: review, chunkLimit: episode.settings.chunkMaxCharacters)
+        let updated = SpeechQueueItem(id: item.id, title: title, sourceEntryID: item.sourceEntryID,
+            admissionID: item.admissionID, state: item.state, attempts: item.attempts, lastError: item.lastError, sourceHost: item.sourceHost)
+        var catalog = try store.catalog()
+        if let sourceID = item.sourceEntryID { catalog.setResolvedTitle(title, for: sourceID) }
+        episode.title = title
+        try store.execute("BEGIN IMMEDIATE")
+        do {
+            try store.saveSnapshot(articleID: id, data: Files.json(snapshot))
+            try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
+            try store.saveQueueItem(updated); try store.saveCatalog(catalog)
+            try store.execute("COMMIT")
+        } catch { try? store.execute("ROLLBACK"); throw error }
+        return updated
     }
     /// Temporary files can be evicted by macOS. Recover unconfirmed output from retained
     /// text, or recreate a released copy when the user changes the upload destination.

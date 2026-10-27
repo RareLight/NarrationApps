@@ -20,6 +20,7 @@ implementation records are background, not additional setup instructions.
 | --- | --- |
 | Fresh clone, prerequisites, preparation and signing | [Contributing](../CONTRIBUTING.md) |
 | Select quick/full/native/release checks and interpret evidence | [Development gates](DEVELOPMENT.md) |
+| Compare TTS models/voices and run a preference bracket | [Swift benchmark utility](../tools/TTSBenchmark/README.md), [design and evidence](TTS_MODEL_BENCHMARK_PLAN.md) |
 | Understand implemented features and current evidence | [Current status](IMPLEMENTATION_STATUS.md) |
 | Find remaining acceptance and proposed work | [Roadmap](IMPLEMENTATION_PLAN.md) |
 | Perform GUI/listening/account checks | [Operator checklist](OPERATOR_VALIDATION.md) |
@@ -56,6 +57,10 @@ Proposals in them do not automatically authorize further implementation.
 - [Normalization research](TEXT_NORMALIZATION_RESEARCH.md) and
   [text-processing delivery record](TEXT_PROCESSING_IMPROVEMENT_PLAN.md).
 - [Academic PDF evaluation and proposed research](ACADEMIC_PDF_EVALUATION.md).
+- [Swift TTS model benchmark and evidence](TTS_MODEL_BENCHMARK_PLAN.md), prioritizing
+  native MLX-audio-swift models, measured performance, a model/voice preference
+  bracket and blind finalist listening.
+  [Benchmark commands and evidence](../tools/TTSBenchmark/README.md).
 
 Project commands default to the NarrationApps root. A guide must explicitly name
 another working directory. Package-relative technical paths are labelled where

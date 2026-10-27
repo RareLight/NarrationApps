@@ -33,13 +33,27 @@ public struct ReviewedSource: Sendable {
         self.page = page; self.document = document; self.narration = narration; self.issue = issue
         self.archiveRecoveryFailed = archiveRecoveryFailed
     }
-    public static func prepareAsync(_ page: FetchedPage, chunkLimit: Int, settings: SpeechSettings = .init(), pronunciations: PronunciationDictionary = .empty, options: NarrationOptions = .init()) async throws -> ReviewedSource {
+    public static func prepareAsync(_ page: FetchedPage, chunkLimit: Int, settings: SpeechSettings = .init(), pronunciations: PronunciationDictionary = .empty, options: NarrationOptions = .init(), sourceTitle: String? = nil, titleGenerator: DocumentTitles.Generate? = nil) async throws -> ReviewedSource {
+        let review: ReviewedSource
         if page.contentType == "application/pdf" {
             let document = try await PDFArticleExtractor.extract(page)
-            return ReviewedSource(page: page, document: document,
-                                  narration: try Narration.prepare(document.article, limit: chunkLimit, pronunciations: pronunciations, settings: settings, options: options), issue: nil)
-        }
-        return try prepare(page, chunkLimit: chunkLimit, settings: settings, pronunciations: pronunciations, options: options)
+            review = ReviewedSource(page: page, document: document, narration: nil, issue: nil)
+        } else { review = try prepare(page, chunkLimit: chunkLimit, settings: settings, pronunciations: pronunciations, options: options) }
+        guard let document = review.document, review.issue == nil else { return review }
+        let resolved = try await DocumentTitles.resolve(title: document.article.title, sourceTitle: sourceTitle,
+            blocks: document.article.blocks, urls: [page.originalURL, page.finalURL], generate: titleGenerator)
+        var article = document.article
+        article.title = resolved.text; article.titleOrigin = resolved.origin
+        let changed = article.title != document.article.title
+        let cleanedHTML: String
+        if changed {
+            let html = try SwiftSoup.parse(document.cleanedHTML)
+            try html.title(article.title); cleanedHTML = try html.outerHtml()
+        } else { cleanedHTML = document.cleanedHTML }
+        let narration: NarrationPlan
+        if !changed, let existing = review.narration { narration = existing }
+        else { narration = try Narration.prepare(article, limit: chunkLimit, pronunciations: pronunciations, settings: settings, options: options) }
+        return ReviewedSource(page: page, document: .init(article: article, cleanedHTML: cleanedHTML), narration: narration, issue: nil)
     }
     public static func prepare(_ page: FetchedPage, chunkLimit: Int, settings: SpeechSettings = .init(), pronunciations: PronunciationDictionary = .empty, options: NarrationOptions = .init()) throws -> ReviewedSource {
         guard page.contentType != "application/pdf" else { throw RelayError.setup("PDF preparation requires asynchronous intake.") }

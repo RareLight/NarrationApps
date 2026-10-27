@@ -135,3 +135,28 @@ private final class PDFRecognitionCounter: @unchecked Sendable {
     var value: Int { lock.withLock { count } }
     func increment() { lock.withLock { count += 1 } }
 }
+
+@Test func pdfFilenameMetadataYieldsToPrintedMultilineHeadline() async throws {
+    let data = NSMutableData(), consumer = try #require(CGDataConsumer(data: data as CFMutableData))
+    var bounds = CGRect(x: 0, y: 0, width: 612, height: 792)
+    let context = try #require(CGContext(consumer: consumer, mediaBox: &bounds, [kCGPDFContextTitle: "DOCUMENT.pdf"] as CFDictionary))
+    context.beginPDFPage(nil)
+    for (index, text) in (["How Wetlands Protect", "Coastal Communities"] + pdfLines).enumerated() {
+        let string = NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName("Helvetica" as CFString, index < 2 ? 26 : 12, nil),
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 0, alpha: 1)
+        ])
+        context.textPosition = CGPoint(x: 50, y: 710 - index * 36)
+        CTLineDraw(CTLineCreateWithAttributedString(string), context)
+    }
+    context.endPDFPage(); context.closePDF()
+    let page = pdfPage(data as Data)
+    let review = try await ReviewedSource.prepareAsync(page, chunkLimit: 180)
+    let article = try #require(review.document?.article)
+    #expect(article.title == "How Wetlands Protect Coastal Communities" && article.titleOrigin == .headline)
+    #expect(review.narration?.chunks.first?.text.hasPrefix(article.title) == true)
+    #expect(review.document?.cleanedHTML.contains("<title>How Wetlands Protect Coastal Communities</title>") == true)
+    let restored = try StoredExtraction(review: review, chunkLimit: 180).review()
+    #expect(restored.page.bytes == page.bytes && restored.document?.article == article)
+    #expect(PDFDocument(data: restored.page.bytes)?.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String == "DOCUMENT.pdf")
+}

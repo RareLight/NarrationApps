@@ -453,7 +453,7 @@ enum AudioStateFilter: String, CaseIterable, Identifiable {
         case .discarded: phase == .discarded
         case .waiting: phase == .waiting
         case .active: phase.active
-        case .publication: phase == .publishing
+        case .publication: phase == .publishing || phase == .transcriptWaiting
         case .published: phase == .published
         case .attention: phase.needsAttention
         case .verification: phase == .verificationFailed || phase == .localConflict

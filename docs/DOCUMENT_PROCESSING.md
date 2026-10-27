@@ -56,6 +56,18 @@ or a later failure leaves an already-visible prefix labeled incomplete, never
 complete. Actual large-book layout/scrolling and first-page latency remain operator
 L20 checks in [the consolidated checklist](OPERATOR_VALIDATION.md).
 
+## Article title recovery
+
+`DocumentTitles` provides shared title-quality checks, conservative opening
+headline recovery and optional on-device Foundation Models generation. A title
+matching either source/redirect filename is a weak candidate, even with different
+case, punctuation, percent encoding or `.pdf` spelling. A weak title is retained
+if no reliable richer candidate is found. Original blocks and mappings stay intact.
+VoiceRelay owns Reading List candidate selection, opt-in preferences, persisted
+title provenance, queue editing and display metadata; Libro's title policy is
+unchanged. See [VoiceRelay source handling](../VoiceRelay/docs/SOURCE_REVIEW.md#title-recovery)
+for bounds, cancellation and snapshot behavior.
+
 ## Paragraphs and conservative PDF flow
 
 Plain text preserves explicit blank-line paragraphs and exact decoded separators;
@@ -220,7 +232,8 @@ spine/narration order, manual cover choices, non-artwork preferences and complet
 recordings stay unchanged.
 
 Optional **Strip inline citations** and **Strip endnote citations** follow Footnotes
-in the Academic citations group. They default off, operate on the spoken projection
+at the same level as the other narration controls. They default off, operate on
+the spoken projection
 and retain omitted spans/reasons; explanatory notes and uncertain references remain.
 See [citation, column and typography rules](DOCUMENT_CLEANUP.md).
 

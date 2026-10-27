@@ -1,6 +1,6 @@
 # Narration cleanup and citation choices
 
-Libro Settings → Document owns **Footnotes**, followed by **Academic citations**:
+Libro Settings → Document owns **Footnotes**, followed by
 **Strip inline citations** and **Strip endnote citations**. Both citation choices
 default off, including older saved preferences. The choices are captured with new
 previews/batches; source files and finished audio are never rewritten. Shared

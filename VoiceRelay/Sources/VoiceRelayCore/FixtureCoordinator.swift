@@ -1,4 +1,5 @@
 import NarrationCore
+import AudioOutput
 import Foundation
 
 public enum FixtureBoundary: String, CaseIterable, Sendable {
@@ -188,6 +189,15 @@ public actor FixtureCoordinator {
         let url = try JSONDecoder().decode(StoredExtraction.self, from: data).review().page.originalURL
         try ArticleURL.validate(url)
         return url
+    }
+    public func savedArticlePreview(articleID: String, stateRoot: URL = AppStorage.managedLibrary) throws -> ReviewedSource {
+        try ManagedSpeechStorage.validateLibrary(stateRoot: stateRoot)
+        let database = PrototypeProfile.fixture(at: stateRoot).database
+        guard UUID(uuidString: articleID) != nil, FileManager.default.fileExists(atPath: database.path),
+              let data = try NativeStore(url: database, readOnly: true).snapshot(articleID: articleID) else {
+            throw RelayError.setup("The saved article text is unavailable.")
+        }
+        return try JSONDecoder().decode(StoredExtraction.self, from: data).review()
     }
     public func resume(storage: ManagedSpeechStorage, articleID: String, backend: any TTSBackend,
                        delivery: DeliverySettings? = nil,
@@ -518,6 +528,7 @@ public actor FixtureCoordinator {
                 e.stage = .synthesizing; try store.save(e); progress(.synthesizing, 0, plan.chunks.count)
                 var prepared = false
                 var artifacts: [LosslessArtifact] = []
+                var transcriptTexts: [String] = [], transcriptArtifactCounts: [Int] = []
                 var pending: Task<ChunkCheckpoint, any Error>?
                 var pendingIndex = 0
                 func commitPending() async throws {
@@ -525,6 +536,8 @@ public actor FixtureCoordinator {
                     let cp = try await task.value
                     pending = nil
                     artifacts += cp.result.artifacts
+                    transcriptTexts.append(cp.request.preparedUtterance?.text ?? cp.request.text)
+                    transcriptArtifactCounts.append(cp.result.artifacts.count)
                     try boundary(.chunkCommitted)
                     progress(.synthesizing, pendingIndex + 1, plan.chunks.count)
                 }
@@ -552,6 +565,8 @@ public actor FixtureCoordinator {
                         if let cp = checkpoint {
                             try await commitPending()
                             artifacts += cp.result.artifacts
+                            transcriptTexts.append(cp.request.preparedUtterance?.text ?? cp.request.text)
+                            transcriptArtifactCounts.append(cp.result.artifacts.count)
                             progress(.synthesizing, chunk.index + 1, plan.chunks.count)
                             continue
                         }
@@ -593,8 +608,12 @@ public actor FixtureCoordinator {
                 }
                 try await handoffSpeech()
                 e.stage = .encoding; try store.save(e); progress(.encoding, plan.chunks.count, plan.chunks.count)
-                let (_, info) = try processor.encode(artifacts, in: directory)
+                var timeline: [AudioOutput.AudioSegmentTiming] = []
+                let (_, info) = try processor.encode(artifacts, in: directory) { timeline = $0 }
                 e.info = info; e.encodedHash = try Files.hash(encoded, description: "encoded audio")
+                e.transcript = p.publishTranscripts == true ? try EpisodeTranscript.make(texts: transcriptTexts,
+                    artifactCounts: transcriptArtifactCounts, timeline: timeline, language: p.language, audioHash: e.encodedHash!) : nil
+                e.transcriptReferences = nil
                 e.synthesisFingerprint = inputFingerprint
             }
             try await handoffSpeech()

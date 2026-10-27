@@ -15,7 +15,9 @@ Original URLs/hosts/save dates remain the episode identity even after redirects 
 archive recovery; generation time does not replace a missing saved date.
 
 Double-click/Preview Article opens the dedicated, cancellable preview window.
-Preview fetches intentionally and does not implicitly add queue membership.
+Previewing an unprepared source fetches intentionally and does not implicitly add
+queue membership. A queued article previews its integrity-checked saved text,
+including its captured title; it does not refetch or regenerate that title.
 Compare title/source, beginning/end, paragraph/list order, notes, omission notices
 and generated-description provenance before narrating sensitive or complex inputs.
 A login page, challenge or teaser is not successful complete extraction.
@@ -29,6 +31,33 @@ PDF responses use native PDFKit text and bounded structured Vision OCR, includin
 mixed/scanned pages. Locked/unreadable/oversized inputs fail individually. HTML
 uses existing pinned extraction with semantic source provenance. Saved text resumes
 offline without reopening URLs or repeating OCR/image models.
+
+## Title recovery
+
+New asynchronous preparations select useful document metadata, then a useful
+Reading List title, then a reliable opening headline. Metadata matching either
+PDF URL's filename is weak even when capitalization, punctuation, separators or
+the extension differ. Native opening-page line geometry supports conservative
+multiline headline recovery; recurring headers and ambiguous prominent bands
+abstain. OCR paragraph height is not treated as font-size evidence; recognized
+text remains available to optional generation. Ordinary first-paragraph prose is
+not automatically used as a headline.
+
+Optional Apple Intelligence title generation is off by default. It sees only a
+bounded opening excerpt (first two PDF pages, at most 600 words/4,000 characters),
+uses the shared inference lease and an eight-second cooperative cancellation
+budget, and has no cloud fallback or app-initiated model download. Availability,
+refusal, malformed results and inference errors preserve a fallback title.
+Cancellation of the owning preparation cancels and joins title work. Injected
+transports never invoke a native model; tests must explicitly inject a generator.
+
+Title provenance is optional, backward-compatible snapshot metadata. VoiceRelay
+persists the chosen title with approved text before narration. Local display
+titles survive source refreshes without changing Safari metadata or URL-based
+identity. Explicit Edit Title is limited to queued, unattempted, extracted work;
+it updates the snapshot/checkpoint, queue row, episode and local catalog together.
+Started work and published audio cannot be renamed by this operation. Existing
+snapshots are reused without a new title-generation pass.
 
 ## Images and narration
 

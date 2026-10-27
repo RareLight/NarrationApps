@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src file: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Blind narrator bracket</title>
+<style>/*__STYLE__*/</style>
+</head>
+<body>
+<div class="app-shell">
+<header><div class="eyebrow">NARRATOR LISTENING ROOM</div><h1>Find your favourite voice.</h1>
+<p class="intro">Same passage. Two narrators. Choose the reading you prefer.<br>Identities stay hidden until you finish and choose to reveal them.</p>
+<p id="startup-status" class="notice" role="status">Opening the local listening app… If this message stays visible, open the generated <strong>bracket.html</strong> in your benchmark run folder. The developer source file <strong>bracket-template.html</strong> cannot run on its own.</p>
+<noscript><p class="notice">JavaScript is needed for playback selection and scoring. Open the generated bracket page in a browser with JavaScript enabled.</p></noscript>
+<div class="toolbar"><span id="save-status" role="status">Loading progress…</span><div class="toolbar-actions"><button id="backup" class="quiet" disabled>Save progress file</button><button id="restore" class="quiet" disabled>Import progress</button><button id="copy" class="quiet" disabled>Copy progress</button></div></div>
+<input id="progress-file" type="file" accept="application/json,.json" hidden>
+<input id="identity-file" type="file" accept="application/json,.json" hidden>
+</header>
+<main id="app" hidden>
+<div id="notice" role="status" class="notice" hidden></div>
+<section class="session"><div><span id="round" class="eyebrow"></span><h2 id="match-title" tabindex="-1"></h2></div><span id="progress" class="muted"></span></section>
+<section id="comparison">
+<div class="players"><article class="player"><div class="player-heading"><span class="side">A</span><h3 id="name-a"></h3></div><audio id="audio-a" controls preload="metadata" aria-label="Narrator A"></audio><button class="pick" data-choice="a" aria-pressed="false">Prefer A</button></article>
+<article class="player"><div class="player-heading"><span class="side">B</span><h3 id="name-b"></h3></div><audio id="audio-b" controls preload="metadata" aria-label="Narrator B"></audio><button class="pick" data-choice="b" aria-pressed="false">Prefer B</button></article></div>
+<div class="decision-panel">
+<div class="alternatives"><button class="pick" data-choice="tie" aria-pressed="false">Tie · try another passage</button><button class="pick" data-choice="neither" aria-pressed="false">Neither</button><button class="pick" data-choice="defer" aria-pressed="false">Pause here</button></div>
+<label class="notes-label" for="notes">Listening notes <span class="muted">optional</span></label><textarea id="notes" rows="3" maxlength="4000" placeholder="Phrasing, pronunciation, pacing, consistency…"></textarea>
+<div id="revision-warning" class="notice" hidden>Revising this match resets later choices. Your previous decisions remain in the history.</div>
+<div class="save-row"><button id="submit" class="primary" disabled>Save &amp; continue</button><button id="cancel-review" class="quiet" hidden>Back to current pair</button><span class="muted">No audio level adjustment.</span></div>
+</div>
+<details id="passage-details"><summary>Read the passage</summary><p id="passage" class="passage"></p></details>
+</section>
+<section id="complete" hidden><div class="finish-card"><div class="eyebrow">LISTENING COMPLETE</div><h2>Your shortlist is ready.</h2><p>A decided final supplies the top choice and runner-up. Other shortlisted voices are unranked contenders.</p><ol id="shortlist"></ol><button id="reveal" class="primary">Reveal final identities…</button><p class="muted">Select <code>bracket-identities.json</code> from this page’s folder when you are ready. Save your progress file for the separate finalist comparison.</p><div id="identity-results" hidden><h3>All narrator identities</h3><ul id="identity-list"></ul></div></div><details><summary>Keep another contender</summary><div id="contenders"></div></details></section>
+<details class="history"><summary>Progress &amp; previous choices</summary><p class="muted">Every narrator gets a second chance. A bye is not a listening win.</p><div id="history"></div></details>
+<details id="copy-area" hidden><summary>Progress text</summary><p>Copy all of this text into a .json file to keep a backup.</p><textarea id="progress-text" rows="8" readonly aria-label="Progress JSON"></textarea></details>
+</main>
+<footer>Runs entirely on your Mac. No server, accounts, uploads or external requests.<br>Browser storage is convenient; a progress file is the portable backup.</footer>
+</div>
+<script id="bracket-seed" type="application/json">__SEED_JSON__</script>
+<script>/*__ENGINE__*/</script>
+<script>/*__APP__*/</script>
+</body></html>

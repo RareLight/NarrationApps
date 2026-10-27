@@ -32,6 +32,24 @@ existing window behavior. Quit joins registration work and stops app-owned work;
 the login item does not restart the app until the next login. Injected/inert models
 use fake services or none. See [native provider](KOKORO_PROVIDER.md).
 
+The menu-bar host owns one native `NSStatusItem` and transient `NSPopover`.
+Both mouse-button releases use the same target/action, presenting the existing
+SwiftUI `RelayMenu`. The application supplies its window/Settings scene actions
+explicitly to the hosted content; menu navigation dismisses the popover first.
+An intrinsic-width SwiftUI Layout measures command rows first, expands the total
+horizontal width by 25%, then fits status, progress and separators into that width.
+Copy Podcast URL reuses the configured public-feed clipboard action without
+starting synchronization. The status-item slot uses the standard square length.
+The symbol uses an explicit point-size configuration at twice the system font
+size, rather than enlarging only the image canvas; native image fitting keeps it
+within the button's bounds.
+Text sizing remains inherited, and
+Tab enables focus effects without consuming the key's normal navigation.
+Creation is deferred outside scene updates, inert models never install an item,
+closing the last ordinary window keeps the app alive, and Quit removes the item
+after joining owned work. No private presentation API or
+global mouse monitor is used.
+
 ## Sources, admission and identity
 
 General owns Safari source selection and automation preferences. Production defaults
@@ -91,13 +109,44 @@ media is preserved even if older scratch has disappeared.
 
 ## Publishing, recovery and cleanup
 
-The main app bundles `icon/VoiceRelay_Cover.png` as its initial podcast artwork.
+New admissions capture General's default-on timed-transcript choice in the episode
+profile. Missing choices on historical profiles remain disabled. NativeAudio's
+encoder returns each input's actual output PCM frame interval after resampling and
+gap insertion; sample processing and encoding policy are unchanged. VoiceRelay
+groups those intervals by immutable prepared request, including multi-artifact
+requests, and produces escaped plain-text WebVTT cues at segment granularity.
+No inferred word timing or speech recognition is performed.
+
+`EpisodeTranscript` retains bounded UTF-8 WebVTT, language, audio SHA-256 and content
+SHA-256 in the episode record. Its independent DeliveryState survives cleanup,
+encoding recovery and metadata-only backup/restore. Transcript failures never
+block unrelated media or feed entries. Authenticated bounded GET/readback confirms
+exact bytes before the episode gains a standard Podcasting 2.0 reference. Uploads
+surface transcript retry/pending publication separately from audio completion.
+An immutable `<episode-id>-<transcript-hash>.vtt` object shares the existing audio
+collection. Existing different contents are never overwritten. Backoff, explicit
+retry, destination identity and cancellation-before/after-PUT remain durable.
+
+Namespace-aware feed recovery preserves validated transcript references without
+fetching arbitrary linked text. Audio replacement invalidates incompatible local
+transcript text/references; reidentification resets old-path upload proof. Only
+app-owned filename patterns under the current public audio base authorize sidecar
+retirement, after confirmed feed removal. External transcript references never
+authorize deletion. Old-destination copies remain untouched. See the
+[WebVTT specification](https://www.w3.org/TR/webvtt1/) and
+[Podcast Namespace transcript tag](https://podcasting2.org/docs/podcast-namespace/tags/transcript).
+
+The main app bundles `icon/VoiceRelay_Cover.jpg` as its initial podcast artwork.
 After loading preferences, production launch prepares it through the existing
 bounded artwork converter/store off the main actor, only for an unset cover choice.
 Initial publishing waits for that owned import. Explicit custom selection or
 removal wins, including during preparation; Quit cancels/joins the import. Injected
 models import only on explicit fixture request into a supplied temporary store.
 The bundle checker verifies exact source/resource bytes in Debug and Release.
+The compressed 1700×1700 RGB JPEG replaces the original PNG as the bundled input.
+Existing saved covers and explicit removal stay selected. Re-select the new JPEG
+in Publishing to replace a previously saved default. Both input formats already
+pass through the same bounded JPEG converter before publication.
 
 Publishing owns HTTPS Feed/Public folder URLs, channel preferences and credentials;
 passwords are device-local data-protection Keychain items, accessible after the first

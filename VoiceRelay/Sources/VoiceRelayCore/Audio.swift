@@ -76,7 +76,8 @@ struct AudioProcessor: Sendable {
         return artifacts.map { $0.gapAfterSeconds! }
     }
 
-    func encode(_ artifacts: [LosslessArtifact], in directory: URL) throws -> (URL, AudioInfo) {
+    func encode(_ artifacts: [LosslessArtifact], in directory: URL,
+                timeline: ([AudioSegmentTiming]) throws -> Void = { _ in }) throws -> (URL, AudioInfo) {
         guard !artifacts.isEmpty else { throw RelayError.artifact("No lossless audio to encode.") }
         let partial = directory.appendingPathComponent("episode.partial.m4a")
         let start = ProcessInfo.processInfo.systemUptime
@@ -84,11 +85,12 @@ struct AudioProcessor: Sendable {
         let numericBitrate = Int(settings.bitrate.replacingOccurrences(of: "k", with: ""))
         guard let numericBitrate else { throw RelayError.setup("The AAC bitrate is invalid.") }
         do {
-            try diagnostics.measure(.encoding) {
+            let positions = try diagnostics.measure(.encoding) {
                 try NativeAudio.encode(artifacts.map(\.url), destination: partial,
                                        profile: .init(sampleRate: settings.sampleRate, bitRate: numericBitrate * 1_000, gapSeconds: settings.gapSeconds),
                                        scheduledGaps: try Self.scheduledGaps(artifacts))
             }
+            try timeline(positions)
         } catch is CancellationError { throw CancellationError() }
         catch { throw RelayError.artifact("Native AAC encoding could not finish this recording.") }
         let elapsed = ProcessInfo.processInfo.systemUptime - start

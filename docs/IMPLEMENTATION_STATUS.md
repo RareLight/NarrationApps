@@ -9,6 +9,142 @@ The containing commit identifies all maintained source. See
 Private document reviews and their input-specific results are retained locally;
 they are excluded from the publication history. Synthetic fixtures remain maintained.
 
+## VoiceRelay timed episode transcripts
+
+October 25 implementation adds General → Episode transcripts → Publish timed
+transcripts, default-on and captured for newly queued articles. Historical jobs
+without a captured choice and finished recordings stay unchanged. The shared
+native AAC encoder reports measured input intervals after resampling and actual
+gap insertion. VoiceRelay uses final prepared text to produce bounded WebVTT cues
+at synthesis-segment granularity, without ASR, word-time estimates or audio gain.
+
+Transcript text, audio/content hashes and independent retry state persist with
+episode metadata through encoding resume, cache cleanup and library backup.
+Authenticated sidecar readback precedes a standard `podcast:transcript` RSS link.
+Failures leave audio/other entries publishable; Uploads retains transcript retry
+and pending-feed states. Namespace-aware recovery preserves supplied references;
+retirement removes only owned current-destination sidecars after feed removal.
+
+Eight focused transcript fixtures and the persisted-preference app test pass,
+covering default/legacy/off settings, cue escaping and measured intervals,
+encoding resume, backup, upload readback, cancellation, retry, host changes,
+server recovery, feed failure and removal ordering. Ten synthetic shared audio
+fixtures pass; the explicit captured-native-audio test remains an opt-in skip.
+The full project fixture gate also passes, including 319 VoiceRelay core tests,
+161 app tests, shared/Libro suites and synthetic packaging regressions. Retained
+evidence is `.local/validation/full-7BFF03FC-089E-4159-A5A6-3071743A21F3/`.
+Debug and Release workspace builds and all four bundle/signature/resource/Metal
+audits pass. These ad-hoc engineering candidates are in the separate
+`.build/TranscriptValidation-20261025/Build/Products/{Debug,Release}/` directory;
+no operator app was installed or launched. Local logs use the
+`.local/transcript-workspace-` and `.local/transcript-<app>-` prefixes.
+Live host MIME/access control, GUI, listening and installed Overcast TestFlight behavior remain
+operator acceptance [V22](OPERATOR_VALIDATION.md#voicerelay).
+
+## Standalone TTS model comparison
+
+October 24–25 implementation adds the [Swift benchmark utility](../tools/TTSBenchmark/README.md),
+independent of either app. It explicitly prepares pinned model assets, supervises
+serial offline workers with time/memory bounds, preserves native-rate audio and
+records timings, output hashes and durable attempts. A resumable blind model/voice
+bracket precedes separate held-out and long-form finalist confirmation.
+Cold/warm loads and product-reference variants are timing evidence, not additional
+listening entrants. App model catalogs, settings and audio processing are unchanged.
+
+All 19 isolated benchmark tests passed. The full project fixture gate, Debug and
+Release workspace builds and four bundle audits also passed in a separate
+validation directory; no operator app was installed or launched. Command-local
+selection of the installed Metal toolchain resolved compiler discovery without
+changing project pins or deployment targets.
+
+The M2 Max/32 GiB comparison produced 224 recordings from 12 direct narrator
+profiles plus two accepted-product references. An initial zero-audio Kokoro Emma
+region mismatch was fixed, tested and rerun separately; the derived report keeps
+the original failure, source receipts and both builds' evidence. All WAV hashes,
+12 unique bracket entrants, empty preference history and page audio links were
+verified. Fish S2 Pro remains blocked for a licensed reference clip/transcript.
+The [design/evidence record](TTS_MODEL_BENCHMARK_PLAN.md) identifies local reports
+and measurement limits. Operator [M01](OPERATOR_VALIDATION.md#model-evaluation-developer-utility)
+remains open: no listening winner, finalist long-form acceptance or product model
+integration is claimed.
+
+The October 25 follow-up replaces per-choice CLI entry with a server-free local
+HTML/JavaScript scoring app. Anonymous labels and hashed audio paths conceal names;
+the separate identity file is selected only for an explicit final reveal. Browser
+storage, JSON backup/restore, notes and revisions preserve choices. A validated
+one-time export import connects them to the existing Swift finalist workflow.
+The JavaScript tournament is checked against the Swift engine; local-file browser
+inspection is blocked by the automation tool, so visual/audio/file-permission
+acceptance stays with the operator.
+The standalone Release build and all 26 model-free benchmark tests pass, including browser-state save/reload,
+stale-tab protection, backup fallbacks, anonymous exports, revision replay and
+cross-language tournament fixtures for odd/even fields, rejected pairs and final
+resets. Scoring fixtures use JavaScriptCore. A synthetic, in-memory Apple WebKit
+fixture additionally verifies initialization, aligned audio/buttons/notes, minimum
+control heights and no horizontal overflow at 360, 744 and 1024 pixels. It does not
+establish actual Safari playback or local-file permission acceptance.
+
+The Safari layout follow-up gives player cards and the notes/decision panel shared
+spacing and responsive grids. The source template is now `bracket-template.html`
+to distinguish it from the generated listening page. A startup notice identifies
+an uninitialized page and scoring controls stay hidden until initialization.
+Opening the template directly cannot load styling, scoring or audio sources;
+the generated run-folder page is required. Regeneration verified unchanged
+canonical choices, run identity, aliases and progress storage key, plus all 24
+anonymous audio hashes. The project quick gate and documentation checks also pass.
+
+## VoiceRelay menu-bar clicks
+
+The menu-bar item now hosts the existing SwiftUI menu in a native status-item
+popover with animations disabled for immediate presentation. Left- and right-click
+share one button action; Escape/outside-click use
+native transient-popover dismissal. Window/Settings actions retain their SwiftUI
+scene actions and close the popover first. Input and focus acceptance remains
+part of operator case V02.
+The menu fits command labels at the selected text size; status/progress wrap
+within that width, and keyboard focus effects stay hidden until Tab is pressed.
+The October 23 follow-up adds 25% horizontal room, a larger SF Symbol
+and Copy Podcast URL. The final symbol correction restores the standard square
+slot and doubles the symbol's configured point size instead of its image canvas.
+Shared citation controls now sit
+beside the other narration options without a nested group box. The authored
+default cover, runtime lookup, Xcode resource and bundle audit now use JPEG.
+The original menu host passed all VoiceRelay core/app fixtures and Release app
+compilation. October 23 polish validation passed 56 selected core tests, 23 selected
+app tests and the shared narration Settings composition test. Menu checks include
+80%/100%/200% sizing, 25% extra width, changing status, both kinds of progress and
+copying the configured feed URL to an isolated clipboard. Debug and Release
+workspace builds and all four bundle audits passed, including exact JPEG resource
+bytes. The shared test initially encountered a stale Metal compiler mount in build
+metadata; regenerating that metadata resolved it without source or pin changes.
+
+Ad-hoc validation candidates for the `e0455a6` working tree with these uncommitted
+changes are under `.build/MenuArtworkValidation-20261023/Build/Products/{Debug,Release}/`.
+Neither app was installed or launched. These candidates predate the final symbol
+configuration correction; rebuild current source for V02. The older title-recovery products below
+predate the menu changes; V02 and V12 remain operator acceptance.
+A local converter comparison produced a 223,515-byte JPEG from the previous PNG
+and a 199,660-byte JPEG from the replacement, both 1700×1700. Original PNG size
+alone does not explain missing player artwork; public access and Overcast display
+remain unverified. Existing saved cover choices are preserved.
+
+## VoiceRelay article title recovery
+
+October 23 implementation: new asynchronous intake checks title quality and treats
+embedded titles matching either PDF filename as weak. Useful Reading List titles
+and reliable opening headlines take precedence over those fallbacks. Optional
+on-device title generation is off by default and uses bounded opening text through
+the shared inference lease. The chosen title/provenance persists with approved
+text; All Articles retains a local display title without modifying Safari. Queued
+previews use saved source text, and unattempted queued articles support Edit Title.
+Started work, existing snapshots and published recordings are not automatically
+retitled. See [source handling](../VoiceRelay/docs/SOURCE_REVIEW.md#title-recovery).
+Automated evidence includes a passed full fixture gate, final focused title/source/PDF
+regressions, Debug and Release builds of both apps, and all four bundle audits.
+The engineering products are under `.build/TitleRecoveryValidation-20261023`;
+they do not replace the operator's selected app. Real-document title quality,
+Settings and contextual editing remain [operator checks](OPERATOR_VALIDATION.md#voicerelay).
+
 ## Monorepo migration
 
 The app source histories are imported under `Libro/` and `VoiceRelay/`. No

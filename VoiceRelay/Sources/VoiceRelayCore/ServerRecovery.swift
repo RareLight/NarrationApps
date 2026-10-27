@@ -60,6 +60,7 @@ struct ServerFeedItem: Sendable {
     let artwork: URL?
     let voice: String?
     let speed: Double?
+    var transcripts: [PodcastTranscriptReference] = []
 }
 
 /// Bounded, namespace-aware RSS parser. No external entities, DTDs, title matching,
@@ -71,6 +72,7 @@ final class ServerFeedParser: NSObject, XMLParserDelegate {
     private var enclosure: [String: String] = [:]
     private var identity: [String: String] = [:]
     private var artwork: String?
+    private var transcripts: [PodcastTranscriptReference] = []
     private var channelCount = 0
     private var items: [ServerFeedItem] = []
     private var invalid = false
@@ -87,7 +89,14 @@ final class ServerFeedParser: NSObject, XMLParserDelegate {
     static var failure: DeliveryError { .fatal("The server feed cannot be safely reconciled. Its files and the local library are unchanged.") }
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?, attributes: [String: String]) {
         path.append(elementName); text = ""
-        if path == ["rss", "channel", "item"] { fields = [:]; enclosure = [:]; identity = [:]; artwork = nil }
+        if path == ["rss", "channel", "item"] { fields = [:]; enclosure = [:]; identity = [:]; artwork = nil; transcripts = [] }
+        if path == ["rss", "channel", "item", "transcript"], namespaceURI == PodcastTranscriptReference.namespace {
+            if let raw = attributes["url"], let url = URL(string: raw), let type = attributes["type"] {
+                let reference = PodcastTranscriptReference(url: url, type: type, language: attributes["language"], rel: attributes["rel"])
+                if (try? reference.validate()) == nil || transcripts.count >= 8 { invalid = true }
+                else { transcripts.append(reference) }
+            } else { invalid = true }
+        }
         if path == ["rss", "channel", "item", "enclosure"] {
             if !enclosure.isEmpty { invalid = true }; enclosure = attributes
         }
@@ -146,7 +155,7 @@ final class ServerFeedParser: NSObject, XMLParserDelegate {
         if artwork != nil && art == nil { throw Self.failure }
         return ServerFeedItem(id: id, title: title, source: source, date: date, length: length, enclosureURL: url,
             duration: duration, originalIdentity: key, audioHash: hash, savedAt: saved, publishedAt: published, origin: identity["origin"], author: fields["creator"], artwork: art,
-            voice: identity["voice"], speed: speed)
+            voice: identity["voice"], speed: speed, transcripts: transcripts)
     }
     func parser(_ parser: XMLParser, foundInternalEntityDeclarationWithName: String, value: String?) { invalid = true; parser.abortParsing() }
     func parser(_ parser: XMLParser, foundExternalEntityDeclarationWithName: String, publicID: String?, systemID: String?) { invalid = true; parser.abortParsing() }
@@ -382,6 +391,10 @@ extension FixtureCoordinator {
                 episode.author = episode.author ?? item.author; episode.artworkURL = episode.artworkURL ?? item.artwork
                 episode.originalSourceHost = episode.originalSourceHost ?? entry?.url.host ?? item.origin ?? item.source?.host
                 episode.originalSourceIdentity = ServerRecoveryIdentity.validSource(sourceKey) ? sourceKey : nil
+                if episode.audioHash != proof.hash { episode.transcript = nil; episode.transcriptReferences = nil }
+                var references = item.transcripts
+                for reference in episode.transcriptReferences ?? [] where !references.contains(reference) { references.append(reference) }
+                episode.transcriptReferences = references
                 episode.audioHash = proof.hash; episode.encodedHash = proof.hash; episode.info = proof.info
                 episode.localAudioReleased = local?.audioHash != proof.hash || !FileManager.default.fileExists(atPath: episode.settings.audio.appendingPathComponent(episode.id + ".m4a").path)
                 episode.audioFinalizationComplete = true
@@ -430,6 +443,7 @@ extension FixtureCoordinator {
                     let replacement = try Self.pendingReplacement(episode, info: info, conflictingID: episode.id, settings: settings)
                     updates.append(RecoveryUpdate(previousID: episode.id, sourceKey: key, episode: replacement)); continue
                 }
+                if episode.audioHash != proof.hash { episode.transcript = nil; episode.transcriptReferences = nil }
                 episode.audioHash = proof.hash; episode.encodedHash = proof.hash; episode.info = proof.info
                 proofs[episode.id] = proof; claimedKeys.insert(key)
                 episode.stage = .published; episode.publicationDate = episode.publicationDate ?? now
@@ -452,6 +466,12 @@ extension FixtureCoordinator {
     private static func reidentified(_ episode: Episode, id: String) throws -> Episode {
         guard var record = try JSONSerialization.jsonObject(with: Files.json(episode)) as? [String: Any] else { throw Self.recoveryConflict }
         record["id"] = id
+        if episode.id != id {
+            record.removeValue(forKey: "transcriptReferences")
+            if var transcript = record["transcript"] as? [String: Any] {
+                transcript.removeValue(forKey: "delivery"); record["transcript"] = transcript
+            }
+        }
         return try JSONDecoder().decode(Episode.self, from: JSONSerialization.data(withJSONObject: record))
     }
     private func validatedLocalCopy(_ episode: Episode, storage: ManagedSpeechStorage) async throws -> AudioInfo? {

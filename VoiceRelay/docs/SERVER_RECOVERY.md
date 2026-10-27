@@ -76,9 +76,45 @@ See the HTTP [conditional request specification](https://www.rfc-editor.org/rfc/
 and [representation digest specification](https://www.rfc-editor.org/rfc/rfc9530.html).
 Public-folder mapping and actual podcatcher playback still require operator testing.
 
+## Podcast artwork
+
+Publishing uploads and reads back the full JPEG and a 144-pixel RSS thumbnail
+before publishing the feed. The full image is linked through `itunes:image`;
+the RSS `image` element links the thumbnail. Filenames contain the image digest,
+so choosing a different image changes its URL. The original PNG was converted
+to an opaque sRGB JPEG of at most 2 MiB before upload; its original file size
+alone does not establish why a player failed to show it.
+
+The bundled default is now `VoiceRelay_Cover.jpg`. Existing selections are
+preserved: use Publishing's Podcast Cover chooser to replace an older saved
+default, then Sync Now. Test Connection and authenticated artwork readback
+cannot establish that the Public folder URL serves images to a podcast client.
+Check that the feed's image URLs serve actual JPEG bytes without a login page,
+that the public server permits GET/HEAD, and that caches have refreshed.
+[Overcast documents](https://overcast.fm/podcasterinfo) feed crawling intervals
+from minutes to 24 hours and HTTP cache handling; an app-side successful upload
+does not prove its latest feed has been crawled. The private-feed `itunes:block`
+tag is supported and remains intentional.
+
+## Timed transcripts
+
+New enabled episodes retain WebVTT text with the exact audio hash. Publishing
+uploads an immutable `audio/<episode-id>-<transcript-hash>.vtt`, verifies its bytes
+through authenticated readback and only then adds `podcast:transcript` to the RSS
+item. A failed sidecar does not block audio or unrelated entries; review Uploads
+and use Sync Now to retry. Recovered feed references survive reconciliation without
+downloading arbitrary transcript URLs. Old audio is not automatically backfilled.
+
+Authenticated verification does not prove the public URL's MIME/access behavior.
+Check that the host serves UTF-8 WebVTT as `text/vtt`, rather than a login page,
+with the same intended access as the audio. Player support is a separate check;
+Overcast TestFlight compatibility remains unverified. Removing an episode first
+removes its feed entry, then deletes its owned sidecar at the current destination.
+External references and old-host files are preserved.
+
 ## Operator acceptance
 
-Use V11–V14 and V15 in the [consolidated checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay)
+Use V11–V14, V15 and V22 in the [consolidated checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay)
 for credentials, normal reconciliation/readback, a new test episode, retry,
 feed-first removal and restored-library review. Do not create conflicts/reset the
 production share to exercise error cases; isolated automated fixtures cover those.

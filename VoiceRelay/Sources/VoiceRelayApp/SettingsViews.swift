@@ -45,6 +45,16 @@ struct ConfigurationView: View {
                 additionalHelp: "Applies to newly added articles. Existing queued articles keep their prepared text. Web images may be fetched from public sites to create descriptions.")
                 .disabled(model.preview || model.stopping)
             Section {
+                Toggle("Publish timed transcripts", isOn: $model.preferences.timedTranscriptsEnabled)
+            } header: {
+                SectionHelpHeader(title: "Episode transcripts", explanation: "On by default for newly queued articles. Publishes the narration text with segment timestamps beside each episode for compatible podcast apps. No extra transcription service is used. Queued articles and existing recordings keep their settings; support depends on your player.")
+            }.disabled(model.preview || model.stopping)
+            Section {
+                Toggle("Generate missing titles using Apple Intelligence", isOn: $model.generateMissingTitles)
+            } header: {
+                SectionHelpHeader(title: "Article titles", explanation: "VoiceRelay first looks for an existing title or opening headline. Titles that repeat a PDF filename are checked for a richer headline. This optional fallback creates a short title from the opening text using available on-device Apple Intelligence. Generated titles may be inaccurate. Applies to newly prepared articles; saved text and recordings keep their titles.")
+            }.disabled(model.preview || model.stopping)
+            Section {
                 LabeledContent("Source", value: model.sourceReview.plist?.lastPathComponent ?? "Not chosen")
                     .help(model.sourceReview.plist?.path ?? "No Reading List source chosen")
                 LabeledContent("Last checked", value: model.sourceReview.lastSyncedAt?.formatted(date: .omitted, time: .standard) ?? "Not checked this session")

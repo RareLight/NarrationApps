@@ -28,9 +28,20 @@ enum RSS {
         guard let url, url.scheme?.lowercased() == "https", (try? ArticleURL.validate(url)) != nil else { return "" }
         return "<itunes:image href=\"\(escaped(url.absoluteString))\"/>"
     }
+    private static func transcripts(_ episode: Episode) throws -> String {
+        let references = episode.transcriptReferences ?? []
+        guard references.count <= 8 else { throw RelayError.artifact("Too many episode transcript references.") }
+        return try references.map { reference in
+            try reference.validate()
+            var tag = "<podcast:transcript url=\"\(escaped(reference.url.absoluteString))\" type=\"\(escaped(reference.type))\""
+            if let language = reference.language { tag += " language=\"\(escaped(language))\"" }
+            if let rel = reference.rel { tag += " rel=\"\(escaped(rel))\"" }
+            return tag + "/>"
+        }.joined()
+    }
     static func render(_ episodes: [Episode], settings: PrototypeProfile) throws -> Data {
         try settings.validate()
-        var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:atom=\"http://www.w3.org/2005/Atom\"><channel>"
+        var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:podcast=\"\(PodcastTranscriptReference.namespace)\" xmlns:atom=\"http://www.w3.org/2005/Atom\"><channel>"
         xml += "<title>\(escaped(settings.channelTitle))</title><link>\(escaped(settings.feedURL.absoluteString))</link><description>\(escaped(settings.channelDescription))</description><language>\(escaped(settings.language))</language><itunes:block>yes</itunes:block>"
         xml += "<atom:link href=\"\(escaped(settings.feedURL.absoluteString))\" rel=\"self\" type=\"application/rss+xml\"/>"
         let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX"); date.timeZone = TimeZone(secondsFromGMT: 0)
@@ -50,7 +61,7 @@ enum RSS {
                 }
             }
             let enclosure = e.settings.audioBaseURL.appendingPathComponent(e.id + ".m4a").absoluteString
-            xml += "<item><title>\(escaped(e.title))</title><guid isPermaLink=\"false\">\(e.guid)</guid><pubDate>\(date.string(from: when))</pubDate><enclosure url=\"\(escaped(enclosure))\" length=\"\(info.byteLength)\" type=\"audio/mp4\"/><itunes:duration>\(Int(info.duration.rounded()))</itunes:duration>\(artwork(e.artworkURL))</item>"
+            xml += "<item><title>\(escaped(e.title))</title><guid isPermaLink=\"false\">\(e.guid)</guid><pubDate>\(date.string(from: when))</pubDate><enclosure url=\"\(escaped(enclosure))\" length=\"\(info.byteLength)\" type=\"audio/mp4\"/><itunes:duration>\(Int(info.duration.rounded()))</itunes:duration>\(artwork(e.artworkURL))\(try transcripts(e))</item>"
         }
         xml += "</channel></rss>\n"
         let data = Data(xml.utf8)
@@ -62,7 +73,7 @@ enum RSS {
     /// blocks feed updates. An uploaded record that is internally inconsistent
     /// indicates corruption and fails the render instead.
     static func renderRemote(_ episodes: [Episode], channel: RemoteChannel) throws -> Data {
-        var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:atom=\"http://www.w3.org/2005/Atom\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:vr=\"\(ServerRecoveryIdentity.namespace)\"><channel>"
+        var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:podcast=\"\(PodcastTranscriptReference.namespace)\" xmlns:atom=\"http://www.w3.org/2005/Atom\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:vr=\"\(ServerRecoveryIdentity.namespace)\"><channel>"
         xml += "<title>\(escaped(channel.title))</title><link>\(escaped(channel.feedURL.absoluteString))</link><description>\(escaped(channel.description))</description><language>\(escaped(channel.language))</language><itunes:block>yes</itunes:block>"
         xml += "<atom:link href=\"\(escaped(channel.feedURL.absoluteString))\" rel=\"self\" type=\"application/rss+xml\"/>"
         let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX"); date.timeZone = TimeZone(secondsFromGMT: 0)
@@ -82,7 +93,7 @@ enum RSS {
             var item = "<item><title>\(escaped(e.title))</title><guid isPermaLink=\"false\">\(e.guid)</guid>"
             if let source = e.sourceURL { item += "<link>\(escaped(source.absoluteString))</link>" }
             if let creator = e.author ?? e.sourceHost { item += "<dc:creator>\(escaped(creator))</dc:creator>" }
-            item += "<pubDate>\(date.string(from: when))</pubDate><enclosure url=\"\(escaped(enclosure))\" length=\"\(info.byteLength)\" type=\"audio/mp4\"/><itunes:duration>\(Int(info.duration.rounded()))</itunes:duration>\(artwork(e.artworkURL))</item>"
+            item += "<pubDate>\(date.string(from: when))</pubDate><enclosure url=\"\(escaped(enclosure))\" length=\"\(info.byteLength)\" type=\"audio/mp4\"/><itunes:duration>\(Int(info.duration.rounded()))</itunes:duration>\(artwork(e.artworkURL))\(try transcripts(e))</item>"
             if let hash = e.audioHash, ServerRecoveryIdentity.validHash(hash) {
                 var identity = "<vr:identity sha256=\"\(hash)\""
                 if let voice = e.settings.voice { identity += " voice=\"\(escaped(voice))\"" }
