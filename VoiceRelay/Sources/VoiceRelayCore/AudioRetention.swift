@@ -3,6 +3,23 @@ import Darwin
 
 enum PublishedAudioAvailability { case available, missing, unavailable }
 
+extension Episode {
+    /// Deletion authority belongs to the exact recorded upload destination, not
+    /// merely to a relative path retained from a previous server or folder.
+    func ownedRemotePaths(settings: DeliverySettings) -> Set<String> {
+        guard UUID(uuidString: id) != nil, delivery?.destinationURL == settings.feedFolderURL,
+              settings.feedFolderURL != nil else { return [] }
+        var paths = Set(ownedTranscriptPaths(settings: settings))
+        if delivery?.remotePath == settings.remoteMediaPath(id) { paths.insert(settings.remoteMediaPath(id)) }
+        if let transcript, ServerRecoveryIdentity.validHash(transcript.sha256),
+           transcript.delivery?.destinationURL == settings.feedFolderURL,
+           transcript.delivery?.remotePath == transcript.remotePath(id: id, settings: settings) {
+            paths.insert(transcript.remotePath(id: id, settings: settings))
+        }
+        return paths
+    }
+}
+
 private func capturedAudioFolderStat(_ episode: Episode) -> stat? {
     guard UUID(uuidString: episode.id) != nil else { return nil }
     let folder = episode.settings.audio
@@ -51,8 +68,17 @@ func temporaryAudioIsMissing(_ episode: Episode) -> Bool {
 
 extension FixtureCoordinator {
     public func savedAudio(storage: ManagedSpeechStorage) throws -> [Episode] {
-        try library(storage: storage).filter {
+        let episodes = try library(storage: storage)
+        // Visibility follows all pending objects, including transcript-only
+        // cleanup after the media path has been cleared. This grants no deletion
+        // authority; each drain independently validates destination/path ownership.
+        let pendingPaths = (try? DeliveryLedger.load(stateRoot: storage.stateRoot, preserveCorrupt: false))?.pendingRemoteDeletes ?? []
+        let pendingRemovalIDs = Set(pendingPaths.compactMap { path in
+            UUID(uuidString: String(URL(fileURLWithPath: path).lastPathComponent.prefix(36)))?.uuidString.lowercased()
+        })
+        return episodes.filter {
             ($0.stage == .published || ($0.stage == .expired && ($0.manualAudioDeletionRequested == true
+                    || pendingRemovalIDs.contains($0.id)
                     || (($0.settings.temporaryAudio == true || $0.localAudioReleased == true) && $0.delivery?.remotePath.isEmpty == false))))
                 && $0.audioHash != nil && $0.info != nil
                 && ($0.settings.temporaryAudio == true || $0.localAudioReleased == true
@@ -169,7 +195,8 @@ extension FixtureCoordinator {
             for episode in touched {
                 guard let path = episode.delivery?.remotePath, !path.isEmpty else { continue }
                 if episode.stage == .expired {
-                    if !ledger.pendingRemoteDeletes.contains(path) { ledger.pendingRemoteDeletes.append(path) }
+                    if let destination = ledger.destinationURL, episode.delivery?.destinationURL == destination,
+                       !ledger.pendingRemoteDeletes.contains(path) { ledger.pendingRemoteDeletes.append(path) }
                     ledger.remoteFeedPending = true
                     dirty = true
                 } else if episode.stage == .published, ledger.pendingRemoteDeletes.contains(path) {

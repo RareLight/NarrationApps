@@ -42,11 +42,13 @@ public enum DocumentTitles {
         return value.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(String.init).joined()
     }
 
-    public static func isWeak(_ title: String?, urls: [URL]) -> Bool {
+    public static func isWeak(_ title: String?, urls: [URL], isPDF: Bool = false) -> Bool {
         guard let title = clean(title) else { return true }
         let identity = key(title)
         guard !identity.isEmpty else { return true }
-        if urls.contains(where: { key($0.lastPathComponent) == identity }) { return true }
+        // Descriptive HTML slugs commonly repeat the real headline. Filename
+        // matching is evidence only for PDFs, including extensionless PDF responses.
+        if urls.contains(where: { (isPDF || $0.pathExtension.lowercased() == "pdf") && key($0.lastPathComponent) == identity }) { return true }
         if ["untitled", "untitledarticle", "untitleddocument", "pdf", "pdfdocument", "document", "download", "unknown"].contains(identity) { return true }
         if title.contains("://") || title.hasPrefix("/") || title.lowercased().hasSuffix(".pdf") { return true }
         let letters = title.unicodeScalars.filter { CharacterSet.letters.contains($0) }.count
@@ -54,8 +56,8 @@ public enum DocumentTitles {
         return letters < 3 || digits > letters || (title.count >= 24 && !title.contains(" ") && digits > 0)
     }
 
-    private static func headlineText(_ text: String, urls: [URL]) -> String? {
-        guard let text = clean(text), !isWeak(text, urls: urls),
+    private static func headlineText(_ text: String, urls: [URL], isPDF: Bool = false) -> String? {
+        guard let text = clean(text), !isWeak(text, urls: urls, isPDF: isPDF),
               (2...32).contains(text.split(whereSeparator: \.isWhitespace).count), text.count >= 12,
               !["abstract", "introduction", "contents", "tableofcontents", "references"].contains(key(text)) else { return nil }
         return text
@@ -63,7 +65,7 @@ public enum DocumentTitles {
 
     /// Only accept explicit headings or a visually prominent opening-page band.
     /// Ordinary opening prose is context for optional generation, never a guessed headline.
-    public static func headline(in blocks: [ContentBlock], urls: [URL]) -> String? {
+    public static func headline(in blocks: [ContentBlock], urls: [URL], isPDF: Bool = false) -> String? {
         let opening = Array(blocks.prefix(80).filter { ($0.pdfPageIndex ?? 0) == 0 && [.heading, .paragraph].contains($0.kind) && $0.origin != .generated })
         let repeated = Set(blocks.lazy.filter { ($0.pdfPageIndex ?? 0) > 0 }.prefix(300).flatMap { block in
             [key(block.text)] + (block.pdfLayout?.lines ?? []).prefix(32).compactMap { line in
@@ -74,7 +76,7 @@ public enum DocumentTitles {
             }
         })
         for heading in opening.prefix(12) where heading.kind == .heading && (heading.headingLevel ?? 1) <= 2 && !repeated.contains(key(heading.text)) {
-            if let text = headlineText(heading.text, urls: urls) { return text }
+            if let text = headlineText(heading.text, urls: urls, isPDF: isPDF) { return text }
         }
         struct Line { let text: String; let bounds: PDFTextBounds }
         let lines: [Line] = opening.flatMap { block -> [Line] in
@@ -105,7 +107,7 @@ public enum DocumentTitles {
             } else { bands.append([line]) }
         }
         let candidates = bands.compactMap { band -> (String, Double)? in
-            guard band.count <= 4, let text = headlineText(band.map(\.text).joined(separator: " "), urls: urls) else { return nil }
+            guard band.count <= 4, let text = headlineText(band.map(\.text).joined(separator: " "), urls: urls, isPDF: isPDF) else { return nil }
             return (text, band.map { $0.bounds.height }.max()!)
         }.sorted { $0.1 > $1.1 }
         // Independent prominent bands are ambiguous (for example a masthead and headline).
@@ -124,12 +126,12 @@ public enum DocumentTitles {
         return String(result.split(whereSeparator: \.isWhitespace).prefix(600).joined(separator: " ").prefix(maximumExcerptCharacters))
     }
 
-    public static func resolve(title: String?, sourceTitle: String? = nil, blocks: [ContentBlock], urls: [URL],
+    public static func resolve(title: String?, sourceTitle: String? = nil, blocks: [ContentBlock], urls: [URL], isPDF: Bool = false,
                                generate: Generate? = nil, generationSeconds: Double = 8) async throws -> DocumentTitle {
         try Task.checkCancellation()
-        if let value = clean(title), !isWeak(value, urls: urls) { return .init(text: value, origin: .metadata) }
-        if let value = clean(sourceTitle), !isWeak(value, urls: urls) { return .init(text: value, origin: .readingList) }
-        if let value = headline(in: blocks, urls: urls) { return .init(text: value, origin: .headline) }
+        if let value = clean(title), !isWeak(value, urls: urls, isPDF: isPDF) { return .init(text: value, origin: .metadata) }
+        if let value = clean(sourceTitle), !isWeak(value, urls: urls, isPDF: isPDF) { return .init(text: value, origin: .readingList) }
+        if let value = headline(in: blocks, urls: urls, isPDF: isPDF) { return .init(text: value, origin: .headline) }
         let context = excerpt(blocks)
         if let generate, context.count >= 80, generationSeconds.isFinite, generationSeconds > 0 {
             do {
@@ -140,7 +142,7 @@ public enum DocumentTitles {
                     return try await group.next() ?? nil
                 }
                 try Task.checkCancellation()
-                if let raw = value, !raw.contains("\n"), let value = clean(raw), headlineText(value, urls: urls) != nil,
+                if let raw = value, !raw.contains("\n"), let value = clean(raw), headlineText(value, urls: urls, isPDF: isPDF) != nil,
                    value.uppercased() != "NONE" { return .init(text: value, origin: .generated) }
             } catch {
                 try Task.checkCancellation()

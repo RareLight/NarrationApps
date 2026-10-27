@@ -68,7 +68,7 @@ struct IntakeView: View {
                     Divider()
                     Button("Remove Selected", systemImage: "minus") { model.removeSelected() }.disabled(model.selection.isEmpty || model.busy || model.isGenerating)
                     Button("Clear Finished") { model.clearFinished() }.disabled(!model.hasFinished || model.busy || model.isGenerating)
-                    Button("Clear Queue") { model.clear() }.disabled(model.documents.isEmpty || model.busy || model.isGenerating)
+                    Button("Clear Queue") { model.clear() }.disabled(!model.canClearQueue)
                     Divider()
                     Button("Queue Details…", systemImage: "info.circle") { showingIssueNotice = false; showingDetails = true }
                 }

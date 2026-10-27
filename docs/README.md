@@ -21,6 +21,7 @@ implementation records are background, not additional setup instructions.
 | Fresh clone, prerequisites, preparation and signing | [Contributing](../CONTRIBUTING.md) |
 | Select quick/full/native/release checks and interpret evidence | [Development gates](DEVELOPMENT.md) |
 | Compare TTS models/voices and run a preference bracket | [Swift benchmark utility](../tools/TTSBenchmark/README.md), [design and evidence](TTS_MODEL_BENCHMARK_PLAN.md) |
+| Plan Qwen3-TTS, Chatterbox Turbo and Orpheus support in both apps | [Shared model integration plan](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md) |
 | Understand implemented features and current evidence | [Current status](IMPLEMENTATION_STATUS.md) |
 | Find remaining acceptance and proposed work | [Roadmap](IMPLEMENTATION_PLAN.md) |
 | Perform GUI/listening/account checks | [Operator checklist](OPERATOR_VALIDATION.md) |
@@ -44,6 +45,10 @@ implementation records are background, not additional setup instructions.
 | Exact pins, patches, codec/model provenance and licenses | [Dependencies](DEPENDENCIES.md), [source provenance](PROVENANCE.md) |
 | App-specific implementation | [Libro docs](../Libro/docs/README.md), [VoiceRelay architecture](../VoiceRelay/docs/ARCHITECTURE.md) |
 
+## Review fix records
+
+- [Libro and shared-component review fixes](LIBRO_REVIEW_FIX_PLAN.md).
+
 ## Research and implementation history
 
 These records explain decisions and dated evidence. Their original stage commands,
@@ -61,6 +66,8 @@ Proposals in them do not automatically authorize further implementation.
   native MLX-audio-swift models, measured performance, a model/voice preference
   bracket and blind finalist listening.
   [Benchmark commands and evidence](../tools/TTSBenchmark/README.md).
+- [VoiceRelay whole-app review fix plan](VOICERELAY_REVIEW_FIX_PLAN.md), covering
+  publishing safety, source identity, captured pauses and transcript references.
 
 Project commands default to the NarrationApps root. A guide must explicitly name
 another working directory. Package-relative technical paths are labelled where

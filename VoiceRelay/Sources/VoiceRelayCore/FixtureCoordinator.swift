@@ -535,7 +535,7 @@ public actor FixtureCoordinator {
                     guard let task = pending else { return }
                     let cp = try await task.value
                     pending = nil
-                    artifacts += cp.result.artifacts
+                    artifacts += NativeMLXBackend.assemblyArtifacts(for: cp.request, result: cp.result, gapSeconds: p.gapSeconds)
                     transcriptTexts.append(cp.request.preparedUtterance?.text ?? cp.request.text)
                     transcriptArtifactCounts.append(cp.result.artifacts.count)
                     try boundary(.chunkCommitted)
@@ -564,7 +564,7 @@ public actor FixtureCoordinator {
                         }
                         if let cp = checkpoint {
                             try await commitPending()
-                            artifacts += cp.result.artifacts
+                            artifacts += NativeMLXBackend.assemblyArtifacts(for: cp.request, result: cp.result, gapSeconds: p.gapSeconds)
                             transcriptTexts.append(cp.request.preparedUtterance?.text ?? cp.request.text)
                             transcriptArtifactCounts.append(cp.result.artifacts.count)
                             progress(.synthesizing, chunk.index + 1, plan.chunks.count)
@@ -631,9 +631,9 @@ public actor FixtureCoordinator {
             e.audioHash = encodedHash; e.stage = .published; e.localAudioReleased = nil
             e.localAudioDiscarded = nil; e.localCleanupNotice = nil
             e.author = article.author
-            e.sourceHost = article.finalURL.host ?? article.originalURL.host
+            e.sourceHost = article.archivedCopy == nil ? (article.finalURL.host ?? article.originalURL.host) : article.originalURL.host
             e.originalSourceHost = article.originalURL.host
-            e.sourceURL = article.canonicalURL ?? article.finalURL
+            e.sourceURL = article.archivedCopy == nil ? (article.canonicalURL ?? article.finalURL) : article.originalURL
             e.artworkURL = article.previewImageURL
             if let delivery {
                 e.delivery = DeliveryState(status: .pending, remotePath: delivery.remoteMediaPath(e.id))
@@ -647,9 +647,9 @@ public actor FixtureCoordinator {
         _ = try processor.probe(destination, final: true); try processor.decode(destination)
         if e.author == nil, e.sourceURL == nil {
             e.author = article.author
-            e.sourceHost = article.finalURL.host ?? article.originalURL.host
+            e.sourceHost = article.archivedCopy == nil ? (article.finalURL.host ?? article.originalURL.host) : article.originalURL.host
             e.originalSourceHost = article.originalURL.host
-            e.sourceURL = article.canonicalURL ?? article.finalURL
+            e.sourceURL = article.archivedCopy == nil ? (article.canonicalURL ?? article.finalURL) : article.originalURL
             e.artworkURL = article.previewImageURL
             try store.save(e)
         }

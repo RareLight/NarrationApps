@@ -88,7 +88,12 @@ final class AppModel {
     var autoHalted = false
     /// Delivery configuration; the password lives only in the credential store, never here.
     var deliverySettings = DeliverySettings() { didSet {
-        if oldValue.podcastCoverDigest != deliverySettings.podcastCoverDigest || oldValue.podcastCoverConfigured != deliverySettings.podcastCoverConfigured || oldValue.feedFolderURL != deliverySettings.feedFolderURL || oldValue.publicFolderURL != deliverySettings.publicFolderURL {
+        if oldValue.enabled && !deliverySettings.enabled {
+            // A drain captures its settings. Stop that owned work as well as future
+            // drains when the user turns publishing off; durable intent stays pending.
+            pendingDeliveryForce = nil; pendingDeliveryCheck = false
+            deliveryTask?.cancel()
+        } else if oldValue.podcastCoverDigest != deliverySettings.podcastCoverDigest || oldValue.podcastCoverConfigured != deliverySettings.podcastCoverConfigured || oldValue.feedFolderURL != deliverySettings.feedFolderURL || oldValue.publicFolderURL != deliverySettings.publicFolderURL {
             if deliveryTask != nil { pendingDeliveryForce = pendingDeliveryForce ?? false; deliveryTask?.cancel() }
         }
         deliverySettingsChanged()
@@ -266,8 +271,8 @@ final class AppModel {
     @ObservationIgnored private var admissionQueue: [(entry: ReadingListEntry, storage: ManagedSpeechStorage,
                                                        preferences: SpeechPreferences, token: UUID,
                                                        control: QueueAdmissionControl, automatic: Bool)] = []
-    /// Entry IDs whose automatic admission failed or was refused this session; manual adds bypass it.
-    @ObservationIgnored private var autoAttempted: Set<String> = []
+    /// Source URLs whose automatic admission failed or was refused this session; manual adds bypass it.
+    @ObservationIgnored private var autoAttempted: Set<URL> = []
     @ObservationIgnored private var launchResumeDone = false
     @ObservationIgnored private(set) var libraryTask: Task<Void, Never>?
     /// Discard saved-audio snapshots read before a removal or delivery confirmation.
@@ -907,7 +912,9 @@ final class AppModel {
         if let result, removedURLs.contains(result.article.originalURL) { self.result = nil }
         enqueueIssues.removeAll { issue in removed.contains { issue.hasPrefix($0.title + " — ") } }
         guard !removed.isEmpty, !preview, !stopping, !libraryReviewRequired, !libraryMaintenanceBusy else {
-            refreshLibrary(); Task { await autoAdmitNewEntries() }; return
+            refreshLibrary()
+            Task { await waitForLibraryRefresh(); await autoAdmitNewEntries() }
+            return
         }
         sourcePruneRequested = true; sourcePruningBusy = true
         guard sourcePruneTask == nil else { return }
@@ -945,19 +952,37 @@ final class AppModel {
         guard (explicit || (autoAdmitEnabled && !syncPreparing)), !preview, !stopping,
               !sourceReview.busy, !sourceReview.maintenanceSuspended else { return }
         let catalog = sourceReview.catalog
-        let queued = Set(queueItems.compactMap(\.sourceEntryID))
         let root = storageOverride?.stateRoot ?? AppStorage.managedLibrary
+        let liveQueue: [SpeechQueueItem]
+        do { liveQueue = try await coordinator.queue(stateRoot: root) }
+        catch { return } // An unreadable library cannot authorize fresh admission.
+        guard !Task.isCancelled, !stopping, !libraryMaintenanceBusy, !libraryReviewRequired,
+              !sourcePruningBusy, !deliveryPreflightBusy, !sourceReview.busy, !sourceReview.maintenanceSuspended,
+              (explicit || (autoAdmitEnabled && !syncPreparing)),
+              sourceReview.catalog.entries == catalog.entries, sourceReview.catalog.currentIDs == catalog.currentIDs else { return }
+        let liveByID = Dictionary(uniqueKeysWithValues: liveQueue.map { ($0.id, $0) })
+        // Full refreshes avoid replacing active progress. A source reassociation
+        // can still be projected without changing that row's live processing state.
+        queueItems = queueItems.map { item in
+            guard let live = liveByID[item.id], item.sourceEntryID != live.sourceEntryID else { return item }
+            return .init(id: item.id, title: item.title, sourceEntryID: live.sourceEntryID,
+                admissionID: item.admissionID, state: item.state, attempts: item.attempts,
+                lastError: item.lastError, sourceHost: item.sourceHost)
+        }
+        let queued = Set(liveQueue.compactMap(\.sourceEntryID))
         let candidates = catalog.entries.filter {
             catalog.currentIDs.contains($0.id) && !queued.contains($0.id)
-                && pendingTokens[$0.id] == nil && (explicit || !autoAttempted.contains($0.id))
+                && pendingTokens[$0.id] == nil && (explicit || !autoAttempted.contains($0.url))
         }
         var fresh: [ReadingListEntry] = []
         for entry in candidates where !Task.isCancelled && !stopping {
-            if (try? await coordinator.hasRecordedArticle(url: entry.url, stateRoot: root)) != true {
-                fresh.append(entry)
-            }
+            do { if try await coordinator.hasRecordedArticle(url: entry.url, stateRoot: root) == false { fresh.append(entry) } }
+            catch { return }
         }
-        guard !fresh.isEmpty, !stopping else { return }
+        guard !fresh.isEmpty, !Task.isCancelled, !stopping, !libraryMaintenanceBusy, !libraryReviewRequired,
+              !sourcePruningBusy, !deliveryPreflightBusy, !sourceReview.busy, !sourceReview.maintenanceSuspended,
+              (explicit || (autoAdmitEnabled && !syncPreparing)),
+              sourceReview.catalog.entries == catalog.entries, sourceReview.catalog.currentIDs == catalog.currentIDs else { return }
         admit(entries: fresh, automatic: true)
     }
     /// Automatic processing obeys the same readiness guards as Generate; explicit Stop holds
@@ -1021,14 +1046,14 @@ final class AppModel {
                     if pendingTokens[entry.id] == next.token {
                         pendingAdds[entry.id] = nil; pendingTokens[entry.id] = nil; pendingControls[entry.id] = nil
                         // A removed preparation row is a manual override; do not auto re-add it.
-                        if next.automatic { autoAttempted.insert(entry.id) }
+                        if next.automatic { autoAttempted.insert(entry.url) }
                     }
                 } catch {
                     admissionQueue.removeAll { $0.token == next.token }
                     if pendingTokens[entry.id] == next.token {
                         pendingAdds[entry.id] = nil; pendingTokens[entry.id] = nil; pendingControls[entry.id] = nil
                     }
-                    if next.automatic { autoAttempted.insert(entry.id) }
+                    if next.automatic { autoAttempted.insert(entry.url) }
                     if sourceReview.catalog.currentIDs.contains(entry.id) {
                         issues.append((entry.id, "\(entry.title) — \(Self.enqueueIssueMessage(error))"))
                     }

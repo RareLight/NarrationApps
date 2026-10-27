@@ -18,7 +18,8 @@ Kokoro or Soprano. Your original documents stay unchanged.
    exist, choose **Overwrite Existing**, **Skip Existing** or **Cancel**.
 5. Play finished audio from its row or reveal it in Finder.
 
-New Kokoro settings use **Heart at 1.0×**. Existing saved choices are preserved.
+New Kokoro settings use **Heart at 1.0×**. Model, voice and speed are remembered for the next launch. Changes made during a
+batch apply to later batches.
 **Play Sample** plays a bundled recording at 1.0× without loading a model; it does
 not preview your current speed or pronunciation overrides.
 
@@ -35,7 +36,10 @@ or settings changed during work belong to later work.
 - **Queue Again** makes a finished, failed or skipped row eligible again. It does
   not start speech immediately. Re-adding a finished source also queues it again.
 
-Completed files survive Stop and Quit. **Queue Actions** and clickable status
+Cancel stops an import, including a drop that is still locating its files. Clear
+Queue can discard a pending drop before scanning starts; cancelled or replaced
+drops cannot add rows later. Replacement scans wait for previous intake work to
+finish. Completed files survive Stop and Quit. **Queue Actions** and clickable status
 issues show diagnostics. Closing a preview cancels its remaining text analysis.
 
 ## Preview and adjust the text
@@ -53,6 +57,10 @@ explain what these options can and cannot change.
 
 For incorrectly decoded text/Markdown, right-click its row → **Text Encoding**,
 choose the encoding and preview again. Source bytes are never converted on disk.
+Outputs cannot be placed inside a selected unpacked book folder. If another
+file arrives at an unapproved output path during generation, Libro keeps that
+file and reports the conflict for review.
+
 EPUB follows the book's reading order and accepts packaged files or unpacked
 `.epub` folders. Protected books are rejected; Libro does not remove DRM.
 

@@ -1,17 +1,20 @@
 # VoiceRelay validation
 
-Reviewed October 21, 2026. VoiceRelay includes the shared narration policies,
+Updated October 27, 2026. VoiceRelay includes the shared narration policies,
 optional login startup, background-safe credential reads, default podcast cover,
 source/queue workflows, outbox and server reconciliation. Behavior and limits are
 in the [user guide](USER_GUIDE.md) and [architecture](ARCHITECTURE.md).
 
 ## Automated evidence
 
-The latest recorded product gate is the October 20 monorepo validation: full shared
-and app fixtures, combined Debug/Release builds and all four bundle audits passed.
-[Migration validation](../../docs/MONOREPO_MIGRATION.md#validation) records the source,
-evidence and command-local Metal selection. Later documentation checks are not new
-app builds, live-service tests or operator signoff.
+The October 27 review-fix gate passes full shared/Libro fixtures and 328 VoiceRelay
+core tests plus 166 app tests, with existing opt-in skips. See
+[current evidence](../../docs/IMPLEMENTATION_STATUS.md#voicerelay-whole-app-review-fixes)
+for the final build/audit results and retained logs, and the
+[fix plan](../../docs/VOICERELAY_REVIEW_FIX_PLAN.md) for scope and regressions.
+[Migration validation](../../docs/MONOREPO_MIGRATION.md#validation) retains its
+historical evidence and command-local Metal selection. Fixture/build results do
+not establish live-service behavior or operator signoff.
 
 From the NarrationApps root, after explicit dependency setup:
 
@@ -31,14 +34,14 @@ Offline native speech with prepared models is a separate explicit gate.
 
 ## Manual acceptance and candidates
 
-The [operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay) owns V01–V20,
+The [operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay) owns V01–V22,
 shared B01–B08 and conditional distribution checks. Use a consistently normal-signed
 build for Keychain, provisioning and live Publishing. Ad-hoc signatures cannot
 establish those behaviors. The October 16 launch/build smoke and accepted Delivery A
 listening do not close unreported service, UI, source-quality, restore or reboot checks.
 
-The latest automated bundles are under
-`.build/MonorepoValidation/Build/Products/{Debug,Release}/VoiceRelay.app` relative to
+Review-fix engineering candidates are under
+`.build/VoiceRelayReviewFixes-20261026/Build/Products/{Debug,Release}/VoiceRelay.app` relative to
 NarrationApps. Select the operator candidate explicitly and preserve earlier bundles
 already under review; local generated products are not guaranteed in a fresh clone.
 Do not treat an old per-feature path or historical test count as today's release.

@@ -47,3 +47,83 @@ final class FileDropTests: XCTestCase {
         XCTAssertEqual(result.unavailableItems, 1)
     }
 }
+
+private final class GatedFileURL: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completion: (@Sendable (Data?, (any Error)?) -> Void)?
+    let progress = Progress(totalUnitCount: 1)
+    var requested: Bool { lock.withLock { completion != nil } }
+    func provider() -> NSItemProvider {
+        let provider = NSItemProvider()
+        provider.registerDataRepresentation(forTypeIdentifier: UTType.fileURL.identifier, visibility: .all) { [self] completion in
+            lock.withLock { self.completion = completion }
+            return progress
+        }
+        return provider
+    }
+    func finish(_ url: URL) {
+        let callback = lock.withLock { completion }
+        callback?(url.dataRepresentation, nil)
+    }
+}
+
+extension FileDropTests {
+    private func waitUntil(_ condition: () -> Bool) async throws {
+        for _ in 0..<200 {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail("Timed out waiting for synthetic file provider")
+    }
+
+    func testCancelledProviderThatNeverCompletesDoesNotBlockShutdownOrImportLate() async throws {
+        let gated = GatedFileURL(), imports = FileDropImport()
+        var delivered: [URL] = []
+        imports.start([gated.provider()]) { delivered += $0.urls }
+        try await waitUntil { gated.requested }
+        XCTAssertTrue(imports.hasOwnedWork)
+        let clock = ContinuousClock.now
+        imports.cancel() // The same invalidation used by Clear and Cancel.
+        await imports.stop() // Quit joins the owned task even if the provider ignores cancel.
+        XCTAssertLessThan(clock.duration(to: .now), .seconds(1))
+        XCTAssertFalse(imports.hasOwnedWork)
+        gated.finish(URL(fileURLWithPath: "/private/tmp/late.md"))
+        await Task.yield()
+        XCTAssertTrue(delivered.isEmpty)
+    }
+
+    func testReplacementDropsJoinAndDiscardPreviousResolution() async throws {
+        let gated = GatedFileURL(), imports = FileDropImport()
+        var delivered: [URL] = []
+        imports.start([gated.provider()]) { delivered += $0.urls }
+        try await waitUntil { gated.requested }
+        let replacement = URL(fileURLWithPath: "/private/tmp/replacement.md")
+        imports.start([NSItemProvider(object: replacement as NSURL)]) { delivered += $0.urls }
+        try await waitUntil { !imports.hasOwnedWork }
+        gated.finish(URL(fileURLWithPath: "/private/tmp/stale.md"))
+        await Task.yield()
+        XCTAssertEqual(delivered, [replacement])
+    }
+
+    func testContinuationIgnoresDuplicateAndLateCallbacksAndPrestartCancellation() async {
+        let request = DropURLRequest()
+        let expected = URL(fileURLWithPath: "/private/tmp/first.md")
+        let value: URL? = await withCheckedContinuation { continuation in
+            XCTAssertTrue(request.begin(continuation))
+            request.finish(expected)
+            request.finish(URL(fileURLWithPath: "/private/tmp/second.md"))
+            request.cancel()
+        }
+        XCTAssertEqual(value, expected)
+        let cancelled = DropURLRequest()
+        cancelled.cancel()
+        let missing: URL? = await withCheckedContinuation { continuation in
+            XCTAssertFalse(cancelled.begin(continuation))
+            cancelled.finish(expected)
+        }
+        XCTAssertNil(missing)
+        let progress = Progress(totalUnitCount: 1)
+        cancelled.setProgress(progress)
+        XCTAssertTrue(progress.isCancelled)
+    }
+}

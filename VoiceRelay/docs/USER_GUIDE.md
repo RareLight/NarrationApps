@@ -71,6 +71,8 @@ returns to menu-bar-only operation. Closing windows does not stop work.
    Articles' pull-down gesture. Newest saved items appear first; ties keep discovery
    order and undated entries come last. Automatic admission and processing are
    controlled by the General preferences.
+   If an entry's address changes, refresh removes its old queued work and cached
+   source text once no current entry refers to that address. Published episodes remain.
 
 3. **Add to Queue** prepares selected articles in displayed order in the
    background, showing Preparing and per-entry failures. Saved text is reused
@@ -103,6 +105,7 @@ title. An embedded PDF title that repeats the original or redirected filename is
 treated as a fallback: VoiceRelay looks for a richer opening headline first.
 Capitalization, separators and the `.pdf` extension do not make a filename into
 a distinct title. If no reliable improvement is found, the original title remains.
+For web articles, a descriptive title matching the URL slug is retained.
 The recovered title appears in All Articles, Queue, the spoken introduction and
 the resulting podcast episode; Safari's Reading List is never modified.
 
@@ -137,7 +140,8 @@ Sync Now uploads the transcript beside the episode under `audio/`, verifies its
 contents and publishes a standard `podcast:transcript` RSS link. Your host must
 serve `.vtt` files with the `text/vtt` content type and the same access protections
 as your audio. Player support determines whether live scrolling and seeking are
-available. Overcast/TestFlight support for supplied transcripts remains unverified.
+available. Overcast support for supplied transcripts remains unverified, including
+the reported App Store version 2026.10.1 (1182).
 
 A transcript failure leaves audio publishing available and appears in Uploads as
 **Transcript needs retry**. Sync Now retries it without regenerating the recording.
@@ -145,6 +149,8 @@ Transcript text is retained with private episode metadata and included in librar
 backups, even after temporary audio/article caches are released. Removing a server
 episode removes its owned transcript after its RSS entry is removed; changing hosts
 preserves copies at the previous destination.
+Changing only the Public folder URL refreshes owned transcript links through normal
+publishing, with verified sidecar readback and no audio regeneration.
 
 ## Publishing and Server Audio
 
@@ -155,6 +161,10 @@ In **Settings → Publishing**, supply complete HTTPS **Feed folder URL** and
 addresses need not be identical. VoiceRelay puts `feed.xml` and lowercase `audio/`
 under each folder. **Subscription URL** is read-only with **Copy** for Overcast
 or another podcatcher.
+
+Turning Publishing off cancels the active publishing batch and prevents further
+requests. A request already accepted by the server may have completed; retained
+verification and retry state allow publishing to resume when you turn it on again.
 
 **Podcast Cover** in Publishing accepts a square, opaque JPEG/PNG of at least
 1400 pixels per side; larger images are reduced to at most 3000 pixels. VoiceRelay

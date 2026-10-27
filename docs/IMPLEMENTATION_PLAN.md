@@ -19,7 +19,8 @@ Current features include:
 - Text/Markdown/RTF/PDF and DRM-free EPUB intake, bounded OCR/image descriptions,
   authored navigation, source mappings and legacy text encodings.
 - Libro Start/Pause/Resume/Skip/Stop, queue reordering, progressive PDF previews,
-  automatic cover thumbnails, manual cover choices and existing-output review.
+  automatic cover thumbnails, manual cover choices, saved speech settings, owned
+  cancellable imports and source-safe existing-output review.
 - Shared footnote/auxiliary choices, off-by-default citation stripping and
   experimental dictionary-constrained PDF word joining; conservative margin,
   column and typography cleanup; simple scientific text/table narration.
@@ -68,12 +69,13 @@ of an already completed implementation:
 
 - Context-sensitive homographs and broader written-to-spoken forms; see
   [normalization research](TEXT_NORMALIZATION_RESEARCH.md).
-- Product integration of additional models after selection using the
-  [implemented standalone Swift benchmark](../tools/TTSBenchmark/README.md).
-  The [design and evidence](TTS_MODEL_BENCHMARK_PLAN.md) prioritize native
-  MLX-audio-swift models without the earlier 3× speed ceiling. M01 operator bracket
-  preferences and blind finalist confirmation remain separate from engineering
-  validation; new models have not been added to the apps.
+- The [shared model integration draft](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md)
+  follows the operator's reported bracket choices: Qwen3-TTS 1.7B, Chatterbox
+  Turbo and Orpheus 3B, with complete supported preset voice coverage in both
+  apps. It specifies shared catalog/settings/setup, native helpers, measured
+  resource admission, durable VoiceRelay jobs/transcripts and compatibility.
+  Implementation has not started; the earlier 3× ceiling remains waived.
+  Held-out/long-form M01 listening remains separate from engineering validation.
 - Better scientific structure/MathML, region-based review and advanced mathematical
   speech; see [academic PDF evaluation](ACADEMIC_PDF_EVALUATION.md). Current prose
   insets and the single complex-equation reference notice are already implemented.

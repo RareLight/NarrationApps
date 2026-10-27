@@ -108,6 +108,31 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
             format: "wav", gapAfterSeconds: gap, assemblyPolicy: policy.usesStructuralPauses ? NarrationPausePolicy.candidateVersion : nil)])
     }
 
+    /// Assembly belongs to the captured episode, independently of the reused
+    /// helper and lossless chunk checkpoints. Only prepared structural results
+    /// carry enough evidence to reconstruct their request-final boundary.
+    static func assemblyArtifacts(for request: SynthesisRequest, result: SynthesisResult,
+                                  gapSeconds: Double) -> [LosslessArtifact] {
+        guard let utterance = request.preparedUtterance, !result.artifacts.isEmpty,
+              result.artifacts.allSatisfy({ $0.assemblyPolicy == NarrationPausePolicy.candidateVersion &&
+                  $0.gapAfterSeconds?.isFinite == true && (0...10).contains($0.gapAfterSeconds!) }) else {
+            return result.artifacts
+        }
+        return result.artifacts.enumerated().map { index, original in
+            var artifact = original
+            if gapSeconds == 0 {
+                artifact.gapAfterSeconds = 0
+            } else if index == result.artifacts.count - 1 {
+                artifact.gapAfterSeconds = NarrationPausePolicy.seconds(after: utterance.boundaryAfter, explicitGap: gapSeconds)
+            } else {
+                // Interior artifact boundaries have no separate source evidence;
+                // retain their structural schedule and the episode's minimum gap.
+                artifact.gapAfterSeconds = max(original.gapAfterSeconds!, gapSeconds)
+            }
+            return artifact
+        }
+    }
+
     public func cancel() {
         bridge.cancel()
         // This joins the owned helper even when the queue task is cancelled.

@@ -166,8 +166,26 @@ Audio, destinations are checked afresh before a native Overwrite Existing / Skip
 Existing / Cancel prompt. Skipped documents are marked in the queue and can be
 queued again; cancellation changes neither queue decisions nor audio. Replacement
 approval is scoped to files present in that batch snapshot; late arrivals remain
-protected by coordinator/publication revalidation. Settings and output names are
+protected by coordinator revalidation and an exclusive atomic rename for
+unapproved targets. Selected directory inputs protect their complete canonical
+subtree, including unpacked EPUB resources. Direct rendering APIs retain their
+owned-output replacement defaults; the queue passes explicit per-job approval.
+Whole-batch collision validation happens once at admission, using ancestor-set
+membership rather than quadratic prefix scans. Each safety boundary revalidates
+the current target against captured bindings and refreshed source/other-output
+inode protection; mutable files are not assumed unchanged. This retains linear
+live-source checks per boundary without reconstructing every output plan.
+Settings and output names are
 captured for that batch before asynchronous cover preparation.
+
+Libro persists validated model, Kokoro voice and speed in app-owned preferences,
+independently of installed model assets. Unsupported/corrupt saved records use
+safe in-memory defaults and remain untouched until a valid user change is saved.
+The file-drop owner retains provider resolution through cancellation/shutdown,
+invalidates stale completions and joins replaced work. Provider cancellation
+resumes the waiter once even if a provider ignores cancellation; late callbacks
+cannot reintroduce rows. Replaced scanners join their predecessors before native
+intake/cover work starts; Quit joins that chain.
 
 Libro's native SwiftUI table owns drag selection and insertion markers. Queue
 ordering survives later imports; a running batch can reorder only its waiting

@@ -59,9 +59,7 @@ public actor QueueCoordinator {
                   Set(state.pending) == Set(request.documents.map(\.id)) else { throw SpeechFailure(.invalidInput) }
         }
         // Whole-batch preflight happens before any document/model is opened.
-        let bindings = try Dictionary(uniqueKeysWithValues: Self.revalidate(request).map {
-            ($0.id, try OutputPaths.resolved($0.destination))
-        })
+        let validation = try BatchPlanner.ValidationContext(request)
         var selected = configuration
         if let debugLog { selected.debugLog = debugLog }
         let scheduler = ChunkScheduler(configuration: selected)
@@ -74,10 +72,10 @@ public actor QueueCoordinator {
                 if control != nil {
                     // Controlled Libro batches release interactive admission while
                     // paused. Individual extraction/model operations own their leases.
-                    return await self.execute(request, queue: queue, cooperative: true, bindings: bindings, scheduler: scheduler, sessionConfiguration: sessionConfiguration, pronunciations: pronunciations, debugLog: sessionConfiguration.debugLog, events: events)
+                    return await self.execute(request, queue: queue, cooperative: true, validation: validation, scheduler: scheduler, sessionConfiguration: sessionConfiguration, pronunciations: pronunciations, debugLog: sessionConfiguration.debugLog, events: events)
                 }
                 return try await InferenceLease.withPriority(sessionConfiguration.inferencePriority, at: sessionConfiguration.inferenceLeaseFile) {
-                    await self.execute(request, queue: queue, cooperative: false, bindings: bindings, scheduler: scheduler, sessionConfiguration: sessionConfiguration, pronunciations: pronunciations, debugLog: sessionConfiguration.debugLog, events: events)
+                    await self.execute(request, queue: queue, cooperative: false, validation: validation, scheduler: scheduler, sessionConfiguration: sessionConfiguration, pronunciations: pronunciations, debugLog: sessionConfiguration.debugLog, events: events)
                 }
             } catch {
                 let cancelled = error is CancellationError
@@ -101,7 +99,7 @@ public actor QueueCoordinator {
         _ = await task?.value
     }
 
-    private func execute(_ request: BatchRequest, queue: BatchQueueControl, cooperative: Bool, bindings: [UUID: URL], scheduler: ChunkScheduler, sessionConfiguration: WorkerConfiguration, pronunciations: PronunciationDictionary, debugLog: DebugLog?,
+    private func execute(_ request: BatchRequest, queue: BatchQueueControl, cooperative: Bool, validation: BatchPlanner.ValidationContext, scheduler: ChunkScheduler, sessionConfiguration: WorkerConfiguration, pronunciations: PronunciationDictionary, debugLog: DebugLog?,
                          events: @escaping @Sendable (BatchEvent) -> Void) async -> BatchSummary {
         var outcomes: [DocumentOutcome] = []
         var session: NativeSpeechSession?
@@ -127,7 +125,7 @@ public actor QueueCoordinator {
                     onCancel: { preparation.cancel() }
                 try Task.checkCancellation()
                 try await queue.checkpoint(job: document.id)
-                _ = try Self.revalidate(request, bindings: bindings, publicationJob: document.id)
+                try validation.validate(document)
                 if session == nil {
                     session = try NativeSpeechSession(configuration: sessionConfiguration, workspace: request.workspace,
                                                       settings: request.settings, leaseFile: sessionConfiguration.inferenceLeaseFile)
@@ -138,10 +136,10 @@ public actor QueueCoordinator {
                 try await scheduler.render(projection: projection, batchID: request.id, jobID: document.id,
                                            workspace: request.workspace, settings: request.settings,
                                            destination: document.destination,
-                                           outputFormat: request.outputFormat, session: session, coverArtwork: request.coverArtwork[document.id],
+                                           outputFormat: request.outputFormat, replaceExisting: request.approvedReplacements.contains(document.id), session: session, coverArtwork: request.coverArtwork[document.id],
                                            checkpoint: checkpoint,
                                            beforePublication: {
-                                               _ = try Self.revalidate(request, bindings: bindings, publicationJob: document.id)
+                                               try validation.validate(document)
                                                do { try queue.authorizePublication(job: document.id) }
                                                catch is BatchItemSkipped { throw CancellationError() }
                                            },
@@ -183,23 +181,4 @@ public actor QueueCoordinator {
         return summary
     }
 
-    private static func revalidate(_ request: BatchRequest, bindings: [UUID: URL]? = nil,
-                                   publicationJob: UUID? = nil) throws -> [PlannedDocument] {
-        let names = Dictionary(uniqueKeysWithValues: request.documents.map { ($0.id, $0.relativeOutput) })
-        let plans = try BatchPlanner.plan(request.documents.map(\.input), output: request.outputDirectory, names: names, format: request.outputFormat)
-        for (current, original) in zip(plans, request.documents) {
-            if publicationJob == nil || publicationJob == current.id {
-                guard !current.replacesExisting || request.approvedReplacements.contains(current.id) else {
-                    throw PlanningError.replacementRequired
-                }
-            }
-            guard try OutputPaths.resolved(current.destination) == OutputPaths.resolved(original.destination) else {
-                throw PlanningError.invalidDestination
-            }
-            if let binding = bindings?[current.id], try OutputPaths.resolved(current.destination) != binding {
-                throw PlanningError.invalidDestination
-            }
-        }
-        return plans
-    }
 }

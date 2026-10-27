@@ -88,4 +88,25 @@ final class AtomicAudioWriterTests: XCTestCase {
             XCTAssertFalse(FileManager.default.fileExists(atPath: writer.temporary.path))
         }
     }
+    func testExclusivePublicationPreservesLastInstantArrivalAndApprovedReplacementWorks() throws {
+        try fixture { destination in
+            let previous = Data("another writer's completed output".utf8)
+            let writer = try AtomicAudioWriter(destination: destination)
+            try writer.append(samples: [-2, 0, 2], sampleRate: 24_000)
+            XCTAssertThrowsError(try writer.publish(replaceExisting: false) {
+                try previous.write(to: destination)
+            }) { error in
+                guard case AudioOutputError.destinationExists = error else { return XCTFail("Unexpected \(error)") }
+            }
+            writer.abort()
+            XCTAssertEqual(try Data(contentsOf: destination), previous)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: writer.temporary.path))
+            let replacement = try AtomicAudioWriter(destination: destination)
+            try replacement.append(samples: [-2, 0, 2], sampleRate: 24_000)
+            try replacement.publish(replaceExisting: true)
+            let file = try AVAudioFile(forReading: destination)
+            XCTAssertEqual(file.length, 3)
+        }
+    }
+
 }

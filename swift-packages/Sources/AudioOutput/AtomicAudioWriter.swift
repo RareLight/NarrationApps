@@ -3,13 +3,14 @@ import AVFoundation
 import Darwin
 
 public enum AudioOutputError: Error, LocalizedError {
-    case invalidPCM, inconsistentFormat, riffLimit, storage, empty, encoding, encoderUnavailable
+    case invalidPCM, inconsistentFormat, riffLimit, storage, empty, encoding, encoderUnavailable, destinationExists
 
     public var errorDescription: String? {
         switch self {
         case .invalidPCM: "Audio must contain finite samples and a positive sample rate."
         case .inconsistentFormat: "Audio sample rate changed between chunks."
         case .riffLimit: "Audio exceeds the WAV size limit. Split the document."
+        case .destinationExists: "An output appeared after approval. Review the destination before replacing it."
         case .storage: "Could not write or publish audio in the selected destination."
         case .empty: "The speech engine returned no audio."
         case .encoding: "The selected audio encoder could not finish this recording."
@@ -101,7 +102,7 @@ public final class AtomicAudioWriter {
     }
 
     /// The caller revalidates destinations and cancellation at this boundary.
-    public func publish(beforePublication: () throws -> Void = {}) throws {
+    public func publish(replaceExisting: Bool = true, beforePublication: () throws -> Void = {}) throws {
         guard frames > 0, !published, !aborted else { throw AudioOutputError.empty }
         guard coverArtwork == nil || format == .mp3 || artworkFinalized else { throw ArtworkError.metadata }
         do {
@@ -119,7 +120,12 @@ public final class AtomicAudioWriter {
             if format == .wav {
                 guard info.st_size >= 44, UInt64(info.st_size) - 8 <= UInt64(UInt32.max) else { throw AudioOutputError.riffLimit }
             }
-            guard rename(temporary.path, destination.path) == 0 else { throw AudioOutputError.storage }
+            let result = replaceExisting ? rename(temporary.path, destination.path)
+                : renamex_np(temporary.path, destination.path, UInt32(RENAME_EXCL))
+            guard result == 0 else {
+                if !replaceExisting, errno == EEXIST { throw AudioOutputError.destinationExists }
+                throw AudioOutputError.storage
+            }
             published = true
         } catch let error as AudioOutputError { throw error }
         catch is CancellationError { throw CancellationError() }
@@ -127,14 +133,14 @@ public final class AtomicAudioWriter {
     }
 
     /// Async native metadata finalization remains inside the atomic transaction.
-    public func publishWithArtwork(beforePublication: () throws -> Void = {}) async throws {
+    public func publishWithArtwork(replaceExisting: Bool = true, beforePublication: () throws -> Void = {}) async throws {
         if let coverArtwork, format == .m4a || format == .m4b {
             guard frames > 0, !published, !aborted else { throw AudioOutputError.empty }
             audioFile = nil
             try await AudioArtworkMetadata.addAAC(coverArtwork, to: temporary)
             artworkFinalized = true
         }
-        try publish(beforePublication: beforePublication)
+        try publish(replaceExisting: replaceExisting, beforePublication: beforePublication)
     }
 
     public func abort() {

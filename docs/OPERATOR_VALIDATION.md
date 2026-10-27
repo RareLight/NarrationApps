@@ -30,7 +30,13 @@ maintained Swift fixtures/tests remain. Use equivalent disposable documents and
 artwork for the operator checks below. Actual-document/player acceptance remains
 separate from automated fixture tests.
 
-- Quit older copies of each app. The October 23 title-recovery ad-hoc products
+- Quit older copies of each app. The October 27 Libro review-fix engineering
+  products are `.build/LibroReviewFixes-20261027/Build/Products/Release/Libro.app`
+  and `.build/LibroReviewFixes-20261027/Build/Products/Release/VoiceRelay.app`.
+  Debug products are in the parallel `Debug` folder. Both configurations passed
+  bundle/signature/resource/offline Metal checks; GUI, listening and account
+  acceptance are unperformed. See the [fix record](LIBRO_REVIEW_FIX_PLAN.md).
+  The earlier October 23 title-recovery ad-hoc products
   are `.build/TitleRecoveryValidation-20261023/Build/Products/Release/Libro.app` and
   `.build/TitleRecoveryValidation-20261023/Build/Products/Release/VoiceRelay.app`, relative to the
   monorepo root. Local generated products may be absent on another machine.
@@ -66,7 +72,9 @@ separate from automated fixture tests.
 - [ ] **L02 — Settings and appearance.** Visit General, Document, Models, Pronunciation and
   Troubleshooting. Test text size at 80%, 100% and 200%, ⌘+/⌘−/⌘0, minimum window
   sizes, light/dark, reduced motion/transparency, contrast, keyboard focus and
-  VoiceOver. Help, long errors and controls remain readable; preferences persist.
+  VoiceOver. Help, long errors and controls remain readable. Change model, Kokoro
+  voice and speed, quit/relaunch, and verify all three choices persist, including
+  switching back from Soprano.
 - [ ] **L03 — Voice samples.** Try every presented voice, including Soprano.
   Play/Stop and switching voices work without installed models; finished-audio
   playback does not overlap. The common phrase starts “Hello, I can narrate…”
@@ -82,6 +90,9 @@ separate from automated fixture tests.
   output names, selection/removal and keyboard shortcuts without disrupting typing.
   Re-drop a saved document: its row must become queued again. Adding a different
   source must leave old finished rows finished and active jobs unchanged.
+  Cancel or Clear Queue while a drop is still locating files: late provider replies
+  must not restore rows. Replace an import during scanning and quit during intake;
+  old work must settle without overlapping replacement scans or reappearing later.
   Drag single and noncontiguous selected rows to the beginning, middle and end;
   verify native insertion markers and execution order. Import another file and
   check the chosen order remains. During processing, reorder waiting items within
@@ -132,6 +143,9 @@ separate from automated fixture tests.
   batch; skipped rows are visible, Queue Again works, and Cancel preserves the queue.
   If a previously failed item is skipped, Queue Unfinished must queue it again;
   changing an eligible skipped text item's encoding must also allow reprocessing.
+  Try an output folder inside a selected unpacked EPUB: it must be rejected,
+  including a symlink alias. A new file placed at an unapproved output path during
+  generation must survive; reviewing a later batch can approve its replacement.
 - [ ] **L14 — Alerts and diagnostics.** Check completion alerts with permission
   allowed/denied. Try Check Embedded Helper and log Copy/Open/Reveal/Clear if wanted;
   controls explain unavailable/busy states. Keep diagnostic text/paths private.
@@ -345,7 +359,8 @@ separate from automated fixture tests.
   a transcript. Verify the host serves `.vtt` as `text/vtt` with the episode's
   access protections. In a compatible player, check segment text, pauses, live
   scrolling and tap-to-seek against actual audio. Check your installed Overcast
-  TestFlight build separately; supplied-transcript support is unconfirmed. Test
+  version separately (reported App Store 2026.10.1, build 1182);
+  supplied-transcript support is unconfirmed. Test
   a failed sidecar upload and Sync Now retry without new speech. Old recordings
   and source documents must remain unchanged. Word-level timing is not provided.
 

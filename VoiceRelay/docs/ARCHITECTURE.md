@@ -67,6 +67,10 @@ Duplicate/preparing entries are excluded appropriately; failed automatic admissi
 waits until a new session rather than looping. Article Preview owns its own cancellable
 fetch and does not silently enqueue work. Snapshots retain verified source/semantic
 bytes and provenance; offline resume reuses them. See [source handling](SOURCE_REVIEW.md).
+Removal compares previous and current source URL fingerprints even when Safari
+retains the same entry UUID. Another current entry for the old URL keeps that
+source live. Ordinary HTML headline/slug matches remain useful title evidence;
+filename-based recovery is scoped to PDF intake, including extensionless PDFs.
 
 A successful refresh that finds a removed Safari entry excludes it from Articles/
 Queue, cancels matching admissions and joins matching speech before owned cache/
@@ -106,6 +110,9 @@ a structural minimum rather than a second inserted blanket gap; explicit zero
 remains zero. Semantic/acoustic and encoding identities are independent. Incomplete
 incompatible plans reprepare safely; published or verified already-placed final
 media is preserved even if older scratch has disappeared.
+Captured per-episode pauses are applied after helper reuse and when restoring
+compatible lossless checkpoints. Encoding version 3 reassembles unfinished encoded
+scratch with that policy, preserving PCM and finished recordings.
 
 ## Publishing, recovery and cleanup
 
@@ -126,6 +133,8 @@ surface transcript retry/pending publication separately from audio completion.
 An immutable `<episode-id>-<transcript-hash>.vtt` object shares the existing audio
 collection. Existing different contents are never overwritten. Backoff, explicit
 retry, destination identity and cancellation-before/after-PUT remain durable.
+Public-folder-only edits refresh the owned RSS reference after sidecar readback;
+an obsolete public reference remains pending even if its uploaded bytes are confirmed.
 
 Namespace-aware feed recovery preserves validated transcript references without
 fetching arbitrary linked text. Audio replacement invalidates incompatible local
@@ -169,6 +178,14 @@ backoff, proof expiry, conditional requests and per-item failure isolation.
 Destination changes invalidate old proofs/delete intentions and preserve old-host
 copies. Server retirement removes feed membership before media deletion and retains
 unfinished removal state until confirmed.
+Retirement records only paths belonging to the ledger's exact recorded destination.
+Every drain also discards stale unowned deletion intent before network operations.
+Successful deletion uses a path-to-owner index and targeted record reads/writes,
+leaving unrelated retired history unchanged. Turning Publishing off cancels the
+active drain and clears queued follow-ups while retaining durable retry state.
+Transcript-only failed removals remain in Server Audio after media deletion,
+with an owning-episode error until retry completes. This read-only visibility
+probe never renames a corrupt ledger or grants permission to delete remote files.
 
 Automatic reconciliation uses exact episode/retained-link evidence, not titles or
 orphan filenames. Matching verified server media can restore history without speech

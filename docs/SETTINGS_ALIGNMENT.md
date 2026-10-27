@@ -68,3 +68,12 @@ workflow. VoiceRelay's Podcast Cover lives beside channel details in Publishing.
 Both offer Choose/Replace/Remove; validation/storage remain in shared AudioOutput
 and app-owned state. Podcast cover import errors are separate from server delivery
 errors. AppPresentation remains independent of narration, documents and audio.
+
+## Planned model-selection guidance
+
+The [multi-model integration plan](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md#model-selection-guidance-speed-and-quality-meters)
+adds common static generation-speed and narration-quality meters, text tiers and
+model details to both apps. NativeSpeech will own reviewed generalized guidance;
+NarrationUI will own presentation. These are shipped estimates, with no user-system
+benchmark, automatic model load or network lookup. Current model/voice controls
+have not yet been replaced by this planned UI.

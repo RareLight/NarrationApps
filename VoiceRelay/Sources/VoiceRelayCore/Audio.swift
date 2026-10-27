@@ -4,7 +4,7 @@ import AudioOutput
 import NarrationCore
 
 struct AudioProcessor: Sendable {
-    static let encodingVersion = "native-float32-aac-2"
+    static let encodingVersion = "native-float32-aac-3"
     let settings: PrototypeProfile
     let toolDirectory: URL
     private let inspection = AudioInspectionCache()

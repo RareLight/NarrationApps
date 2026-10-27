@@ -542,6 +542,43 @@ final class SchedulingTests: XCTestCase {
         try fixture.assertClean()
     }
 
+
+    func testUnapprovedArrivalAfterFinalAuthorizationSurvivesAtomicPublication() async throws {
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let request = try fixture.request([fixture.input("after-authorization.txt")])
+        let queue = BatchQueueControl(batch: request.id, jobs: request.documents.map(\.id))
+        let destination = request.documents[0].destination
+        let previous = Data("another writer published after the last validation".utf8)
+        let result = try await QueueCoordinator(configuration: fixture.configuration()).run(request, control: queue) { event in
+            if case .control(let state) = event, state.current != nil, !state.canSkip {
+                try? previous.write(to: destination)
+            }
+        }
+        XCTAssertEqual(result.documents.map(\.state), [.failed])
+        XCTAssertEqual(try Data(contentsOf: destination), previous)
+        try fixture.assertClean()
+    }
+
+    func testForgedRequestCannotReplaceAnUnpackedBookResource() async throws {
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let book = fixture.root.appendingPathComponent("Book.epub")
+        let resources = book.appendingPathComponent("EPUB")
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        let destination = resources.appendingPathComponent("chapter.wav")
+        let original = Data("manifest-linked original EPUB resource".utf8)
+        try original.write(to: destination)
+        let input = InputDocument(source: book, kind: .epub, relativePath: "Book.epub")
+        let plan = PlannedDocument(input: input, destination: destination, relativeOutput: "chapter.wav", replacesExisting: true)
+        let request = BatchRequest(documents: [plan], outputDirectory: resources, workspace: fixture.root, settings: .init(), replaceExisting: true)
+        do {
+            _ = try await QueueCoordinator(configuration: fixture.configuration()).run(request)
+            XCTFail("Expected source protection before extraction or model initialization")
+        } catch { guard case PlanningError.protectedInput = error else { return XCTFail("Unexpected \(error)") } }
+        XCTAssertEqual(try Data(contentsOf: destination), original)
+        XCTAssertTrue(try fixture.records().isEmpty)
+        try fixture.assertClean()
+    }
+
     func testLateOutputAliasIsRejectedWithoutRetryOrExternalOverwrite() async throws {
         let fixture = try ProcessFixture(); defer { fixture.remove() }
         let outside = fixture.root.appendingPathComponent("external.wav")

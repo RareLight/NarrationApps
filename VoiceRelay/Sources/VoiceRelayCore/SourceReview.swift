@@ -41,7 +41,7 @@ public struct ReviewedSource: Sendable {
         } else { review = try prepare(page, chunkLimit: chunkLimit, settings: settings, pronunciations: pronunciations, options: options) }
         guard let document = review.document, review.issue == nil else { return review }
         let resolved = try await DocumentTitles.resolve(title: document.article.title, sourceTitle: sourceTitle,
-            blocks: document.article.blocks, urls: [page.originalURL, page.finalURL], generate: titleGenerator)
+            blocks: document.article.blocks, urls: [page.originalURL, page.finalURL], isPDF: page.contentType == "application/pdf", generate: titleGenerator)
         var article = document.article
         article.title = resolved.text; article.titleOrigin = resolved.origin
         let changed = article.title != document.article.title

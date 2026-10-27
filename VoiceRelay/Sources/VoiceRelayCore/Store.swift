@@ -339,6 +339,12 @@ final class PipelineStore: Sendable {
     func episode(sourceKey: String, settings: PrototypeProfile) throws -> Episode {
         try writing { try $0.episode(sourceKey: sourceKey, settings: settings) }
     }
+    func episode(id: String) throws -> Episode? {
+        try reading { store in
+            guard let raw = try store.query("SELECT record FROM episodes WHERE id=?", [id]).first?.first else { return nil }
+            return try JSONDecoder().decode(Episode.self, from: Data(raw.utf8))
+        }
+    }
     func save(_ e: Episode, pendingFeed: Bool = false) throws {
         try writing { try $0.save(e, pendingFeed: pendingFeed) }
     }

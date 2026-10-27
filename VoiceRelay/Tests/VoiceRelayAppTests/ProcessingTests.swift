@@ -1876,6 +1876,80 @@ private actor FeedConfirmationGate: DeliveryTransport {
     #expect(transport.calls.isEmpty && !model.deliveryTesting)
 }
 
+/// Suspend before committing the first media PUT so turning publishing off can
+/// be observed without transferring any bytes or contacting a real server.
+private actor PublishingOffGate: DeliveryTransport {
+    private let base = StubDeliveryTransport()
+    private var held = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    private(set) var observedCancellation = false
+
+    func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String]) async throws -> DeliveryResponse {
+        if !held && method == "PUT" && url.pathExtension == "m4a" {
+            held = true
+            let timeout = Task { try? await Task.sleep(for: .seconds(10)); self.release() }
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation = $0 }
+            } onCancel: { Task { await self.release() } }
+            timeout.cancel()
+            do { try Task.checkCancellation() }
+            catch { observedCancellation = true; throw error }
+        }
+        return try await base.request(method, url: url, body: body, file: file, headers: headers)
+    }
+    func waitUntilHeld() async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while continuation == nil && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        guard continuation != nil else { throw RelayError.tool("Synthetic media upload did not start.") }
+    }
+    func release() { continuation?.resume(); continuation = nil }
+    func writeCount() -> Int { base.calls.filter { ["PUT", "MKCOL", "DELETE"].contains($0.method) }.count }
+}
+
+@Test @MainActor func disablingPublishingCancelsActiveDrainAndKeepsMediaForReenable() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let coordinator = FixtureCoordinator(), settings = appDeliverySettings(), transport = PublishingOffGate()
+    defer { Task { await transport.release() } }
+    var expectedHashes: [String: String] = [:]
+    for path in ["first", "second"] {
+        let result = try await coordinator.runReviewed(root: storage.stateRoot, review: article(path),
+            backend: SyntheticProvider(), storage: storage, delivery: settings)
+        expectedHashes[result.episode.id] = try #require(result.episode.audioHash)
+    }
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport },
+        credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = settings; model.triggerDelivery()
+    try await transport.waitUntilHeld()
+    let writesBeforeOff = await transport.writeCount()
+    model.triggerDelivery(force: true) // A queued follow-up must not survive Off.
+    model.deliverySettings.enabled = false
+    await model.waitForDelivery(); await model.waitForLibraryRefresh(); await model.waitForSettingsBookkeeping()
+    #expect(await transport.observedCancellation)
+    #expect(await transport.writeCount() == writesBeforeOff)
+    #expect(!model.deliveryBusy && model.deliveryError == nil)
+    let pending = try await coordinator.savedAudio(storage: storage)
+    #expect(pending.count == 2)
+    for episode in pending {
+        #expect(episode.delivery?.status == .pending && episode.audioHash == expectedHashes[episode.id])
+        #expect(FileManager.default.fileExists(atPath: episode.settings.audio.appendingPathComponent(episode.id + ".m4a").path))
+    }
+    model.triggerDelivery(force: true); await model.waitForDelivery()
+    #expect(await transport.writeCount() == writesBeforeOff)
+
+    // The next ordinary delivery tick after the user re-enables Publishing resumes
+    // the same retained recordings, without another synthesis pass.
+    model.deliverySettings.enabled = true; model.triggerDelivery()
+    await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    let summary = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+    #expect(summary.uploadedMedia == 2 && summary.pendingMedia == 0)
+    #expect(model.deliveryError == nil && model.savedEpisodes.count == 2)
+    for episode in model.savedEpisodes {
+        #expect(episode.audioHash == expectedHashes[episode.id] && model.savedAudioDeliveryStatus(episode) == .published)
+    }
+    await model.shutdown()
+}
+
 @Test @MainActor func deliverySettingsChangeMarksRemoteFeedPending() async throws {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
@@ -2829,5 +2903,122 @@ private final class PublishingPreflightGate: @unchecked Sendable {
     await model.coordinator.setBeforeDeliveryPreflight(nil)
     await model.waitForDelivery(); await model.waitForLibraryRefresh()
     #expect(!model.deliveryBusy && !model.deliveryPreflightBusy && model.deliveryError == nil)
+    await model.shutdown()
+}
+
+@Test @MainActor func retargetingReadingListEntryStopsOwnedSpeechAndAdmitsReplacement() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let review = try article("old-address"), replacement = try article("new-address")
+    let coordinator = FixtureCoordinator(), provider = CancellableProvider(holdCleanup: true)
+    defer { provider.allowCleanup() }
+    let original = ReadingListEntry(id: "safari:stable", safariID: "stable", url: review.page.originalURL, title: "Original", addedAt: .distantPast)
+    let updated = ReadingListEntry(id: original.id, safariID: original.safariID, url: replacement.page.originalURL, title: "Replacement", addedAt: original.addedAt)
+    let catalog = try await coordinator.reconcile(.init(entries: [original], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let item = try await coordinator.enqueue(review, storage: storage, preferences: .init(), sourceEntryID: original.id)
+    let model = AppModel(storage: storage, backend: { episode in
+        if episode.id == item.id { return provider }
+        return SyntheticProvider()
+    },
+        enqueueFetch: { _ in replacement.page }, readingListReader: { _ in .init(entries: [updated], skippedEntries: 0) })
+    model.sourceReview.plist = root.appendingPathComponent("synthetic-source.plist")
+    model.sourceReview.catalog = catalog; model.queueItems = [item]
+    model.autoAdmitEnabled = true; model.autoProcessEnabled = false
+    model.runQueue()
+    try await waitUntil("retargeted source speech started") { provider.started }
+    #expect(await model.sourceReview.synchronizeOnce())
+    try await waitUntil("retargeted source stops before cleanup") { model.cancelling && model.sourcePruningBusy }
+    #expect(try NativeStore(url: storage.profile.database, readOnly: true).snapshot(articleID: item.id) != nil)
+    provider.allowCleanup()
+    await model.waitForSourcePruning()
+    try await waitUntil("replacement source admitted after pruning") { model.pendingAdds[updated.id] != nil || model.queueItems.contains { $0.id != item.id && $0.sourceEntryID == updated.id } }
+    await model.waitForEnqueue(); await model.waitForLibraryRefresh()
+    let queue = try await coordinator.queue(stateRoot: storage.stateRoot)
+    let replacementItem = try #require(queue.first { $0.sourceEntryID == updated.id })
+    #expect(provider.finished && !model.running && queue.count == 1 && replacementItem.id != item.id)
+    #expect(try NativeStore(url: storage.profile.database, readOnly: true).snapshot(articleID: item.id) == nil)
+    #expect(try await coordinator.articlePreviewURL(articleID: replacementItem.id, stateRoot: storage.stateRoot) == updated.url)
+    await model.shutdown()
+}
+
+@Test @MainActor func retargetedEntryWithDuplicateOriginalURLPreservesJobAndAdmitsReplacement() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let review = try article("retained-address"), replacement = try article("replacement-address"), coordinator = FixtureCoordinator()
+    let original = ReadingListEntry(id: "safari:stable", safariID: "stable", url: review.page.originalURL, title: "Original", addedAt: .distantPast)
+    let updated = ReadingListEntry(id: original.id, safariID: original.safariID, url: replacement.page.originalURL, title: "Replacement", addedAt: original.addedAt)
+    let retained = ReadingListEntry(id: "safari:retained", safariID: "retained", url: original.url, title: original.title, addedAt: original.addedAt)
+    let catalog = try await coordinator.reconcile(.init(entries: [original], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let item = try await coordinator.enqueue(review, storage: storage, preferences: .init(), sourceEntryID: original.id)
+    let model = AppModel(storage: storage, enqueueFetch: { _ in replacement.page },
+        readingListReader: { _ in .init(entries: [updated, retained], skippedEntries: 0) })
+    model.sourceReview.plist = root.appendingPathComponent("synthetic-source.plist")
+    model.sourceReview.catalog = catalog; model.queueItems = [item]
+    model.autoAdmitEnabled = true; model.autoProcessEnabled = false
+    #expect(await model.sourceReview.synchronizeOnce())
+    try await waitUntil("replacement source admitted beside retained original") { model.pendingAdds[updated.id] != nil || model.queueItems.count == 2 }
+    await model.waitForEnqueue(); await model.waitForLibraryRefresh()
+    let queue = try await coordinator.queue(stateRoot: storage.stateRoot)
+    let retainedItem = try #require(queue.first { $0.id == item.id })
+    #expect(queue.count == 2 && retainedItem.sourceEntryID == retained.id && retainedItem.state == item.state && retainedItem.attempts == item.attempts)
+    #expect(!model.sourcePruningBusy)
+    #expect(try NativeStore(url: storage.profile.database, readOnly: true).snapshot(articleID: item.id) != nil)
+    let replacementItem = try #require(queue.first { $0.sourceEntryID == updated.id })
+    #expect(try await coordinator.articlePreviewURL(articleID: replacementItem.id, stateRoot: storage.stateRoot) == updated.url)
+    await model.shutdown()
+}
+
+@Test @MainActor func retargetedEntryReassociatesActiveJobWithoutStoppingSpeechOrBlockingReplacement() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let review = try article("active-retained-address"), replacement = try article("active-replacement-address")
+    let coordinator = FixtureCoordinator(), provider = CancellableProvider(holdCleanup: true)
+    defer { provider.allowCleanup() }
+    let original = ReadingListEntry(id: "safari:stable", safariID: "stable", url: review.page.originalURL, title: "Original", addedAt: .distantPast)
+    let updated = ReadingListEntry(id: original.id, safariID: original.safariID, url: replacement.page.originalURL, title: "Replacement", addedAt: original.addedAt)
+    let retained = ReadingListEntry(id: "safari:retained", safariID: "retained", url: original.url, title: original.title, addedAt: original.addedAt)
+    let catalog = try await coordinator.reconcile(.init(entries: [original], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let item = try await coordinator.enqueue(review, storage: storage, preferences: .init(), sourceEntryID: original.id)
+    let model = AppModel(storage: storage, backend: { _ in provider }, enqueueFetch: { _ in replacement.page },
+        readingListReader: { _ in .init(entries: [updated, retained], skippedEntries: 0) })
+    model.sourceReview.plist = root.appendingPathComponent("synthetic-source.plist")
+    model.sourceReview.catalog = catalog; model.queueItems = [item]
+    model.autoAdmitEnabled = true; model.autoProcessEnabled = false
+    model.runQueue()
+    try await waitUntil("duplicate original source speech started") { provider.started }
+    #expect(await model.sourceReview.synchronizeOnce())
+    try await waitUntil("replacement admitted during retained original speech") { model.pendingAdds[updated.id] != nil || model.queueItems.count == 2 }
+    await model.waitForEnqueue()
+    let active = try #require(model.queueItems.first { $0.id == item.id })
+    #expect(model.running && !model.cancelling && !model.sourcePruningBusy)
+    #expect(active.sourceEntryID == retained.id && active.state == .running && active.attempts == 1)
+    let queue = try await coordinator.queue(stateRoot: storage.stateRoot)
+    #expect(queue.count == 2 && queue.contains { $0.id != item.id && $0.sourceEntryID == updated.id })
+    provider.allowCleanup()
+    await model.shutdown()
+}
+
+@Test @MainActor func retargetedEntryCanAutomaticallyAdmitNewURLAfterOldURLFailedThisSession() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let review = try article("failed-original-address"), replacement = try article("fresh-replacement-address"), coordinator = FixtureCoordinator()
+    let original = ReadingListEntry(id: "safari:stable", safariID: "stable", url: review.page.originalURL, title: "Original", addedAt: .distantPast)
+    let updated = ReadingListEntry(id: original.id, safariID: original.safariID, url: replacement.page.originalURL, title: "Replacement", addedAt: original.addedAt)
+    let catalog = try await coordinator.reconcile(.init(entries: [original], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let fetches = SyncCounter()
+    let model = AppModel(storage: storage, enqueueFetch: { url in
+        fetches.increment()
+        if url == original.url { throw SourceFetchError.network }
+        return replacement.page
+    }, readingListReader: { _ in .init(entries: [updated], skippedEntries: 0) })
+    model.sourceReview.plist = root.appendingPathComponent("synthetic-source.plist")
+    model.sourceReview.catalog = catalog; model.autoAdmitEnabled = true; model.autoProcessEnabled = false
+    await model.autoAdmitNewEntries(); await model.waitForEnqueue()
+    #expect(fetches.value == 1 && !model.enqueueIssues.isEmpty)
+    await model.autoAdmitNewEntries(); await model.waitForEnqueue()
+    #expect(fetches.value == 1)
+    #expect(await model.sourceReview.synchronizeOnce())
+    await model.waitForSourcePruning()
+    try await waitUntil("new source URL bypasses the previous URL failure") { model.pendingAdds[updated.id] != nil || !model.queueItems.isEmpty }
+    await model.waitForEnqueue(); await model.waitForLibraryRefresh()
+    #expect(fetches.value == 2 && model.queueItems.count == 1)
+    let item = try #require(model.queueItems.first)
+    #expect(try await coordinator.articlePreviewURL(articleID: item.id, stateRoot: storage.stateRoot) == updated.url)
     await model.shutdown()
 }

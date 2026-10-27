@@ -42,6 +42,10 @@ The losing server file is preserved, not deleted. A winning server copy restores
 history and removes matched queue work without TTS or media PUT. Known uploads
 interrupted before feed publication are reused when verified, then added to the
 feed. Explicit local retirement always takes precedence over rediscovery.
+Deletion authority is tied to the exact upload destination and app-owned path.
+Retiring an old-destination episode after a host/folder change cannot authorize a
+DELETE on the new destination; stale foreign intent from earlier versions is
+discarded during reconciliation. Unrelated remote files remain untouched.
 
 ## Failure isolation and efficiency
 

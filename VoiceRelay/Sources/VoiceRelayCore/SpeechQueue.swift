@@ -132,12 +132,21 @@ extension FixtureCoordinator {
         for entry in snapshot.entries { try ArticleURL.validate(entry.url) }
         let store = try metadataWriter(stateRoot)
         var catalog = try store.catalog()
-        let currentSources = Set(snapshot.entries.map { "reviewed-url-v1-" + Files.hash(Data($0.url.absoluteString.utf8)) })
-        let currentIDs = Set(snapshot.entries.map(\.id))
-        let missingSources = Set(catalog.entries.filter { !currentIDs.contains($0.id) }
-            .map { "reviewed-url-v1-" + Files.hash(Data($0.url.absoluteString.utf8)) }).subtracting(currentSources)
+        let entriesBySource = Dictionary(snapshot.entries.map {
+            ("reviewed-url-v1-" + Files.hash(Data($0.url.absoluteString.utf8)), $0)
+        }, uniquingKeysWith: { first, _ in first })
+        let currentSources = Set(entriesBySource.keys)
+        // Safari can retain an entry's UUID when its address changes. Source
+        // removal follows URLs so the old article cannot stay queued under that ID.
+        let missingSources = Set(catalog.entries.map { "reviewed-url-v1-" + Files.hash(Data($0.url.absoluteString.utf8)) })
+            .subtracting(currentSources)
         // Resolve legacy origins while the old inventory still exists, then persist cleanup intent.
         let episodes = try store.episodes()
+        let sourceByEpisode = Dictionary(uniqueKeysWithValues: episodes.compactMap { episode in
+            episode.originalSourceIdentity.map { (episode.id, $0) }
+        })
+        let currentEntries = Dictionary(snapshot.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let queue = try store.queue()
         catalog.reconcile(snapshot)
         // Legacy exclusions are still decodable but no longer honored; each save clears them.
         catalog.excludedIDs = []
@@ -152,6 +161,17 @@ extension FixtureCoordinator {
                     episode.readingListRemoved = false
                 } else { continue }
                 try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
+            }
+            // A duplicate URL may survive under another Safari ID. Keep its
+            // existing job, but release a retargeted ID for its replacement URL.
+            for item in queue {
+                guard let oldID = item.sourceEntryID, let source = sourceByEpisode[item.id],
+                      let entry = entriesBySource[source], oldID != entry.id else { continue }
+                if let current = currentEntries[oldID],
+                   "reviewed-url-v1-" + Files.hash(Data(current.url.absoluteString.utf8)) == source { continue }
+                try store.saveQueueItem(.init(id: item.id, title: item.title, sourceEntryID: entry.id,
+                    admissionID: item.admissionID, state: item.state, attempts: item.attempts,
+                    lastError: item.lastError, sourceHost: item.sourceHost))
             }
             try store.saveCatalog(catalog)
             try store.execute("COMMIT")

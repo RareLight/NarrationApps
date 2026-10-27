@@ -1,13 +1,65 @@
 # Current implementation status
 
-Current-state documentation reviewed October 21, 2026. Product evidence remains
-the October 20 validation described below. NarrationApps is one repository containing Libro,
+Current-state documentation updated October 27, 2026. Feature-specific engineering
+evidence is dated below. NarrationApps is one repository containing Libro,
 VoiceRelay, SwiftNarration, AppPresentation and the combined Xcode workspace.
 The containing commit identifies all maintained source. See
 [monorepo migration](MONOREPO_MIGRATION.md), [architecture](ARCHITECTURE.md),
 [remaining work](IMPLEMENTATION_PLAN.md) and [operator validation](OPERATOR_VALIDATION.md).
 Private document reviews and their input-specific results are retained locally;
 they are excluded from the publication history. Synthetic fixtures remain maintained.
+
+## Libro whole-app review fixes
+
+October 27 implementation addresses source-folder output protection, exclusive
+atomic publication for unapproved destinations, persistent validated model/voice/
+speed preferences, owned cancellable file drops and joined scanner replacement.
+Shared queue admission validates names/collisions once; safety boundaries validate
+the current target while refreshing source and inode protections, avoiding repeated
+whole-batch planning and quadratic path-prefix comparisons.
+
+The [implementation plan](LIBRO_REVIEW_FIX_PLAN.md) records the scope. The full
+fixture gate passes, including 38 LibroCore, 328 VoiceRelay core and 166 app tests,
+shared/static/packaging checks and the new source/publication/import regressions.
+Existing private-document/native opt-ins remain skips. Evidence is
+`.local/validation/full-C362DC1E-6FB1-4168-B1C5-143E6D4F0352/summary.json`.
+Debug and Release workspace builds and four bundle audits pass. Products are in
+`.build/LibroReviewFixes-20261027/Build/Products/{Debug,Release}/`; reports in
+`.local/libro-fixes/` verify helper-only MLX, resources, codec, signatures and offline
+Metal readiness. These are isolated ad-hoc engineering builds, with no installed
+bundle replaced. GUI/listening, actual documents,
+protected-file providers and signing-account acceptance remain operator-owned.
+
+## VoiceRelay whole-app review fixes
+
+October 26–27 implementation addresses all eight VoiceRelay review findings: exact
+destination/path authority for retirement (including stale ledger intent),
+cancellation when Publishing is disabled, targeted deletion-owner updates,
+URL-based Reading List removal, original publisher metadata for archived articles,
+HTML headline/slug preservation with PDF filename recovery, captured per-episode
+pause assembly after helper/checkpoint reuse, and public transcript-link remapping.
+Encoding version 3 rebuilds unfinished scratch from compatible lossless checkpoints;
+completed and verified already-placed recordings stay unchanged.
+
+The [implementation plan](VOICERELAY_REVIEW_FIX_PLAN.md) records stages and evidence.
+Focused regressions cover migration, source identity, pauses and disablement.
+The October 27 follow-up also keeps failed
+transcript-only removals visible and preserves their error in either deletion
+order; listing history leaves corrupt ledgers untouched.
+Reading List callbacks stop/join obsolete speech before purging, rebind a surviving
+duplicate's source association and admit replacement URLs even during active work
+or after the old URL failed earlier in the session. Failure suppression follows
+source URLs, not reusable Safari entry IDs.
+
+The final full fixture gate passes, including 328 VoiceRelay core tests, 166 app
+tests and all shared/Libro/static/packaging suites. Existing opt-in private/native
+cases remain skips. Evidence is
+`.local/validation/full-0F216836-5CB5-47F8-8A04-E9E1113F9997/`.
+Debug and Release workspace builds and all four bundle/signature/resource/Metal
+audits pass for the final source. Ad-hoc candidates use
+`.build/VoiceRelayReviewFixes-20261026/Build/Products/{Debug,Release}/`; build/audit
+logs are under `.local/review-fixes/`. Final static/documentation checks also pass.
+No live library, service or installed operator app has been modified.
 
 ## VoiceRelay timed episode transcripts
 
@@ -43,6 +95,14 @@ operator acceptance [V22](OPERATOR_VALIDATION.md#voicerelay).
 
 ## Standalone TTS model comparison
 
+On October 27 the operator reported Qwen3-TTS 1.7B / Ryan as the top bracket
+choice, Chatterbox Turbo / default as runner-up, and Kokoro / Heart plus Orpheus
+3B / leah as contenders. The [shared integration draft](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md)
+covers all supported preset voices of the selected checkpoints, shared setup/UI,
+native adapters, resource admission and both app workflows. Product implementation
+has not started. This records the supplied ranking without inventing or importing
+canonical bracket votes; held-out and long-form listening remain open.
+
 October 24–25 implementation adds the [Swift benchmark utility](../tools/TTSBenchmark/README.md),
 independent of either app. It explicitly prepares pinned model assets, supervises
 serial offline workers with time/memory bounds, preserves native-rate audio and
@@ -64,9 +124,10 @@ the original failure, source receipts and both builds' evidence. All WAV hashes,
 12 unique bracket entrants, empty preference history and page audio links were
 verified. Fish S2 Pro remains blocked for a licensed reference clip/transcript.
 The [design/evidence record](TTS_MODEL_BENCHMARK_PLAN.md) identifies local reports
-and measurement limits. Operator [M01](OPERATOR_VALIDATION.md#model-evaluation-developer-utility)
-remains open: no listening winner, finalist long-form acceptance or product model
-integration is claimed.
+and measurement limits. No operator ranking was recorded at that benchmark run's
+creation. The later reported ranking is recorded above; operator
+[M01](OPERATOR_VALIDATION.md#model-evaluation-developer-utility) still requires
+finalist held-out/long-form acceptance. New product model support remains planned.
 
 The October 25 follow-up replaces per-choice CLI entry with a server-free local
 HTML/JavaScript scoring app. Anonymous labels and hashed audio paths conceal names;

@@ -27,9 +27,14 @@ final class IntakeModel {
     var planningError: String?
     var planned: [PlannedDocument] = []
     var scanCount = 0
-    var busy = false
-    var settings = SpeechSettings() {
+    private var workBusy = false
+    var busy: Bool {
+        get { workBusy || droppedFiles.hasOwnedWork }
+        set { workBusy = newValue }
+    }
+    var settings = SpeechSettingsPreference().load() {
         didSet {
+            SpeechSettingsPreference().save(settings)
             if oldValue.model != settings.model || oldValue.voice != settings.voice { voiceSamplePlayer.stop(); refreshReadiness() }
         }
     }
@@ -67,7 +72,7 @@ final class IntakeModel {
         busy = true
         let store = coverStore
         coverTask = Task {
-            defer { coverTask = nil; busy = hasIntakeWork }
+            defer { coverTask = nil; busy = scanner != nil || reader != nil }
             do {
                 let work = Task.detached(priority: .userInitiated) {
                     let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
@@ -87,7 +92,7 @@ final class IntakeModel {
         busy = true
         let store = coverStore
         coverTask = Task {
-            defer { coverTask = nil; busy = hasIntakeWork }
+            defer { coverTask = nil; busy = scanner != nil || reader != nil }
             do {
                 let work = Task.detached(priority: .userInitiated) {
                     let bytes = try DocumentReader.bookCover(document)
@@ -106,7 +111,7 @@ final class IntakeModel {
         let store = coverStore, keeping = Set(coverDigests.values)
         busy = true
         coverTask = Task {
-            defer { coverTask = nil; busy = hasIntakeWork }
+            defer { coverTask = nil; busy = scanner != nil || reader != nil }
             do {
                 let work = Task.detached(priority: .utility) { try store.removeUnreferenced(keeping: keeping) }
                 try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
@@ -201,8 +206,8 @@ final class IntakeModel {
     }
     var canManageSpeechSetup: Bool { speechSetupDisabledReason == nil }
     var canPrepareModel: Bool { workspace?.url != nil && canManageSpeechSetup }
-    var cancellable: Bool { hasCoverWork || pronunciationPreview.hasOwnedWork || scanner != nil || reader != nil || hasOwnedProbe || isGenerating || isPreparingModel }
-    var inputCancelLabel: String { scanner != nil ? "Cancel Import" : (reader != nil ? "Cancel Analysis" : "Cancel Check") }
+    var cancellable: Bool { hasCoverWork || pronunciationPreview.hasOwnedWork || droppedFiles.hasOwnedWork || scanner != nil || reader != nil || hasOwnedProbe || isGenerating || isPreparingModel }
+    var inputCancelLabel: String { droppedFiles.hasOwnedWork || scanner != nil ? "Cancel Import" : (reader != nil ? "Cancel Analysis" : "Cancel Check") }
     var hasOwnedProbe: Bool { probeProcess != nil }
     var activityStatus: String { scanner != nil ? (coverScanProgress ?? "Scanning inputs… \(scanCount) entries checked.") : status }
     var planning: Bool { planner != nil }
@@ -226,6 +231,7 @@ final class IntakeModel {
     private var roots: [URL] = []
     private var removed = Set<String>()
     private var scopes: [String: DirectoryAccess] = [:]
+    let droppedFiles = FileDropImport()
     private var scanner: Task<(intake: IntakeResult, covers: [String: String]), Error>?
     private var reader: Task<Void, Error>?
     private var previewOperation: UUID?
@@ -256,6 +262,7 @@ final class IntakeModel {
     private init() {
         coordinator = QueueCoordinator(configuration: WorkerConfiguration(executable:
             Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), inferencePriority: .interactive, pronunciationStore: .init()))
+        voices = [settings.voice]
         output = preferences.load(.output)
         workspace = preferences.load(.workspace)
         if let root = workspace?.url { debugLogURL = DebugLog.existingURL(workspace: root) }
@@ -300,6 +307,8 @@ final class IntakeModel {
 
     func add(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
+        droppedFiles.cancel()
+        let previousScanner = scanner
         let previousReader = reader
         previewOperation = nil; preview = nil
         scanner?.cancel(); reader?.cancel()
@@ -318,10 +327,7 @@ final class IntakeModel {
         let references = coverDigests, exclusions = automaticCoverExclusions, store = coverStore
         let removedPaths = removed
         let previousCoverWork = coverTask
-        let task = Task.detached(priority: .userInitiated) {
-            _ = await previousReader?.result
-            await previousCoverWork?.value
-            try Task.checkCancellation()
+        let task = IntakeScanTask.start(replacing: previousScanner, after: previousReader, coverWork: previousCoverWork) {
             let access = selection.map { DirectoryAccess($0) }
             defer { withExtendedLifetime(access) {} }
             let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Discovering Libro documents")
@@ -381,7 +387,7 @@ final class IntakeModel {
             } catch is CancellationError {
                 if operation == token { status = "Input scan cancelled." }
             } catch { if operation == token { status = error.localizedDescription } }
-            if operation == token { busy = false; scanner = nil; coverScanProgress = nil }
+            if operation == token { busy = hasCoverWork; scanner = nil; coverScanProgress = nil }
         }
     }
 
@@ -390,8 +396,7 @@ final class IntakeModel {
         Self.logger.info("Receiving file drop: \(providers.count) items")
         dropError = nil
         status = "Receiving dropped files and folders…"
-        Task {
-            let result = await FileDrop.load(providers)
+        droppedFiles.start(providers) { [self] result in
             if let root = workspace?.url { makeDebugLog(root)?.record("intake drop items=\(providers.count) resolved=\(result.urls.count) unavailable=\(result.unavailableItems)") }
             guard !result.urls.isEmpty else {
                 status = "The dropped items did not provide accessible file locations. Use Add Files or Add Folder to select them."
@@ -448,8 +453,15 @@ final class IntakeModel {
         selection.removeAll(); replan()
     }
 
+    var canClearQueue: Bool {
+        !isGenerating && !isPreparingModel && !hasOwnedProbe && scanner == nil && reader == nil && !hasCoverWork &&
+            !workBusy && (!documents.isEmpty || droppedFiles.hasOwnedWork)
+    }
+
     func clear() {
-        guard !busy, !isGenerating else { return }
+        guard canClearQueue else { return }
+        droppedFiles.cancel()
+        busy = false
         documents = []; roots = []; scopes = [:]; removed = []; names = [:]; states = [:]
         outcomes = [:]; retryQueued = []; skippedExisting = []; batchSummary = nil; notificationSummary = nil
         stopPlayback(); outputScopes = [:]; savedNames = [:]
@@ -519,15 +531,22 @@ final class IntakeModel {
     }
 
     func cancelIntake() {
+        let receivingDrop = droppedFiles.hasOwnedWork
+        droppedFiles.cancel()
+        if scanner == nil && reader == nil && !hasCoverWork {
+            busy = false
+            if receivingDrop { status = "Input import cancelled." }
+        }
         coverTask?.cancel()
         scanner?.cancel(); reader?.cancel()
         if let process = probeProcess, process.isRunning { probeCancelled = true; process.terminate() }
     }
 
-    var hasIntakeWork: Bool { scanner != nil || reader != nil }
+    var hasIntakeWork: Bool { droppedFiles.hasOwnedWork || scanner != nil || reader != nil }
     func stopIntake() async {
         let scan = scanner, read = reader
         scan?.cancel(); read?.cancel()
+        await droppedFiles.stop()
         _ = await scan?.result
         _ = await read?.result
     }
@@ -786,7 +805,7 @@ final class IntakeModel {
         let options = narrationOptions, imageDescriptions = describeImages
         busy = true
         coverTask = Task {
-            defer { coverTask = nil; busy = hasIntakeWork }
+            defer { coverTask = nil; busy = scanner != nil || reader != nil }
             do {
                 let planningWork = Task.detached(priority: .userInitiated) {
                     let scope = DirectoryAccess(destination)

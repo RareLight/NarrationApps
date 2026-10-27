@@ -721,6 +721,8 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     _ = try await publishReview(storage: storage, delivery: deliverySettings())
     let file = DeliveryLedger.fileURL(stateRoot: storage.stateRoot)
     try Files.write(Data("not a ledger".utf8), to: file)
+    #expect(try await FixtureCoordinator().savedAudio(storage: storage).count == 1)
+    #expect(try Data(contentsOf: file) == Data("not a ledger".utf8))
     #expect(throws: RelayError.self) { try DeliveryLedger.load(stateRoot: storage.stateRoot) }
     let siblings = try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path)
     let preserved = siblings.filter { $0.hasPrefix("delivery.json.corrupt-") }
@@ -2151,4 +2153,121 @@ private func transcriptReview(_ path: String, storage: ManagedSpeechStorage, ena
     transport.statusFor = nil
     _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: transport, force: true)
     #expect(try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings).publicationStates[generated.episode.id] == .published)
+}
+
+@Test(arguments: [false, true], [false, true])
+func retirementRejectsOldDestinationAndLegacyPendingPaths(sameHost: Bool, staleIntent: Bool) async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), old = deliverySettings(), transport = FakeWebDAVTransport()
+    let credentials = FakeCredentials(password: "synthetic"), coordinator = FixtureCoordinator()
+    let generated = try await publishReview("old-destination", storage: storage, delivery: old)
+    _ = try await coordinator.deliverPending(storage: storage, settings: old, credential: credentials, transport: transport)
+    let oldPath = "/" + old.remoteMediaPath(generated.episode.id)
+    let oldBytes = try #require(transport.body(oldPath))
+    try await coordinator.discardLocalUpload(id: generated.episode.id, storage: storage)
+    var next = old
+    next.feedFolderURL = URL(string: sameHost ? "https://webdav.example/new-podcast/" : "https://new-webdav.example/new-podcast/")
+    next.publicFolderURL = URL(string: "https://new-public.example/podcast/")
+    _ = try await coordinator.deliverPending(storage: storage, settings: next, credential: credentials, transport: transport)
+    _ = try await coordinator.removeSavedAudio(ids: [generated.episode.id], storage: storage)
+    var ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(ledger.destinationURL == next.feedFolderURL && ledger.pendingRemoteDeletes.isEmpty)
+    if staleIntent {
+        // Older versions could record foreign paths in an already migrated ledger.
+        ledger.pendingRemoteDeletes = [old.remoteMediaPath(generated.episode.id), "unowned/audio.m4a"]
+        try ledger.save(stateRoot: storage.stateRoot)
+    }
+    let start = transport.recordedCalls.count
+    let retired = try await coordinator.deliverPending(storage: storage, settings: next, credential: credentials, transport: transport)
+    #expect(retired.remoteDeletes == 0)
+    #expect(!transport.recordedCalls.dropFirst(start).contains { $0.method == "DELETE" })
+    #expect(transport.body(oldPath) == oldBytes)
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).pendingRemoteDeletes.isEmpty)
+}
+
+@Test func retirementUpdatesOnlyOwnersOfDeletedMediaAndTranscripts() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), transport = FakeWebDAVTransport()
+    let credentials = FakeCredentials(password: "synthetic"), coordinator = FixtureCoordinator()
+    let untouched = try await transcriptReview("already-retired", storage: storage)
+    let first = try await transcriptReview("retire-first", storage: storage)
+    let second = try await transcriptReview("retire-second", storage: storage)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials, transport: transport)
+    _ = try await coordinator.removeSavedAudio(ids: [untouched.episode.id], storage: storage)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials, transport: transport)
+    _ = try await coordinator.removeSavedAudio(ids: [first.episode.id, second.episode.id], storage: storage)
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        try store.execute("CREATE TABLE deletion_updates (article_id TEXT)")
+        try store.execute("CREATE TRIGGER track_deletion_updates AFTER UPDATE ON episodes BEGIN INSERT INTO deletion_updates VALUES (NEW.id); END")
+    }
+    let result = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials, transport: transport)
+    #expect(result.remoteDeletes == 4)
+    let store = try NativeStore(url: storage.profile.database, readOnly: true)
+    #expect(try store.query("SELECT COUNT(*) FROM deletion_updates WHERE article_id=?", [untouched.episode.id]).first?.first == "0")
+    for id in [first.episode.id, second.episode.id] {
+        #expect(try store.query("SELECT COUNT(*) FROM deletion_updates WHERE article_id=?", [id]).first?.first == "2")
+        let episode = try #require(store.episodes().first { $0.id == id })
+        #expect(episode.delivery?.remotePath == "" && episode.transcript?.delivery?.remotePath == "")
+        #expect(episode.transcriptReferences?.isEmpty == true)
+    }
+}
+
+@Test func timedTranscriptPublicMappingChangeRefreshesRSSWithoutAudioUpload() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), transport = FakeWebDAVTransport()
+    let credentials = FakeCredentials(password: "synthetic"), coordinator = FixtureCoordinator()
+    let generated = try await transcriptReview("transcript-public-map", storage: storage)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials, transport: transport)
+    let original = try #require(generated.episode.transcript)
+    let external = PodcastTranscriptReference(url: URL(string: "https://external.example/edited.vtt")!, type: "text/vtt", language: "en", rel: "captions")
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        var episode = try #require(store.episodes().first)
+        episode.transcriptReferences?.append(external)
+        try store.save(episode)
+    }
+    var next = settings; next.publicFolderURL = URL(string: "https://new-public.example/podcast/")
+    let pending = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: next)
+    #expect(pending.pendingTranscripts == 1 && pending.needsDrain)
+    let start = transport.recordedCalls.count
+    let updated = try await coordinator.deliverPending(storage: storage, settings: next, credential: credentials, transport: transport)
+    #expect(updated.feedUploaded && updated.uploadedMedia == 0)
+    let calls = transport.recordedCalls.dropFirst(start)
+    #expect(!calls.contains { $0.method == "PUT" && ($0.path.hasSuffix(".m4a") || $0.path.hasSuffix(".vtt")) })
+    #expect(calls.contains { $0.method == "GET" && $0.path.hasSuffix(".vtt") })
+    let feed = try #require(transport.body("/" + settings.remoteFeedPath))
+    let references = try #require(ServerFeedParser.parse(feed).first).transcripts
+    #expect(references.contains(try original.reference(id: generated.episode.id, settings: next)))
+    #expect(!references.contains(try original.reference(id: generated.episode.id, settings: settings)))
+    #expect(references.contains(external))
+    let summary = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: next)
+    #expect(summary.publicationStates[generated.episode.id] == .published && !summary.needsDrain)
+}
+
+@Test(arguments: [false, true])
+func retirementKeepsTranscriptOnlyFailureVisibleUntilRetryCompletes(transcriptFirst: Bool) async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), transport = FakeWebDAVTransport()
+    let credentials = FakeCredentials(password: "synthetic"), coordinator = FixtureCoordinator()
+    let generated = try await transcriptReview("transcript-removal-retry", storage: storage)
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials, transport: transport)
+    _ = try await coordinator.removeSavedAudio(ids: [generated.episode.id], storage: storage)
+    var ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    let mediaPath = settings.remoteMediaPath(generated.episode.id)
+    let transcriptPath = try #require(generated.episode.transcript).remotePath(id: generated.episode.id, settings: settings)
+    ledger.pendingRemoteDeletes = transcriptFirst ? [transcriptPath, mediaPath] : [mediaPath, transcriptPath]
+    try ledger.save(stateRoot: storage.stateRoot)
+    transport.statusFor = { method, path in method == "DELETE" && path.hasSuffix(".vtt") ? 503 : nil }
+    let partial = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials, transport: transport)
+    #expect(partial.remoteDeletes == 1)
+    let pending = try #require(await coordinator.savedAudio(storage: storage).first { $0.id == generated.episode.id })
+    #expect(pending.delivery?.remotePath == "" && pending.delivery?.lastError != nil)
+    #expect(pending.transcript?.delivery?.remotePath.isEmpty == false)
+    #expect(UploadItem(episode: pending, publication: .notUploaded).phase == .removalFailed)
+    transport.statusFor = nil
+    let retry = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credentials, transport: transport)
+    #expect(retry.remoteDeletes == 1)
+    #expect(try await !coordinator.savedAudio(storage: storage).contains { $0.id == generated.episode.id })
+    #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).pendingRemoteDeletes.isEmpty)
 }

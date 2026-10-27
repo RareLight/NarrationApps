@@ -124,7 +124,7 @@ public actor NativeSpeechSession {
         } catch { await close(); throw error }
     }
 
-    public func render(plan: PreparedSpeechPlan, destination: URL, outputFormat: AudioOutputFormat = .wav, coverArtwork: CoverArtwork? = nil,
+    public func render(plan: PreparedSpeechPlan, destination: URL, outputFormat: AudioOutputFormat = .wav, replaceExisting: Bool = true, coverArtwork: CoverArtwork? = nil,
                        identity progressIdentity: AttemptIdentity, explicitGap: Double? = nil,
                        checkpoint: (@Sendable () async throws -> Void)? = nil,
                        beforePublication: @Sendable () throws -> Void = {},
@@ -170,7 +170,7 @@ public actor NativeSpeechSession {
             progress(.init(identity: progressIdentity, phase: .publishing,
                 completedChunks: plan.utterances.count, totalChunks: plan.utterances.count))
             lease = nil
-            try await writer.publishWithArtwork {
+            try await writer.publishWithArtwork(replaceExisting: replaceExisting) {
                 try beforePublication()
                 guard try OutputPaths.resolved(destination) == resolved,
                       try OutputPaths.resolved(writer.temporary) == writer.temporary else { throw SpeechFailure(.storage) }
@@ -208,7 +208,7 @@ public actor NativeSpeechSession {
         return NativeSpeechArtifact(url: destination, sampleRate: info.sampleRate, frames: Int(info.frames))
     }
 
-    public func render(chunks: [String], destination: URL, outputFormat: AudioOutputFormat = .wav, coverArtwork: CoverArtwork? = nil,
+    public func render(chunks: [String], destination: URL, outputFormat: AudioOutputFormat = .wav, replaceExisting: Bool = true, coverArtwork: CoverArtwork? = nil,
                        identity progressIdentity: AttemptIdentity,
                        beforePublication: @Sendable () throws -> Void = {},
                        progress: @Sendable (SpeechProgress) -> Void = { _ in }) async throws {
@@ -223,7 +223,7 @@ public actor NativeSpeechSession {
         let projection = NarrationPlan(version: "legacy-direct-chunks-1",
             chunks: chunks.enumerated().map { NarrationChunk(index: $0.offset, text: $0.element, blockIndices: [$0.offset]) }, notices: [])
         let plan = try await prepareSpeech(projection)
-        try await render(plan: plan, destination: destination, outputFormat: outputFormat, coverArtwork: coverArtwork,
+        try await render(plan: plan, destination: destination, outputFormat: outputFormat, replaceExisting: replaceExisting, coverArtwork: coverArtwork,
             identity: progressIdentity, beforePublication: beforePublication) { value in
                 // ChunkScheduler's compatibility API emits started before prepare.
                 if value.phase != .started { progress(value) }

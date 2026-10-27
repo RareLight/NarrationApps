@@ -74,4 +74,84 @@ final class BatchPlannerTests: XCTestCase {
         XCTAssertEqual(request.settings, SpeechSettings())
         XCTAssertEqual(try String(contentsOf: existing, encoding: .utf8), "Previous complete audio")
     }
+    func testDirectorySourcesProtectExistingAndNewDescendantsAndAliases() throws {
+        let (root, _) = try fixture()
+        let book = root.appendingPathComponent("book.epub")
+        let resources = book.appendingPathComponent("EPUB")
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        let input = InputDocument(source: book, kind: .epub, relativePath: "book.epub")
+        let bytes = Data("original book resource".utf8)
+        try bytes.write(to: resources.appendingPathComponent("existing.wav"))
+        let alias = root.appendingPathComponent("alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: resources)
+        for output in [resources, alias] {
+            for name in ["existing.wav", "new.wav", "sub/new.wav"] {
+                XCTAssertThrowsError(try BatchPlanner.plan([input], output: output, names: [input.id: name])) { error in
+                    guard case PlanningError.protectedInput = error else { return XCTFail("Unexpected \(error)") }
+                }
+            }
+        }
+        XCTAssertEqual(try Data(contentsOf: resources.appendingPathComponent("existing.wav")), bytes)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: resources.appendingPathComponent("sub").path))
+    }
+
+    func testPrefixConflictWithInterveningSiblingAndOriginalOrder() throws {
+        let (root, output) = try fixture()
+        let inputs = try ["z.txt", "a.txt", "b.txt"].map { try input(root, name: $0) }
+        XCTAssertThrowsError(try BatchPlanner.plan(inputs, output: output, names: [
+            inputs[0].id: "A.wav", inputs[1].id: "A.wav-other.wav", inputs[2].id: "A.wav/chapter.wav"]))
+        let plan = try BatchPlanner.plan(inputs, output: output)
+        XCTAssertEqual(plan.map(\.id), inputs.map(\.id))
+    }
+
+    func testValidationContextRefreshesSourceAndOutputIdentityAndBinding() throws {
+        let (root, output) = try fixture()
+        let one = try input(root, name: "one.txt"), two = try input(root, name: "two.txt")
+        let plans = try BatchPlanner.plan([one, two], output: output)
+        let context = try BatchPlanner.ValidationContext(.init(documents: plans, outputDirectory: output, workspace: root, settings: .init()))
+        try context.validate(plans[0])
+        // A selected source can be replaced while the batch runs. Its new inode
+        // must still be protected, as must the original captured source tree.
+        try FileManager.default.removeItem(at: two.source)
+        try Data("new source".utf8).write(to: two.source)
+        try FileManager.default.linkItem(at: two.source, to: plans[0].destination)
+        XCTAssertThrowsError(try context.validate(plans[0])) { error in
+            guard case PlanningError.protectedInput = error else { return XCTFail("Unexpected \(error)") }
+        }
+        try FileManager.default.removeItem(at: plans[0].destination)
+        let moved = output.appendingPathComponent("moved.wav")
+        try Data("unrelated completed output".utf8).write(to: moved)
+        try FileManager.default.createSymbolicLink(at: plans[0].destination, withDestinationURL: moved)
+        XCTAssertThrowsError(try context.validate(plans[0])) { error in
+            guard case PlanningError.invalidDestination = error else { return XCTFail("Unexpected \(error)") }
+        }
+    }
+
+    func testLargeBatchUsesOnePlanAndCurrentTargetValidationInOriginalOrder() throws {
+        let (root, output) = try fixture()
+        let inputs = try (0..<1200).map { try input(root, name: "source-\($0).txt") }
+        let start = ContinuousClock.now
+        let plans = try BatchPlanner.plan(inputs, output: output)
+        let planning = start.duration(to: .now)
+        let context = try BatchPlanner.ValidationContext(.init(documents: plans, outputDirectory: output, workspace: root, settings: .init()))
+        let validationStart = ContinuousClock.now
+        for index in [0, 599, 1199] { try context.validate(plans[index]) }
+        XCTAssertEqual(plans.map(\.id), inputs.map(\.id))
+        print("Synthetic 1200-input Debug planner: \(planning); three current-target validations: \(validationStart.duration(to: .now))")
+    }
+
+    func testValidationRejectsLateHardlinksBetweenApprovedOutputs() throws {
+        let (root, output) = try fixture()
+        let inputs = try ["one.txt", "two.txt"].map { try input(root, name: $0) }
+        for input in inputs { try Data("complete output".utf8).write(to: output.appendingPathComponent(BatchPlanner.defaultOutput(input))) }
+        let plans = try BatchPlanner.plan(inputs, output: output)
+        let context = try BatchPlanner.ValidationContext(.init(documents: plans, outputDirectory: output,
+            workspace: root, settings: .init(), replaceExisting: true))
+        try FileManager.default.removeItem(at: plans[1].destination)
+        try FileManager.default.linkItem(at: plans[0].destination, to: plans[1].destination)
+        XCTAssertThrowsError(try context.validate(plans[0])) { error in
+            guard case PlanningError.collision = error else { return XCTFail("Unexpected \(error)") }
+        }
+    }
+
 }

@@ -1090,7 +1090,7 @@ extension FixtureCoordinator {
             if episode.localAudioDiscarded == true && episode.delivery?.status != .uploaded { continue }
             if let settings = try settings?.normalized(), let transcript = episode.transcript,
                transcript.audioHash == episode.audioHash, episode.delivery?.status == .uploaded,
-               !transcript.confirmed(id: episode.id, settings: settings) {
+               !transcript.confirmed(id: episode.id, settings: settings) || !episode.transcriptReferenceIsCurrent(settings: settings) {
                 if transcript.delivery?.status == .failed && transcript.delivery?.destinationURL == settings.feedFolderURL {
                     summary.failedTranscripts += 1
                 } else { summary.pendingTranscripts += 1 }
@@ -1134,16 +1134,13 @@ extension FixtureCoordinator {
     private static func reconcileRemoteDeletes(_ episodes: [Episode], settings: DeliverySettings,
                                                ledger: inout DeliveryLedger) -> Bool {
         var changed = false
+        // Revalidate legacy pending intent as well as new intent. A ledger may
+        // already contain an old server's path after a destination change.
+        let retiredPaths = Set(episodes.filter { $0.stage == .expired }.flatMap { $0.ownedRemotePaths(settings: settings) })
+        let retained = ledger.pendingRemoteDeletes.filter { retiredPaths.contains($0) }
+        if retained != ledger.pendingRemoteDeletes { ledger.pendingRemoteDeletes = retained; changed = true }
         for episode in episodes {
-            var paths = episode.ownedTranscriptPaths(settings: settings)
-            if episode.delivery?.destinationURL == settings.feedFolderURL,
-               let path = episode.delivery?.remotePath, !path.isEmpty { paths.append(path) }
-            if let transcript = episode.transcript, ServerRecoveryIdentity.validHash(transcript.sha256),
-               transcript.delivery?.destinationURL == settings.feedFolderURL,
-               transcript.delivery?.remotePath == transcript.remotePath(id: episode.id, settings: settings) {
-                paths.append(transcript.remotePath(id: episode.id, settings: settings))
-            }
-            for path in Set(paths) {
+            for path in episode.ownedRemotePaths(settings: settings) {
                 if episode.stage == .expired && !ledger.pendingRemoteDeletes.contains(path) {
                     ledger.pendingRemoteDeletes.append(path)
                     ledger.remoteFeedPending = true
@@ -1453,22 +1450,28 @@ extension FixtureCoordinator {
             }
         }
         if !ledger.remoteFeedPending && ledger.serverFeedUnsafe != true && !ledger.pendingRemoteDeletes.isEmpty {
+            let owners = Dictionary(grouping: try store.episodes().filter { $0.stage == .expired }.flatMap { episode in
+                episode.ownedRemotePaths(settings: settings).map { (path: $0, id: episode.id) }
+            }, by: \.path).mapValues { $0.map(\.id) }
             for path in ledger.pendingRemoteDeletes {
                 do {
                     try Task.checkCancellation()
+                    guard let ownerIDs = owners[path], !ownerIDs.isEmpty else { continue }
                     try await client.delete(remotePath: path)
                     ledger.pendingRemoteDeletes.removeAll { $0 == path }
                     // Clearing the retired record's path is the durable marker that the
                     // remote copy is gone; reconciliation never re-queues an empty path.
-                    if var owner = try store.episodes().first(where: { $0.stage == .expired && $0.delivery?.remotePath == path }) {
-                        owner.delivery?.remotePath = ""
-                        owner.delivery?.lastError = nil
-                        try store.save(owner)
-                    }
-                    for var owner in try store.episodes() where owner.stage == .expired {
+                    for id in ownerIDs {
+                        guard var owner = try store.episode(id: id) else { continue }
+                        guard owner.stage == .expired, owner.ownedRemotePaths(settings: settings).contains(path) else { continue }
+                        if owner.delivery?.remotePath == path { owner.delivery?.remotePath = "" }
                         if owner.transcript?.delivery?.remotePath == path { owner.transcript?.delivery?.remotePath = "" }
                         owner.transcriptReferences = owner.transcriptReferences?.filter {
-                            DeliverySettings.join(settings.mediaFolder, $0.url.lastPathComponent) != path
+                            $0.url != settings.publicAudioBaseURL?.appendingPathComponent($0.url.lastPathComponent)
+                                || DeliverySettings.join(settings.mediaFolder, $0.url.lastPathComponent) != path
+                        }
+                        if !owner.ownedRemotePaths(settings: settings).contains(where: ledger.pendingRemoteDeletes.contains) {
+                            owner.delivery?.lastError = nil
                         }
                         try store.save(owner)
                     }
@@ -1479,7 +1482,9 @@ extension FixtureCoordinator {
                 } catch {
                     debugLog?.recordFailure(error)
                     ledger.lastError = Self.deliveryNotice(error)
-                    for var owner in try store.episodes() where owner.stage == .expired && owner.delivery?.remotePath == path {
+                    for id in owners[path] ?? [] {
+                        guard var owner = try store.episode(id: id), owner.stage == .expired,
+                              owner.ownedRemotePaths(settings: settings).contains(path) else { continue }
                         owner.delivery?.lastError = ledger.lastError
                         try store.save(owner)
                     }

@@ -100,11 +100,20 @@ public struct EpisodeTranscript: Codable, Sendable, Equatable {
 }
 
 extension Episode {
+    func transcriptReferenceIsCurrent(settings: DeliverySettings) -> Bool {
+        guard let transcript, let reference = try? transcript.reference(id: id, settings: settings) else { return false }
+        return (transcriptReferences ?? []).contains(reference)
+    }
+
     func transcriptUploadDue(settings: DeliverySettings, force: Bool, now: Date) -> Bool {
         guard let transcript, transcript.audioHash == audioHash, delivery?.status == .uploaded,
               delivery?.destinationURL == settings.feedFolderURL else { return false }
         if force { return true }
-        if transcript.confirmed(id: id, settings: settings) { return false }
+        if transcript.confirmed(id: id, settings: settings) {
+            // The same uploaded bytes can acquire a new public mapping without
+            // changing their WebDAV destination or content-addressed path.
+            return !transcriptReferenceIsCurrent(settings: settings)
+        }
         let copy = transcript.delivery
         if copy?.destinationURL != settings.feedFolderURL || copy?.remotePath != transcript.remotePath(id: id, settings: settings) { return true }
         return copy?.status != .failed && (copy?.nextAttemptAt == nil || copy!.nextAttemptAt! <= now)

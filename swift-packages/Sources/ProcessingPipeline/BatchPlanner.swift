@@ -57,42 +57,129 @@ public enum BatchPlanner {
         let root = try OutputPaths.resolved(output)
         guard (try? root.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true,
               access(root.path, W_OK | X_OK) == 0 else { throw PlanningError.invalidDestination }
-        let protected = try Set(inputs.map {
-            try Task.checkCancellation()
-            return OutputPaths.key(try OutputPaths.resolved($0.source).path)
-        })
-        let protectedIdentities = Set(inputs.compactMap { identity($0.source) })
-        var destinations = Set<String>()
+        let protection = try Protection(inputs)
+        var keys: [(String, String)] = []
         var existingIdentities = Set<String>()
-        return try inputs.map { input in
+        let plans = try inputs.map { input in
             try Task.checkCancellation()
             let relative = names[input.id] ?? defaultOutput(input, format: format)
-            guard !relative.hasPrefix("/"), !relative.isEmpty,
-                  !relative.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }),
-                  !relative.contains("\0"), (relative as NSString).pathExtension.lowercased() == format.rawValue else { throw PlanningError.invalidName }
-            let destination = root.appendingPathComponent(relative)
-            let resolved = try OutputPaths.resolved(destination)
-            // A symlink may never redirect an output outside the chosen folder.
-            guard resolved.path.hasPrefix(root.path + "/") else { throw PlanningError.invalidDestination }
-            let key = OutputPaths.key(resolved.path)
-            guard !protected.contains(key) else { throw PlanningError.protectedInput }
-            guard !destinations.contains(where: { $0 == key || $0.hasPrefix(key + "/") || key.hasPrefix($0 + "/") }) else {
+            let plan = try validate(input, relative: relative, root: root, format: format, protection: protection)
+            keys.append((OutputPaths.key(try OutputPaths.resolved(plan.destination).path), relative))
+            if plan.replacesExisting, let identity = identity(plan.destination), !existingIdentities.insert(identity).inserted {
                 throw PlanningError.collision(relative)
             }
-            destinations.insert(key)
-            let exists = FileManager.default.fileExists(atPath: resolved.path)
-            if exists {
-                guard (try resolved.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile == true else { throw PlanningError.invalidDestination }
-                if let identity = identity(resolved) {
-                    guard !protectedIdentities.contains(identity) else { throw PlanningError.protectedInput }
-                    guard existingIdentities.insert(identity).inserted else { throw PlanningError.collision(relative) }
+            return plan
+        }
+        // Check ancestor membership instead of scanning every previously seen
+        // path. Case/Unicode folding is shared with all destination checks.
+        var destinations = Set<String>()
+        for (key, relative) in keys {
+            guard destinations.insert(key).inserted else { throw PlanningError.collision(relative) }
+        }
+        for (key, relative) in keys {
+            try Task.checkCancellation()
+            var parent = (key as NSString).deletingLastPathComponent
+            while parent.count > 1 {
+                guard !destinations.contains(parent) else { throw PlanningError.collision(relative) }
+                parent = (parent as NSString).deletingLastPathComponent
+            }
+        }
+        return plans
+    }
+
+    private struct Protection: Sendable {
+        var paths = Set<String>()
+        var directories = Set<String>()
+        var identities = Set<String>()
+        init(_ inputs: [InputDocument]) throws {
+            for input in inputs {
+                try Task.checkCancellation()
+                let source = try OutputPaths.resolved(input.source)
+                let key = OutputPaths.key(source.path)
+                paths.insert(key)
+                if (try? source.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true { directories.insert(key) }
+                if let id = BatchPlanner.identity(source) { identities.insert(id) }
+            }
+        }
+        func contains(_ key: String) -> Bool {
+            if paths.contains(key) { return true }
+            var parent = key as NSString
+            while parent.length > 1 {
+                parent = parent.deletingLastPathComponent as NSString
+                if directories.contains(parent as String) { return true }
+            }
+            return false
+        }
+        mutating func include(_ other: Self) {
+            paths.formUnion(other.paths); directories.formUnion(other.directories); identities.formUnion(other.identities)
+        }
+    }
+
+    private static func validate(_ input: InputDocument, relative: String, root: URL,
+                                 format: AudioOutputFormat, protection: Protection) throws -> PlannedDocument {
+        guard !relative.hasPrefix("/"), !relative.isEmpty,
+              !relative.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }),
+              !relative.contains("\0"), (relative as NSString).pathExtension.lowercased() == format.rawValue else { throw PlanningError.invalidName }
+        let destination = root.appendingPathComponent(relative)
+        let resolved = try OutputPaths.resolved(destination)
+        guard resolved.path.hasPrefix(root.path + "/") else { throw PlanningError.invalidDestination }
+        guard !protection.contains(OutputPaths.key(resolved.path)) else { throw PlanningError.protectedInput }
+        let exists = FileManager.default.fileExists(atPath: resolved.path)
+        if exists {
+            guard (try resolved.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile == true else { throw PlanningError.invalidDestination }
+            if let id = identity(resolved), protection.identities.contains(id) { throw PlanningError.protectedInput }
+        }
+        var parent = resolved.deletingLastPathComponent()
+        while !FileManager.default.fileExists(atPath: parent.path) { parent.deleteLastPathComponent() }
+        guard (try parent.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true,
+              access(parent.path, W_OK | X_OK) == 0 else { throw PlanningError.invalidDestination }
+        return PlannedDocument(input: input, destination: destination, relativeOutput: relative, replacesExisting: exists)
+    }
+
+    /// Captures whole-batch naming/collision validation once. Publication still
+    /// refreshes source protection and inode aliases, since files can change
+    /// while a long batch runs; only the current destination is replanned.
+    struct ValidationContext: Sendable {
+        private let request: BatchRequest
+        private let root: URL
+        private let protection: Protection
+        private let bindings: [UUID: URL]
+
+        init(_ request: BatchRequest) throws {
+            self.request = request
+            root = try OutputPaths.resolved(request.outputDirectory)
+            protection = try Protection(request.documents.map(\.input))
+            guard Set(request.documents.map(\.id)).count == request.documents.count else { throw PlanningError.invalidName }
+            let names = Dictionary(uniqueKeysWithValues: request.documents.map { ($0.id, $0.relativeOutput) })
+            let plans = try BatchPlanner.plan(request.documents.map(\.input), output: request.outputDirectory, names: names, format: request.outputFormat)
+            var captured: [UUID: URL] = [:]
+            for (plan, original) in zip(plans, request.documents) {
+                let resolved = try OutputPaths.resolved(plan.destination)
+                guard resolved == (try OutputPaths.resolved(original.destination)) else { throw PlanningError.invalidDestination }
+                guard !plan.replacesExisting || request.approvedReplacements.contains(plan.id) else { throw PlanningError.replacementRequired }
+                captured[plan.id] = resolved
+            }
+            bindings = captured
+        }
+
+        func validate(_ document: PlannedDocument) throws {
+            try Task.checkCancellation()
+            guard try OutputPaths.resolved(request.outputDirectory) == root,
+                  (try? root.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true,
+                  access(root.path, W_OK | X_OK) == 0 else { throw PlanningError.invalidDestination }
+            var liveProtection = try Protection(request.documents.map(\.input))
+            liveProtection.include(protection)
+            let current = try BatchPlanner.validate(document.input, relative: document.relativeOutput,
+                root: root, format: request.outputFormat, protection: liveProtection)
+            let resolved = try OutputPaths.resolved(current.destination)
+            guard resolved == bindings[document.id], try OutputPaths.resolved(document.destination) == resolved else { throw PlanningError.invalidDestination }
+            guard !current.replacesExisting || request.approvedReplacements.contains(document.id) else { throw PlanningError.replacementRequired }
+            if let currentIdentity = BatchPlanner.identity(resolved) {
+                for (id, destination) in bindings where id != document.id {
+                    try Task.checkCancellation()
+                    guard BatchPlanner.identity(destination) != currentIdentity else { throw PlanningError.collision(document.relativeOutput) }
                 }
             }
-            var parent = resolved.deletingLastPathComponent()
-            while !FileManager.default.fileExists(atPath: parent.path) { parent.deleteLastPathComponent() }
-            guard (try parent.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true,
-                  access(parent.path, W_OK | X_OK) == 0 else { throw PlanningError.invalidDestination }
-            return PlannedDocument(input: input, destination: destination, relativeOutput: relative, replacesExisting: exists)
         }
     }
 

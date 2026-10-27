@@ -40,7 +40,7 @@ struct LibroApp: App {
                 Divider()
                 Button("Remove Selected") { model.removeSelected() }.disabled(model.selection.isEmpty || model.busy || model.isGenerating)
                 Button("Clear Finished") { model.clearFinished() }.disabled(!model.hasFinished || model.busy || model.isGenerating)
-                Button("Clear Queue") { model.clear() }.disabled(model.documents.isEmpty || model.busy || model.isGenerating)
+                Button("Clear Queue") { model.clear() }.disabled(!model.canClearQueue)
                 Divider()
                 Button("Preview Selected Document") { model.previewSelected() }.keyboardShortcut("y")
                     .disabled(model.selectedDocument == nil || model.busy)

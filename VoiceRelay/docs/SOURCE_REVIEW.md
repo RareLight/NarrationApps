@@ -102,7 +102,9 @@ saved date when available, otherwise the available latest capture.
 
 Preview/snapshots record provider, capture date and source provenance. Archive
 chrome is omitted where identifiable; original publisher narration/RSS identity is
-retained. Archive lookup cannot recover source text that was never retained when
+retained. New archived episodes use the original URL/host for RSS metadata even
+when the replay omits a canonical link or rewrites it to an archive address.
+Already completed episode metadata is preserved. Archive lookup cannot recover source text that was never retained when
 no eligible readable capture is available. Logs use sanitized provider/outcome
 categories, never private URLs or bodies.
 

@@ -164,7 +164,8 @@ final class SourceReviewModel {
             guard !stopping, !maintenanceSuspended, generation == sourceGeneration, plist == file else { return true }
             var proposed = current
             proposed.reconcile(result); proposed.excludedIDs = []
-            let removed = current.entries.filter { !proposed.currentIDs.contains($0.id) }
+            let currentURLs = Set(proposed.entries.map(\.url))
+            let removed = current.entries.filter { !currentURLs.contains($0.url) }
             if proposed.entries != current.entries || proposed.currentIDs != current.currentIDs {
                 let saved = try await coordinator.reconcile(result, stateRoot: stateRoot)
                 guard generation == sourceGeneration, plist == file else { return true }

@@ -72,7 +72,10 @@ rotating to `debug.previous.log` at 1 MiB. Dependency stderr may contain documen
 text/paths; review before sharing. Copy/Open/Reveal/Clear operate on these owned
 files, with idle/busy controls. No automatic diagnostic upload occurs.
 
-Use a separate output folder for reproductions. Resolve name collisions or missing
+Use a separate output folder for reproductions. Destinations inside a selected
+unpacked EPUB are rejected to protect the book's resources. If an unapproved
+output appears while generation is running, Libro keeps it; review the destination
+and start another batch to approve a replacement. Resolve name collisions or missing
 remembered destinations through the normal GUI; failures/replacement cancellation
 must preserve completed files. Report the checklist ID, app/model, input alias,
 phase and sanitized error. Normal team signing/public distribution acceptance is
