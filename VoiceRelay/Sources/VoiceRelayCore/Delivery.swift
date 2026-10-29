@@ -1123,6 +1123,23 @@ extension FixtureCoordinator {
             return episode.stage == .published && episode.originalSourceIdentity == nil && episode.sourceURL == url
         }
     }
+    public func hasRecordedArticle(entry: ReadingListEntry, stateRoot: URL) throws -> Bool {
+        let catalog = try catalog(stateRoot: stateRoot)
+        if catalog.unreviewedDuplicateIDs.contains(entry.id) { return false }
+        if catalog.hasHandled(entry) || catalog.inactiveDuplicateIDs.contains(entry.id) { return true }
+        let database = PrototypeProfile.fixture(at: stateRoot).database
+        guard FileManager.default.fileExists(atPath: database.path) else { return false }
+        let records = try NativeStore(url: database, readOnly: true).query("SELECT source_key,record FROM episodes")
+        let key = "reviewed-url-v1-" + Files.hash(Data(entry.url.absoluteString.utf8))
+        return try records.contains { row in
+            let episode = try JSONDecoder().decode(Episode.self, from: Data(row[1].utf8))
+            guard row[0] == key || episode.originalSourceIdentity == key || (episode.originalSourceIdentity == nil && episode.sourceURL == entry.url) else { return false }
+            if let bound = episode.readingListEntryID { return bound == entry.id && episode.readingListSavedAt == entry.addedAt }
+            // Existing libraries retain suppression; a later save is genuinely new work.
+            guard let saved = entry.addedAt, let previous = episode.readingListSavedAt ?? episode.publicationDate else { return true }
+            return saved <= previous
+        }
+    }
     static func deliveryBackoff(_ attempts: Int) -> TimeInterval {
         min(60 * pow(2, Double(max(0, attempts - 1))), 1800)
     }
@@ -1393,61 +1410,77 @@ extension FixtureCoordinator {
         }
         try await deliverTranscripts(store: store, settings: settings, client: client, force: force, now: now, ledger: &ledger, result: &result)
         try ledger.save(stateRoot: root)
-        // Self-heal remote-delete intent from durable episode records: a crash between
-        // the retire commit and the ledger write must not strand remote media, and a
-        // lost rescind must not delete a copy that is listed again.
-        let reconciled = Self.reconcileRemoteDeletes(try store.episodes(), settings: settings, ledger: &ledger)
-        if reconciled { try ledger.save(stateRoot: root) }
-        // Metadata-only changes (including recovered Reading List dates) need a
-        // fresh feed even when every audio copy was already confirmed.
-        if let candidate = try? RSS.renderReconciledRemote(store.published(), channel: RemoteChannel(settings: settings, previousFeed: ledger.reconciledFeed), preserved: ledger.preservedServerItems ?? []),
-           ledger.lastUploadedFeedHash != Files.hash(candidate), !ledger.remoteFeedPending {
-            ledger.remoteFeedPending = true
-            try ledger.save(stateRoot: root)
+        func retireConfirmedDuplicates() throws -> Bool {
+            guard ledger.serverFeedUnsafe != true,
+                  ledger.lastPublishedSettingsHash == (try settings.publicationHash()) else { return false }
+            return try store.retireConfirmedDuplicates(settings: settings, confirmed: ledger.lastPublishedAudioHashes ?? [:],
+                blocked: Set(ledger.blockedServerIDs ?? []))
         }
-        // Feed update gates remote deletes: a failed upload never strands listed media.
-        // feedAttempts backs off retries of a failed upload; fresh pending work is due.
-        if hasFeedContent && (ledger.remoteFeedPending || ledger.lastUploadedFeedHash == nil) && ledger.serverFeedUnsafe != true {
-            let feedDue = force || ledger.feedAttempts == 0 || ledger.lastAttemptAt == nil
-                || now >= ledger.lastAttemptAt! + Self.deliveryBackoff(ledger.feedAttempts)
-            if feedDue {
-                do {
-                    if let digest = settings.podcastCoverDigest {
-                        try await client.confirmPodcastArtwork(digest, store: artworkStore ?? .application("VoiceRelay"))
+        // A second publication is needed only when the first confirms a replacement.
+        // Failures keep the old media intact and retry through the normal backoff.
+        for _ in 0..<2 {
+            if try retireConfirmedDuplicates() {
+                ledger.remoteFeedPending = true
+            }
+            // Self-heal remote-delete intent from durable episode records: a crash between
+            // the retire commit and the ledger write must not strand remote media, and a
+            // lost rescind must not delete a copy that is listed again.
+            let reconciled = Self.reconcileRemoteDeletes(try store.episodes(), settings: settings, ledger: &ledger)
+            if reconciled { try ledger.save(stateRoot: root) }
+            // Metadata-only changes (including recovered Reading List dates) need a
+            // fresh feed even when every audio copy was already confirmed.
+            if let candidate = try? RSS.renderReconciledRemote(store.published(), channel: RemoteChannel(settings: settings, previousFeed: ledger.reconciledFeed), preserved: ledger.preservedServerItems ?? []),
+               ledger.lastUploadedFeedHash != Files.hash(candidate), !ledger.remoteFeedPending {
+                ledger.remoteFeedPending = true
+                try ledger.save(stateRoot: root)
+            }
+            // Feed update gates remote deletes: a failed upload never strands listed media.
+            // feedAttempts backs off retries of a failed upload; fresh pending work is due.
+            if hasFeedContent && (ledger.remoteFeedPending || ledger.lastUploadedFeedHash == nil) && ledger.serverFeedUnsafe != true {
+                let feedDue = force || ledger.feedAttempts == 0 || ledger.lastAttemptAt == nil
+                    || now >= ledger.lastAttemptAt! + Self.deliveryBackoff(ledger.feedAttempts)
+                if feedDue {
+                    do {
+                        if let digest = settings.podcastCoverDigest {
+                            try await client.confirmPodcastArtwork(digest, store: artworkStore ?? .application("VoiceRelay"))
+                        }
+                        try Task.checkCancellation()
+                        let channel = try RemoteChannel(settings: settings, previousFeed: ledger.reconciledFeed)
+                        let published = try store.published()
+                        let feed = try RSS.renderReconciledRemote(published, channel: channel, preserved: ledger.preservedServerItems ?? [])
+                        let etag = ledger.reconciledFeedETag.flatMap { Self.strongETag($0) ? $0 : nil }
+                        if etag == nil {
+                            let current = try await client.readRecoveryFeed()
+                            guard current == ledger.reconciledFeed else { throw DeliveryError.retryable("The server feed changed; reconciliation will retry before publishing it.") }
+                        }
+                        try await client.publishFeed(feed, ifMatch: etag, onlyIfMissing: ledger.reconciledFeed == nil)
+                        ledger.lastUploadedFeedHash = Files.hash(feed)
+                        ledger.lastPublishedAudioHashes = Dictionary(uniqueKeysWithValues: published.compactMap { episode in
+                            guard episode.delivery?.status == .uploaded, let hash = episode.audioHash else { return nil }
+                            return (episode.id, hash)
+                        })
+                        ledger.lastPublishedSettingsHash = try settings.publicationHash()
+                        ledger.remoteFeedPending = false
+                        ledger.feedAttempts = 0
+                        ledger.lastError = nil
+                        ledger.lastAttemptAt = now
+                        ledger.reconciledFeed = feed; ledger.reconciledFeedETag = nil
+                        try ledger.save(stateRoot: root)
+                        result.feedUploaded = true
+                    } catch let error as CancellationError {
+                        throw error
+                    } catch {
+                        debugLog?.recordFailure(error)
+                        ledger.lastError = Self.deliveryNotice(error)
+                        ledger.feedAttempts += 1
+                        ledger.lastAttemptAt = now
+                        try ledger.save(stateRoot: root)
                     }
-                    try Task.checkCancellation()
-                    let channel = try RemoteChannel(settings: settings, previousFeed: ledger.reconciledFeed)
-                    let published = try store.published()
-                    let feed = try RSS.renderReconciledRemote(published, channel: channel, preserved: ledger.preservedServerItems ?? [])
-                    let etag = ledger.reconciledFeedETag.flatMap { Self.strongETag($0) ? $0 : nil }
-                    if etag == nil {
-                        let current = try await client.readRecoveryFeed()
-                        guard current == ledger.reconciledFeed else { throw DeliveryError.retryable("The server feed changed; reconciliation will retry before publishing it.") }
-                    }
-                    try await client.publishFeed(feed, ifMatch: etag, onlyIfMissing: ledger.reconciledFeed == nil)
-                    ledger.lastUploadedFeedHash = Files.hash(feed)
-                    ledger.lastPublishedAudioHashes = Dictionary(uniqueKeysWithValues: published.compactMap { episode in
-                        guard episode.delivery?.status == .uploaded, let hash = episode.audioHash else { return nil }
-                        return (episode.id, hash)
-                    })
-                    ledger.lastPublishedSettingsHash = try settings.publicationHash()
-                    ledger.remoteFeedPending = false
-                    ledger.feedAttempts = 0
-                    ledger.lastError = nil
-                    ledger.lastAttemptAt = now
-                    ledger.reconciledFeed = feed; ledger.reconciledFeedETag = nil
-                    try ledger.save(stateRoot: root)
-                    result.feedUploaded = true
-                } catch let error as CancellationError {
-                    throw error
-                } catch {
-                    debugLog?.recordFailure(error)
-                    ledger.lastError = Self.deliveryNotice(error)
-                    ledger.feedAttempts += 1
-                    ledger.lastAttemptAt = now
-                    try ledger.save(stateRoot: root)
                 }
             }
+            let retired = try retireConfirmedDuplicates()
+            if retired { ledger.remoteFeedPending = true; try ledger.save(stateRoot: root) }
+            if !retired { break }
         }
         if !ledger.remoteFeedPending && ledger.serverFeedUnsafe != true && !ledger.pendingRemoteDeletes.isEmpty {
             let owners = Dictionary(grouping: try store.episodes().filter { $0.stage == .expired }.flatMap { episode in

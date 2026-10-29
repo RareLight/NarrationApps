@@ -82,6 +82,14 @@ public enum SpeechVoice: String, Codable, CaseIterable, Identifiable, Sendable {
 
 /// User-facing choices; technical pipeline defaults remain internal.
 public struct SpeechPreferences: Codable, Sendable, Equatable {
+    public var selection: SpeechSettings? = nil
+    public var modelSelection: SpeechSettings {
+        get { selection ?? .init(voice: voice.rawValue, speed: Float(speed)) }
+        set {
+            selection = newValue
+            if newValue.model == .kokoro, let legacy = SpeechVoice(rawValue: newValue.voice) { voice = legacy; speed = Double(newValue.speed) }
+        }
+    }
     public var voice: SpeechVoice
     public var speed: Double
     public var narrationOptions: NarrationOptions? = nil
@@ -102,7 +110,8 @@ public struct SpeechPreferences: Codable, Sendable, Equatable {
     }
     public init(voice: SpeechVoice = .heart, speed: Double = 1) { self.voice = voice; self.speed = speed }
     public func validate() throws {
-        guard SpeechSpeedPolicy.contains(speed) else {
+        guard NativePrimaryCatalog.validates(modelSelection) else { throw RelayError.setup("Choose a supported model, voice and narration language.") }
+        guard SpeechSpeedPolicy.contains(Double(modelSelection.speed)) else {
             throw RelayError.setup("Choose a speech speed between 0.5 and 2.0.")
         }
     }
@@ -234,6 +243,7 @@ public struct PrototypeProfile: Codable, Sendable, Equatable {
     public var channelTitle = "VoiceRelay Speech Fixture"
     public var channelDescription = "Isolated pipeline demonstration"
     public var language = "en"
+    public var speechSelection: SpeechSettings? = nil
     public var backendSelector = "speech-fixture"
     public var voice: String?
     public var backendSettings: [String: SettingValue] = [:]

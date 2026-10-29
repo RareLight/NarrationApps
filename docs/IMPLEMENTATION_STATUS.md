@@ -1,6 +1,6 @@
 # Current implementation status
 
-Current-state documentation updated October 27, 2026. Feature-specific engineering
+Current-state documentation updated October 29, 2026. Feature-specific engineering
 evidence is dated below. NarrationApps is one repository containing Libro,
 VoiceRelay, SwiftNarration, AppPresentation and the combined Xcode workspace.
 The containing commit identifies all maintained source. See
@@ -8,6 +8,194 @@ The containing commit identifies all maintained source. See
 [remaining work](IMPLEMENTATION_PLAN.md) and [operator validation](OPERATOR_VALIDATION.md).
 Private document reviews and their input-specific results are retained locally;
 they are excluded from the publication history. Synthetic fixtures remain maintained.
+
+## Duplicate article management — October 29
+
+VoiceRelay now selects one readable copy of duplicate Reading List articles,
+using original URL or normalized title plus original website. Fuller extracted
+prose wins; within 5% of the longest copy the newest save wins. Inactive copies
+remain gray and labelled in All Articles. Extraction evidence and handled save
+IDs commit with admission, preserving suppression across source refresh, restart,
+queue reset and audio removal. A genuinely new save or explicit active-copy
+requeue can create fresh audio with current settings.
+
+Intentional replacements preserve old history while the new audio and feed
+membership are confirmed. A bounded second feed publication removes older
+matching episodes before owned audio/transcript deletion. Failed delivery and
+interrupted cleanup remain recoverable. Legacy source/date backfill and Safari
+entry retargeting preserve their identity boundaries; managed speech resumes its
+captured episode ID rather than a mutable URL slot. See the [user guide](../VoiceRelay/docs/USER_GUIDE.md#duplicate-articles)
+and [admission contract](../VoiceRelay/docs/ARCHITECTURE.md#duplicate-admission-and-replacement).
+
+The complete VoiceRelay suites passed 346 core and 175 app tests. Final focused
+checks passed 20 tests, including missing superseded temporary audio, legacy
+metadata/date recovery, unchanged-save suppression and replacement failures for
+both matching and differing source URLs. The quick gate and documentation/link
+checks passed. Final Debug/Release workspace builds and all four bundle audits
+passed in `.local/validation/release-4106C2E3-8477-440C-999A-19F942E783D4/`.
+Archives were unrequested. Synthetic logs and source hashes are retained under
+`.local/article-duplicates/`. Ad-hoc candidates remain under
+`.build/WorkspaceDerivedData/Build/Products/{Debug,Release}/`; no installed app,
+Safari source or real server content was changed. Real Safari, GUI, listening and
+live-server acceptance remain operator-owned under V06.
+
+## Immediate Server Audio removal — October 29
+
+VoiceRelay now hides accepted Server Audio removals immediately, without row
+animation or a visible in-process row. A serial owned local-removal queue accepts
+further clicks while preserving unrelated rows/selection. The lower status bar
+shows pending cleanup. Canonical episode records and feed-before-delete safety
+remain unchanged; this is optimistic presentation, not server confirmation.
+
+Library refreshes and delivery snapshots cannot resurrect active hidden rows.
+Local failures and completed server attempts with unfinished work restore the
+affected items; newer requests remain hidden until their own follow-up attempt.
+Publishing-off/unavailable work is restored as pending, and quit joins/cancels the
+owned queue without running later requests. Upload-copy deletion remains exclusive.
+
+All 174 VoiceRelay app tests pass, including delayed server DELETE, rapid local
+clicks, polling, duplicate/stale actions, ownership-validation failure, feed-update
+failure, Publishing disabled, follow-up drains, preserved selection and quit.
+Synthetic gates also verify that stalled cleanup leaves the MainActor responsive.
+Quick static/tooling/docs pass in
+`.local/validation/quick-7972FDC2-1F87-46DF-96F7-47E5E808C6D0/`.
+Debug/Release workspace builds and four bundle audits pass in
+`.local/validation/release-9A2CFFEA-11E5-4832-AA70-702006871A80/`.
+Private logs are `.local/optimistic-server-audio-removal/`. Archives were skipped;
+no real server, Keychain credentials or installed app was used/replaced. Actual
+list smoothness and live-server acceptance remain operator-owned through V14.
+
+## Compact voice controls and inventory columns — October 29
+
+Both apps now keep file sizes and deletion exclusively in Downloaded models.
+The shared voice picker has a narrower label/metadata area and only download
+when missing plus adjacent model details; cached-model repair remains in the
+details popover. The common control width drops from 376pt to 296pt, scaling with
+text size, while preserving common menu positions and dynamic section height.
+
+Downloaded-model rows use fixed name, right-aligned size and trash columns
+(120/80/32pt with 8pt gaps, scaled to text size) directly below folder controls.
+They no longer stretch to the window edge. Narrow windows scroll the table;
+imported folders have no delete action. Folder changes invalidate pending targets,
+the confirmed root/model is rechecked before deletion, and app activation refreshes
+the inventory. Shared storage leases and preservation of recordings remain intact.
+This supersedes earlier picker-row size/trash presentation below.
+
+Seventeen focused tests pass: thirteen shared presentation/storage regressions
+and four VoiceRelay Settings/health regressions. Inert sizing checks cover long
+model names, small/large file sizes, imported rows, text enlargement and horizontal
+scrollers, without invoking actions or reading real model/profile storage.
+The initial 56pt label column failed the Language-label fit check; the final
+60pt column passes. Quick static/tooling/docs pass in
+`.local/validation/quick-C2C31E63-ED74-49E1-931B-FF0C5A6B70D8/`.
+Debug/Release workspace builds and four bundle audits pass in
+`.local/validation/release-EA161412-07CD-44B0-B53C-2EA525F2D3DC/`.
+Private logs are `.local/model-inventory-columns/`. Archives were skipped;
+actual GUI/deletion-flow acceptance remains operator-owned.
+
+## Unified concise model setup and startup defaults — October 29
+
+Both apps now display the same Model Setup window from NarrationUI, with one
+short local-speech explanation, shared status/progress, custom-folder selection,
+Install Model/Check Model, Not Now and Cancel. There are no app-specific content
+slots, paths or startup controls. The common component dismisses on verified
+readiness; apps retain the owned download/check/cancel operations. Libro also
+joins readiness checks on cancellation and keeps preflight failures visible.
+
+VoiceRelay requests main-app login startup once for fresh configurations. General
+Settings is the only place for the toggle. Existing preferences/library state,
+explicit opt-outs, OS approval/revocation and failed enrollment are preserved;
+there is no automatic retry on later launches. Tests use fake login services,
+not real registration. Libro's idle status cell is blank while progress and
+diagnostics remain visible during work.
+
+Twenty-four focused tests pass: twelve shared presentation/storage regressions
+(including compact setup sizing and expanded errors) and twelve VoiceRelay
+onboarding/login/Settings regressions. Quick static/tooling/docs pass in
+`.local/validation/quick-06FCFA46-E991-4024-BA2D-13D1AD86BF7F/`.
+Debug/Release workspace builds and four bundle audits pass in
+`.local/validation/release-A9042BE2-EAAB-4A53-A799-4199827C142F/`.
+Private evidence is `.local/shared-model-setup/`. Archives were skipped; actual
+signed-app login/reboot behavior and full GUI acceptance remain operator-owned.
+
+## Tighter control spacing — October 29
+
+Both apps now use 6pt row gaps and 4pt column gaps in the shared model chooser,
+scaled to text size. The column gaps are halved from 8pt, including the gaps
+between storage action, size and info. The section's width is reduced accordingly;
+Libro also halves the gap to its output-format column from 16pt to 8pt.
+The section still fits only the active model's controls and keeps common menu
+alignment. This supersedes the 8pt row spacing in the earlier revision below.
+
+All eleven shared tests pass, including 60 inert offscreen model/text/playback
+layouts. Static/tooling/docs pass in
+`.local/validation/quick-2766DB3D-08D5-40C2-BBE4-046F5B029A8D/`.
+Debug/Release workspace builds and four bundle audits pass in
+`.local/validation/release-7306D90B-D4ED-4013-ACAD-A94F57127A69/`.
+Private logs are in `.local/model-controls-spacing/`. Archives were skipped;
+GUI acceptance remains operator-owned.
+
+## Compact section height — October 29
+
+The shared model chooser now sizes vertically to only the selected model's
+controls in both apps. It no longer measures/reserves invisible options from
+other models. Model and Voice retain their top/left columns; options and Sample
+initially followed with 8pt row gaps (previously 16pt); the later spacing revision
+above tightens these further. Simpler models
+leave more room for the surrounding content. This supersedes the fixed panel
+height in the earlier row/layout revisions below.
+
+Eleven shared tests pass, including 60 inert offscreen layouts checking variable
+height, common width, playback/busy-state stability and enlarged text. No real
+model/profile reads, actions or app windows are needed for these component checks.
+Static/tooling/docs pass in
+`.local/validation/quick-9A26FA75-64C9-4600-A556-6D231442E293/`.
+Debug/Release workspace builds and four bundle audits pass in
+`.local/validation/release-BC631ECB-56DA-4F5E-B2A8-84DBE5927C3C/`.
+Private logs are under `.local/model-controls-fit/`. Archives were skipped;
+full-app GUI acceptance remains operator-owned.
+
+## Recommended starting model — October 29
+
+Both apps retain Kokoro with Heart at 1.0× for fresh preferences. The shared model
+picker now labels it **Kokoro (Recommended)**, with the quality/speed/memory
+tradeoff explained in its details. Existing saved model choices keep precedence.
+The recommendation fits the fixed picker column at the supported text sizes.
+See [model selection](MODEL_SELECTION.md).
+
+Fifteen focused shared/Libro/VoiceRelay tests pass, covering defaults, saved
+choices and inert layout sizing. Static/documentation/tooling checks, both
+workspace configurations and all four bundle audits pass. Evidence is under
+`.local/kokoro-recommendation/` and
+`.local/validation/release-5C907257-E505-45C2-BBE5-7D6A0F5A43C9/`.
+Archives were skipped; GUI acceptance remains operator-owned.
+
+## Shared fresh-start speech setup
+
+October 28 consolidates both onboarding screens in NarrationUI's
+`SpeechSetupOnboardingView`, using VoiceRelay's layout, installation explanation,
+progress and primary actions. Libro retains Choose Custom Model Folder and preparation
+details; VoiceRelay retained optional login startup in that revision. The October 29
+unified concise setup revision above supersedes those app-specific content slots.
+App-owned detection, cancellation,
+verification/dismissal and existing model selections/cache remain unchanged. Synthetic
+inert-view fixtures cover missing, busy, ready, cancelled and failed states without
+running actions. Four shared fixtures and four VoiceRelay onboarding/retry/offline
+fixtures pass. Debug and Release builds of both apps and all four bundle audits pass
+(ad-hoc engineering signatures, embedded helper/resources and offline Metal probes).
+Evidence:
+`.local/validation/quick-50340149-243B-485F-83B0-6C1EB1355D86/summary.json`,
+`.local/validation/quick-ADFE7223-00C4-4E96-BD71-0F58763146A2/summary.json` and
+`.local/validation/release-537C9702-EA6A-4EE6-A3FF-3C16BB68D844/summary.json`.
+The initial quick run (`quick-A57BE192-4997-44F1-87EB-87F3EDBDDA82`) stopped before
+tests because Xcode's Metal shim missed the installed compiler. The passing runs
+used the verified command-local `TOOLCHAINS=com.apple.dt.toolchain.Metal.32023.921.5`
+selection documented in contributor setup; no component/model download or global
+toolchain change was needed. Validation products remain in
+`.build/WorkspaceDerivedData/Build/Products/{Debug,Release}/`, separate from the
+running Xcode-built VoiceRelay app. Archives and the full fixture gate were not run
+for this presentation-only revision. GUI/Canvas and real download/cancel/retry acceptance remain operator-owned through
+L01/V01 in [the operator checklist](OPERATOR_VALIDATION.md).
 
 ## Libro whole-app review fixes
 
@@ -93,14 +281,213 @@ no operator app was installed or launched. Local logs use the
 Live host MIME/access control, GUI, listening and installed Overcast TestFlight behavior remain
 operator acceptance [V22](OPERATOR_VALIDATION.md#voicerelay).
 
+## Voice-selection rows — October 29
+
+Both apps now use the supplied row-based template through the shared
+SpeechModelControls: Model (with download/delete, size and info), Voice,
+model-specific options and Play Sample. All rows are left-aligned with uniform,
+text-size-aware spacing. Picker frames explicitly align to the leading edge.
+Kokoro's speed value and Stepper stay together in the value column. Qwen's
+Native/Language/Delivery rows share that alignment; Chatterbox import is a full
+row beneath Voice. Unsupported parameters are omitted.
+
+Play Sample is inside the shared component, with app-owned playback/enabled state
+and callbacks; separate app-local sample columns/rows are removed. Active options
+and Sample originally flowed together with reserved space afterward to keep the
+outer panel height steady. The later compact-height revision above removes that
+reservation and tightens spacing while preserving the common menu anchors. Input
+and sample enablement remain separate, preserving VoiceRelay's bundled playback
+while model controls are busy. Existing parameters, recorded audio and cache
+management behavior remain unchanged.
+
+Eleven shared tests and six VoiceRelay integration tests pass. Offscreen checks
+compare all five models at four text settings and three input/playback states
+(60 inert layouts), verify stable envelopes and enlarged text sizing, and compare
+compact versus labelled speed-control measurements. They open no app windows,
+read no real model/profile storage and invoke no actions. Static/tooling/docs pass
+in `.local/validation/quick-F64AE9A8-DB8C-4E70-A888-DCD2A2FFED8D/`.
+Final Debug/Release workspace builds and all four bundle audits pass in
+`.local/validation/release-31A3C5C4-2FA1-4142-BDD2-CE3A9729B5DA/`.
+Archives are unrequested; GUI/keyboard/listening acceptance remains operator-owned.
+Current ad-hoc candidates are
+`.build/WorkspaceDerivedData/Build/Products/Release/Libro.app` and
+`VoiceRelay.app` in the same folder, with parallel Debug products. Private final
+logs/source digests are in `.local/model-controls-rows/`. The earlier
+`release-5FF2259C-E2DC-4300-83E6-2A4FC0AD2598` pass preceded the final explicit
+picker alignment; it is not the final-source receipt. No installed app or actual
+model cache was replaced by validation.
+
+## Stable model-selection layout — October 28
+
+Both apps now pin Model and Voice to common, text-size-aware native Grid columns.
+Chatterbox uses the same visible Voice label and menu position while retaining
+reference-voice accessibility context. Storage action, size and details also use
+stable columns. That revision used a hidden, inert set of supported parameter
+variants to reserve the largest natural parameter area below the common menus.
+The October 29 compact-height revision above removes that reservation. Errors can
+still expand below the controls rather than being clipped.
+
+That revision anchored the header to its leading edge and top-aligned sample and
+output columns; the October 29 row template above supersedes the sample column. Fixed field/sample widths prevent model changes from selecting a
+different narrow-window layout. Speaking parameters, saved choices, files and model
+installation/deletion behavior are unchanged.
+
+Ten shared presentation/storage tests and six VoiceRelay integration regressions
+pass. One offscreen synthetic layout case measures all five models at 80%, 100%,
+200% and an accessibility text size, verifies equal normal panel dimensions across
+models and verifies enlargement at 200%, without invoking actions, opening app
+windows or reading real model/profile storage. These measurements are component
+regressions, not full-app GUI acceptance. Static/tooling/docs pass in
+`.local/validation/quick-2D15ECD7-2C8D-4861-A67E-923834D2708B/`.
+Both workspace configurations and all four bundle audits pass in
+`.local/validation/release-73975CC1-95CB-4299-8F65-AC2B74CF3B81/`.
+Archives were explicitly unrequested for that revision. Those receipts predate
+the row template above; private logs/source digests are in
+`.local/model-controls-stable/`. GUI, keyboard and
+listening acceptance remain operator-owned; no installed app was replaced.
+
+## Compact shared model controls — October 28
+
+Both apps now use the same compact model row: an icon-only Download action becomes
+trash when cached model files are present, local/estimated size sits beside it,
+and the trailing ⓘ opens the description and generation-speed/narration-quality
+meters. Inline stats cards are removed. The details popover retains Download
+missing files for repair or additional language resources without deleting weights.
+
+Selected-cache inventory runs off the UI actor and refreshes after installation,
+deletion, selection/folder changes and app activation. Late or interrupted scans
+cannot enable actions for the wrong selection. Confirmed deletion uses the existing
+app-owned maintenance task and shared storage lease; in-use failures keep the
+cached model, and imported folders remain read-only. Original recordings,
+reference voices and unrelated repositories remain protected. No user cache or
+installed app was modified during validation.
+
+The compact-control revision passed nine shared UI/storage-state cases, eight native
+storage fixtures and six VoiceRelay Settings/integration cases. The opt-in actual
+model-generation case is skipped; audio generation was unchanged. Static/tooling
+checks pass in `.local/validation/quick-F6C971A5-8361-441A-B5B4-99E1CAE65AAB/`.
+Both workspace configurations and all four bundle audits passed for that source
+in `.local/validation/release-80BB9C83-7252-4D54-9617-F5DA45AC940F/`.
+Those receipts predate the stable-layout revision above; archives were unrequested.
+Private logs/source digests are in `.local/model-controls-compact/`. GUI, keyboard and
+real-cache acceptance remain operator-owned.
+
+## VoiceRelay Voice Model Settings — October 28
+
+VoiceRelay now has General, Voice Model, Pronunciation, Publishing and
+Troubleshooting panes. Voice Model owns model/voice/speed selection, Download,
+guidance, samples, installed-model storage and offline setup checks. These controls
+are removed from Articles and General. Speech warnings and onboarding direct users
+to Voice Model. The Settings window has a 540×680 ideal size with adaptive compact
+navigation at narrow widths. Both apps now use the compact shared model row
+with download/delete and size; the trailing ⓘ opens model details and meters. Existing preferences and captured jobs are
+unchanged.
+
+The original tab relocation, before the compact controls above, passed six
+VoiceRelay regressions and four shared UI cases. Static/docs and tooling passed in
+`.local/validation/quick-65CD8E02-E03D-4BF4-9E2A-32B43928AA48/`.
+Both workspace configurations and all four bundle audits pass in
+`.local/validation/release-1E11AF54-4FAF-4DEE-9602-19753D9E5393/`, with archives
+explicitly unrequested. Those receipts predate the compact-row revision above;
+GUI/keyboard acceptance remains operator-owned. Private evidence is in
+`.local/voice-model-settings/`; the earlier cache/native receipts below retain
+their original scope.
+
+## Model controls and shared cache — October 28
+
+Both apps now use icon-only download/delete, adjacent size, and an on-demand
+model-details/meter popover. Inline stats panels and repeated Settings pickers are removed.
+VoiceRelay selection/preview controls live in Settings → Voice Model; Libro keeps its main
+batch controls. Section help is shorter while retaining consequential privacy and
+deletion information.
+
+New installations use the pinned HuggingFace library's standard shared cache;
+explicit custom storage choices and legacy workspaces remain supported. Models
+settings (Libro) and Voice Model (VoiceRelay) list downloaded models, allocated disk
+sizes and confirmed deletion, plus folder override/default controls. Read-only
+imports remain separate. Shared read leases cover complete sessions/installations;
+deletion needs exclusive access and preserves audio, references and unrelated
+repositories. See [model storage](MODEL_SELECTION.md#model-storage).
+
+Fresh offline standard-cache installation, speech, snapshot-integrity and deletion
+checks pass for Kokoro, Qwen, Chatterbox and Orpheus. These opt-in checks use copied
+public model assets in temporary caches, shared background inference admission and
+network-denied helpers. The user's actual cache and open Libro build were not
+modified. Fresh installation also exposed nondeterministic JSON key ordering in
+SDK-generated tokenizers; pinned structural digests now validate identical content
+without relying on object-key order. Remote input hashes and acoustic identities
+are unchanged. Evidence is under `.local/model-storage-validation/`.
+
+The model-storage implementation’s full fixture gate passed at
+`.local/validation/full-E43F4723-68B2-459B-906D-9EC223F17325/`. Storage migration
+is one-time: explicitly selecting a former automatic folder afterward persists
+across relaunch. Default-cache installs keep the override unset, while custom
+folders remain explicit. Routine validation now supports `--skip-archives`,
+retaining both workspace configurations and their four bundle audits; archive
+checks remain available for distribution changes and explicit release validation.
+
+The model-storage implementation’s Debug/Release builds and four bundle audits passed in
+`.local/validation/release-DBD0321A-79CD-4A41-8565-751307F17B1D/`.
+Archives were explicitly unrequested for that snapshot. Ad-hoc app
+candidates are `.build/WorkspaceDerivedData/Build/Products/Release/Libro.app`
+and `VoiceRelay.app` in the same folder (with parallel Debug products).
+The earlier `release-8A90EA8C-0298-457D-B01D-F06048025A65` archive gate passed
+before the final preference cleanup; those archives are historical, not the
+current candidates. GUI/accessibility and signed release acceptance remain open.
+
+## Shared model integration — October 27–28
+
+Both apps now share Qwen3-TTS 1.7B CustomVoice (nine presets/ten languages),
+Chatterbox Turbo (default and local immutable reference voices) and Orpheus 3B
+(eight English presets), while retaining existing defaults and Kokoro/Soprano
+behavior. NativeSpeech owns pinned primary/auxiliary inventories and static
+speed/quality guidance; NarrationUI owns the common controls. Queued articles
+capture the full model/voice/language/style selection. The [model guide](MODEL_SELECTION.md)
+describes installation, previews, RAM requirements and reference backup limits.
+
+The final full fixture gate passes: shared tests, 38 LibroCore tests, 331
+VoiceRelay core tests, 166 app tests, pinned patch checks and packaging/static
+regressions. Existing private-document/native opt-ins remain reported skips.
+Evidence is `.local/validation/full-EB8A4A13-7243-4038-9C97-B2E0E7854A74/`.
+Native short checks passed all 18 new presets, ten Qwen languages and a synthetic
+Chatterbox reference. The original 29 sample files/manifest records are unchanged;
+18 production-path English samples bring the catalog to 47. Native receipts are
+under `.local/multi-model-implementation/`.
+
+Debug and Release workspace builds, both app Archives and all six bundle audits
+pass for the coordinated working tree based on `c10135f`. Evidence and isolated
+ad-hoc engineering candidates are in
+`.local/validation/release-CF376C4F-5242-41A5-8105-B4247F18C718/`.
+Each archive contains `Products/Applications/<app>.app`; no installed app was
+replaced or launched. The final Libro preview fix stops recorded samples as well
+as live previews when language/delivery settings change. The standalone benchmark
+passes 26 isolated tests and rebuilds with the raw Chatterbox PCM policy.
+
+Offline preparation and multi-paragraph narration pass through both archived
+helpers for Ryan, Chatterbox default and leah. Packaged contention confirms
+interactive Qwen precedes waiting background Orpheus, at most one helper is
+resident, and waiting cancellation publishes no audio. Logs, prepared plans,
+worker hashes and synthetic recordings are in
+`.local/multi-model-implementation/native-packaged-*`; the aggregate
+`summary.json` records all gates. These bounded passages do not establish
+hour-long memory stability or linguistic/listening quality.
+
+Large helpers are reaped between utterances under the existing admission lease;
+reload and hash-validation overhead exceeds warm benchmark-call costs. Chatterbox
+now preserves raw vocoder PCM by disabling inherited SDK normalization/fade;
+original benchmark recordings retain their old processing and bytes. See the
+[integration record](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md) for design and evidence.
+Long-form linguistic quality, GUI/accessibility, actual documents, normal-signed
+installed apps and live delivery/player checks remain operator-owned.
+
 ## Standalone TTS model comparison
 
 On October 27 the operator reported Qwen3-TTS 1.7B / Ryan as the top bracket
 choice, Chatterbox Turbo / default as runner-up, and Kokoro / Heart plus Orpheus
-3B / leah as contenders. The [shared integration draft](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md)
+3B / leah as contenders. The [shared integration record](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md)
 covers all supported preset voices of the selected checkpoints, shared setup/UI,
-native adapters, resource admission and both app workflows. Product implementation
-has not started. This records the supplied ranking without inventing or importing
+native adapters, resource admission and both app workflows. The implementation
+is described below. This records the supplied ranking without inventing or importing
 canonical bracket votes; held-out and long-form listening remain open.
 
 October 24–25 implementation adds the [Swift benchmark utility](../tools/TTSBenchmark/README.md),
@@ -109,7 +496,8 @@ serial offline workers with time/memory bounds, preserves native-rate audio and
 records timings, output hashes and durable attempts. A resumable blind model/voice
 bracket precedes separate held-out and long-form finalist confirmation.
 Cold/warm loads and product-reference variants are timing evidence, not additional
-listening entrants. App model catalogs, settings and audio processing are unchanged.
+listening entrants. These October 24–25 observations precede the October 27
+product integration; the original benchmark artifacts remain unchanged.
 
 All 19 isolated benchmark tests passed. The full project fixture gate, Debug and
 Release workspace builds and four bundle audits also passed in a separate
@@ -285,8 +673,9 @@ checks compare the bundled resource to the maintained source image.
 Background credential access avoids interactive Keychain prompts; explicit settings
 actions handle credential changes. Rebuilding or changing signing identities can
 change Keychain authorization independently of application logic. Optional login
-startup uses the platform service API, defaults off and is available in initial
-configuration and Settings. Keychain behavior, system approval and reboot/login
+startup uses the platform service API. The October 29 startup revision above changes
+fresh configurations to a one-time default-on request with the control only in
+General Settings; existing choices remain intact. Keychain behavior, system approval and reboot/login
 acceptance remain operator-owned.
 
 ## Libro Document settings
@@ -326,7 +715,7 @@ phoneme packing and structural pauses. Saved speeds, captured jobs and Soprano's
 frontend remain compatible. Audio is never normalized, levelled, limited or given
 gain. MLX stays helper-only, with one worker per app and shared admission priority.
 
-The latest recorded cross-app product validation is the October 20 monorepo gate:
+The October 20 monorepo validation established the migration baseline:
 full synthetic fixtures, Debug and Release workspace builds and all four bundle
 audits passed. Those audits include
 ad-hoc signatures and offline packaged Metal probes. Migration-specific results

@@ -24,11 +24,18 @@ func readingListRetargetedEntryRetiresOnlyMissingSourceURLs(oldURLStillPresent: 
     let coordinator = FixtureCoordinator()
     _ = try await coordinator.reconcile(.init(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
     let queued = try await coordinator.enqueue(sourceIdentityReview(original: original), storage: storage, preferences: .init(), sourceEntryID: entry.id)
+    let stale = try #require(await coordinator.library(storage: storage).first { $0.id == queued.id })
     let updated = ReadingListEntry(id: entry.id, safariID: entry.safariID, url: replacement, title: "Replacement article", addedAt: entry.addedAt)
     let retained = ReadingListEntry(id: "safari:retained", safariID: "retained", url: original, title: entry.title, addedAt: entry.addedAt)
     _ = try await coordinator.reconcile(.init(entries: oldURLStillPresent ? [updated, retained] : [updated], skippedEntries: 0), stateRoot: storage.stateRoot)
     let episode = try #require(await coordinator.library(storage: storage).first { $0.id == queued.id })
     #expect((episode.readingListRemoved == true) == !oldURLStillPresent)
+    #expect(try await !coordinator.hasRecordedArticle(entry: updated, stateRoot: storage.stateRoot))
+    if oldURLStillPresent {
+        #expect(episode.readingListEntryID == retained.id)
+        try NativeStore(url: storage.profile.database).save(stale)
+        #expect(try await coordinator.hasRecordedArticle(entry: retained, stateRoot: storage.stateRoot))
+    }
     #expect(try await coordinator.queue(stateRoot: storage.stateRoot).contains { $0.id == queued.id } == oldURLStillPresent)
     try await coordinator.purgeRemovedReadingListCaches(storage: storage)
     let snapshot = try NativeStore(url: storage.profile.database, readOnly: true).snapshot(articleID: queued.id)

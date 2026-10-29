@@ -36,6 +36,26 @@ public struct ReadingListCatalog: Codable, Sendable {
     /// Legacy catalogs still decode this field; exclusion is no longer honored and each
     /// saved reconcile clears it.
     public var excludedIDs: Set<String> = []
+    var duplicateEvidence: [String: ArticleDuplicateEvidence]? = nil
+    /// All evaluated copies are consumed together at admission, including the losers.
+    /// This survives refresh, restart, queue removal and audio retirement.
+    var handledEntryIDs: Set<String>? = nil
+    public var unreviewedDuplicateIDs: Set<String> {
+        let handled = handledEntryIDs ?? []
+        return Set(ArticleDuplicates.groups(entries, evidence: duplicateEvidence ?? [:]).flatMap { group -> [String] in
+            group.count > 1 && group.contains { !handled.contains($0.id) } ? group.map(\.id) : []
+        })
+    }
+    public var inactiveDuplicateIDs: Set<String> {
+        let evidence = duplicateEvidence ?? [:]
+        return Set(ArticleDuplicates.groups(entries, evidence: evidence).flatMap { group -> [String] in
+            guard group.count > 1, let winner = ArticleDuplicates.winner(group, evidence: evidence) else { return [] }
+            return group.filter { $0.id != winner.id }.map(\.id)
+        })
+    }
+    public func hasHandled(_ entry: ReadingListEntry) -> Bool {
+        entries.contains(entry) && handledEntryIDs?.contains(entry.id) == true
+    }
     public init() {}
     /// Articles display saved dates newest first without changing durable discovery order.
     /// Equal dates and undated entries retain their inventory order; undated entries go last.
@@ -54,6 +74,12 @@ public struct ReadingListCatalog: Codable, Sendable {
         entries.filter { ids.contains($0.id) }
     }
     public mutating func reconcile(_ snapshot: ReadingListSnapshot) {
+        let previousEntries = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let unchanged = Set(snapshot.entries.filter {
+            previousEntries[$0.id]?.url == $0.url && previousEntries[$0.id]?.addedAt == $0.addedAt
+        }.map(\.id))
+        duplicateEvidence = duplicateEvidence?.filter { unchanged.contains($0.key) }
+        handledEntryIDs = handledEntryIDs?.intersection(unchanged)
         let previousURLs = Dictionary(entries.map { ($0.id, $0.url) }, uniquingKeysWith: { first, _ in first })
         let updatedURLs = Dictionary(snapshot.entries.map { ($0.id, $0.url) }, uniquingKeysWith: { first, _ in first })
         currentIDs = Set(snapshot.entries.map(\.id))

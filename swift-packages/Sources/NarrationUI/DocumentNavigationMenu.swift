@@ -28,30 +28,30 @@ public struct NarrationOptionsControls: View {
         Picker("Footnotes", selection: $options.notes) {
             ForEach(NarrationOptions.NotePlacement.allCases, id: \.self) { Text($0.label).tag($0) }
         }
-        .help("Choose when to read footnotes and endnotes identified by the document. Unmarked text stays as written.")
+        .help("Choose when marked notes are read.")
         if showsExamples {
             DocumentTextExample(source: "Main text¹ → more text\n¹ Footnote", narration: noteExample)
         }
         Toggle("Strip inline citations", isOn: $options.stripInlineCitations)
-            .help("Skips recognized author–year references and numbered citations linked to a reference list. Keeps ordinary parentheses and numbers.")
+            .help("Skip recognized citations; keep ordinary numbers and parentheses.")
         if showsExamples {
             DocumentTextExample(source: "Forests recover (Smith, 2020).",
                 narration: options.stripInlineCitations ? "Forests recover." : "Forests recover (Smith, 2020).")
         }
         Toggle("Strip endnote citations", isOn: $options.stripEndnoteCitations)
-            .help("Skips identified bibliographies and citation-only notes. Keeps notes that explain or add information.")
+            .help("Skip reference lists and citation-only notes.")
         if showsExamples {
             DocumentTextExample(source: "Main text → reference list → explanatory note",
                 narration: options.stripEndnoteCitations ? "Main text → explanatory note" : "Main text → reference list → explanatory note")
         }
         Toggle("Read appendices and extra sections", isOn: $options.includeAuxiliary)
-            .help("Only sections marked as extra material are affected. Ordinary body text stays included.")
+            .help("Include marked appendices and extra sections.")
         if showsExamples {
             DocumentTextExample(source: "Main text → appendix",
                 narration: options.includeAuxiliary ? "Main text → appendix" : "Main text")
         }
         Toggle("Join split words in PDFs (experimental)", isOn: $options.experimentalPDFWordJoining)
-            .help("Joins verified PDF line breaks using the English spelling dictionary. Keeps recognized compound hyphens and leaves uncertain words alone.")
+            .help("Join verified split English words; keep compounds and uncertain spellings.")
         if showsExamples {
             DocumentTextExample(source: "inter-\nnational",
                 narration: options.experimentalPDFWordJoining ? "international" : "inter- national",

@@ -14,6 +14,7 @@ public struct NativeAcquisitionFile: Sendable {
     }
 
     public func matches(_ url: URL) throws -> Bool {
+        let url = url.resolvingSymlinksInPath()
         guard FileManager.default.fileExists(atPath: url.path) else { return false }
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
         guard values.isRegularFile == true, values.fileSize == bytes else { return false }
@@ -24,7 +25,15 @@ public struct NativeAcquisitionFile: Sendable {
     /// Call under the preparation scope lock, only for private native copies.
     @discardableResult
     public func quarantineInvalidCopy(at url: URL, workspace: NativeWorkspace) throws -> Bool {
-        _ = try workspace.managed(url)
+        // The owned leaf may link to an immutable shared Hub blob. Validate
+        // its parent for mutation; never rename or rewrite the blob itself.
+        _ = try workspace.managed(url.deletingLastPathComponent())
+        if workspace.usesSharedHub,
+           url.path.hasPrefix(workspace.nativeRoot.path + "/staging/"),
+           (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil {
+            let blob = try workspace.cached(url.resolvingSymlinksInPath())
+            guard blob.pathComponents.contains("blobs"), !blob.path.hasPrefix(workspace.nativeRoot.path + "/") else { throw NativeAssetError.outsideWorkspace }
+        } else { _ = try workspace.managed(url) }
         try Task.checkCancellation()
         if try matches(url) { return true }
         if FileManager.default.fileExists(atPath: url.path) {

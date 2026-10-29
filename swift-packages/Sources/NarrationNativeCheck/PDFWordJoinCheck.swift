@@ -32,7 +32,7 @@ enum PDFWordJoinCheck {
         let original = document
         let expected = "There is a particularly comfortable hotel in this town. Readers describe an extraordinary arrival near the river."
         var records: [[String: Any]] = []
-        for model in SpeechModel.allCases {
+        for model in [SpeechModel.kokoro, .soprano] {
             let settings = SpeechSettings(model: model)
             let configuration = WorkerConfiguration(executable: URL(fileURLWithPath: "/usr/bin/sandbox-exec"),
                 arguments: ["-p", "(version 1)(allow default)(deny network*)",

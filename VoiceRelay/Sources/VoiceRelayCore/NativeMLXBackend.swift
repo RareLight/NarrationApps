@@ -56,19 +56,26 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
     public let narrationVersion: String
     private let gapSeconds: Double?
 
-    public init(configuration: KokoroConfiguration, worker: WorkerConfiguration? = nil, pronunciations: PronunciationDictionary = .empty, policy: SpeechPreparationPolicy = .current, gapSeconds: Double? = nil, narrationOptions: NarrationOptions = .init()) throws {
-        self.pronunciations = pronunciations; voice = configuration.voice; speed = configuration.speed
-        let settings = SpeechSettings(model: .kokoro, voice: voice, speed: Float(speed))
+    public convenience init(configuration: KokoroConfiguration, worker: WorkerConfiguration? = nil, pronunciations: PronunciationDictionary = .empty, policy: SpeechPreparationPolicy = .current, gapSeconds: Double? = nil, narrationOptions: NarrationOptions = .init()) throws {
+        try self.init(configuration: NativeSpeechConfiguration(projectRoot: configuration.projectRoot,
+            settings: .init(voice: configuration.voice, speed: Float(configuration.speed)), synthesisTimeout: configuration.synthesisTimeout),
+            worker: worker, pronunciations: pronunciations, policy: policy, gapSeconds: gapSeconds, narrationOptions: narrationOptions)
+    }
+
+    public init(configuration: NativeSpeechConfiguration, worker: WorkerConfiguration? = nil, pronunciations: PronunciationDictionary = .empty, policy requestedPolicy: SpeechPreparationPolicy = .current, gapSeconds: Double? = nil, narrationOptions: NarrationOptions = .init()) throws {
+        let settings = configuration.settings
+        let policy: SpeechPreparationPolicy = settings.model.isLarge ? .nativeText : settings.model == .soprano ? .legacy : requestedPolicy
+        self.pronunciations = pronunciations; voice = settings.voice; speed = Double(settings.speed)
         speechSettings = settings; self.policy = policy; self.gapSeconds = gapSeconds
         narrationVersion = Narration.version(settings: settings, pronunciations: pronunciations, options: narrationOptions) + "/native-preparation-1/" + SpeechAcousticIdentity.make(settings: settings, policy: policy)
         let selected = worker ?? WorkerConfiguration(executable: NativeSpeechSetup.workerExecutable,
                                                       requestTimeout: .seconds(configuration.synthesisTimeout), inferencePriority: .background)
         session = try NativeSpeechSession(configuration: selected, workspace: configuration.projectRoot,
                                           settings: settings, leaseFile: selected.inferenceLeaseFile, policy: policy)
-        let catalog = NativePrimaryCatalog.specification(for: .kokoro)
-        let fingerprint = (["swift-mlx-kokoro-v2", catalog.revision, NarrationOptions.acousticCompatibleVersion(narrationVersion)] + (pronunciations.fingerprint.isEmpty ? [] : [pronunciations.fingerprint])).joined(separator: "\n")
-        identity = BackendIdentity(id: "native-kokoro-v2-" + Files.hash(Data(fingerprint.utf8)),
-                                   displayName: "Kokoro via native Swift MLX", isMock: false)
+        let catalog = NativePrimaryCatalog.specification(for: settings.model)
+        let fingerprint = ([settings.model == .kokoro ? "swift-mlx-kokoro-v2" : "swift-mlx-" + settings.model.rawValue + "-v1", catalog.revision, NarrationOptions.acousticCompatibleVersion(narrationVersion)] + (pronunciations.fingerprint.isEmpty ? [] : [pronunciations.fingerprint])).joined(separator: "\n")
+        identity = BackendIdentity(id: (settings.model == .kokoro ? "native-kokoro-v2-" : "native-" + settings.model.rawValue + "-v1-") + Files.hash(Data(fingerprint.utf8)),
+                                   displayName: settings.model.label + " via native Swift MLX", isMock: false)
     }
 
     public func prepare() throws { try bridge.run { [session] in try await session.prepare() } }
@@ -84,8 +91,8 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
     }
 
     public func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
-        guard (request.voice ?? voice) == voice, ["en-US", "en-GB"].contains(request.language),
-              request.settings["speed"] == nil || request.settings["speed"]?.numericValue == speed else {
+        guard (request.voice ?? voice) == voice, (speechSettings.model == .kokoro ? ["en-US", "en-GB"].contains(request.language) : request.language == speechSettings.languageCode),
+              request.settings["speed"] == nil || request.settings["speed"]?.numericValue.map({ Float($0) == Float(speed) }) == true else {
             throw RelayError.setup("The speech request does not match its prepared native voice and speed.")
         }
         try Files.directory(directory)

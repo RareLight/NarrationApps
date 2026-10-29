@@ -15,6 +15,16 @@ be rewritten during documentation cleanup. App bundles include dependency notice
 model assets are explicitly acquired outside the bundle. Distribution review is
 separate from local build feasibility.
 
+The October 27 model integration retains the exact Qwen3-TTS 1.7B 8-bit,
+Chatterbox Turbo FP16 and Orpheus BF16 checkpoints used by the local comparison.
+Complete primary/auxiliary hash inventories and two adapter patches are recorded
+in [dependencies](DEPENDENCIES.md). Eighteen new bundled English samples were
+generated through the shared production session/helper from the existing authored
+sample phrase; the previous 29 audio resources are byte-preserved. No private
+article, imported reference or model weights are included in those resources.
+New Chatterbox samples use raw product PCM rather than the pinned SDK's inherited
+peak normalization/fade; original benchmark artifacts keep their original bytes.
+
 The optional native PDF word joiner adapts Readium Swift toolkit proposal #877 at
 commit `3a50f066f0b050f2951c211b41cf69d8eab9be6a`. Its original BSD-3-Clause license,
 copyright and adaptation record are retained in

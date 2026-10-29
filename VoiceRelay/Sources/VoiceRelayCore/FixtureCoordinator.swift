@@ -223,7 +223,7 @@ public actor FixtureCoordinator {
         try ArticleURL.validate(review.page.originalURL); try ArticleURL.validate(review.page.finalURL)
         return try await executeWork(root: captured.stateRoot, imported: nil, backend: backend,
             review: e.settings.backendSelector == "speech-fixture" ? nil : review, storage: captured,
-            delivery: delivery, speechVoice: voice, speechSpeed: speed, context: context,
+            delivery: delivery, speechVoice: voice, speechSpeed: speed, articleID: e.id, context: context,
             interruptAfter: nil, onBoundary: { _ in }, onProgress: onProgress)
     }
     public func library(root: URL) throws -> [Episode] {
@@ -311,13 +311,13 @@ public actor FixtureCoordinator {
     }
     private func executeWork(root: URL, imported: PrototypeProfile?, backend: any TTSBackend, review: ReviewedSource? = nil,
                              storage: ManagedSpeechStorage? = nil, delivery: DeliverySettings? = nil,
-                             speechVoice: String? = nil, speechSpeed: Double? = nil,
+                             speechVoice: String? = nil, speechSpeed: Double? = nil, articleID: String? = nil,
                              context: SpeechArticleContext? = nil, interruptAfter: FixtureBoundary?, onBoundary: @escaping @Sendable (FixtureBoundary) -> Void,
                              onProgress: @escaping @Sendable (PipelineProgress) -> Void) async throws -> FixtureResult {
         let audioObserver = beforeAudioProcessing
         let child = Task.detached(priority: .userInitiated) {
             try await Self.execute(root: root, imported: imported, backend: backend, review: review,
-                             storage: storage, delivery: delivery, speechVoice: speechVoice, speechSpeed: speechSpeed,
+                             storage: storage, delivery: delivery, speechVoice: speechVoice, speechSpeed: speechSpeed, articleID: articleID,
                              context: context, audioObserver: audioObserver, interruptAfter: interruptAfter, onBoundary: onBoundary, onProgress: onProgress)
         }
         return try await withTaskCancellationHandler {
@@ -328,13 +328,17 @@ public actor FixtureCoordinator {
     }
     private nonisolated static func execute(root: URL, imported: PrototypeProfile?, backend: any TTSBackend, review: ReviewedSource? = nil,
                                             storage: ManagedSpeechStorage? = nil, delivery: DeliverySettings? = nil,
-                                            speechVoice: String? = nil, speechSpeed: Double? = nil,
+                                            speechVoice: String? = nil, speechSpeed: Double? = nil, articleID: String? = nil,
                                             context: SpeechArticleContext? = nil, audioObserver: (@Sendable (SpeechTimingStage, URL) throws -> Void)? = nil, interruptAfter: FixtureBoundary?, onBoundary: @Sendable (FixtureBoundary) -> Void,
                                             onProgress: @Sendable (PipelineProgress) -> Void) async throws -> FixtureResult {
         try Task.checkCancellation()
         let root = root.resolvingSymlinksInPath().standardizedFileURL
         if let delivery { try delivery.validate() }
-        guard speechVoice == nil || speechVoice!.range(of: "^[ab][fm]_[a-z0-9_]+$", options: .regularExpression) != nil,
+        let nativeSettings = (backend as? any PreparedTTSBackend)?.speechSettings
+        let validVoice = speechVoice == nil || (nativeSettings?.model.isLarge == true
+            ? nativeSettings?.isValid == true && speechVoice == nativeSettings?.voice
+            : speechVoice!.range(of: "^[ab][fm]_[a-z0-9_]+$", options: .regularExpression) != nil)
+        guard validVoice,
               speechSpeed == nil || (speechSpeed!.isFinite && (0.25...4).contains(speechSpeed!)) else {
             throw RelayError.setup("Speech voice or speed is unsupported.")
         }
@@ -344,6 +348,11 @@ public actor FixtureCoordinator {
         var selected = try storage?.prepare() ?? FixtureWorkspace.prepare(root: root, imported: imported, articles: review != nil)
         selected.backendSelector = review == nil ? "speech-fixture" : "reviewed-article-speech"
         selected.voice = speechVoice ?? imported?.voice
+        if var captured = nativeSettings, captured.model.isLarge {
+            captured.savedChoices = nil
+            selected.speechSelection = captured
+            selected.language = captured.languageCode
+        }
         selected.backendSettings = imported?.backendSettings ?? [:]
         if let speechSpeed { selected.backendSettings["speed"] = .number(speechSpeed) }
         selected.channelTitle = review == nil ? "VoiceRelay Speech Fixture" : "VoiceRelay Articles"
@@ -370,7 +379,11 @@ public actor FixtureCoordinator {
         let store = try PipelineStore(databaseURL: selected.database)
         let sourceKey = review.map { "reviewed-url-v1-" + Files.hash(Data($0.page.originalURL.absoluteString.utf8)) }
             ?? "bundled-synthetic-article-v1"
-        var e = try store.episode(sourceKey: sourceKey, settings: selected)
+        var e: Episode
+        if let articleID {
+            guard let captured = try store.episode(id: articleID) else { throw RelayError.storage("The captured article is unavailable.") }
+            e = captured
+        } else { e = try store.episode(sourceKey: sourceKey, settings: selected) }
         if e.stage == .expired {
             guard e.manualAudioDeletionRequested != true else {
                 throw RelayError.setup("Saved audio removal is unfinished. Reopen Saved Audio to finish it before regenerating.")

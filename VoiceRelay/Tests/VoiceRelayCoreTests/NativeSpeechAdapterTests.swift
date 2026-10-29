@@ -4,6 +4,7 @@ import AVFoundation
 import AudioOutput
 import ProcessingPipeline
 import NarrationCore
+import NativeSpeech
 import Pronunciation
 @testable import VoiceRelayCore
 
@@ -236,7 +237,8 @@ private enum SkipNativeFixture: Error { case unavailable }
     let result = try await coordinator.drainQueue(storage: storage, backend: { episode in
         try NativeMLXBackend(configuration: KokoroConfiguration(projectRoot: root, voice: episode.settings.voice ?? "af_heart", speed: episode.settings.backendSettings["speed"]?.numericValue ?? 1), worker: worker, pronunciations: dictionary, policy: policy, gapSeconds: episode.settings.gapSeconds)
     })
-    #expect(result.failedItems.isEmpty && result.progress.completedArticles == 2)
+    #expect(result.failedItems.isEmpty, "Synthetic mixed-model failures: \(result.failedItems)")
+    #expect(result.progress.completedArticles == 2)
     let episodes = try await coordinator.library(storage: storage)
     #expect(episodes.count == 2 && episodes.allSatisfy { $0.stage == .published })
     for episode in episodes {
@@ -253,4 +255,83 @@ private enum SkipNativeFixture: Error { case unavailable }
         .flatMap { try String(contentsOf: $0, encoding: .utf8).split(separator: "\n") }
         .map { try #require(JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]) }
     #expect(records.filter { $0["event"] as? String == "launch" }.count == 1)
+}
+
+@Test func modelPreferencesDecodeLegacyAndRetainNewSelections() throws {
+    let old = try JSONDecoder().decode(SpeechPreferences.self, from: Data(#"{"voice":"bf_emma","speed":1.35}"#.utf8))
+    #expect(old.modelSelection.model == .kokoro)
+    #expect(old.modelSelection.voice == "bf_emma")
+    var preferences = old
+    preferences.modelSelection = preferences.modelSelection.switching(to: .qwen3)
+    preferences.modelSelection.voice = "Aiden"
+    preferences.modelSelection.language = "French"
+    try preferences.validate()
+    let reloaded = try JSONDecoder().decode(SpeechPreferences.self, from: JSONEncoder().encode(preferences))
+    #expect(reloaded.modelSelection.voice == "Aiden" && reloaded.modelSelection.effectiveLanguage == "French")
+    #expect(reloaded.modelSelection.switching(to: .kokoro).voice == "bf_emma")
+}
+
+@Test func newModelQueueCapturesSelectionAcrossReloadAndPreferenceChanges() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
+    try Files.directory(root); defer { try? FileManager.default.removeItem(at: root) }
+    let audio = root.appendingPathComponent("audio"); try Files.directory(audio)
+    let storage = ManagedSpeechStorage(audioDirectory: audio, stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let coordinator = FixtureCoordinator()
+    var preferences = SpeechPreferences()
+    for model in [SpeechModel.qwen3, .chatterbox, .orpheus] {
+        preferences.modelSelection = preferences.modelSelection.switching(to: model)
+        let url = URL(string: "https://fixture.example/" + model.rawValue)!
+        let html = "<html><head><title>Original narration fixture</title></head><body><article><p>" + String(repeating: "A public paragraph for the native queue. ", count: 30) + "</p></article></body></html>"
+        let review = try ReviewedSource.prepare(FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html, contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast), chunkLimit: 1800)
+        _ = try await coordinator.enqueue(review, storage: storage, preferences: preferences)
+    }
+    preferences.modelSelection = .init()
+    let episodes = try await FixtureCoordinator().library(storage: storage)
+    #expect(Set(episodes.compactMap { $0.settings.speechSelection?.model }) == Set([SpeechModel.qwen3, .chatterbox, .orpheus]))
+    #expect(episodes.allSatisfy { $0.settings.speechSelection?.voice == $0.settings.speechSelection?.model.defaultVoice })
+}
+
+@Test(.enabled(if: ProcessInfo.processInfo.environment["NARRATION_FIXTURE_WORKER"] != nil, "Run with shared fixture worker."),
+    .enabled(if: SpeechMemoryPolicy.canLoad(.orpheus), "Fixture sessions honor the native host memory support guard.")) func mixedModelQueueRunsUsingCapturedNativeBackends() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
+    try Files.directory(root); defer { try? FileManager.default.removeItem(at: root) }
+    let audio = root.appendingPathComponent("audio"); try Files.directory(audio)
+    let storage = ManagedSpeechStorage(audioDirectory: audio, stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
+    let trace = root.appendingPathComponent("trace"); try Files.directory(trace)
+    let worker = WorkerConfiguration(executable: URL(fileURLWithPath: try #require(ProcessInfo.processInfo.environment["NARRATION_FIXTURE_WORKER"])), environment: ["NARRATION_FIXTURE_TRACE": trace.path], inferenceLeaseFile: root.appendingPathComponent("lease"))
+    let coordinator = FixtureCoordinator()
+    for model in [SpeechModel.qwen3, .chatterbox, .orpheus] {
+        var preference = SpeechPreferences()
+        preference.modelSelection = .init(model: model, voice: model.defaultVoice)
+        let url = URL(string: "https://fixture.example/run-" + model.rawValue)!
+        let html = "<html><head><title>Original mixed model narration</title></head><body><article><p>" + String(repeating: "An original public sentence for the mixed model queue. ", count: 20) + "</p></article></body></html>"
+        let review = try ReviewedSource.prepare(FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html, contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast), chunkLimit: 1800)
+        _ = try await coordinator.enqueue(review, storage: storage, preferences: preference)
+    }
+    let result = try await coordinator.drainQueue(storage: storage, backend: { episode in
+        try NativeMLXBackend(configuration: NativeSpeechConfiguration(projectRoot: root, settings: try #require(episode.settings.speechSelection)), worker: worker, gapSeconds: episode.settings.gapSeconds)
+    })
+    #expect(result.failedItems.isEmpty, "Synthetic model queue errors: \(result.failedItems.compactMap(\.lastError))")
+    #expect(result.progress.completedArticles == 3)
+    let episodes = try await coordinator.library(storage: storage)
+    #expect(episodes.allSatisfy { $0.stage == .published && $0.settings.speechSelection != nil })
+}
+
+@Test func modelStorageDefaultsMigrateOnlyTheOldAutomaticRootAndKeepOverrides() {
+    #expect(NativeSpeechSetup.managedRoot.path == NativeModelStorage.defaultRoot.path)
+    #expect(NativeSpeechSetup.preferredRoot(saved: nil).path == NativeModelStorage.defaultRoot.path)
+    #expect(NativeSpeechSetup.preferredRoot(saved: NativeSpeechSetup.legacyManagedRoot).path == NativeModelStorage.defaultRoot.path)
+    let selected = URL(fileURLWithPath: "/synthetic/custom-models")
+    #expect(NativeSpeechSetup.preferredRoot(saved: selected) == selected)
+}
+
+@Test func modelStorageDefaultMigrationRunsOnceAndLegacyPathCanBeChosenAgain() throws {
+    let suite = "voicerelay-model-storage-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    defaults.set(NativeSpeechSetup.legacyManagedRoot.path, forKey: "runtimeProject")
+    #expect(NativeSpeechSetup.preferredRoot(defaults: defaults).path == NativeModelStorage.defaultRoot.path)
+    #expect(defaults.string(forKey: "runtimeProject") == nil)
+    defaults.set(NativeSpeechSetup.legacyManagedRoot.path, forKey: "runtimeProject")
+    #expect(NativeSpeechSetup.preferredRoot(defaults: defaults).path == NativeSpeechSetup.legacyManagedRoot.path)
+    #expect(NativeSpeechSetup.preferredRoot(defaults: defaults).path == NativeSpeechSetup.legacyManagedRoot.path)
 }

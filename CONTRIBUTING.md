@@ -56,8 +56,10 @@ or SwiftPM workspace state between checkouts.
 script. [VoiceRelay contributing](VoiceRelay/CONTRIBUTING.md#signed-builds) covers
 its ignored local signing configuration and verified packaging script.
 
-For local engineering checks, `bash scripts/check.sh --tier release --adhoc`
-builds both workspace configurations, archives each app and audits all bundles.
+For routine local checks, `bash scripts/check.sh --tier release --adhoc --skip-archives`
+builds both workspace configurations and audits their bundles. Omit
+`--skip-archives` only when archive packaging checks are needed; release archives
+are normally created manually.
 Ad-hoc signing is suitable for engineering checks, not proof of Keychain,
 provisioning, Developer ID/notarization or distribution behavior. Do not overwrite
 an application bundle under active operator testing.
@@ -72,7 +74,7 @@ an application bundle under active operator testing.
 | Libro workflow | `bash scripts/check.sh --tier quick --scope libro` |
 | VoiceRelay workflow | `bash scripts/check.sh --tier quick --scope voicerelay --filter TestName` |
 | Cross-app contracts or integration | `bash scripts/check.sh` |
-| Layout, dependencies or packaging | Full fixtures and both workspace configurations; release tier for Archives/audits |
+| Layout, dependencies or packaging | Full fixtures and both workspace configurations with bundle audits; archive checks for distribution packaging or explicit release validation |
 
 Run focused regressions first; broaden when changed boundaries require it.
 [Development gates](docs/DEVELOPMENT.md) owns exact tier behavior, native opt-ins,

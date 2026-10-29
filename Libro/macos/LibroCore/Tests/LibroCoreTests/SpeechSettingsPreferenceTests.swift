@@ -8,8 +8,11 @@ final class SpeechSettingsPreferenceTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let preference = SpeechSettingsPreference(defaults: defaults)
         XCTAssertEqual(preference.load(), .init())
+        XCTAssertEqual(preference.load().model, .kokoro)
+        XCTAssertEqual(preference.load().voice, "af_heart")
+        XCTAssertEqual(preference.load().speed, 1)
         for model in SpeechModel.allCases {
-            let value = SpeechSettings(model: model, voice: "bf_emma", speed: 1.35)
+            let value = model.isLarge ? SpeechSettings(model: model, voice: model.defaultVoice) : SpeechSettings(model: model, voice: "bf_emma", speed: 1.35)
             preference.save(value)
             XCTAssertEqual(SpeechSettingsPreference(defaults: defaults).load(), value)
         }
@@ -21,6 +24,7 @@ final class SpeechSettingsPreferenceTests: XCTestCase {
         let preference = SpeechSettingsPreference(defaults: defaults)
         for text in ["corrupt", "{}", "{\"model\":\"future\",\"voice\":\"bf_emma\",\"speed\":1}",
                      "{\"model\":\"kokoro\",\"voice\":\"unknown\",\"speed\":1}",
+                     "{\"model\":\"qwen3\",\"voice\":\"bf_emma\",\"speed\":1.35}",
                      "{\"model\":\"kokoro\",\"voice\":\"af_heart\",\"speed\":20}"] {
             let data = Data(text.utf8)
             defaults.set(data, forKey: SpeechSettingsPreference.key)

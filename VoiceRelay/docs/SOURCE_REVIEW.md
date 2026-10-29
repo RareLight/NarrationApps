@@ -84,6 +84,16 @@ equation/table rules and their limits. Decorative
 separators can remain in source while omitted from speech. Actual reading order,
 OCR and caption quality still require operator review.
 
+## Duplicate selection
+
+Before queued speech starts, duplicate candidates use the same bounded extraction
+and rejection checks. Readable prose wins over failed or subscription-only text;
+near-equal full copies prefer the newest save. Source blocks and Safari entries
+remain unchanged. The catalog remembers selected and inactive entries, so unchanged
+Reading List duplicates never cause repeated automatic generation after refresh,
+restart or queue/audio removal. See [duplicate articles](USER_GUIDE.md#duplicate-articles)
+for matching, replacement and explicit requeue behavior.
+
 ## Optional archived-article recovery
 
 General → Reading List → Try archived copies when articles fail is off by default.

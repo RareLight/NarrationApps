@@ -325,16 +325,31 @@ extension FixtureCoordinator {
                     key = candidates.first ?? Self.recoveryKey(source)
                 }
                 if let sameID {
-                    if let key, key != keys[sameID.id] {
-                        guard keys[sameID.id]?.hasPrefix("remote-episode-v1-") == true,
-                              entries[key]?.url == item.source else { throw Self.recoveryConflict }
+                    if let suppliedKey = key, suppliedKey != keys[sameID.id] {
+                        if keys[sameID.id] == "superseded-episode-v1-" + sameID.id,
+                           sameID.originalSourceIdentity == suppliedKey {
+                            // Intentional generations share original identity, never the
+                            // unique database slot or the successor's captured settings.
+                        } else {
+                            guard keys[sameID.id]?.hasPrefix("remote-episode-v1-") == true,
+                                  entries[suppliedKey]?.url == item.source else { throw Self.recoveryConflict }
+                        }
+                        key = keys[sameID.id]
                     } else { key = keys[sameID.id] }
                 }
+                let originalIdentity = key.flatMap { ServerRecoveryIdentity.validSource($0) ? $0 : nil }
                 local = sameID ?? key.flatMap { byKey[$0] }
+                let intentionalPredecessor = sameID == nil && local?.replacesDuplicateAudio == true
+                if intentionalPredecessor {
+                    // A fresh explicit generation must not be replaced by a different
+                    // older server GUID, even when their original URL is identical.
+                    key = "superseded-episode-v1-" + item.id
+                    local = nil
+                }
                 if let local, local.stage == .expired || local.manualAudioDeletionRequested == true {
                     continue // Explicit retirement always wins over rediscovery.
                 }
-                if item.originalIdentity == nil, sameID == nil, local == nil, key.flatMap({ entries[$0] }) == nil {
+                if item.originalIdentity == nil, sameID == nil, local == nil, !intentionalPredecessor, key.flatMap({ entries[$0] }) == nil {
                     key = "remote-episode-v1-" + item.id; unmatched += 1
                 }
                 let sourceKey = key ?? "remote-episode-v1-" + item.id
@@ -390,7 +405,8 @@ extension FixtureCoordinator {
                 episode.sourceURL = item.source; episode.sourceHost = item.source?.host
                 episode.author = episode.author ?? item.author; episode.artworkURL = episode.artworkURL ?? item.artwork
                 episode.originalSourceHost = episode.originalSourceHost ?? entry?.url.host ?? item.origin ?? item.source?.host
-                episode.originalSourceIdentity = ServerRecoveryIdentity.validSource(sourceKey) ? sourceKey : nil
+                episode.originalSourceIdentity = episode.originalSourceIdentity
+                    ?? (ServerRecoveryIdentity.validSource(sourceKey) ? sourceKey : (intentionalPredecessor ? originalIdentity : nil))
                 if episode.audioHash != proof.hash { episode.transcript = nil; episode.transcriptReferences = nil }
                 var references = item.transcripts
                 for reference in episode.transcriptReferences ?? [] where !references.contains(reference) { references.append(reference) }

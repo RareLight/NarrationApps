@@ -8,7 +8,7 @@ with the app guides for [Libro](../Libro/README.md) or
 
 | Choice | Libro | VoiceRelay |
 | --- | --- | --- |
-| Model, voice and speed | Main window; model setup also in Settings → Models | Settings → General → Speech; Kokoro voices |
+| Model, voice and speed | Main window with Download when missing; Settings → Models owns sizes/deletion/storage | Settings → Voice Model; Downloaded models owns sizes/deletion/storage |
 | Footnotes, citations, extra sections and PDF word joining | Settings → Document | Settings → General → Document Narration |
 | Image descriptions | Settings → Document | Settings → General → Narration |
 | Word/name pronunciation | Settings → Pronunciation | Settings → Pronunciation |
@@ -21,8 +21,11 @@ Changing settings does not rewrite original files or completed recordings.
 
 ## Listen to the right kind of preview
 
-**Play Sample** plays the voice's bundled recording at its recorded 1.0× speed.
-It works without installed models and does not apply current pronunciation edits.
+**Play Sample** plays a preset's bundled English recording at its recorded 1.0×
+speed without installing a model or applying pronunciation edits. Non-English
+Qwen selections and imported reference voices instead generate a live sample
+with the installed model. See [model selection](MODEL_SELECTION.md) for the
+speed/quality meters, complete presets and reference-recording requirements.
 
 **Play** in Pronunciation generates a short live preview with the selected settings.
 Install the required model first and stop other speech work in that app. Editing a

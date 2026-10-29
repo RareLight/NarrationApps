@@ -4,6 +4,13 @@ Standalone developer tooling for local narration model/voice comparisons on Appl
 Silicon. It does not change Libro or VoiceRelay settings, model catalogs or audio.
 Start with the [design and checklist](../../docs/TTS_MODEL_BENCHMARK_PLAN.md).
 
+As of October 27, new Chatterbox runs disable the pinned SDK's inherited output
+peak normalization and fade, matching the apps' raw-PCM policy. The measurement's
+generation-parameter record identifies this policy; build receipts retain worker
+hashes. Earlier recordings/reports remain unchanged and used the inherited SDK
+processing. Use a fresh run folder when comparing the new output and do not
+silently combine it with the old listening recordings.
+
 Commands below run from the **NarrationApps root**, using the prepared project
 dependencies described in [Contributing](../../CONTRIBUTING.md). Swift/Xcode and
 the optional Metal Toolchain are required for actual model runs. No Python runtime

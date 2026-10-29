@@ -6,13 +6,14 @@ import Pronunciation
 /// Versioned preparation contracts, not user quality modes. The operator accepted
 /// the pause profile on October 15, 2026; retain its identifier for evidence and recovery.
 public enum SpeechPreparationPolicy: String, Codable, Sendable {
+    case nativeText = "native-text-1"
     case legacy = "legacy-character-1"
     case correctnessCandidate = "misaki-correctness-candidate-1"
     case longformCandidate = "phoneme-200-candidate-1"
     case longformPausesCandidate = "phoneme-200-pauses-candidate-1"
     public static let current: Self = .longformPausesCandidate
-    public var usesPreparedPhonemes: Bool { self != .legacy }
-    public var usesStructuralPauses: Bool { self == .longformPausesCandidate }
+    public var usesPreparedPhonemes: Bool { self != .legacy && self != .nativeText }
+    public var usesStructuralPauses: Bool { self == .longformPausesCandidate || self == .nativeText }
 }
 
 public enum SpeechBoundary: String, Codable, Sendable {
@@ -221,7 +222,7 @@ public extension NarrationPlanner {
                                  profile: NarrationProfile = .document,
                                  pronunciations: PronunciationDictionary = .empty,
                                  policy: SpeechPreparationPolicy = .current, options: NarrationOptions = .init()) throws -> NarrationPlan {
-        let projection = settings.model == .kokoro && policy != .legacy && policy != .correctnessCandidate
+        let projection = (settings.model == .kokoro || settings.model.isLarge) && policy != .legacy && policy != .correctnessCandidate
         return try prepare(document, settings: settings, profile: profile, pronunciations: pronunciations,
                            purpose: projection ? .speechPreparation : .preview, options: options)
     }

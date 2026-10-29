@@ -2,26 +2,37 @@
 
 Libro turns documents and books into audio files on Apple Silicon Macs running
 macOS 27.0 or later. It reads text, Markdown, RTF, PDF and DRM-free EPUB using
-Kokoro or Soprano. Your original documents stay unchanged.
+Kokoro, Soprano, Qwen3-TTS, Chatterbox Turbo or Orpheus. Your original documents stay unchanged.
 
 ## Get started
 
-1. Open Libro. If speech setup appears, choose existing compatible models or
-   **Install Speech Model**. **Not Now** lets you explore without installing.
-   You can return to **Settings → Models** later. **Check Speech Setup** checks
+1. Open Libro. If **Model Setup** appears, use **Choose Custom Model Folder…** for
+   existing compatible models or **Install Model**. **Check Model** verifies a
+   chosen model offline. **Not Now** lets you explore without installing.
+   Setup uses the same compact download flow as VoiceRelay, with progress and cancellation.
+   You can also use the **Download** arrow icon beside the main model picker when no files are cached.
+   File sizes and confirmed deletion are only in **Settings → Models**. The trailing **ⓘ** opens
+   the model description and speed/quality meters. Model and Voice menus keep
+   their positions when switching models; extra options and **Play Sample** appear
+   in compact, left-aligned rows below them. The section shrinks for simpler models.
+   Speed’s value and arrows stay beside its label. **Check Speech Setup** in **Settings → Models** checks
    installed models offline.
 2. Add files or folders through **Open** or Finder drag and drop. Select a row and
    choose **Preview Selected** to compare **Narration** with **Original Source**.
-3. Choose your model, voice, speed and output format. Use **Save Location → Browse**
+3. Choose your model, voice, supported speaking speed and output format. Use **Save Location → Browse**
    to choose an output folder, and edit output names in the queue if needed.
 4. Press the green **Start** control, or **Start Queue** (⌘⇧G). If files already
    exist, choose **Overwrite Existing**, **Skip Existing** or **Cancel**.
 5. Play finished audio from its row or reveal it in Finder.
 
-New Kokoro settings use **Heart at 1.0×**. Model, voice and speed are remembered for the next launch. Changes made during a
+Fresh settings start with **Kokoro (Recommended)** and **Heart at 1.0×**. Model, voice and speed are remembered for the next launch. Changes made during a
 batch apply to later batches.
 **Play Sample** plays a bundled recording at 1.0× without loading a model; it does
 not preview your current speed or pronunciation overrides.
+
+Model choices share static speed/quality guidance and samples with VoiceRelay.
+See [choosing a model](../docs/MODEL_SELECTION.md) for voices, languages, memory
+requirements and optional reference recordings.
 
 ## Manage the queue
 
@@ -88,9 +99,7 @@ renders a live preview using the selected model, voice and speed; unlike Play
 Sample, it requires installed models and idle speech processing.
 
 **General → Appearance** controls text size (also ⌘+, ⌘− and ⌘0).
-**Models** owns model storage, installation and offline checks. With no previously
-selected workspace, installation uses
-`~/Library/Application Support/Libro/SpeechRuntime`. Missing models are not
+**Models** lists downloaded models, their disk sizes and deletion controls, plus storage overrides and offline checks. Downloads default to the shared Hugging Face cache; explicit existing folder choices remain in place. See [model storage](../docs/MODEL_SELECTION.md#model-storage). Missing models are not
 silently downloaded during narration. **Troubleshooting** owns helper checks and
 optional debug logging; Libro logs can contain document text and paths, so keep
 them private.

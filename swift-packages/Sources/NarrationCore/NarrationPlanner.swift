@@ -72,9 +72,9 @@ public enum NarrationPlanner {
         let structuralOmissions = NarrationStructure.omissions(article, options: options)
         let citations = try AcademicCitations.analyze(article, options: options)
         let excludedBlocks = Set(structuralOmissions.keys).union(citations.wholeBlocks)
-        let equations = layoutEnabled ? try PDFEquationNarration.analyze(article, excluded: excludedBlocks, pronunciations: pronunciations) : PDFEquationNarration.Result()
+        let equations = layoutEnabled && settings.effectiveLanguage == "English" ? try PDFEquationNarration.analyze(article, excluded: excludedBlocks, pronunciations: pronunciations) : PDFEquationNarration.Result()
         let layout = layoutEnabled ? try PDFLayoutAnalysis.analyze(article,
-            experimentalWordJoining: options.experimentalPDFWordJoining,
+            experimentalWordJoining: options.experimentalPDFWordJoining && settings.effectiveLanguage == "English",
             excludedBlocks: excludedBlocks) : PDFLayoutAnalysis.Result()
         let normalizer = SpokenFormNormalizer(settings: settings)
         let hasLayoutChanges = !layout.omissions.isEmpty || !layout.joins.isEmpty || !layout.wordCuts.isEmpty || !layout.letterCuts.isEmpty || !layout.readingOrder.isEmpty || !equations.edits.isEmpty
@@ -101,7 +101,7 @@ public enum NarrationPlanner {
                 if hasLayoutChanges { throw OptionalLayoutBudget.exceeded }
                 throw NarrationError.invalidInput("Spoken-form mapping budget exceeded. No text was truncated.") }
             usedPronunciations = usedPronunciations || application.text != text
-            let parts = purpose == .speechPreparation ? [spoken] : try NarrationText.chunks(spoken, settings: settings, maximumScalars: min(limit, 480))
+            let parts = purpose == .speechPreparation && !settings.model.isLarge ? [spoken] : try NarrationText.chunks(spoken, settings: settings, maximumScalars: min(limit, 480))
             var partOffset = 0
             for part in parts {
                 let value = part.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -111,7 +111,7 @@ public enum NarrationPlanner {
                 let offset = rawOffset + (trimmedOffset == NSNotFound ? 0 : trimmedOffset)
                 let mappings = ProjectionMapping.intersecting(normalized.mappings, location: offset, length: value.utf16.count)?.map { $0.shiftedSpoken(by: -offset) }
                 if !value.isEmpty { chunks.append(.init(index: chunks.count, text: value, blockIndices: indices,
-                    boundaryAfter: purpose == .speechPreparation ? boundary : nil,
+                    boundaryAfter: purpose == .speechPreparation ? (settings.model.isLarge && partOffset < spoken.utf16.count ? .continuation : boundary) : nil,
                     origin: purpose == .speechPreparation ? indices.first.map { article.blocks[$0].origin ?? .authored } : nil,
                     pronunciationApplications: purpose == .speechPreparation ? applications : nil, sourceMappings: mappings)) }
             }

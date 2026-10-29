@@ -11,3 +11,9 @@ workspace support belong to the parent repository's scripts/ and NarrationApps.x
 Testing mode: **autonomous**, following the parent instruction confirmed
 October 17, 2026. Use synthetic isolated fixtures; no implicit model downloads
 or live-service/private-document validation.
+
+Model storage defaults to the library-resolved shared Hugging Face cache, with app
+folder overrides. Keep shared blobs/snapshots immutable; generated sidecars belong
+in private runtime overlays. Model deletion must take exclusive ModelStorageLease
+access; sessions/installations retain shared access until owned work is reaped.
+Tests use isolated cache roots, never the user's actual cache.

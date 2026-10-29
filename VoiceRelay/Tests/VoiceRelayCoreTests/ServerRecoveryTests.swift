@@ -490,3 +490,50 @@ private struct RawRecoveryTransport: DeliveryTransport {
     #expect(summary.lastError?.contains("reconciliation could not finish") == true)
     #expect(!FileManager.default.fileExists(atPath: storage.profile.database.path))
 }
+
+@Test(arguments: [false, true])
+func serverRecoveryPreservesIntentionalNewGenerationWhenOlderRemoteGUIDWasUnknown(legacy: Bool) async throws {
+    let (oldRoot, oldStorage) = try recoveryStorage(), (root, storage) = try recoveryStorage()
+    defer { try? FileManager.default.removeItem(at: oldRoot); try? FileManager.default.removeItem(at: root) }
+    let settings = recoverySettings(), coordinator = FixtureCoordinator()
+    let remote = try recoverySeed(storage: oldStorage, path: "same-article")
+    let database = try ManagedSpeechStorage.prepareLibrary(stateRoot: storage.stateRoot)
+    let key = "reviewed-url-v1-" + Files.hash(Data(remote.sourceURL!.absoluteString.utf8))
+    let new: Episode
+    do {
+        let store = try NativeStore(url: database)
+        var profile = storage.profile; profile.backendSelector = "reviewed-article-speech"; profile.voice = "af_bella"
+        var episode = try store.episode(sourceKey: key, settings: profile)
+        episode.title = remote.title; episode.originalSourceHost = remote.originalSourceHost
+        episode.replacesDuplicateAudio = true; episode.stage = .extracted
+        try store.save(episode)
+        try store.saveQueueItem(.init(id: episode.id, title: episode.title))
+        new = episode
+    }
+    let transport = RecoveryTransport(["/podcast/feed.xml": try recoveryFeed(remote, settings: settings, legacy: legacy),
+        "/podcast/audio/\(remote.id).m4a": Data("test-audio".utf8)])
+    let report = try await coordinator.inspectServerAudio(storage: storage, settings: settings, credential: RecoveryCredentials(), transport: transport)
+    #expect(report.issues.isEmpty)
+    try await coordinator.applyServerAudioRecovery(report, storage: storage, settings: settings)
+    #expect(try await coordinator.queue(stateRoot: storage.stateRoot).map(\.id) == [new.id])
+    var episodes = try await coordinator.library(storage: storage)
+    #expect(episodes.count == 2)
+    #expect(episodes.first { $0.id == new.id }?.settings.voice == "af_bella")
+    #expect(episodes.first { $0.id == new.id }?.stage == .extracted)
+    #expect(episodes.first { $0.id == remote.id }?.originalSourceIdentity == key)
+    // Simulate confirmed replacement publication. Recovered old history was inserted
+    // later, but must still retire once the deliberate new generation is confirmed.
+    do {
+        let store = try NativeStore(url: database)
+        var successor = try #require(store.episodes().first { $0.id == new.id })
+        successor.stage = .published; successor.audioHash = String(repeating: "b", count: 64)
+        successor.delivery = DeliveryState(status: .uploaded, remotePath: settings.remoteMediaPath(new.id))
+        successor.delivery?.destinationURL = settings.feedFolderURL
+        try store.save(successor)
+    }
+    let pipeline = try PipelineStore(databaseURL: database)
+    #expect(try pipeline.retireConfirmedDuplicates(settings: settings, confirmed: [new.id: String(repeating: "b", count: 64)], blocked: []))
+    episodes = try await coordinator.library(storage: storage)
+    #expect(episodes.first { $0.id == remote.id }?.stage == .expired)
+    #expect(episodes.first { $0.id == new.id }?.stage == .published)
+}

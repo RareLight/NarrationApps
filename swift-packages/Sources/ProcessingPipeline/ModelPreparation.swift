@@ -10,7 +10,9 @@ public enum ModelPreparation {
     public static func run(configuration: WorkerConfiguration, workspace: URL, settings: SpeechSettings,
                            progress: @escaping @Sendable (ModelPreparationProgress) -> Void = { _ in }) async throws {
         try Task.checkCancellation()
-        _ = try NativeWorkspace(root: workspace)
+        guard SpeechMemoryPolicy.canLoad(settings.model) else { throw SpeechFailure(.memoryLimit) }
+        let storageLease = try ModelStorageLease(workspace: NativeWorkspace(root: workspace))
+        defer { withExtendedLifetime(storageLease) {} }
         let identity = AttemptIdentity(batch: UUID(), job: UUID())
         let worker = try SpeechWorkerProcess(configuration: configuration, identity: identity)
         do {

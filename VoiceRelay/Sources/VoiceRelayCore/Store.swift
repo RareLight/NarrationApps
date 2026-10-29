@@ -195,9 +195,13 @@ final class NativeStore {
         try execute("INSERT INTO episodes VALUES(?,?,?)", [e.id, sourceKey, String(decoding: try Files.json(e), as: UTF8.self)])
         return e
     }
-    func existingEpisode(sourceKey: String) throws -> Episode? {
+    /// Admission decisions need the captured save date, before legacy display backfill.
+    func recordedEpisode(sourceKey: String) throws -> Episode? {
         guard let record = try query("SELECT record FROM episodes WHERE source_key=?", [sourceKey]).first?.first else { return nil }
-        var episode = try JSONDecoder().decode(Episode.self, from: Data(record.utf8))
+        return try JSONDecoder().decode(Episode.self, from: Data(record.utf8))
+    }
+    func existingEpisode(sourceKey: String) throws -> Episode? {
+        guard var episode = try recordedEpisode(sourceKey: sourceKey) else { return nil }
         resolveArticleOrigin(&episode, sourceKey: sourceKey, entries: try readingListEntriesBySource())
         return episode
     }
@@ -209,6 +213,8 @@ final class NativeStore {
             if let record = try query("SELECT record FROM episodes WHERE id=?", [e.id]).first?.first,
                let current = try? JSONDecoder().decode(Episode.self, from: Data(record.utf8)) {
                 saved.originalSourceHost = saved.originalSourceHost ?? current.originalSourceHost
+                saved.readingListEntryID = current.readingListEntryID ?? saved.readingListEntryID
+                saved.replacesDuplicateAudio = saved.replacesDuplicateAudio ?? current.replacesDuplicateAudio
                 saved.readingListSavedAt = saved.readingListSavedAt ?? current.readingListSavedAt
                 saved.originalSourceIdentity = saved.originalSourceIdentity ?? current.originalSourceIdentity
                 if current.transcript?.audioHash == (saved.audioHash ?? saved.encodedHash) {
@@ -365,6 +371,42 @@ final class PipelineStore: Sendable {
     }
     func episodes() throws -> [Episode] {
         try reading { try $0.episodes() }
+    }
+    /// Commit retirement only after the new generation has confirmed feed membership.
+    /// The delivery ledger reconstructs owned DELETE intent after a crash.
+    func retireConfirmedDuplicates(settings: DeliverySettings, confirmed: [String: String], blocked: Set<String>) throws -> Bool {
+        try writing { store in
+            try store.execute("BEGIN IMMEDIATE")
+            do {
+                let episodes = try store.episodes() // newest generation (insertion order) first
+                let inactive = try store.catalog().inactiveDuplicateIDs
+                var retired = Set<String>()
+                for (index, successor) in episodes.enumerated() where successor.stage == .published
+                    && successor.replacesDuplicateAudio == true && successor.audioFinalizationComplete != false
+                    && successor.delivery?.status == .uploaded && successor.delivery?.destinationURL == settings.feedFolderURL
+                    && !blocked.contains(successor.id) && !retired.contains(successor.id)
+                    && successor.audioHash != nil && confirmed[successor.id] == successor.audioHash
+                    && successor.readingListEntryID.map(inactive.contains) != true {
+                    for (previousIndex, candidate) in episodes.enumerated() where previousIndex > index || candidate.replacesDuplicateAudio != true {
+                        var previous = candidate
+                        guard previous.id != successor.id, previous.stage == .published,
+                              previous.audioHash != nil, previous.info != nil,
+                              previous.audioFinalizationComplete != false, !retired.contains(previous.id),
+                              !blocked.contains(previous.id),
+                              ArticleDuplicates.matches(title: previous.title, host: previous.originalSourceHost ?? previous.sourceHost,
+                                  title: successor.title, host: successor.originalSourceHost ?? successor.sourceHost) else { continue }
+                        // Older remote-only history can be discovered after the new
+                        // local admission, so its row insertion time is not its age.
+                        previous.stage = .expired; previous.manualAudioDeletionRequested = true
+                        try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(previous), as: UTF8.self), previous.id])
+                        retired.insert(previous.id)
+                    }
+                }
+                if !retired.isEmpty { try store.execute("UPDATE feed_status SET pending=1 WHERE singleton=1") }
+                try store.execute("COMMIT")
+                return !retired.isEmpty
+            } catch { try? store.execute("ROLLBACK"); throw error }
+        }
     }
     func markFeed(_ hash: String) throws {
         try writing { try $0.markFeed(hash) }

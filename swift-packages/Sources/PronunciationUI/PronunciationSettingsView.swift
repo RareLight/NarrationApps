@@ -17,7 +17,7 @@ public struct PronunciationSettingsView: View {
     public var body: some View {
         ScrollView {
         VStack(alignment: .leading, spacing: 12) {
-            SettingsSectionHeader(title: "Pronunciation", explanation: "Matches whole words without regard to capitalization. Changes apply to new narration; source documents and existing recordings are preserved.")
+            SettingsSectionHeader(title: "Pronunciation", explanation: "Matches whole words in any capitalization. New narration only; sources and existing recordings stay unchanged.")
             Text("Enter a word and how it should sound using English letters, for example, “SQLite” → “sequel lite”. The dictionary is shared by Libro and VoiceRelay.")
             VStack(spacing: 12) {
             List(selection: $selection) {
@@ -38,7 +38,7 @@ public struct PronunciationSettingsView: View {
                         }
                         .buttonStyle(.borderless)
                         .accessibilityLabel(preview.renderingID == entry.id || preview.playingID == entry.id.uuidString ? "Stop pronunciation preview" : "Play pronunciation for \(entry.word)")
-                        .help("Render and play using the currently selected voice")
+                        .help("Preview with the selected voice")
                         .disabled(configuration == nil || editor.dictionary == nil || entry.word.isEmpty || entry.spelling.isEmpty)
                     }
                     .tag(entry.id)

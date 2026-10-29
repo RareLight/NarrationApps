@@ -18,11 +18,12 @@ public enum NarrationText {
         // Scalar counts agree with Python's code-point count, while cuts stay
         // on grapheme boundaries. Keep chunks small; Kokoro also enforces its
         // actual 510-phoneme-token limit inside the engine before inference.
-        let target = min(maximumScalars, Int(min(max(12 * speed * 12.5, 50), 400)))
-        let maximum = min(maximumScalars, Int(min(max(12 * speed * 15, Double(target)), 480)))
+        let target = settings.model.isLarge ? min(maximumScalars, 350) : min(maximumScalars, Int(min(max(12 * speed * 12.5, 50), 400)))
+        let maximum = settings.model.isLarge ? maximumScalars : min(maximumScalars, Int(min(max(12 * speed * 15, Double(target)), 480)))
         let tokenizer = NLTokenizer(unit: .sentence)
         tokenizer.string = text
-        tokenizer.setLanguage(.english)
+        let languages: [String: NLLanguage] = ["English": .english, "Chinese": .simplifiedChinese, "Japanese": .japanese, "Korean": .korean, "German": .german, "French": .french, "Russian": .russian, "Portuguese": .portuguese, "Spanish": .spanish, "Italian": .italian]
+        tokenizer.setLanguage(languages[settings.effectiveLanguage] ?? .english)
         var ends: [String.Index] = []
         tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in ends.append(range.upperBound); return true }
         if ends.last != text.endIndex { ends.append(text.endIndex) }

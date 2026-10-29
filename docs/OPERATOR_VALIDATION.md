@@ -30,7 +30,24 @@ maintained Swift fixtures/tests remain. Use equivalent disposable documents and
 artwork for the operator checks below. Actual-document/player acceptance remains
 separate from automated fixture tests.
 
-- Quit older copies of each app. The October 27 Libro review-fix engineering
+- Quit older copies of each app. Current October 28 model-layout/cache candidates
+  are `.build/WorkspaceDerivedData/Build/Products/Release/Libro.app` and
+  `.build/WorkspaceDerivedData/Build/Products/Release/VoiceRelay.app`, with parallel
+  Debug products. Both configurations and four bundle audits passed in
+  `.local/validation/release-DBD0321A-79CD-4A41-8565-751307F17B1D/`; these ad-hoc
+  products have not replaced the running apps. Archive checks were omitted for
+  this final snapshot; create normal release archives manually when needed.
+  GUI/listening/account acceptance remains open.
+  The earlier October 28 multi-model engineering candidates
+  are in `.local/validation/release-CF376C4F-5242-41A5-8105-B4247F18C718/`:
+  `Libro.xcarchive/Products/Applications/Libro.app` and
+  `VoiceRelay.xcarchive/Products/Applications/VoiceRelay.app`. Both archives and
+  Debug/Release workspace builds passed bundle audits for the working tree based
+  on `c10135f`; they are ad-hoc signed and have not been installed or launched.
+  GUI/listening/account acceptance is open. These ignored local candidates may be
+  absent on another machine; build from maintained source using the development
+  gates rather than copying caches.
+  The earlier October 27 Libro review-fix engineering
   products are `.build/LibroReviewFixes-20261027/Build/Products/Release/Libro.app`
   and `.build/LibroReviewFixes-20261027/Build/Products/Release/VoiceRelay.app`.
   Debug products are in the parallel `Debug` folder. Both configurations passed
@@ -67,7 +84,8 @@ separate from automated fixture tests.
 
 - [ ] **L01 — Launch and setup.** Existing models are recognized. In a fresh test
   user, try Not Now, installation, cancellation/retry and successful dismissal of
-  setup; also try Choose Existing Models. Check Speech Setup works offline after
+  setup. Compare the identical Model Setup layout/actions with VoiceRelay at normal and 200% text size;
+  also try Choose Custom Model Folder. Download beside the main picker uses the shared Hugging Face cache by default. In Models, verify the disk-size list, folder override/reset, and confirmed deletion while idle; an active session in either app blocks deletion. Check Speech Setup works offline after
   installation. Select a British voice and install its regional resources if asked.
 - [ ] **L02 — Settings and appearance.** Visit General, Document, Models, Pronunciation and
   Troubleshooting. Test text size at 80%, 100% and 200%, ⌘+/⌘−/⌘0, minimum window
@@ -76,6 +94,29 @@ separate from automated fixture tests.
   voice and speed, quit/relaunch, and verify all three choices persist, including
   switching back from Soprano.
 - [ ] **L03 — Voice samples.** Try every presented voice, including Soprano.
+  Include all nine Qwen presets, eight Orpheus presets and Chatterbox default. Check that Models settings does not repeat the main selection menus.
+  Both apps use the same compact model row: Download arrow when missing and
+  adjacent ⓘ for description/meters, with no file size or trash action.
+  Downloaded models shows name, size and confirmed Delete in compact fixed columns
+  under the folder controls; verify different names/sizes and imported rows align.
+  Confirm Libro's idle status cell stays blank while progress/issues still appear.
+  At the same window/text size, switch every model: Model and Voice menus stay
+  aligned at the same positions and widths, optional fields stay below them, and
+  the section grows/shrinks to the visible controls without reserved blank space.
+  Controls follow Model → Voice → model options → Play Sample, with compact,
+  consistent gaps and a shared left edge.
+  Speed's value/arrows sit beside its label; Sample follows options without a blank
+  gap or a separate right-hand column. Libro's output control stays top-aligned. Repeat in
+  VoiceRelay's Voice Model pane, with Chatterbox references and at large text sizes.
+  Confirm deletion, verify the arrow returns, and verify blocked/failed deletion
+  keeps the cached model. Imported folders remain read-only. Switch models/folders
+  during a storage refresh; Download follows the selection and inventory deletion
+  stays tied to its confirmed folder/model. Check narrow windows, large text and VoiceOver. Qwen
+  native-language notes are distinct from narration language. Non-English and
+  imported-reference selections offer live previews after installation; check
+  cancellation and missing-model guidance. Changing language or delivery settings
+  during playback stops the previous sample/preview. Import an authorized disposable WAV
+  into Chatterbox and confirm the same profile can be selected in VoiceRelay.
   Play/Stop and switching voices work without installed models; finished-audio
   playback does not overlap. The common phrase starts “Hello, I can narrate…”
   and plays at recorded 1.0×, independently of generation speed/overrides.
@@ -227,11 +268,13 @@ separate from automated fixture tests.
 ## VoiceRelay
 
 - [ ] **V01 — Launch and setup.** Existing speech assets are recognized. In a
-  fresh test user, check Not Now, explicit Install Speech Model, cancellation/retry
+  fresh test user, check Not Now, explicit Install Model, custom-folder selection and Check Model, cancellation/retry
   and successful dismissal. Check Speech Setup works offline; startup/checking must
   not silently download. Check the British voice resource-install path when needed.
-- [ ] **V02 — Settings and presentation.** Visit General, Pronunciation, Publishing
-  and Troubleshooting. Check 80%/100%/200%, ⌘+/⌘−/⌘0, small/large windows, keyboard,
+- [ ] **V02 — Settings and presentation.** Visit General, Voice Model, Pronunciation,
+  Publishing and Troubleshooting. Confirm model/voice selectors, download/delete, size, details/meters,
+  Play Sample, downloaded-model storage and setup checks are in Voice Model and
+  absent from Articles. Check 80%/100%/200%, ⌘+/⌘−/⌘0, small/large windows, keyboard,
   VoiceOver and appearance/accessibility options. Open/close Settings and Help during
   work: they remain responsive and Help performs no processing or network operation.
   Left-click and right-click the waveform menu-bar icon: both open the same popover,
@@ -251,6 +294,13 @@ separate from automated fixture tests.
   1.0× defaults, the shared voice names and 0.05× speed steps. Try every presented
   sample, Stop and switching voices while idle/busy. The new common phrase is
   bundled and plays at 1.0× without models or pronunciation overrides.
+  Repeat with Qwen, Chatterbox and Orpheus; all presets and shared meters must
+  match Libro. Switch models and relaunch: each model restores its own controls.
+  New selections apply to later articles; retry an existing queued article after
+  changing Settings and confirm its captured narrator remains. Check reference
+  import/live preview and a restored job whose reference clip is missing; it
+  must fail clearly until the original clip is reimported. References are excluded
+  from ordinary library backups. Keep production libraries out of this test.
 - [ ] **V04 — Pronunciation.** Add/edit/remove a temporary spelling override and
   use Play. Confirm newly prepared narration uses it once, source prose is retained,
   and preview cancellation/busy/missing-model states recover normally.
@@ -262,6 +312,14 @@ separate from automated fixture tests.
   All Articles versus Queue, saved-date versus processing order, search, website/date
   filters, counts and keyboard actions. Hidden selections are never removal targets.
   Queue removal must not delete the Safari source or published recording.
+  For duplicate saves, compare a newer short/paywall copy with older full text,
+  then two equal full copies with different save dates. Only the fuller/newer
+  selection generates; the other row stays gray with Inactive duplicate. Refresh,
+  restart, clear Queue and remove test audio: unchanged handled copies must not
+  recreate audio. Add a genuinely new duplicate save with a different voice;
+  confirm the new narration/feed before the older owned audio/transcript is removed.
+  Interrupt upload/feed/cleanup and verify safe recovery without losing the old
+  server copy prematurely.
 - [ ] **V07 — Article extraction.** Preview short/long articles from different
   sites, including a PDF URL, a blocked/failed page and an archived copy if enabled.
   Verify completeness, title/source, saved date, reading order and provenance.
@@ -301,6 +359,11 @@ separate from automated fixture tests.
   Distinguish Queue removal, Safari-source removal, local upload-copy discard and
   Server Audio removal. Published copies survive source/queue/local-only removal;
   server deletion retires feed membership first and stays pending until confirmed.
+  Click Server Audio × repeatedly on different rows: each accepted row disappears
+  immediately without resizing/animating first, while other actions and the
+  remaining selection stay usable. The lower status bar shows cleanup progress.
+  A slow server/polling refresh must not reinsert active deletions; local, feed or
+  server-delete failure restores only the affected pending items for retry.
   Changing to a test destination preserves old-host copies and avoids old-host deletes.
 - [ ] **V15 — Backup/restore (dedicated test library).** Back up while idle, then
   restore through Troubleshooting and review Articles/Queue/Server Audio. Identity,
@@ -332,8 +395,9 @@ separate from automated fixture tests.
   unclassified text remain, and queued articles keep their captured settings
   when preferences change. Already published audio remains unchanged.
 
-- [ ] **V20 — Optional login startup.** On a normal signed installed app, confirm
-  new installations default off. Opt in from initial setup or General Settings;
+- [ ] **V20 — Login startup.** On a normal signed installed app, confirm
+  fresh configurations request startup once. The control appears only in General Settings,
+  never Model Setup. Existing configurations retain their OS setting;
   follow any Login Items approval prompt. Sign out/in: VoiceRelay starts in the menu
   bar with no restored Articles/Settings/Preview/Help/setup windows, and configured automation
   resumes. Quit stops it until manually opened or the next login. Toggle off and
@@ -483,6 +547,14 @@ separate from automated fixture tests.
   volume changes because audio levels remain unadjusted. Keep undecided results
   unassessed. This evaluation does not change either app's defaults or approve
   model integration/licensing for distribution.
+  Reconfirm Ryan, Chatterbox default and leah through production preparation and
+  paragraph assembly using held-out long prose, then other voices/languages as
+  needed. New Chatterbox output disables the old SDK's normalization/fade, so
+  compare loudness as well as prosody. During a background Orpheus article,
+  request Libro Qwen narration and check waiting, completed-utterance yielding,
+  Stop/Quit and reload behavior. Repeat alternating jobs and model switches while
+  observing app responsiveness and host/helper memory. Keep actual-document and
+  linguistic-quality findings separate from short native smoke results.
 
 ## Conditional installation and distribution checks
 

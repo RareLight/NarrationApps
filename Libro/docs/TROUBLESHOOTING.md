@@ -32,7 +32,7 @@ between Macs or remove active package checkouts while Xcode is using them.
 
 ## Model setup and speech failures
 
-Use Models → Choose Existing Models or Install Speech Model explicitly, then Check
+Use Download beside the main model picker, or choose a folder in Settings → Models, then Check
 Speech Setup offline. Installation is distinct from the bundled helper/Metal check.
 British voices require their own pinned resources; select the voice and install/
 update if requested. No implicit download, US fallback or alternate engine replay

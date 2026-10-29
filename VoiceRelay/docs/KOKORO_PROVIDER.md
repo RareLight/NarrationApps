@@ -1,21 +1,23 @@
 # VoiceRelay native speech adapter
 
 VoiceRelay uses the shared native engine through its private VoiceRelaySpeechWorker.
-The GUI presents 18 English Kokoro voices; shared Soprano support does not add a
-VoiceRelay model selector. New preferences use Heart at 1.0×; saved voice/speed and
+The GUI offers the shared 28 English Kokoro voices, Qwen3-TTS CustomVoice,
+Chatterbox Turbo and Orpheus. Soprano remains Libro-only. See the
+[model guide](../../docs/MODEL_SELECTION.md) for complete presets, languages,
+reference voices and relative speed/quality guidance. New preferences use Heart at 1.0×; saved voice/speed and
 admitted job settings remain intact.
 
 NativeSpeechSetup performs explicit model/pronunciation installation and offline
 Check Speech Setup. Build/startup/generation never implicitly download. British
-voices require their pinned regional resources without a US fallback. The app's
-managed root is `~/Library/Application Support/VoiceRelayPrototype/SpeechRuntime`;
-existing validated native workspaces remain usable.
+voices require their pinned regional resources without a US fallback. The default is the standard Hugging Face cache, resolved by the pinned library. Explicit folder overrides and validated legacy workspaces remain usable. Select voices, use the download/delete icon, manage disk usage and check speech setup in Settings → Voice Model.
 
 NativeMLXBackend adapts PreparedTTSBackend to the shared NativeSpeechSession. It
 forwards captured dictionary settings, prepares the semantic projection once,
 freezes final utterances and renders each prepared chunk once. There is no second
 app-specific chunker or G2P pass. SingleWorkerSpeechPipeline retains a compatible
-helper across articles, joins failures/cancellation and safely yields to Libro.
+small-model helper across articles, joins failures/cancellation and safely yields
+to Libro. Large helpers are reaped after every completed utterance before
+admission is released; later utterances reload the captured model.
 
 The accepted policy, memory guard, bounded IPC, structural gaps and acoustic identity
 are documented in [shared architecture](../../docs/ARCHITECTURE.md).

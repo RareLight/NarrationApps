@@ -16,52 +16,41 @@ import OSLog
 struct NarrationControls: View {
     @Bindable var model: IntakeModel
     @State private var showingFormatHelp = false
+    @Environment(\.appTextSize) private var textSize
+    @Environment(\.dynamicTypeSize) private var dynamicType
+    private var scale: CGFloat { max(1, AppTypography.scale(size: textSize, dynamic: dynamicType)) }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
         ViewThatFits(in: .horizontal) {
-            HStack(alignment: .bottom, spacing: 16) { speechOptions; formatOption; Spacer(minLength: 0) }
+            HStack(alignment: .top, spacing: 8) { speechOptions; formatOption; Spacer(minLength: 0) }
             VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .bottom, spacing: 16) { speechOptions; Spacer(minLength: 0) }
+                ScrollView(.horizontal) { HStack(alignment: .top, spacing: 8) { speechOptions; Spacer(minLength: 0) } }
                 formatOption
             }
-        }.disabled(model.isPreparingModel)
+        }.frame(maxWidth: .infinity, alignment: .topLeading)
+            .disabled(model.isPreparingModel || model.modelStorage.isBusy)
+        if model.isPreparingModel {
+            HStack { PreparationProgressView(model: model); Button("Cancel", action: model.cancel) }
+        }
+        }
     }
 
-    @ViewBuilder private var speechOptions: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Model").appFont(.caption).foregroundStyle(.secondary)
-            Picker("Model", selection: $model.settings.model) {
-                Text("Kokoro").tag(SpeechModel.kokoro)
-                Text("Soprano").tag(SpeechModel.soprano)
-            }.labelsHidden().frame(width: 120)
-        }
-        if model.settings.model == .kokoro {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Voice").appFont(.caption).foregroundStyle(.secondary)
-                Picker("Voice", selection: $model.settings.voice) {
-                    let ranked = VoicePresentation.ranked(model.voices)
-                    Section("Recommended") {
-                        ForEach(ranked.filter { VoicePresentation.isRecommended($0) }, id: \.self) { voice in
-                            Label(VoicePresentation.displayName(voice), systemImage: "star.fill").tag(voice)
-                        }
-                    }
-                    Section {
-                        ForEach(ranked.filter { !VoicePresentation.isRecommended($0) }, id: \.self) { voice in
-                            Text(VoicePresentation.displayName(voice)).tag(voice)
-                        }
-                    }
-                }.labelsHidden().frame(width: 160).help(VoicePresentation.help(model.settings.voice))
-            }
-            SpeechSpeedControl(speed: Binding(get: { Double(model.settings.speed) }, set: { model.settings.speed = Float($0) }))
-                .fixedSize()
-        }
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Voice sample").appFont(.caption).foregroundStyle(.secondary)
-            VoiceSampleButton(playing: model.voiceSamplePlayer.playingID != nil) { model.playVoiceSample() }
+    private var speechOptions: some View {
+        VStack(alignment: .leading, spacing: 8) {
+        SpeechModelControls(settings: $model.settings, storageRoot: model.workspace?.url,
+            storageRevision: model.modelStorageRevision, maintenance: model.modelStorage,
+            downloading: model.isPreparingModel && !model.preparationIsCheck,
+            canDownload: model.canManageSpeechSetup, download: model.installSpeechRuntime,
+            samplePlaying: model.voiceSamplePlayer.playingID != nil || model.pronunciationPreview.hasOwnedWork,
+            playSample: model.playVoiceSample)
             if let error = model.voiceSamplePlayer.error {
                 Text(error).appFont(.caption).foregroundStyle(.red)
             }
-        }
+            if let error = model.pronunciationPreview.error {
+                Text(error).appFont(.caption).foregroundStyle(.red)
+            }
+        }.frame(width: 296 * scale, alignment: .leading)
     }
 
     private var formatOption: some View {
@@ -70,15 +59,14 @@ struct NarrationControls: View {
             HStack(spacing: 6) {
                 Picker("Output format", selection: $model.outputFormat) {
                     ForEach(AudioOutputFormat.allCases, id: \.self) { format in Text(format.label).tag(format) }
-                }.labelsHidden().frame(width: 220)
+                }.labelsHidden().frame(width: 220 * scale, alignment: .leading)
                 Button("About audio formats", systemImage: "info.circle") { showingFormatHelp.toggle() }
-                    .labelStyle(.iconOnly).buttonStyle(.plain).help("Audio format and fidelity details")
+                    .labelStyle(.iconOnly).buttonStyle(.plain).help("About audio formats")
                     .popover(isPresented: $showingFormatHelp) {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Audio formats").appFont(.headline)
-                            Text("WAV preserves the model's original Float32 samples at its original sample rate. AAC and MP3 are lossy. Libro applies no volume normalization, dynamic range compression or re-leveling.")
-                            Text("M4A uses AAC-LC. M4B uses AAC-LC in an audiobook container for Apple Books. MP3 is intended for broad player compatibility.")
-                            Text("Choose Cover Art for selected documents when exporting MP3, M4A or M4B. EPUB documents also offer Use Book Cover in their context menu. Covers do not change audio levels. The format is remembered; changes apply to the next batch.").foregroundStyle(.secondary)
+                            Text("WAV preserves the original audio. M4A and M4B use AAC; MP3 offers broad player compatibility.")
+                            Text("Choose M4B for Apple Books. Cover art works with M4A, M4B and MP3. Changes apply to the next batch.").foregroundStyle(.secondary)
                         }.padding().frame(width: 330)
                     }
             }

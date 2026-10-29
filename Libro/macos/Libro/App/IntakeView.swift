@@ -285,7 +285,7 @@ struct IntakeView: View {
         if model.busy { return model.hasCoverWork ? "Preparing…" : "Analyzing inputs…" }
         if model.planning { return "Checking destinations…" }
         if let summary = model.batchSummary { return summary.cancelled ? "Stopped" : "Batch complete" }
-        return "Drop documents to add · Double-click to preview"
+        return ""
     }
     private var activityFraction: Double? {
         if let progress = model.activityProgress?.preparation?.progress { return progress.fractionCompleted }
@@ -324,7 +324,7 @@ struct IntakeView: View {
         return values.compactMap { $0 }.filter { !$0.isEmpty }.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
     }
     private func batchDescription(_ batch: BatchRequest) -> String {
-        let narration = batch.settings.model == .kokoro ? "Kokoro · \(VoicePresentation.name(batch.settings.voice)) · \(String(format: "%.2f", batch.settings.speed))×" : "Soprano"
+        let narration = batch.settings.model == .kokoro ? "Kokoro · \(VoicePresentation.name(batch.settings.voice)) · \(String(format: "%.2f", batch.settings.speed))×" : "\(batch.settings.model.label) · \(batch.settings.voice)"
         return "\(narration) · \(batch.outputFormat.rawValue.uppercased())"
     }
 }

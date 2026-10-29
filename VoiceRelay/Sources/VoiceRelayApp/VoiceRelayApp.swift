@@ -38,7 +38,7 @@ final class AppModel {
     @ObservationIgnored private(set) var progressID = UUID()
     @ObservationIgnored var completedQueueIDs: Set<String> = []
     var result: FixtureResult?
-    var savedEpisodes: [Episode] = []
+    var savedEpisodes: [Episode] = [] { didSet { reconcileServerAudioRemovalVisibility() } }
     var queueItems: [SpeechQueueItem] = []
     var articleSelection: Set<String> = []
     var articleScope: ArticleScope = .all
@@ -63,6 +63,9 @@ final class AppModel {
     var mutatingQueueEntries: Set<QueueSelectionID> = []
     var audioMutationBusy = false
     var mutatingSavedAudioIDs: Set<String> = []
+    /// Presentation only: durable retirement and server confirmation stay in the coordinator.
+    private(set) var hiddenServerAudioRemovalIDs: Set<String> = []
+    private var drainingServerAudioRemovals = false
     var savedAudioSelection: Set<String> = []
     var uploadsFilter: AudioStateFilter = .all
     var serverAudioFilter: AudioStateFilter = .all
@@ -75,11 +78,11 @@ final class AppModel {
     let pronunciationPreview = PronunciationPreview()
     var pronunciationIsInert: Bool { preview || storageOverride != nil }
     var pronunciationConfiguration: PronunciationPreviewConfiguration? {
-        guard !pronunciationIsInert, !stopping, !running, !runtimeBusy, speechRuntimeAvailable else { return nil }
+        guard !pronunciationIsInert, !stopping, !running, !runtimeBusy, !modelStorage.isBusy, speechRuntimeAvailable else { return nil }
         return .init(worker: NativeSpeechSetup.workerExecutable, workspace: runtimeProject,
-            settings: .init(model: .kokoro, voice: preferences.voice.rawValue, speed: Float(preferences.speed)), priority: .background)
+            settings: preferences.modelSelection, priority: .background)
     }
-    var preferences = SpeechPreferences() { didSet { if oldValue.voice != preferences.voice { voiceSamplePlayer.stop() }; savePreferences() } }
+    var preferences = SpeechPreferences() { didSet { if oldValue.modelSelection != preferences.modelSelection { voiceSamplePlayer.stop(); pronunciationPreview.stop(); runtimeTestResult = .untested; runtimeVerificationFailed = false }; savePreferences() } }
     var audioCleanupError: String?
     /// Set-and-forget automation preferences; storage-injected models stay manual by default.
     var autoAdmitEnabled = false { didSet { saveAutoAdmit() } }
@@ -195,6 +198,7 @@ final class AppModel {
     var loginItemError: String?
     @ObservationIgnored private let loginItemService: (any LoginItemService)?
     @ObservationIgnored private var loginItemTask: Task<Void, Never>?
+    static let loginItemDefaultAppliedKey = "loginItem.defaultApplied.v1"
     var launchAtLoginEnabled: Bool { loginItemStatus.requested }
     var canChangeLoginItem: Bool { !preview && !stopping && !loginItemBusy && loginItemService != nil }
     func refreshLoginItemStatus() {
@@ -205,6 +209,7 @@ final class AppModel {
     }
     func setLaunchAtLogin(_ enabled: Bool) {
         guard canChangeLoginItem, let loginItemService else { return }
+        defaults.set(true, forKey: Self.loginItemDefaultAppliedKey)
         refreshLoginItemStatus()
         guard enabled != launchAtLoginEnabled else { return }
         loginItemBusy = true; loginItemError = nil
@@ -219,6 +224,18 @@ final class AppModel {
         loginItemService?.openSettings()
     }
     func waitForLoginItemChange() async { if let loginItemTask { await loginItemTask.value } }
+    private func applyDefaultLoginItem() {
+        guard !preview, loginItemService != nil,
+              !defaults.bool(forKey: Self.loginItemDefaultAppliedKey) else { return }
+        // Record the one-time decision before starting owned work. OS changes,
+        // registration failures and a later relaunch must never cause reenrollment.
+        defaults.set(true, forKey: Self.loginItemDefaultAppliedKey)
+        let existingLibrary = FileManager.default.fileExists(atPath: (storageOverride?.stateRoot ?? AppStorage.managedLibrary).path)
+        guard !existingLibrary, defaults.data(forKey: "speechPreferences") == nil,
+              defaults.data(forKey: "deliverySettings") == nil,
+              loginItemStatus == .notRegistered else { return }
+        setLaunchAtLogin(true)
+    }
     var textSize = AppTextSize() {
         didSet { if !preview { defaults.set(textSize.percent, forKey: "interfaceTextSizePercent") } }
     }
@@ -233,6 +250,8 @@ final class AppModel {
     }
     var sourceReview = SourceReviewModel(preview: true)
     var runtimeProject = NativeSpeechSetup.managedRoot
+    let modelStorage = ModelStorageMaintenance()
+    var modelStorageRevision = 0
     var runtimeBusy = false
     var runtimeTestResult: SpeechRuntimeTestResult = .untested
     var runtimeInstalling = false
@@ -243,8 +262,16 @@ final class AppModel {
     var canPlayVoiceSample: Bool { !preview && !stopping }
     func playVoiceSample() {
         guard canPlayVoiceSample else { return }
+        if preferences.modelSelection.voice.hasPrefix("reference:") || preferences.modelSelection.effectiveLanguage != "English" {
+            if pronunciationPreview.hasOwnedWork { pronunciationPreview.stop(); return }
+            guard let configuration = pronunciationConfiguration else { error = "Install and check the selected model before playing a live preview."; return }
+            voiceSamplePlayer.stop()
+            let text = NarrationSampleText.text(language: preferences.modelSelection.effectiveLanguage)
+            pronunciationPreview.play(entry: .init(word: text, spelling: text), dictionary: .empty, configuration: configuration)
+            return
+        }
         pronunciationPreview.stop()
-        guard let sample = VoiceSamples.sample(model: .kokoro, voice: preferences.voice.rawValue) else { return }
+        guard let sample = VoiceSamples.sample(model: preferences.modelSelection.model, voice: preferences.modelSelection.voice) else { return }
         voiceSamplePlayer.toggle(url: sample.url, id: sample.id)
     }
     var libraryMaintenanceBusy = false
@@ -262,6 +289,8 @@ final class AppModel {
     @ObservationIgnored private var queueMutationRequests:
         [(targets: Set<QueueSelectionID>, work: @MainActor () async -> Void)] = []
     @ObservationIgnored private var audioMutationTask: Task<Void, Never>?
+    @ObservationIgnored private var serverAudioRemovalRequests: [[String]] = []
+    @ObservationIgnored private var serverAudioRemovalRetryIDs: Set<String> = []
     @ObservationIgnored private var previewTask: Task<Void, Never>?
     @ObservationIgnored private var previewRequestID = UUID()
     @ObservationIgnored private var queueControl: QueueRunControl?
@@ -346,6 +375,7 @@ final class AppModel {
         }
         debugLoggingEnabled = defaults.bool(forKey: "debugLoggingEnabled")
         refreshLoginItemStatus()
+        applyDefaultLoginItem()
         textSize = AppTextSize(percent: defaults.object(forKey: "interfaceTextSizePercent") as? Int ?? 100)
         describeArticleImages = defaults.object(forKey: "describeArticleImages") as? Bool ?? true
         generateMissingTitles = defaults.bool(forKey: "generateMissingTitles")
@@ -363,8 +393,7 @@ final class AppModel {
                 try saved.validate(); preferences = saved
             } catch { self.error = "Saved voice and speed preferences could not be read. Default voice and speed are active." }
         }
-        runtimeProject = NativeSpeechSetup.preferredRoot(
-            saved: defaults.string(forKey: "runtimeProject").map { URL(fileURLWithPath: $0) })
+        runtimeProject = NativeSpeechSetup.preferredRoot(defaults: defaults)
         autoAdmitEnabled = defaults.object(forKey: "autoAdmitArticles") as? Bool ?? true
         autoProcessEnabled = defaults.object(forKey: "autoProcessArticles") as? Bool ?? true
         useArchivedArticles = defaults.bool(forKey: "useArchivedArticles")
@@ -535,6 +564,7 @@ final class AppModel {
         let reconcileNow = startupReconciliationPending || reconcileNow
         startupReconciliationPending = false
         let attemptStartedAt = Date(), verificationID = deliveryVerificationID
+        let removalIDs = hiddenServerAudioRemovalIDs.subtracting(mutatingSavedAudioIDs)
         // Gate new speech while the coordinator checks whether reconciliation is
         // due. Reading a large/slow ledger here would block a UI button callback.
         deliveryPreflightBusy = !running
@@ -548,6 +578,10 @@ final class AppModel {
             defer {
                 uploadRunID = UUID(); uploadProgress = [:]
                 deliveryTask = nil; deliveryBusy = false; deliveryPreflightBusy = false; refreshDeliveryCredentialState()
+                // A finished attempt must not leave failed/deferred removals hidden.
+                // New requests added during this drain belong to the follow-up attempt.
+                hiddenServerAudioRemovalIDs.subtract(removalIDs.subtracting(mutatingSavedAudioIDs))
+                reconcileServerAudioRemovalVisibility()
                 audioLibraryRevision = UUID()
                 refreshLibrary(allowDelivery: false)
                 let again = pendingDeliveryForce; pendingDeliveryForce = nil
@@ -684,7 +718,7 @@ final class AppModel {
         defaults.set(bytes, forKey: "speechPreferences")
     }
     var readyQueueCount: Int { queueItems.filter { $0.state.isReady }.count }
-    var canGenerateAudio: Bool { !sourcePruningBusy && !deliveryPreflightBusy && !preview && !stopping && !runtimeBusy && !libraryMaintenanceBusy && !libraryReviewRequired && speechRuntimeAvailable && !running && !audioMutationBusy
+    var canGenerateAudio: Bool { !sourcePruningBusy && !deliveryPreflightBusy && !preview && !stopping && !runtimeBusy && !modelStorage.isBusy && !libraryMaintenanceBusy && !libraryReviewRequired && (speechRuntimeAvailable || (readyQueueCount > 0 && FileManager.default.isExecutableFile(atPath: NativeSpeechSetup.workerExecutable.path))) && !running && !audioMutationBusy
                                  && !sourceReview.maintenanceSuspended && (readyQueueCount > 0 || !pendingAdds.isEmpty) }
     var canStopProcessing: Bool { !preview && !stopping && processingSpeech && !cancelling }
     var canResetQueue: Bool { !preview && !stopping && !libraryMaintenanceBusy && !libraryReviewRequired && !running && !cancelling && !isQueueResetPending
@@ -822,8 +856,8 @@ final class AppModel {
         let project = runtimeProject
         let dictionaryStore: PronunciationStore? = pronunciationIsInert ? nil : .init()
         return { episode in
-            try NativeMLXBackend(configuration: KokoroConfiguration(projectRoot: project,
-                voice: episode.settings.voice ?? "af_heart", speed: episode.settings.backendSettings["speed"]?.numericValue ?? 1), pronunciations: dictionaryStore?.load().dictionary ?? .empty, gapSeconds: episode.settings.gapSeconds, narrationOptions: episode.settings.narrationOptions ?? .init())
+            try NativeMLXBackend(configuration: NativeSpeechConfiguration(projectRoot: project,
+                settings: episode.settings.speechSelection ?? .init(voice: episode.settings.voice ?? "af_heart", speed: Float(episode.settings.backendSettings["speed"]?.numericValue ?? 1))), pronunciations: dictionaryStore?.load().dictionary ?? .empty, gapSeconds: episode.settings.gapSeconds, narrationOptions: episode.settings.narrationOptions ?? .init())
         }
     }
     private func resetProgress() {
@@ -847,8 +881,10 @@ final class AppModel {
             .compactMap(\.source).filter { articleSelection.contains($0.id) }
     }
     var eligibleSelectedArticles: [ReadingListEntry] {
-        selectedArticles.filter { entry in
-            pendingAdds[entry.id] == nil && !queueItems.contains { $0.sourceEntryID == entry.id }
+        let inactive = sourceReview.catalog.inactiveDuplicateIDs
+        return selectedArticles.filter { entry in
+            pendingAdds[entry.id] == nil && !inactive.contains(entry.id)
+                && !queueItems.contains { $0.sourceEntryID == entry.id }
         }
     }
     var canAddSelectedArticles: Bool {
@@ -970,13 +1006,14 @@ final class AppModel {
                 lastError: item.lastError, sourceHost: item.sourceHost)
         }
         let queued = Set(liveQueue.compactMap(\.sourceEntryID))
+        let unreviewedDuplicates = catalog.unreviewedDuplicateIDs
         let candidates = catalog.entries.filter {
-            catalog.currentIDs.contains($0.id) && !queued.contains($0.id)
+            catalog.currentIDs.contains($0.id) && (!queued.contains($0.id) || unreviewedDuplicates.contains($0.id))
                 && pendingTokens[$0.id] == nil && (explicit || !autoAttempted.contains($0.url))
         }
         var fresh: [ReadingListEntry] = []
         for entry in candidates where !Task.isCancelled && !stopping {
-            do { if try await coordinator.hasRecordedArticle(url: entry.url, stateRoot: root) == false { fresh.append(entry) } }
+            do { if try await coordinator.hasRecordedArticle(entry: entry, stateRoot: root) == false { fresh.append(entry) } }
             catch { return }
         }
         guard !fresh.isEmpty, !Task.isCancelled, !stopping, !libraryMaintenanceBusy, !libraryReviewRequired,
@@ -988,7 +1025,7 @@ final class AppModel {
     /// Automatic processing obeys the same readiness guards as Generate; explicit Stop holds
     /// it until new work arrives or Generate is pressed again.
     func maybeAutoProcess() {
-        guard !syncPreparing, autoProcessEnabled, !autoHalted, canGenerateAudio else { return }
+        guard !syncPreparing, enqueueTask == nil, autoProcessEnabled, !autoHalted, canGenerateAudio else { return }
         runQueue()
     }
     /// Launch resume: items left .running by a previous Quit are legitimate unfinished work —
@@ -1015,11 +1052,17 @@ final class AppModel {
                     }
                 }
                 admissionQueue = []; enqueueTask = nil
+                maybeAutoProcess()
             }
             var saved = 0, issues: [(entryID: String, message: String)] = []
             while let next = admissionQueue.first {
                 if Task.isCancelled { break }
                 let entry = next.entry
+                if sourceReview.catalog.inactiveDuplicateIDs.contains(entry.id) {
+                    admissionQueue.removeFirst()
+                    pendingAdds[entry.id] = nil; pendingTokens[entry.id] = nil; pendingControls[entry.id] = nil
+                    continue
+                }
                 if !processingSpeech && !running { status = "Adding \(saved + issues.count + 1): \(entry.title)" }
                 do {
                     let item = try await coordinator.enqueueReadingList(entry.id, storage: next.storage, preferences: next.preferences,
@@ -1033,12 +1076,20 @@ final class AppModel {
                         pendingAdds[entry.id] = nil; pendingTokens[entry.id] = nil; pendingControls[entry.id] = nil
                         if let index = queueItems.firstIndex(where: { $0.id == item.id }) { queueItems[index] = item }
                         else { queueItems.append(item) }
-                        sourceReview.catalog.setResolvedTitle(item.title, for: entry.id)
+                        let updatedCatalog = try await coordinator.catalog(stateRoot: next.storage.stateRoot)
+                        if sourceReview.catalog.entries == updatedCatalog.entries,
+                           sourceReview.catalog.currentIDs == updatedCatalog.currentIDs {
+                            sourceReview.catalog = updatedCatalog
+                        } else {
+                            // A newer source projection must not be overwritten by a
+                            // delayed admission's inventory read.
+                            sourceReview.catalog.setResolvedTitle(item.title, for: item.sourceEntryID ?? entry.id)
+                        }
+                        queueItems = try await coordinator.queue(stateRoot: next.storage.stateRoot)
                         transferPreparationSelection(sourceID: entry.id, episodeID: item.id)
                         saved += 1
                         // Newly arrived work resumes automation suspended by an explicit Stop.
                         autoHalted = false
-                        maybeAutoProcess()
                     }
                 } catch is CancellationError {
                     if Task.isCancelled { break }
@@ -1255,6 +1306,9 @@ final class AppModel {
         task = Task {
             defer { finishProcessing() }
             await pronunciationPreview.stopAndWait()
+            while enqueueTask != nil && !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(20)) } catch { break }
+            }
             while let mutation = queueMutationTask { await mutation.value }
             do {
                 try Task.checkCancellation()
@@ -1352,8 +1406,11 @@ final class AppModel {
     var visibleUploads: [UploadItem] {
         uploadItems.filter { uploadsFilter.includes($0.phase) && matchesAudioSearch($0, query: uploadsSearchText, outbox: true) }
     }
+    var serverAudioListEpisodes: [Episode] {
+        savedEpisodes.filter { !hiddenServerAudioRemovalIDs.contains($0.id) }
+    }
     var visibleServerAudio: [Episode] {
-        savedEpisodes.filter {
+        serverAudioListEpisodes.filter {
             let item = audioState($0)
             return serverAudioFilter.includes(item.phase) && matchesAudioSearch(item, query: serverAudioSearchText, outbox: false)
         }.sorted { left, right in
@@ -1399,11 +1456,12 @@ final class AppModel {
         triggerDelivery(force: true)
     }
     var canDeleteSavedAudio: Bool {
-        !preview && !stopping && !libraryMaintenanceBusy && !libraryReviewRequired && !processingSpeech && !cancelling && !audioMutationBusy
+        !preview && !stopping && !libraryMaintenanceBusy && !libraryReviewRequired && !processingSpeech && !cancelling
+            && (!audioMutationBusy || drainingServerAudioRemovals)
             && !sourceReview.maintenanceSuspended && !savedEpisodes.isEmpty
     }
     func canRemoveSavedAudio(_ episode: Episode) -> Bool {
-        canDeleteSavedAudio && !mutatingSavedAudioIDs.contains(episode.id)
+        canDeleteSavedAudio && !mutatingSavedAudioIDs.contains(episode.id) && !hiddenServerAudioRemovalIDs.contains(episode.id)
             && !(episode.stage == .expired && deliveryBusy)
     }
     func finishLibraryReview() {
@@ -1422,34 +1480,58 @@ final class AppModel {
         let requested = Set(ids)
         let targets = savedEpisodes.filter { requested.contains($0.id) && canRemoveSavedAudio($0) }
         guard !targets.isEmpty else { return }
-        let storage = speechStorage, targetIDs = targets.map(\.id)
-        let retry = targets.contains { $0.stage == .expired }
+        let targetIDs = targets.map(\.id)
         notices.reset(key: "audio"); notices.reset(key: "global")
-        audioLibraryRevision = UUID()
-        audioMutationBusy = true
+        hiddenServerAudioRemovalIDs.formUnion(targetIDs)
+        savedAudioSelection.subtract(targetIDs)
+        serverAudioRemovalRequests.append(targetIDs)
+        serverAudioRemovalRetryIDs.formUnion(targets.filter { $0.stage == .expired }.map(\.id))
         mutatingSavedAudioIDs.formUnion(targetIDs)
+        audioLibraryRevision = UUID()
+        guard !drainingServerAudioRemovals else { return }
+        let storage = speechStorage
+        drainingServerAudioRemovals = true
+        audioMutationBusy = true
         audioMutationTask = Task {
             defer {
+                hiddenServerAudioRemovalIDs.subtract(serverAudioRemovalRequests.flatMap { $0 })
+                serverAudioRemovalRequests = []
+                let retry = savedEpisodes.contains { $0.stage == .expired && serverAudioRemovalRetryIDs.contains($0.id) }
+                serverAudioRemovalRetryIDs = []
+                drainingServerAudioRemovals = false
                 audioMutationTask = nil; audioMutationBusy = false; mutatingSavedAudioIDs = []
+                reconcileServerAudioRemovalVisibility()
                 audioLibraryRevision = UUID()
                 refreshLibrary()
                 // A pending removal's explicit Retry overrides delivery backoff.
-                triggerDelivery(force: retry && savedEpisodes.contains { targetIDs.contains($0.id) && $0.stage == .expired })
+                triggerDelivery(force: retry)
+                // Publishing may be off/unconfigured. Keep durable pending work
+                // accessible rather than hiding it forever without an active drain.
+                if deliveryTask == nil { hiddenServerAudioRemovalIDs = [] }
             }
-            do {
-                let removed = try await coordinator.removeSavedAudio(ids: targetIDs, storage: storage)
-                // Local retirement is not server confirmation. Keep durable pending
-                // removals visible instead of optimistically dropping/re-adding rows.
-                savedEpisodes = try await coordinator.savedAudio(storage: storage)
-                savedAudioSelection.subtract(removed)
-            } catch is CancellationError {
-            } catch {
-                self.error = (error as? RelayError)?.localizedDescription ?? "The server audio could not be removed."
+            while !serverAudioRemovalRequests.isEmpty, !Task.isCancelled {
+                let ids = serverAudioRemovalRequests.removeFirst()
+                do {
+                    _ = try await coordinator.removeSavedAudio(ids: ids, storage: storage)
+                    savedEpisodes = try await coordinator.savedAudio(storage: storage)
+                } catch is CancellationError {
+                    hiddenServerAudioRemovalIDs.subtract(ids)
+                    break
+                } catch {
+                    hiddenServerAudioRemovalIDs.subtract(ids)
+                    if let episodes = try? await coordinator.savedAudio(storage: storage) { savedEpisodes = episodes }
+                    self.error = (error as? RelayError)?.localizedDescription ?? "The server audio could not be removed."
+                }
+                mutatingSavedAudioIDs.subtract(ids)
+                reconcileServerAudioRemovalVisibility()
             }
         }
     }
+    private func reconcileServerAudioRemovalVisibility() {
+        hiddenServerAudioRemovalIDs.formIntersection(Set(savedEpisodes.map(\.id)).union(mutatingSavedAudioIDs))
+    }
     func canDiscardLocalUpload(_ item: UploadItem) -> Bool {
-        canDeleteSavedAudio && !running && !deliveryBusy && !deliveryTesting && !deliveryPreflightBusy
+        canDeleteSavedAudio && !audioMutationBusy && !running && !deliveryBusy && !deliveryTesting && !deliveryPreflightBusy
             && item.isInOutbox && !mutatingSavedAudioIDs.contains(item.id)
     }
     func discardLocalUpload(_ item: UploadItem) {
@@ -1473,7 +1555,7 @@ final class AppModel {
             }
         }
     }
-    func waitForAudioMutation() async { if let audioMutationTask { await audioMutationTask.value } }
+    func waitForAudioMutation() async { while let audioMutationTask { await audioMutationTask.value } }
     func cancel() {
         pronunciationPreview.stop()
         syncTask?.cancel()
@@ -1505,6 +1587,7 @@ final class AppModel {
     func waitForSync() async { if let syncTask { await syncTask.value } }
     func shutdown() async {
         stopping = true
+        await modelStorage.waitForIdle()
         await pronunciationPreview.stopAndWait()
         voiceSamplePlayer.stop()
         // Stop owned work before terminating the UI.

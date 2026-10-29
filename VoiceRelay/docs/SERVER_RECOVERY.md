@@ -27,6 +27,12 @@ file. Scratch is removed after inspection. Hash equality establishes identical
 bytes; it cannot establish that narration covers every paragraph. A successfully
 finalized local artifact with an unchanged hash can reuse its recorded validation.
 
+A newly saved duplicate article follows the [duplicate admission policy](USER_GUIDE.md#duplicate-articles):
+fresh current-voice audio is confirmed in the feed before older matching owned
+episodes are retired and removed. Handled Reading List copies stay suppressed.
+The following conflict rules apply to recovery of existing audio, independently
+of that deliberate new generation.
+
 For differing valid copies at comparable voice and speed, a longer duration wins
 when the difference exceeds 0.5 seconds or 0.1 percent of the server duration.
 Equal-duration copies and known voice/speed variants retain the server copy to

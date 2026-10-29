@@ -127,6 +127,7 @@ func validationPlan(_ options: Options, evidence: URL) -> [Step] {
                     ["scripts/check-bundle.swift", "\(derived)/Build/Products/\(configuration)/\(app).app", app]))
         }
     }
+    if options.skipArchives { return steps }
     for app in ["Libro", "VoiceRelay"] {
         let archive = evidence.appendingPathComponent("\(app).xcarchive").path
         steps.append(
@@ -243,7 +244,8 @@ func validate(_ options: Options, runner: Runner = boundedRun) throws -> Int32 {
         started: Date(), tier: options.tier, scope: options.scope, filter: options.filter,
         signingClass: options.adhoc ? "ad-hoc-engineering" : "not-applicable", source: source, toolchain: toolchain,
         fingerprints: try fingerprints(options.root),
-        unrequestedGates: ["quick", "full", "native", "release"].filter { $0 != options.tier })
+        unrequestedGates: ["quick", "full", "native", "release"].filter { $0 != options.tier }
+            + (options.skipArchives ? ["archives"] : []))
     func save() throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

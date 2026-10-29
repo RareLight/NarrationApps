@@ -1,10 +1,10 @@
 # Shared Qwen3-TTS, Chatterbox Turbo and Orpheus integration
 
-Drafted October 27, 2026, against the current Libro, VoiceRelay, shared packages
-and standalone Swift benchmark. **Planning only: product implementation has not
-started.** This expands the earlier Kokoro/Soprano-only product scope. Existing
-review fixes, settings, queues, recordings, model assets and benchmark artifacts
-must be preserved.
+Drafted and implemented October 27, 2026, across Libro, VoiceRelay, shared packages
+and standalone Swift benchmark. The stages below retain the original design and
+acceptance criteria; the completion record tracks current evidence separately.
+This expands the earlier Kokoro/Soprano-only product scope while preserving
+settings, queues, recordings, model assets and original benchmark artifacts.
 
 ## Outcome and scope
 
@@ -138,9 +138,9 @@ The following descriptor/adapter names are proposed types, not existing APIs.
 ## Model-selection guidance: speed and quality meters
 
 The October 27 UI requirement uses the supplied Superwhisper screenshot as a
-visual reference: compact horizontal meters and a short model explanation beside
-the choice. Implement this once for both apps, as part of Stage 6. This section is
-planned behavior, not an existing product capability.
+visual reference for compact meters and model explanations. Shared controls are
+implemented in Stage 6. The October 28 presentation below reflects the subsequent
+compact-row request and supersedes the original always-visible card design.
 
 ### Presentation
 
@@ -153,17 +153,25 @@ These are rating indicators, not animated progress or processor activity.
 | Generation speed | Relative throughput: Very slow / Slow / Moderate / Fast / Very fast |
 | Narration quality | Curated naturalness, prosody and consistency: Basic / Fair / Good / High / Very high |
 | Brief description | One sentence explaining the main tradeoff, without runtime implementation details |
-| Download size | Verified catalog download bytes, shown as storage, separate from RAM requirements |
-| About this guide | An accessible information control explaining the estimates and their scope |
+| Model storage | Allocated downloaded-model bytes in the Settings inventory, separate from RAM requirements |
+| Model details | An accessible trailing information button opens the description and meters |
 
-Keep the selected model's detail card visible near its picker so this information
-does not require hover. Where the shared chooser supports stable row hover/focus
-details, show the same card for the highlighted model, like the supplied reference.
-Highlighting must not commit a selection, start playback, install or load a model.
-Keyboard focus and an explicit info action provide the same access; hover is an
-enhancement. Prefer the native picker plus a detail card over an unreliable
-attempt to insert rich views into a platform menu. A custom chooser, if needed,
-belongs in NarrationUI.
+Keep the main row compact: native model picker, download when missing,
+and an adjacent ⓘ button. File size and deletion belong only in Downloaded models,
+in compact fixed name/size/delete columns beneath folder controls.
+Model, Voice, model-specific options and Play
+Sample use compact, evenly spaced, left-aligned rows. The section fits only the
+selected model's controls, keeping Model/Voice at the same origin. Speed keeps its value and arrows
+together in the value column. The button opens a native popover containing
+the description and both meters; no stats card is permanently visible. A cached
+model shows only info beside the picker; an empty cache shows Download. Inventory
+deletion asks for confirmation. Busy/unknown storage cannot trigger deletion, and
+imported read-only folders stay protected. Shared support assets remain separate.
+Download missing files in the
+popover retains the existing repair/additional-language installation path without
+requiring a model deletion. Opening details never installs, plays or loads a model.
+The same keyboard-accessible controls serve both apps; lifecycle/storage remain
+app-owned and all filesystem checks run asynchronously.
 
 Adapt to text sizing, light/dark, increased contrast and narrow panes. Show a text
 tier beside each meter so meaning does not depend on color. Expose an accessible
@@ -480,7 +488,7 @@ Tasks:
   controls, installation/readiness and voice samples. Replace duplicated Libro
   and VoiceRelay picker logic; keep shared text-size/help/rounded-section patterns.
 - Include the shared guidance above: static generation-speed/narration-quality
-  meters, text tiers, a brief tradeoff description, download size and accessible
+  meters, text tiers, a brief tradeoff description, inventory disk usage and accessible
   estimate explanations. No user benchmark is required.
 - Show all nine Qwen and eight Orpheus presets, with stable IDs and native-language
   notes, not a shortlist limited to the bracket entrants. Shared sorting labels
@@ -613,6 +621,86 @@ do not relabel a build, tone fixture or EOS check as listening acceptance.
 | Reference clips are private and mutable | Explicit import, immutable digest capture, bounded local staging, version-aware retention and visible backup behavior |
 | Native style/speed APIs differ | Expose only supported validated controls, keep speaker and instructions separate, preserve old per-model choices |
 
-No product behavior changed while drafting this plan. The first implementation
-milestone is the shared catalog/settings contract plus the complete Qwen 1.7B
-vertical slice, with asset and resource prerequisites resolved before UI exposure.
+The design above is now implemented. See the completion record and
+[current status](IMPLEMENTATION_STATUS.md) for measured engineering evidence,
+conservative resource tradeoffs and remaining operator-owned acceptance.
+
+
+## October 27–28 implementation record
+
+Stages 1–7 are implemented through shared product paths: pinned primary and
+auxiliary inventories, complete presets/languages, explicit installation/offline
+checking, native-text adapters and clean-EOS guards, protocol version 3, model-aware
+memory/deadlines, immutable queue settings and acoustic identities, shared controls,
+reference profiles and 47 bundled samples. See [model selection](MODEL_SELECTION.md)
+for current behavior. The full fixture gate passes, recorded in
+`.local/validation/full-EB8A4A13-7243-4038-9C97-B2E0E7854A74/`; packaged and
+extended native evidence is recorded below. Stage 9 updates the
+current app/developer guides. Operator checks remain separate.
+
+Large helpers are reaped after initial setup and after each utterance while
+admission is held. This conservative implementation avoids overlapping large
+resident sets without a new daemon or residency ledger, and preserves existing
+lease paths/priority. It trades reload/hash-validation latency for predictable
+residency. Existing small-model warm reuse is unchanged. Support guards require
+16 GB for Qwen/Chatterbox and 24 GB for Orpheus; these are not whole-machine caps.
+
+Cancellation during an asynchronous large-worker unload retains ownership until
+the process is reaped, then rechecks closure/cancellation before returning ready
+or publishing audio. A delayed-shutdown fixture reproduces the former early-reap
+and late-publication race and passes with the fix. Offline inventory validation
+also canonicalizes contained directory aliases and enumerates relative paths;
+large file hashing releases each read buffer before reading the next one.
+
+The pinned Chatterbox implementation applied peak normalization and an initial
+fade internally. The product adapter disables both, and future benchmark runs use
+the same raw-PCM mode. Original comparison recordings and rankings are retained;
+re-listening is needed to compare this output policy. This is an explicit
+departure from reproducing the original benchmark's amplitude processing.
+
+Reference profiles retain original WAV bytes privately with content-hash IDs.
+Deletion is intentionally unavailable while retained jobs may refer to them.
+Ordinary library backups exclude recordings; reimporting the original clip
+restores its ID after migration. No reference is replaced by the default voice.
+
+Native short checks passed all nine Qwen presets, eight Orpheus presets,
+Chatterbox default, all ten Qwen languages and a synthetic Chatterbox reference.
+Receipts and output are retained under ignored
+`.local/multi-model-implementation/`. Finite PCM, rate and clean completion are
+mechanical checks; they do not establish pronunciation, translation fidelity or
+long-form listening quality. The original 29 sample audio digests are unchanged.
+
+Debug and Release workspace builds, both Archives and all six bundle audits pass
+in `.local/validation/release-CF376C4F-5242-41A5-8105-B4247F18C718/` for the
+working tree based on `c10135f`. The archives are ad-hoc engineering candidates,
+not installed or normal-team-signed acceptance builds. The standalone benchmark's
+26 isolated tests and final build also pass. Its original recordings and votes
+are unchanged. Current candidate paths and remaining manual cases are in the
+[operator checklist](OPERATOR_VALIDATION.md).
+
+Final network-denied preparation and multi-paragraph narration pass through
+**both archived helpers** for Qwen Ryan, Chatterbox default and Orpheus leah.
+The synthetic passage contains three paragraphs, names, numbers and abbreviations;
+each result has at least three prepared utterances, clean completion, native
+24 kHz output and WAV/AAC artifacts. Receipts retain prepared plans and worker
+hashes in `.local/multi-model-implementation/native-packaged-longform-libro/`
+and `native-packaged-longform-voicerelay/`.
+
+| Packaged helper/model | Audio seconds | Lifecycle and encoding seconds |
+| --- | ---: | ---: |
+| Libro / Qwen Ryan | 57.12 | 27.77 |
+| Libro / Chatterbox default | 52.32 | 21.66 |
+| Libro / Orpheus leah | 59.44 | 145.42 |
+| VoiceRelay / Qwen Ryan | 63.84 | 31.85 |
+| VoiceRelay / Chatterbox default | 52.16 | 22.83 |
+| VoiceRelay / Orpheus leah | 57.65 | 136.89 |
+
+These are bounded production-path checks on the local M2 Max/32 GiB machine,
+not controlled cold/warm benchmark estimates or hour-long memory/listening
+acceptance. The original benchmark remains the reference for static speed tiers.
+Packaged contention also passes: waiting interactive Qwen runs before background
+Orpheus, maximum resident helper count is one, all four helpers are reaped and
+waiting cancellation publishes no output. The receipt is
+`.local/multi-model-implementation/native-packaged-large-contention/contention.json`.
+The aggregate `.local/multi-model-implementation/summary.json` records gates and
+remaining acceptance; `source-digests.json` identifies the coordinated source.

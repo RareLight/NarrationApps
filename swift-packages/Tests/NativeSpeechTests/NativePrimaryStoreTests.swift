@@ -47,6 +47,36 @@ final class NativePrimaryStoreTests: XCTestCase {
         }
     }
 
+    func testLargeInventoryReuseCanonicalizesInternalDirectoryAliases() throws {
+        let workspace = try workspace(); defer { try? FileManager.default.removeItem(at: workspace.root) }
+        let snapshot = workspace.root.appendingPathComponent("snapshot")
+        try FileManager.default.createDirectory(at: snapshot.appendingPathComponent("codec"), withIntermediateDirectories: true)
+        let spec = NativePrimarySpecification(model: .qwen3, repository: "fixture/primary", revision: String(repeating: "b", count: 40), files: [
+            .init(path: "config.json", bytes: config.count, sha256: sha(config)),
+            .init(path: "model.safetensors", bytes: tensor.count, sha256: sha(tensor)),
+            .init(path: "codec/model.safetensors", bytes: tensor.count, sha256: sha(tensor))
+        ])
+        try config.write(to: snapshot.appendingPathComponent("config.json"))
+        for path in ["model.safetensors", "codec/model.safetensors"] { try tensor.write(to: snapshot.appendingPathComponent(path)) }
+        let alias = workspace.root.appendingPathComponent("alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: snapshot)
+        let direct = try NativePrimaryStore.validate(directory: snapshot, specification: spec, workspace: workspace)
+        let reused = try NativePrimaryStore.validate(directory: alias, specification: spec, workspace: workspace)
+        XCTAssertEqual(direct.map(\.path), reused.map(\.path))
+        XCTAssertEqual(direct.map(\.sha256), reused.map(\.sha256))
+        XCTAssertEqual(reused.count, 3)
+        try config.write(to: snapshot.appendingPathComponent("unexpected.json"))
+        XCTAssertThrowsError(try NativePrimaryStore.validate(directory: alias, specification: spec, workspace: workspace))
+    }
+
+    func testStreamingHashPreservesDigestAcrossReadBoundaries() throws {
+        let workspace = try workspace(); defer { try? FileManager.default.removeItem(at: workspace.root) }
+        let bytes = Data(repeating: 0x6d, count: 3 * 1_048_576 + 7)
+        let path = workspace.root.appendingPathComponent("synthetic-weight")
+        try bytes.write(to: path)
+        XCTAssertEqual(try NativeG2P.sha256(path), sha(bytes))
+    }
+
     func testSameLengthCorruptionAndMissingFilesCannotBeComplete() throws {
         let workspace = try workspace(); defer { try? FileManager.default.removeItem(at: workspace.root) }
         let directory = workspace.root.appendingPathComponent("snapshot")

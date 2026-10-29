@@ -55,6 +55,7 @@ import MLXLMCommon
                 reference = audio
             }
             if let chatterbox = model as? ChatterboxModel {
+                chatterbox.preserveNarrationPCM = true
                 guard job.profile.voice == nil, job.profile.maxTokens == chatterbox.config.t3Config.maxSpeechTokens else {
                     throw BenchError("Pinned Chatterbox uses its config token cap and reference conditioning; named-voice/budget overrides are unsupported")
                 }
@@ -65,7 +66,7 @@ import MLXLMCommon
             try emit(.init("loaded", seconds: loadSeconds))
             var parameters = model.defaultGenerationParameters
             parameters.maxTokens = job.profile.maxTokens
-            let parameterDescription = "maxTokens=\(job.profile.maxTokens), temperature=\(parameters.temperature), topP=\(parameters.topP), repetitionPenalty=\(String(describing: parameters.repetitionPenalty)); global MLX seed recorded per repetition; native defaults otherwise; reference encode may be cached by model"
+            let parameterDescription = "maxTokens=\(job.profile.maxTokens), temperature=\(parameters.temperature), topP=\(parameters.topP), repetitionPenalty=\(String(describing: parameters.repetitionPenalty)); global MLX seed recorded per repetition; native defaults otherwise; reference encode may be cached by model; outputPCM=raw-native-no-application-gain; Chatterbox peak-normalization/fade disabled (policy 20261027-1)"
             var firstCall = true
             for passage in job.matrix.passages {
                 let chunks = try TextChunks.make(passage.text, limit: job.profile.maxCharacters)

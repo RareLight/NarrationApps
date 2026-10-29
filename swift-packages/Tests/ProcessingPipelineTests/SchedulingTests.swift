@@ -698,17 +698,18 @@ extension SchedulingTests {
 extension SchedulingTests {
     func testOfflineSetupCheckInitializesSelectedModelWithoutDownloadingOrGeneratingAndReaps() async throws {
         for model in SpeechModel.allCases {
+            guard SpeechMemoryPolicy.canLoad(model) else { continue }
             let fixture = try ProcessFixture(); defer { fixture.remove() }
             let configuration = fixture.configuration()
             try await SpeechSetupCheck.run(configuration: configuration, workspace: fixture.root,
-                settings: .init(model: model, voice: "af_bella", speed: 1.25))
+                settings: .init(model: model, voice: model.defaultVoice, speed: 1))
             let records = try fixture.records()
             XCTAssertEqual(records.filter { $0["event"] as? String == "initialize" }.count, 1)
             XCTAssertFalse(records.contains { ["prepare", "generate"].contains($0["event"] as? String ?? "") })
             let initialization = try XCTUnwrap(records.first { $0["event"] as? String == "initialize" })
             XCTAssertEqual(initialization["model"] as? String, model.rawValue)
-            XCTAssertEqual(initialization["voice"] as? String, "af_bella")
-            XCTAssertEqual(initialization["speed"] as? Double, 1.25)
+            XCTAssertEqual(initialization["voice"] as? String, model.defaultVoice)
+            XCTAssertEqual(initialization["speed"] as? Double, 1)
             let lease = try await InferenceLease.acquire(at: configuration.inferenceLeaseFile)
             withExtendedLifetime(lease) {}
             try fixture.assertClean()
@@ -805,7 +806,7 @@ final class PreparedSessionTests: XCTestCase {
         let command = WorkerCommand(kind: .prepareText, identity: identity, chunk: 0,
             textWindow: .init(text: String(repeating: "𐐀", count: 1_000), source: source, boundaryAfter: .paragraph))
         XCTAssertLessThan(try SpeechIPC.encode(command).count, SpeechIPC.maximumRecordBytes)
-        XCTAssertEqual(command.protocolVersion, 2)
+        XCTAssertEqual(command.protocolVersion, 3)
         XCTAssertThrowsError(try SpeechIPC.encode(WorkerCommand(kind: .generate, identity: identity, chunk: 0, text: String(repeating: "a", count: 70_000))))
     }
 }
@@ -940,6 +941,62 @@ extension SchedulingTests {
         XCTAssertEqual(summary.successfulCount, 1)
         XCTAssertEqual(Set(summary.documents.map(\.id)), Set(inputs.map(\.id)))
         XCTAssertEqual(summary.documents.count, 3)
+        try fixture.assertClean()
+    }
+}
+
+extension SchedulingTests {
+    func testCloseDuringLargeWorkerUnloadJoinsReapAndCannotPublish() async throws {
+        try XCTSkipUnless(SpeechMemoryPolicy.canLoad(.qwen3), "Fixture sessions honor native host memory support guards.")
+        for duringRender in [false, true] {
+            let fixture = try ProcessFixture(); defer { fixture.remove() }
+            var configuration = fixture.configuration("delayShutdown")
+            configuration.shutdownGrace = 0.5
+            let settings = SpeechSettings(model: .qwen3, voice: "Ryan")
+            let session = try NativeSpeechSession(configuration: configuration, workspace: fixture.root, settings: settings, leaseFile: configuration.inferenceLeaseFile)
+            var prepared: PreparedSpeechPlan?
+            if duringRender {
+                try await session.prepare()
+                let projection = try NarrationPlanner.prepareForSpeech(.init(blocks: [.init(kind: .paragraph, text: "A short public fixture sentence.", origin: .authored)], extractorVersion: "fixture"), settings: settings)
+                prepared = try await session.prepareSpeech(projection)
+            }
+            let previous = Set(try fixture.records().filter { $0["event"] as? String == "cancel" }.compactMap { ($0["pid"] as? NSNumber)?.int32Value })
+            let plan = prepared
+            let work = Task {
+                if let plan { try await session.render(plan: plan, destination: fixture.destination, identity: .init(batch: UUID(), job: UUID())) }
+                else { try await session.prepare() }
+            }
+            defer { work.cancel() }
+            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+            var shuttingDown: Int32?
+            while shuttingDown == nil && ContinuousClock.now < deadline {
+                shuttingDown = try fixture.records().filter { $0["event"] as? String == "cancel" }.compactMap { ($0["pid"] as? NSNumber)?.int32Value }.first { !previous.contains($0) }
+                if shuttingDown == nil { try await Task.sleep(for: .milliseconds(5)) }
+            }
+            let pid = try XCTUnwrap(shuttingDown)
+            await session.close()
+            XCTAssertEqual(kill(pid, 0), -1, "Close must join an already-started worker reap before returning.")
+            do { try await work.value; XCTFail("Closed work must not report readiness or publish audio.") }
+            catch is CancellationError {} catch { XCTFail("Expected cancellation, received \(error)") }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+            try fixture.assertClean()
+        }
+    }
+
+    func testLargeModelWorkersAreReapedAtEveryUtteranceBoundary() async throws {
+        try XCTSkipUnless(SpeechMemoryPolicy.canLoad(.qwen3), "The real host support guard also applies to fixture sessions.")
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let settings = SpeechSettings(model: .qwen3, voice: "Ryan")
+        let text = String(repeating: "A public sentence for a bounded native narration test. ", count: 20)
+        let input = try fixture.input("native-model.txt", text: text)
+        let documents = try BatchPlanner.plan([input], output: fixture.output)
+        let request = BatchRequest(documents: documents, outputDirectory: fixture.output, workspace: fixture.root, settings: settings)
+        let summary = try await QueueCoordinator(configuration: fixture.configuration()).run(request)
+        XCTAssertEqual(summary.successfulCount, 1)
+        let records = try fixture.records()
+        let generated = records.filter { $0["event"] as? String == "generate" }.count
+        XCTAssertGreaterThan(generated, 1)
+        XCTAssertEqual(records.filter { $0["event"] as? String == "launch" }.count, generated + 1)
         try fixture.assertClean()
     }
 }

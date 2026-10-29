@@ -15,9 +15,8 @@ private func isolatedStorage() throws -> (URL, ManagedSpeechStorage) {
                                        temporaryRoot: root.appendingPathComponent("scratch")))
 }
 private func article(_ path: String = "article") throws -> ReviewedSource {
-    let html = String(decoding: try FixtureResource.html(), as: UTF8.self), url = URL(string: "https://synthetic.example/\(path)")!
-    return try ReviewedSource.prepare(FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
-        contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast), chunkLimit: 1800)
+    let url = URL(string: "https://synthetic.example/\(path)")!
+    return try ReviewedSource.prepare(fetchFixture(url: url), chunkLimit: 1800)
 }
 
 private struct SyntheticProvider: TTSBackend {
@@ -274,14 +273,16 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
 }
 
 @Test @MainActor func settingsSectionsAreDistinctAndInertViewsConstruct() throws {
-    #expect(SettingsSection.allCases == [.general, .pronunciation, .delivery, .troubleshooting])
-    #expect(Set(SettingsSection.allCases.map(\.rawValue)) == ["General", "Pronunciation", "Publishing", "Troubleshooting"])
+    #expect(SettingsSection.allCases == [.general, .voiceModel, .pronunciation, .delivery, .troubleshooting])
+    #expect(Set(SettingsSection.allCases.map(\.rawValue)) == ["General", "Voice Model", "Pronunciation", "Publishing", "Troubleshooting"])
     let model = AppModel(preview: true)
     let general = SettingsView(model: model)
     let troubleshooting = SettingsView(model: model, initialSection: .troubleshooting)
     _ = general; _ = troubleshooting
     #expect(model.pronunciationIsInert && model.pronunciationConfiguration == nil)
     _ = SettingsView(model: model, initialSection: .pronunciation)
+    _ = SettingsView(model: model, initialSection: .voiceModel)
+    _ = VoiceModelSettingsView(model: model).body
     #expect(!model.running && !model.stopping)
 }
 
@@ -311,9 +312,9 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
 }
 
 @Test @MainActor func settingsPanesShareFixedGlassControlLayout() async throws {
-    #expect(SettingsView.windowWidth == 440 && SettingsView.windowHeight == 680)
-    #expect(SettingsNavigation<SettingsSection>.idealWidth == 392)
-    #expect(SettingsSection.allCases.map(\.systemImage) == ["gearshape", "text.word.spacing", "antenna.radiowaves.left.and.right", "stethoscope"])
+    #expect(SettingsView.windowWidth == 540 && SettingsView.windowHeight == 680)
+    #expect(SettingsNavigation<SettingsSection>.idealWidth == 492)
+    #expect(SettingsSection.allCases.map(\.systemImage) == ["gearshape", "waveform", "text.word.spacing", "antenna.radiowaves.left.and.right", "stethoscope"])
     let model = AppModel(preview: true)
     _ = SettingsView(model: model)
     _ = SettingsView(model: model, initialSection: .troubleshooting)
@@ -674,9 +675,7 @@ private final class FetchGate: @unchecked Sendable {
             try await Task.sleep(for: .milliseconds(10))
         }
         try Task.checkCancellation()
-        let html = String(decoding: try FixtureResource.html(), as: UTF8.self)
-        return FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
-                           contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
+        return try fetchFixture(url: url)
     }
 }
 
@@ -1053,6 +1052,7 @@ private final class CommitProbe: @unchecked Sendable {
     #expect(model.canDeleteSavedAudio)
     model.removeSavedAudio(ids: [published.episode.id])
     #expect(model.audioMutationBusy && model.mutatingSavedAudioIDs.contains(published.episode.id))
+    #expect(model.visibleServerAudio.isEmpty && model.savedAudioSelection.isEmpty && model.showsWorkspaceActivity)
     #expect(!model.running && !model.processingSpeech)
     await model.waitForAudioMutation()
     await model.waitForLibraryRefresh()
@@ -1280,8 +1280,8 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
 
 @Test @MainActor func typographyAndSelectorConstantsMeetPresentationFloor() {
     #expect(AppTypography.minimumPointSize >= 12)
-    #expect(SettingsNavigation<SettingsSection>.idealWidth == 392)
-    #expect(SettingsView.windowWidth == 440 && SettingsView.windowHeight == 680)
+    #expect(SettingsNavigation<SettingsSection>.idealWidth == 492)
+    #expect(SettingsView.windowWidth == 540 && SettingsView.windowHeight == 680)
 }
 
 @Test @MainActor func autoSyncWithoutChosenSourceNeverReadsPlist() async throws {
@@ -1976,8 +1976,10 @@ private actor PublishingOffGate: DeliveryTransport {
     await model.shutdown()
 }
 
-private func fetchFixture(url: URL) throws -> FetchedPage {
+private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> FetchedPage {
+    let title = commonTitle ? "Same article" : "Synthetic article: " + url.lastPathComponent
     let html = String(decoding: try FixtureResource.html(), as: UTF8.self)
+        .replacingOccurrences(of: "A &amp; B: Reading &lt;Carefully&gt;", with: RSS.escaped(title))
     return FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
                        contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
 }
@@ -1992,7 +1994,7 @@ private func fetchFixture(url: URL) throws -> FetchedPage {
     model.deliverySettings = appDeliverySettings()
     #expect(model.appHealth == .failure("Reading List not checked", .general))
     model.sourceReview.lastSyncedAt = Date()
-    #expect(model.appHealth == .failure("Speech setup not checked", .general))
+    #expect(model.appHealth == .failure("Speech setup not checked", .voiceModel))
     model.runtimeTestResult = .success
     #expect(model.appHealth == .failure("Publishing not checked", .delivery))
     model.deliveryConnectionVerified = true
@@ -2002,7 +2004,7 @@ private func fetchFixture(url: URL) throws -> FetchedPage {
     #expect(model.appHealth.settingsSection == .general && model.appHealth.symbol == "xmark.circle.fill")
     model.sourceReview.error = nil
     model.runtimeTestResult = .failure("Synthetic speech failure")
-    #expect(model.appHealth == .failure("Speech setup check failed", .general))
+    #expect(model.appHealth == .failure("Speech setup check failed", .voiceModel))
     model.runtimeTestResult = .success
     model.deliveryError = "Synthetic connection failure"
     #expect(model.appHealth == .failure("Publishing needs attention", .delivery))
@@ -2658,7 +2660,7 @@ private actor HeldDeliveryTransport: DeliveryTransport {
     await model.shutdown()
 }
 
-/// Hold DELETE so tests can inspect the actual pending-removal row, without live I/O.
+/// Hold DELETE so tests can inspect hidden pending-removal state, without live I/O.
 private actor ServerDeletionGate: DeliveryTransport {
     private let base = StubDeliveryTransport()
     private var armed = false
@@ -2687,7 +2689,7 @@ private actor ServerDeletionGate: DeliveryTransport {
     func clearFailure() { failure = false }
 }
 
-@Test(arguments: [false, true]) @MainActor func serverAudioRemovalStaysVisibleUntilConfirmedAndClicksAreSafe(failDeletion: Bool) async throws {
+@Test(arguments: [false, true]) @MainActor func serverAudioRemovalHidesImmediatelyAndRestoresOnlyFailures(failDeletion: Bool) async throws {
     let (root, original) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let storage = ManagedSpeechStorage(audioDirectory: original.audioDirectory, stateRoot: original.stateRoot,
         temporaryRoot: original.temporaryRoot, temporaryAudio: true)
@@ -2703,26 +2705,150 @@ private actor ServerDeletionGate: DeliveryTransport {
     await transport.arm(failure: failDeletion)
     model.removeSavedAudio(ids: ids)
     #expect(model.savedEpisodes.map(\.id) == ids)
+    #expect(model.visibleServerAudio.isEmpty && model.serverAudioListEpisodes.isEmpty && model.showsWorkspaceActivity)
     #expect(model.savedAudioRemovalStatus(try #require(model.savedEpisodes.first)) == "Removing from server…")
     await model.waitForAudioMutation(); try await transport.waitUntilHeld()
     model.refreshLibrary(); await model.waitForLibraryRefresh()
     let pending = try #require(model.savedEpisodes.first)
     #expect(model.savedEpisodes.map(\.id) == ids && pending.stage == .expired)
+    #expect(model.visibleServerAudio.isEmpty) // Polling cannot resurrect a removal still in flight.
     #expect(model.savedAudioRemovalStatus(pending) == "Removing from server…" && !model.canRemoveSavedAudio(pending))
     model.removeSavedAudio(ids: ids) // Simulate a repeated action while DELETE is in flight.
     #expect(model.error == nil && !model.audioMutationBusy)
     await transport.release(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
     if failDeletion {
         let failed = try #require(model.savedEpisodes.first)
+        #expect(model.visibleServerAudio.map(\.id) == ids && model.hiddenServerAudioRemovalIDs.isEmpty)
         #expect(model.savedAudioRemovalStatus(failed) == "Removal needs retry" && model.canRemoveSavedAudio(failed))
         await transport.clearFailure()
         model.removeSavedAudio(ids: ids)
+        #expect(model.visibleServerAudio.isEmpty)
         await model.waitForAudioMutation(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
     }
     #expect(model.savedEpisodes.isEmpty && model.error == nil)
     model.removeSavedAudio(ids: ids) // Simulate a stale action after the row is removed.
     #expect(model.error == nil && !model.audioMutationBusy)
     await model.shutdown()
+}
+
+@Test @MainActor func rapidServerAudioRemovalsQueueWithoutBlockingOtherRowsOrSelection() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    var results: [FixtureResult] = []
+    for tag in ["one", "two", "three"] {
+        results.append(try await coordinator.runReviewed(root: storage.stateRoot, review: article(tag), backend: SyntheticProvider(), storage: storage))
+    }
+    let model = AppModel(storage: storage)
+    model.savedEpisodes = results.map(\.episode)
+    let first = results[0].episode, second = results[1].episode, third = results[2].episode
+    model.savedAudioSelection = [first.id, second.id, third.id]
+    let gate = PublishingPreflightGate(); defer { gate.open() }
+    await model.coordinator.setBeforeAudioRemovalLease { if !gate.entered { gate.hold() } }
+    model.removeSavedAudio(ids: [first.id])
+    try await waitUntil("audio retirement started off the main actor") { gate.entered }
+    #expect(!gate.ranOnMainThread && model.canRemoveSavedAudio(second))
+    #expect(!model.canDiscardLocalUpload(model.audioState(second)))
+    #expect(Set(model.visibleServerAudio.map(\.id)) == [second.id, third.id])
+    let heartbeat = Task { @MainActor in true }
+    #expect(await heartbeat.value)
+    model.removeSavedAudio(ids: [second.id])
+    model.removeSavedAudio(ids: [first.id]) // A stale/double click does not enqueue twice.
+    #expect(model.visibleServerAudio.map(\.id) == [third.id])
+    #expect(model.savedAudioSelection == [third.id] && model.mutatingSavedAudioIDs == [first.id, second.id])
+    gate.open()
+    await model.waitForAudioMutation(); await model.waitForLibraryRefresh()
+    #expect(model.visibleServerAudio.map(\.id) == [third.id] && model.error == nil)
+    #expect(model.savedAudioSelection == [third.id] && model.hiddenServerAudioRemovalIDs.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: results[0].audioURL.path))
+    #expect(!FileManager.default.fileExists(atPath: results[1].audioURL.path))
+    #expect(FileManager.default.fileExists(atPath: results[2].audioURL.path))
+    await model.shutdown()
+}
+
+@Test @MainActor func serverAudioRemovalRestoresAnItemWhenLocalOwnershipValidationFails() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let result = try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: article(), backend: SyntheticProvider(), storage: storage)
+    try Data("Replaced file; do not delete".utf8).write(to: result.audioURL)
+    let model = AppModel(storage: storage)
+    model.savedEpisodes = [result.episode]
+    model.removeSavedAudio(ids: [result.episode.id])
+    #expect(model.visibleServerAudio.isEmpty)
+    await model.waitForAudioMutation(); await model.waitForLibraryRefresh()
+    #expect(model.visibleServerAudio.map(\.id) == [result.episode.id])
+    #expect(model.error != nil && model.hiddenServerAudioRemovalIDs.isEmpty)
+    #expect(try Data(contentsOf: result.audioURL) == Data("Replaced file; do not delete".utf8))
+    await model.shutdown()
+}
+
+@Test @MainActor func serverAudioRemovalsAcceptedDuringRemoteCleanupSurviveFollowUpDrain() async throws {
+    let (root, original) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = ManagedSpeechStorage(audioDirectory: original.audioDirectory, stateRoot: original.stateRoot,
+        temporaryRoot: original.temporaryRoot, temporaryAudio: true)
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let settings = appDeliverySettings(), transport = ServerDeletionGate(), coordinator = FixtureCoordinator()
+    var episodes: [Episode] = []
+    for tag in ["first", "second", "keep"] {
+        episodes.append(try await coordinator.runReviewed(root: storage.stateRoot, review: article(tag), backend: SyntheticProvider(), storage: storage, delivery: settings).episode)
+    }
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = settings; model.triggerDelivery()
+    await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    await transport.arm(failure: false)
+    defer { Task { await transport.release() } }
+    model.removeSavedAudio(ids: [episodes[0].id])
+    await model.waitForAudioMutation(); try await transport.waitUntilHeld()
+    let second = try #require(model.savedEpisodes.first { $0.id == episodes[1].id })
+    #expect(model.canRemoveSavedAudio(second))
+    model.removeSavedAudio(ids: [second.id])
+    #expect(model.visibleServerAudio.map(\.id) == [episodes[2].id])
+    await model.waitForAudioMutation()
+    model.refreshLibrary(); await model.waitForLibraryRefresh()
+    #expect(model.visibleServerAudio.map(\.id) == [episodes[2].id])
+    await transport.release(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    #expect(model.savedEpisodes.map(\.id) == [episodes[2].id] && model.hiddenServerAudioRemovalIDs.isEmpty)
+    #expect(model.error == nil && model.deliveryError == nil)
+    await model.shutdown()
+}
+
+@Test(arguments: [false, true]) @MainActor func serverAudioRemovalRestoresPendingRowWhenPublishingCannotFinish(publishingDisabled: Bool) async throws {
+    let (root, original) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = ManagedSpeechStorage(audioDirectory: original.audioDirectory, stateRoot: original.stateRoot,
+        temporaryRoot: original.temporaryRoot, temporaryAudio: true)
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let settings = appDeliverySettings(), transport = StubDeliveryTransport()
+    let result = try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: article(), backend: SyntheticProvider(), storage: storage, delivery: settings)
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = settings; model.triggerDelivery()
+    await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    if publishingDisabled { model.deliverySettings.enabled = false }
+    else { transport.statusForPath = { method, path in method == "PUT" && path.hasSuffix("feed.xml") ? 503 : nil } }
+    model.removeSavedAudio(ids: [result.episode.id])
+    #expect(model.visibleServerAudio.isEmpty)
+    await model.waitForAudioMutation(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    #expect(model.visibleServerAudio.map(\.id) == [result.episode.id])
+    #expect((publishingDisabled || model.deliveryError != nil) && model.hiddenServerAudioRemovalIDs.isEmpty)
+    #expect(!transport.calls.contains { $0.method == "DELETE" })
+    await model.shutdown()
+}
+
+@Test @MainActor func quittingJoinsAudioRemovalAndDoesNotRunQueuedDeletesAfterward() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    let first = try await coordinator.runReviewed(root: storage.stateRoot, review: article(), backend: SyntheticProvider(), storage: storage)
+    let second = try await coordinator.runReviewed(root: storage.stateRoot, review: article("keep-after-quit"), backend: SyntheticProvider(), storage: storage)
+    let model = AppModel(storage: storage)
+    model.savedEpisodes = [first.episode, second.episode]
+    let gate = PublishingPreflightGate(); defer { gate.open() }
+    await model.coordinator.setBeforeAudioRemovalLease { if !gate.entered { gate.hold() } }
+    model.removeSavedAudio(ids: [first.episode.id])
+    try await waitUntil("audio removal entered") { gate.entered }
+    model.removeSavedAudio(ids: [second.episode.id])
+    let quit = Task { await model.shutdown() }
+    try await waitUntil("quit begins") { model.stopping }
+    gate.open(); await quit.value
+    #expect(!model.audioMutationBusy && model.mutatingSavedAudioIDs.isEmpty && model.hiddenServerAudioRemovalIDs.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: second.audioURL.path))
+    #expect(try await coordinator.library(storage: storage).first { $0.id == second.episode.id }?.stage == .published)
 }
 
 @Test @MainActor func archivedArticleSettingPersistsAndQueueAdmissionUsesInjectedRecovery() async throws {
@@ -3021,4 +3147,34 @@ private final class PublishingPreflightGate: @unchecked Sendable {
     let item = try #require(model.queueItems.first)
     #expect(try await coordinator.articlePreviewURL(articleID: item.id, stateRoot: storage.stateRoot) == updated.url)
     await model.shutdown()
+}
+
+@Test @MainActor func inactiveDuplicateRowsRemainVisibleButNeverAutomaticallyRecreateAfterRestart() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    let entries = ["older", "newer"].enumerated().map { index, id in
+        ReadingListEntry(id: id, safariID: id, url: URL(string: "https://synthetic.example/\(id)")!,
+            title: "Same article", addedAt: Date(timeIntervalSinceReferenceDate: Double(index)))
+    }
+    _ = try await coordinator.reconcile(.init(entries: entries, skippedEntries: 0), stateRoot: storage.stateRoot)
+    let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, enqueueFetch: { try fetchFixture(url: $0, commonTitle: true) })
+    model.autoAdmitEnabled = true; model.autoProcessEnabled = false
+    model.sourceReview.catalog = try await coordinator.catalog(stateRoot: storage.stateRoot)
+    await model.autoAdmitNewEntries(); await model.waitForEnqueue()
+    #expect(model.queueItems.count == 1 && model.queueItems.first?.sourceEntryID == "newer")
+    let rows = model.allArticleRows
+    #expect(rows.count == 2 && rows.first { $0.source?.id == "older" }?.inactiveDuplicate == true)
+    model.articleSelection = ["older"]
+    #expect(model.eligibleSelectedArticles.isEmpty && !model.canAddSelectedArticles)
+    try await coordinator.resetQueue(stateRoot: storage.stateRoot)
+    await model.shutdown()
+    let fresh = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, enqueueFetch: { _ in
+        Issue.record("Handled duplicate recreated after restart"); throw SourceFetchError.network
+    })
+    fresh.autoAdmitEnabled = true; fresh.autoProcessEnabled = false
+    fresh.sourceReview.catalog = try await FixtureCoordinator().reconcile(.init(entries: entries, skippedEntries: 0), stateRoot: storage.stateRoot)
+    await fresh.autoAdmitNewEntries(); await fresh.waitForEnqueue()
+    #expect(fresh.pendingAdds.isEmpty && fresh.queueItems.isEmpty)
+    #expect(fresh.allArticleRows.first { $0.source?.id == "older" }?.inactiveDuplicate == true)
+    await fresh.shutdown()
 }

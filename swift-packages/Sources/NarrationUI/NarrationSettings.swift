@@ -62,8 +62,8 @@ public struct SpeechSetupStatusView: View {
 }
 
 public enum NarrationSettingsHelp {
-    public static let speechSetup = "Install downloads the selected speech model and pronunciation assets. The native engine is bundled with the app; no external tools are required. Check loads the installed model offline without generating audio."
-    public static let imageDescriptions = "Existing image descriptions take priority. Missing descriptions use available on-device Apple Intelligence and may contain mistakes. Turning this off keeps existing descriptions and text recognition active."
+    public static let speechSetup = "Download installs the selected model. Check verifies it offline."
+    public static let imageDescriptions = "Add missing descriptions with on-device Apple Intelligence. Results may contain mistakes; existing descriptions and OCR stay active."
     public static let previewModelMissing = "Install the selected speech model to preview pronunciations."
     public static let previewCheckNeeded = "Check speech setup before previewing pronunciations."
     public static let previewBusy = "Wait for processing or speech setup to finish to preview pronunciations."
@@ -79,7 +79,7 @@ public struct ImageDescriptionSettingsSection: View {
     public var body: some View {
         Section {
             Toggle("Describe images with Apple Intelligence", isOn: $enabled)
-                .help("Adds on-device descriptions for images without captions. Existing captions and text recognition stay on.")
+                .help("Describe uncaptioned images on-device.")
             if showsExample {
                 DocumentTextExample(source: "Text + an uncaptioned image",
                     narration: enabled ? "Text + a generated image description" : "Text only",
@@ -140,10 +140,20 @@ private struct DocumentExampleDisclosureStyle: DisclosureGroupStyle {
 
 public struct SpeechSpeedControl: View {
     @Binding private var speed: Double
-    public init(speed: Binding<Double>) { _speed = speed }
+    private let showsLabel: Bool
+    public init(speed: Binding<Double>, showsLabel: Bool = true) {
+        _speed = speed; self.showsLabel = showsLabel
+    }
     public var body: some View {
-        Stepper(value: $speed, in: SpeechSpeedPolicy.range, step: SpeechSpeedPolicy.step) {
-            LabeledContent("Speed") { Text("\(speed, format: .number.precision(.fractionLength(2)))×").monospacedDigit() }
+        if showsLabel {
+            Stepper(value: $speed, in: SpeechSpeedPolicy.range, step: SpeechSpeedPolicy.step) {
+                LabeledContent("Speed") { Text("\(speed, format: .number.precision(.fractionLength(2)))×").monospacedDigit() }
+            }
+        } else {
+            Stepper(value: $speed, in: SpeechSpeedPolicy.range, step: SpeechSpeedPolicy.step) {
+                Text("\(speed, format: .number.precision(.fractionLength(2)))×").monospacedDigit()
+            }.fixedSize(horizontal: true, vertical: false)
+                .accessibilityLabel("Speaking speed")
         }
     }
 }

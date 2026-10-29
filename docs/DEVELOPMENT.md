@@ -26,7 +26,13 @@ workers and packaged Metal probes retain their own OS network denial.
 | `bash scripts/check.sh --tier quick --scope voicerelay --filter xcodeProjectAppSourcesUseUniqueBuildFileReferences` | Also the VoiceRelay project-reference regression |
 | `bash scripts/check.sh` | Full isolated AppPresentation/shared/LibroCore/VoiceRelay core+app suites, preparation, number, packaging and static regressions |
 | `bash scripts/check.sh --tier native` | Unavailable (exit 3) until explicit prepared-model/worker arguments are supplied |
-| `bash scripts/check.sh --tier release --adhoc` | Workspace Debug/Release builds, each app's individual Archive, bundle/resource/signature/Metal checks |
+| `bash scripts/check.sh --tier release --adhoc --skip-archives` | Routine workspace Debug/Release builds and four bundle/resource/signature/Metal audits |
+| `bash scripts/check.sh --tier release --adhoc` | Also each app's individual Archive and archive bundle audits |
+
+Routine development uses the release tier with **--skip-archives**. Archive checks
+are useful for archive/distribution packaging changes or an explicit release gate;
+the operator normally creates release archives manually. A build-only summary
+records `archives` under `unrequestedGates`; it is not archive acceptance.
 
 Scope/filter is quick-only. Filters are Swift test regular expressions. No matches
 is a failure; a selected pass is never a full pass. Fixture worker and prepared
@@ -71,6 +77,37 @@ source maps against an independent unwrapped control through both native engines
 then renders/decodes finite nonempty WAVs at each engine's native rate. Its
 `pdf-word-joins.json` is engineering evidence, not listening acceptance. Routine
 `PDFWordJoiningTests` and `PDFLayoutTests` run without models in the full tier.
+
+### Additional model checks
+
+The default native tier above retains its Kokoro/Soprano corpus. It does not
+implicitly run the much larger model matrix. After building the shared harness,
+these explicit commands run from the repository root with the same isolated
+prepared workspace and idle-app requirements:
+
+```sh
+swift-packages/.build/debug/NarrationNativeCheck WORKER WORKSPACE OUTPUT models
+swift-packages/.build/debug/NarrationNativeCheck WORKER WORKSPACE OUTPUT models languages
+swift-packages/.build/debug/NarrationNativeCheck WORKER WORKSPACE OUTPUT models longform
+swift-packages/.build/debug/NarrationNativeCheck LIBRO_WORKER WORKSPACE OUTPUT contention VOICERELAY_WORKER large
+```
+
+Replace the uppercase placeholders with absolute paths and use a fresh output
+directory per command. `models` checks all 18 new presets; an optional `qwen3`,
+`chatterbox` or `orpheus` narrows it to one family. `languages` uses authored
+phrases for all ten Qwen languages. `longform` generates multi-paragraph synthetic
+prose with Ryan, Chatterbox default and leah, exercising repeated reload/assembly.
+The `large` contention check uses interactive Qwen and background Orpheus through
+the two helpers; it verifies priority, non-overlapping process lifetimes and
+waiting cancellation. Receipts include helper hashes and prepared plans.
+Use `models longform-orpheus` (or another family ID after `longform-`) for a
+focused repeated-utterance check while diagnosing a model-specific failure.
+
+For the synthetic reference check, first run `models chatterbox` with its output
+named `native-voices-chatterbox`, then run `models reference` with a sibling output
+directory. It imports that generated WAV into an isolated profile store, never
+the user's reference store. No command downloads models or launches either GUI.
+These checks establish mechanical generation, not linguistic or listening quality.
 
 ## Xcode and release evidence
 
@@ -117,3 +154,27 @@ nested guides outside the standard documentation scopes. App validation pages li
 to current shared results rather than maintaining rival totals. Historical stage
 counts/provenance remain historical, not today's acceptance. Ignored raw reports
 are optional local evidence; setup and current guides must work without them.
+
+### Shared Hugging Face cache check
+
+The ordinary fixtures use temporary synthetic caches and never alter the user's
+cache. The opt-in `ModelStorageTests/testOfflineSharedCacheInstallationAndGeneration`
+seeds a temporary standard Hub cache from explicitly supplied, already validated
+local assets, installs offline, generates one synthetic passage, verifies shared
+snapshot hashes and tests in-use deletion protection. It deletes only that temporary
+cache. It honors shared background inference admission; run it apart from builds
+and timing benchmarks. From the repository root, after building the worker:
+
+```sh
+NARRATION_CACHE_SOURCE="$PWD/.local/tts-model-benchmark" \
+NARRATION_CACHE_WORKER="$PWD/swift-packages/.build/debug/NarrationSpeechWorker" \
+NARRATION_CACHE_MODEL=kokoro \
+swift test --package-path swift-packages --disable-sandbox --skip-update \
+  --force-resolved-versions --jobs 4 --no-parallel \
+  --filter 'ModelStorageTests/testOfflineSharedCacheInstallationAndGeneration'
+```
+
+Use an explicitly prepared workspace for the source; the example private directory
+is not a fresh-clone prerequisite. Supported selections include `kokoro`, `qwen3`,
+`chatterbox` and `orpheus`. Without both source and worker environment variables,
+the native case is reported as skipped. Ordinary model-storage tests stay model-free.

@@ -18,7 +18,8 @@ public enum NativeAssetError: Error, LocalizedError, Equatable {
 public struct NativeWorkspace: Sendable {
     public let root: URL
     public var nativeRoot: URL { root.appendingPathComponent("models/.native", isDirectory: true) }
-    public var hubCache: URL { nativeRoot.appendingPathComponent("hub", isDirectory: true) }
+    public var usesSharedHub: Bool { FileManager.default.fileExists(atPath: root.appendingPathComponent(NativeModelStorage.marker).path) }
+    public var hubCache: URL { usesSharedHub ? root : nativeRoot.appendingPathComponent("hub", isDirectory: true) }
     public var g2pDirectory: URL {
         nativeRoot.appendingPathComponent("assets/kitten-tts-g2p/\(NativeG2P.revision)", isDirectory: true)
     }
@@ -66,6 +67,14 @@ public struct NativeWorkspace: Sendable {
         return resolved
     }
 
+    /// Hub-owned blobs are shared; private staging/metadata still use managed().
+    public func cached(_ url: URL) throws -> URL {
+        let resolved = try contained(url)
+        guard resolved.path == url.standardizedFileURL.path,
+              resolved.path.hasPrefix(hubCache.path + "/") else { throw NativeAssetError.outsideWorkspace }
+        return resolved
+    }
+
     public func primaryDirectory(for model: SpeechModel, voice: String = SpeechSettings.defaultKokoroVoice) throws -> URL {
         try NativePrimaryStore.directory(for: model, workspace: self, voice: voice)
     }
@@ -102,7 +111,7 @@ public enum NativeG2P {
     public static func validate(directory: URL, workspace: NativeWorkspace) throws {
         _ = try workspace.contained(directory)
         for (file, size) in requiredFiles.sorted(by: { $0.key < $1.key }) {
-            let url = directory.appendingPathComponent(file)
+            let url = try workspace.contained(directory.appendingPathComponent(file))
             try workspace.validateFile(url, json: file.hasSuffix(".json"))
             guard (try url.resourceValues(forKeys: [.fileSizeKey])).fileSize == size else {
                 throw NativeAssetError.changed(file)
@@ -123,7 +132,7 @@ public enum NativeG2P {
     public static func record(directory: URL, workspace: NativeWorkspace) throws {
         var hashes: [String: String] = [:]
         for (file, size) in requiredFiles {
-            let url = directory.appendingPathComponent(file)
+            let url = try workspace.contained(directory.appendingPathComponent(file))
             try workspace.validateFile(url, json: file.hasSuffix(".json"))
             guard (try url.resourceValues(forKeys: [.fileSizeKey])).fileSize == size else { throw NativeAssetError.changed(file) }
             hashes[file] = try sha256(url)
@@ -143,9 +152,17 @@ public enum NativeG2P {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hash = SHA256()
-        while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
+        while true {
             try Task.checkCancellation()
-            hash.update(data: data)
+            // FileHandle's Foundation bridge can leave autoreleased NSData
+            // alive until the worker's outer run loop drains. A multi-GB model
+            // must still use only one bounded read buffer during validation.
+            let read = try autoreleasepool {
+                guard let data = try handle.read(upToCount: 1_048_576), !data.isEmpty else { return false }
+                hash.update(data: data)
+                return true
+            }
+            if !read { break }
         }
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }

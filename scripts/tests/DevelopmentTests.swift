@@ -136,6 +136,7 @@ enum DevelopmentTests {
             ["check", "--tier", "full", "--scope", "shared"],
             ["check", "--tier", "quick", "--scope", "unknown"],
             ["check", "--tier", "release"], ["check", "--adhoc"],
+            ["check", "--tier", "quick", "--skip-archives"],
             ["check", "--workspace", "private"], ["check", "--tier", "--scope"],
         ] { try rejects { _ = try Options(arguments) } }
         let evidence = fixture.appendingPathComponent("evidence")
@@ -150,6 +151,10 @@ enum DevelopmentTests {
         try expect(native.isEmpty, "unconfigured native gate unavailable, not passed")
         let release = validationPlan(try Options(["check", "--tier", "release", "--adhoc"]), evidence: evidence)
         try expect(release.filter { $0.kind == "archive" }.count == 2, "individual archives")
+        let buildsOnly = validationPlan(try Options(["check", "--tier", "release", "--adhoc", "--skip-archives"]), evidence: evidence)
+        try expect(buildsOnly.filter { $0.kind == "archive" }.isEmpty, "routine iterations can skip archives")
+        try expect(buildsOnly.filter { $0.kind == "build" }.count == 2, "build-only gate retains both configurations")
+        try expect(buildsOnly.filter { $0.kind == "packaging" }.count == 4, "build-only gate retains four bundle audits")
         try expect(release.filter { $0.kind == "build" }.count == 2, "both workspace configurations")
         try expect(!release.filter { $0.kind == "archive" }.contains { $0.command.arguments.contains("Build Both Apps") }, "combined scheme never archived")
         var records: [StepRecord] = []

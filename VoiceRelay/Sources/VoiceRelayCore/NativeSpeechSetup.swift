@@ -10,7 +10,8 @@ public typealias AudioPreviewPlayer = AudioOutput.AudioPreviewPlayer
 public typealias SpeechSetupOnboarding = NarrationCore.SpeechSetupOnboarding
 
 public enum NativeSpeechSetup {
-    public static var managedRoot: URL { AppStorage.root.appendingPathComponent("SpeechRuntime", isDirectory: true) }
+    public static var legacyManagedRoot: URL { AppStorage.root.appendingPathComponent("SpeechRuntime", isDirectory: true) }
+    public static var managedRoot: URL { NativeModelStorage.defaultRoot }
     public static var workerExecutable: URL {
         if Bundle.main.bundleURL.pathExtension == "app" {
             return Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/VoiceRelaySpeechWorker")
@@ -21,30 +22,45 @@ public enum NativeSpeechSetup {
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("swift-packages/.build/debug/NarrationSpeechWorker")
     }
-    public static func preferredRoot(saved: URL?) -> URL { saved ?? managedRoot }
-    public static func isInstalled(at root: URL) -> Bool {
-        let weights = root.appendingPathComponent(SpeechModel.kokoro.primaryRelativePath + "/kokoro-v1_0.safetensors")
-        let prepared = root.appendingPathComponent("models/.native/primary/kokoro/\(NativePrimaryCatalog.specification(for: .kokoro).revision)/kokoro-v1_0.safetensors")
-        return FileManager.default.isExecutableFile(atPath: workerExecutable.path)
-            && (FileManager.default.fileExists(atPath: weights.path) || FileManager.default.fileExists(atPath: prepared.path))
+    public static func preferredRoot(saved: URL?) -> URL {
+        guard let saved, !Files.samePath(saved, legacyManagedRoot) else { return managedRoot }
+        return saved
     }
-    public static func check(at root: URL) throws {
+    public static func preferredRoot(defaults: UserDefaults) -> URL {
+        let key = "modelStorage.sharedCacheDefault.v1"
+        let saved = defaults.string(forKey: "runtimeProject").map { URL(fileURLWithPath: $0) }
+        guard !defaults.bool(forKey: key) else { return saved ?? managedRoot }
+        defaults.set(true, forKey: key)
+        if let saved, Files.samePath(saved, legacyManagedRoot) { defaults.removeObject(forKey: "runtimeProject") }
+        return preferredRoot(saved: saved)
+    }
+    public static func isInstalled(at root: URL, settings: SpeechSettings = .init()) -> Bool {
+        guard FileManager.default.isExecutableFile(atPath: workerExecutable.path),
+              let workspace = try? NativeWorkspace(root: root) else { return false }
+        let spec = NativePrimaryCatalog.specification(for: settings.model)
+        let shared = root.appendingPathComponent(settings.model.primaryRelativePath)
+        let prepared = try? NativePrimaryStore.nativeDirectory(spec, workspace: workspace)
+        return [shared, prepared].compactMap { $0 }.contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent("config.json").path) }
+    }
+    public static func check(at root: URL, settings: SpeechSettings = .init()) throws {
         try NativeOperationBridge().run {
             try await SpeechSetupCheck.run(configuration: .init(executable: workerExecutable, requestTimeout: .seconds(600), inferencePriority: .background),
-                                           workspace: root, settings: .init(speed: 1))
+                                           workspace: root, settings: settings)
         }
     }
-    public static func install(at root: URL = managedRoot) throws {
+    public static func install(at root: URL = managedRoot, settings: SpeechSettings = .init()) throws {
         guard root.isFileURL, root.path != "/", !Files.samePath(root, FileManager.default.homeDirectoryForCurrentUser) else {
             throw RelayError.setup("Choose an app-owned model folder.")
         }
-        try Files.directory(root)
+        try NativeModelStorage.prepareRoot(root)
         let configuration = WorkerConfiguration(executable: workerExecutable, requestTimeout: .seconds(5_400))
         try NativeOperationBridge().run {
-            try await ModelPreparation.run(configuration: configuration, workspace: root, settings: .init(speed: 1))
+            try await ModelPreparation.run(configuration: configuration, workspace: root, settings: settings)
         }
-        try check(at: root)
+        try check(at: root, settings: settings)
     }
 }
 
 public typealias PronunciationStore = Pronunciation.PronunciationStore
+
+public typealias NarrationSampleText = NativeSpeech.NarrationSampleText

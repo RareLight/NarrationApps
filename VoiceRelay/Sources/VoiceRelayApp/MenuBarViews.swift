@@ -1,4 +1,5 @@
 import AppPresentation
+import NarrationUI
 import SwiftUI
 import AppKit
 import Observation
@@ -231,7 +232,7 @@ struct VoiceRelayApp: App {
     }
     var body: some Scene {
         Group {
-            Window("Set Up VoiceRelay Speech", id: "speech-setup") {
+            Window(SpeechSetupOnboardingView.windowTitle, id: "speech-setup") {
                 SpeechRuntimeOnboardingView(model: model).appTextSizing(model.textSize)
                     .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
             }
@@ -256,7 +257,7 @@ struct VoiceRelayApp: App {
                 if let url {
                     let profile = model.previewProfiles[url]
                     let options = profile.map { $0.narrationOptions ?? .init() } ?? model.preferences.effectiveNarrationOptions
-                    ArticlePreviewView(url: url, inert: model.preview, review: model.previewReviews[url], settings: .init(voice: model.preferences.voice.rawValue, speed: Float(model.preferences.speed)), profile: profile, options: options, sourceTitle: model.previewSourceTitles[url])
+                    ArticlePreviewView(url: url, inert: model.preview, review: model.previewReviews[url], settings: model.preferences.modelSelection, profile: profile, options: options, sourceTitle: model.previewSourceTitles[url])
                         .id(options.versionSuffix).appTextSizing(model.textSize)
                         .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
                         .frame(minWidth: 560, minHeight: 420)

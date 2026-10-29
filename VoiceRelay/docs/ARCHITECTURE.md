@@ -79,6 +79,43 @@ and server bytes survive source removal. Queue-only removal leaves source/saved
 text/server media intact. Explicit local discard also persists cancellation intent
 so interrupted work cannot recreate a deliberately discarded copy.
 
+### Duplicate admission and replacement
+
+`ArticleDuplicates` groups original URLs (ignoring fragments), or case/width/space
+normalized titles within the original host (`www.` aliases included). Save and
+publication timestamps never form part of matching. Before admission, candidates
+are reviewed serially using the normal bounded source loader or an integrity-checked
+snapshot for the same save. Readable prose length ranks completeness; candidates
+within 5% of the longest prose use newest saved date, then stable ID, as tie-breakers.
+Rejected/failing copies cannot beat readable text. Recovered headlines can join
+previously separate groups and remove their unstarted losing queue memberships.
+
+The catalog stores lightweight extraction evidence and handled entry IDs in the
+same SQLite transaction as the selected snapshot/settings/queue membership. Both
+selected and inactive entries are consumed. Source URL/save-date changes invalidate
+the corresponding catalog evidence; unchanged entries retain suppression across
+refresh, restart, queue reset and audio retirement. Entry-aware legacy detection
+preserves existing history while allowing a genuinely later save. Catalog backup
+and restore include these decisions. All Articles projects inactive copies with a
+gray title and explicit label; they are not queue admission targets.
+
+Fresh Reading List generations capture current settings and an opaque episode ID.
+Older generations retain snapshots, original source fingerprint and delivery data
+under a distinct database history slot. Managed workers resume their captured ID,
+so a successor cannot steal an in-flight worker's URL lookup. Running work keeps
+its owned lifetime; unstarted losers leave Queue before speech. Automatic speech
+waits for the admission batch's comparisons.
+
+Only an explicitly admitted Reading List generation may retire older matching
+owned recordings. Publication requires the current destination's confirmed audio
+hash and feed membership, with unsafe/blocked reconciliation excluded. The drain
+then retires older matching title/original-host records, republishes the feed and
+uses the existing destination/UUID ownership checks for audio/transcript DELETEs.
+At most two feed publications run in one drain; failures use ordinary backoff.
+Crash recovery reconstructs delete intent from durable retirement. Unmatched or
+foreign server files remain outside deletion authority. This intentional replacement
+policy is separate from conservative audio-conflict recovery.
+
 ## Speech, finalization and lifecycle
 
 A per-library lease owns processing; short metadata transactions remain available.
@@ -177,7 +214,16 @@ contents before membership confirmation/local cleanup or remote deletion. Preser
 backoff, proof expiry, conditional requests and per-item failure isolation.
 Destination changes invalidate old proofs/delete intentions and preserve old-host
 copies. Server retirement removes feed membership before media deletion and retains
-unfinished removal state until confirmed.
+unfinished removal state until confirmed. The Server Audio list optimistically
+hides accepted removals, while canonical episode records and retirement intent
+remain unchanged until coordinator confirmation. A serial app-owned local-removal
+queue accepts rapid clicks without replacing the owned task. A view-only ID set
+keeps those rows hidden across library refreshes and delivery snapshots; each
+completed delivery attempt reveals any remaining failed/deferred targets from that
+attempt, without revealing newer requests waiting for its follow-up. Missing IDs
+are pruned from the view-only set. Cancellation/quit restores unprocessed requests
+and joins owned work. Row transitions disable animations; cleanup progress lives in
+the workspace footer. Upload-copy discard retains its exclusive mutation gate.
 Retirement records only paths belonging to the ledger's exact recorded destination.
 Every drain also discards stale unowned deletion intent before network operations.
 Successful deletion uses a path-to-owner index and targeted record reads/writes,
@@ -203,7 +249,7 @@ Durable outbox/history/proofs survive transient UI filters and relaunch.
 
 The native library stays at
 `~/Library/Application Support/VoiceRelayPrototype/SpeechLibrary`; the compatibility
-path is intentional. Models use the sibling managed SpeechRuntime directory.
+path is intentional. Models default to the shared Hugging Face cache, with an explicit General settings override; library storage stays independent.
 Preferences are app-owned UserDefaults; credentials remain Keychain-owned. SQLite
 WAL and short transactions preserve identities, saved dates and known fields in
 stale worker saves. Backups include retained text/bookkeeping, not audio, models,
@@ -214,8 +260,8 @@ AppModel uses main-actor cached projections; disk parsing, ledger/preflight,
 audio, process and transport work belong off the UI actor. Owned tasks have stored
 handles, cancellation and join paths; revision guards reject late results after
 removal, destination edits or restore. Common Settings/typography live in
-AppPresentation and NarrationUI; the app owns General, Pronunciation, Publishing
-and Troubleshooting, window/Dock presence and Help topics. Help is inert/offline.
+AppPresentation and NarrationUI; the app owns General, Voice Model, Pronunciation,
+Publishing and Troubleshooting, window/Dock presence and Help topics. Help is inert/offline.
 
 Use [CONTRIBUTING.md](../CONTRIBUTING.md) for safe checks,
 [VALIDATION.md](VALIDATION.md) for current evidence and the

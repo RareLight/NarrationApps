@@ -27,7 +27,10 @@ public enum VoiceSamples {
     public static var catalog: [VoiceSample] {
         NativePrimaryCatalog.specification(for: .kokoro).voices.sorted().map {
             VoiceSample(model: .kokoro, voice: $0, name: String($0.dropFirst(3)).capitalized)
-        } + [VoiceSample(model: .soprano, voice: "soprano", name: "Soprano")]
+        } + [VoiceSample(model: .soprano, voice: "soprano", name: "Soprano")] +
+        [SpeechModel.qwen3, .chatterbox, .orpheus].flatMap { model in
+            model.presetVoices.map { VoiceSample(model: model, voice: $0, name: $0.replacingOccurrences(of: "_", with: " ").capitalized) }
+        }
     }
     public static func sample(model: SpeechModel, voice: String) -> VoiceSample? {
         catalog.first { $0.model == model && (model == .soprano || $0.voice == voice) }

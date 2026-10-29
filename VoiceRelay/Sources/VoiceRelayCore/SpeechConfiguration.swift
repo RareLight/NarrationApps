@@ -1,4 +1,6 @@
 import Foundation
+import NarrationCore
+import NativeSpeech
 
 public struct KokoroConfiguration: Sendable {
     public let projectRoot: URL
@@ -13,5 +15,15 @@ public struct KokoroConfiguration: Sendable {
               prepareTimeout.isFinite, synthesisTimeout.isFinite else { throw RelayError.setup("Invalid Kokoro runtime, voice, speed, or deadline.") }
         self.projectRoot = projectRoot.resolvingSymlinksInPath().standardizedFileURL
         self.voice = voice; self.speed = speed; self.prepareTimeout = prepareTimeout; self.synthesisTimeout = synthesisTimeout
+    }
+}
+
+public struct NativeSpeechConfiguration: Sendable {
+    public let projectRoot: URL
+    public let settings: SpeechSettings
+    public let synthesisTimeout: TimeInterval
+    public init(projectRoot: URL, settings: SpeechSettings, synthesisTimeout: TimeInterval = 900) throws {
+        guard projectRoot.isFileURL, NativePrimaryCatalog.validates(settings), synthesisTimeout.isFinite, synthesisTimeout > 0 else { throw RelayError.setup("Invalid native model selection or deadline.") }
+        self.projectRoot = projectRoot; self.settings = settings; self.synthesisTimeout = synthesisTimeout
     }
 }

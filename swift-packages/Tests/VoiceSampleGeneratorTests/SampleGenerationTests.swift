@@ -68,7 +68,7 @@ final class SampleGenerationTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(manifest.pronunciationOverridesFingerprint, pronunciations.fingerprint)
         XCTAssertEqual(manifest.pronunciationRevision, NativeG2P.revision)
         XCTAssertEqual(manifest.samples.map(\.id), VoiceSamples.catalog.map(\.id))
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fixture.destination.path).count, 30)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fixture.destination.path).count, VoiceSamples.catalog.count + 1)
         for (sample, record) in zip(VoiceSamples.catalog, manifest.samples) {
             XCTAssertEqual(record.phrase, text)
             XCTAssertTrue(record.narrationChunks.joined(separator: " ").contains("new buk"))

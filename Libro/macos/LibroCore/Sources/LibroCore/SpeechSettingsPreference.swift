@@ -22,7 +22,6 @@ public struct SpeechSettingsPreference {
 
     private static func isValid(_ settings: SpeechSettings) -> Bool {
         // Voice/speed remain the user's Kokoro choices while Soprano is selected.
-        NativePrimaryCatalog.specification(for: .kokoro).voices.contains(settings.voice) &&
-            SpeechSpeedPolicy.contains(Double(settings.speed))
+        NativePrimaryCatalog.validates(settings) && SpeechSpeedPolicy.contains(Double(settings.speed))
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import NarrationCore
 import Pronunciation
 import AudioOutput
 #if canImport(FoundationXML)
@@ -35,6 +36,20 @@ private func config(at root: URL, suffix: String = "") throws -> URL {
     \(suffix)
     """
     try text.write(to: file, atomically: true, encoding: .utf8); return file
+}
+
+@Test func speechStartsWithKokoroAndPreservesExplicitModelChoices() throws {
+    let initial = SpeechPreferences().modelSelection
+    #expect(initial.model == .kokoro && initial.voice == "af_heart" && initial.speed == 1)
+    var preferences = SpeechPreferences(voice: .emma, speed: 1.25)
+    #expect(preferences.modelSelection.model == .kokoro)
+    #expect(preferences.modelSelection.voice == "bf_emma" && preferences.modelSelection.speed == 1.25)
+    for model in [SpeechModel.qwen3, .chatterbox, .orpheus] {
+        let selected = SpeechSettings(model: model, voice: model.defaultVoice)
+        preferences.modelSelection = selected
+        let restored = try JSONDecoder().decode(SpeechPreferences.self, from: JSONEncoder().encode(preferences))
+        #expect(restored.modelSelection == selected)
+    }
 }
 
 @Test func audioEncodingDefaultsUseNative64kAndIgnoreLegacyLoudnessPolicy() throws {
@@ -957,9 +972,10 @@ private extension FixtureCoordinator {
     #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
 }
 
-private func reviewedArticle(_ path: String = "one", changed: Bool = false, host: String = "articles.example") throws -> ReviewedSource {
+private func reviewedArticle(_ path: String = "one", changed: Bool = false, host: String = "articles.example", title: String? = nil) throws -> ReviewedSource {
     let url = URL(string: "https://\(host)/\(path)")!
     var html = String(decoding: try FixtureResource.html(), as: UTF8.self)
+    if let title { html = html.replacingOccurrences(of: "A &amp; B: Reading &lt;Carefully&gt;", with: RSS.escaped(title)) }
     if changed { html = html.replacingOccurrences(of: "</article>", with: "<p>A changed source revision must not replace published audio.</p></article>") }
     let page = FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
                            contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
@@ -1488,7 +1504,7 @@ private final class BatchBackendLog: @unchecked Sendable {
 @Test func readingListQueuePreparesSelectedArticlesWithoutReviewOrInferenceInListOrder() async throws {
     let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
     let storage = ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"), stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
-    let pages = try [reviewedArticle().page, reviewedArticle("two").page]
+    let pages = try [reviewedArticle().page, reviewedArticle("two", title: "A separate article").page]
     let entries = pages.enumerated().map { index, page in
         ReadingListEntry(id: "entry-\(index)", safariID: nil, url: page.originalURL, title: "Article \(index)", addedAt: nil)
     }
@@ -1561,7 +1577,7 @@ private final class BatchBackendLog: @unchecked Sendable {
     let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
     let storage = ManagedSpeechStorage(audioDirectory: root.appendingPathComponent("audio"), stateRoot: root.appendingPathComponent("state"), temporaryRoot: root.appendingPathComponent("scratch"))
     let one = try reviewedArticle().page, two = try reviewedArticle("two").page
-    let entries = [one, two].enumerated().map { ReadingListEntry(id: String($0.offset), safariID: nil, url: $0.element.originalURL, title: "Entry", addedAt: nil) }
+    let entries = [one, two].enumerated().map { ReadingListEntry(id: String($0.offset), safariID: nil, url: $0.element.originalURL, title: "Entry \($0.offset)", addedAt: nil) }
     let coordinator = FixtureCoordinator()
     _ = try await coordinator.reconcile(ReadingListSnapshot(entries: entries, skippedEntries: 0), stateRoot: storage.stateRoot)
     let first = try await coordinator.enqueueReadingList("0", storage: storage, preferences: SpeechPreferences(), fetch: { _ in one })

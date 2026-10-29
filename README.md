@@ -9,7 +9,7 @@ Speech runs locally using explicitly installed models.
 | **VoiceRelay** | Turn Safari Reading List articles into a private podcast | [VoiceRelay guide](VoiceRelay/README.md) |
 
 Libro supports text, Markdown, RTF, PDF and DRM-free EPUB, with WAV, M4A, M4B and
-MP3 exports. VoiceRelay reads articles, generates Kokoro narration and publishes
+MP3 exports. VoiceRelay reads articles, generates local narration and publishes
 through your HTTPS/WebDAV server. It runs in the menu bar and can optionally start
 at login. Both apps share pronunciation editing and document narration controls.
 

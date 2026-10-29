@@ -1,6 +1,6 @@
 # Current implementation and remaining work
 
-Reviewed October 21, 2026. This roadmap separates implemented behavior, remaining
+Reviewed October 28, 2026. This roadmap separates implemented behavior, remaining
 acceptance and research proposals. Detailed technical contracts live in
 [architecture](ARCHITECTURE.md); engineering evidence lives in
 [current status](IMPLEMENTATION_STATUS.md). Historical stage plans do not schedule
@@ -16,6 +16,15 @@ WebDAV publishing, backup and recovery.
 
 Current features include:
 
+- Shared fresh-start speech setup in NarrationUI, using VoiceRelay's layout and
+  download/cancel/defer actions in both apps, with app-owned lifecycle and options.
+  See [Settings ownership](SETTINGS_ALIGNMENT.md) and the L01/V01 operator checks.
+
+- Shared Qwen3-TTS 1.7B CustomVoice, Chatterbox Turbo and Orpheus adapters,
+  complete preset coverage, immutable optional reference voices, model-aware setup
+  and captured selections. See the [integration record](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md)
+  for engineering evidence and remaining operator acceptance.
+
 - Text/Markdown/RTF/PDF and DRM-free EPUB intake, bounded OCR/image descriptions,
   authored navigation, source mappings and legacy text encodings.
 - Libro Start/Pause/Resume/Skip/Stop, queue reordering, progressive PDF previews,
@@ -24,10 +33,10 @@ Current features include:
 - Shared footnote/auxiliary choices, off-by-default citation stripping and
   experimental dictionary-constrained PDF word joining; conservative margin,
   column and typography cleanup; simple scientific text/table narration.
-- Shared pronunciation editing/live previews and 29 bundled voice samples.
+- Shared pronunciation editing/live previews and 47 bundled voice samples and shared model speed/quality guidance.
 - VoiceRelay automatic discovery/generation/publishing, Sync Now, Uploads and Server
   Audio, bounded reconciliation, background-safe credentials, default show art and
-  off-by-default login startup.
+  default-on login startup for fresh configurations, controlled only in General Settings.
 - Default-on timed WebVTT transcripts for newly queued VoiceRelay articles,
   verified sidecar upload and standard RSS transcript references; segment timing
   and player-specific acceptance are separate from word-level alignment.
@@ -69,13 +78,6 @@ of an already completed implementation:
 
 - Context-sensitive homographs and broader written-to-spoken forms; see
   [normalization research](TEXT_NORMALIZATION_RESEARCH.md).
-- The [shared model integration draft](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md)
-  follows the operator's reported bracket choices: Qwen3-TTS 1.7B, Chatterbox
-  Turbo and Orpheus 3B, with complete supported preset voice coverage in both
-  apps. It specifies shared catalog/settings/setup, native helpers, measured
-  resource admission, durable VoiceRelay jobs/transcripts and compatibility.
-  Implementation has not started; the earlier 3× ceiling remains waived.
-  Held-out/long-form M01 listening remains separate from engineering validation.
 - Better scientific structure/MathML, region-based review and advanced mathematical
   speech; see [academic PDF evaluation](ACADEMIC_PDF_EVALUATION.md). Current prose
   insets and the single complex-equation reference notice are already implemented.

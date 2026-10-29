@@ -39,6 +39,8 @@ public enum NativePrimaryCatalog {
                 .init(path: "voices/bm_george.safetensors", bytes: 522320, sha256: "a3d9b8995cbbe5536f954b6be2a0f1f312f077118ba0d4d2178fc41dc8306672", gitOID: "a12417bd396077cfc980da5b72c6941de566ef2c"),
                 .init(path: "voices/bm_lewis.safetensors", bytes: 522320, sha256: "e1e68013c21a141efe527aaec561e1174c2f5a6951b3bcecc8396adab315b247", gitOID: "b39e1ee2a6d7c4c244a9c4313025b0564aebdcb8"),
             ])
+        case .qwen3, .chatterbox, .orpheus:
+            ExpandedModelAssets.primary(model)
         case .soprano:
             .init(model: model, repository: "mlx-community/Soprano-1.1-80M-bf16", revision: "745350c27f356c3910eebcb49e29760dcf6a643c", files: [
                 .init(path: "config.json", bytes: 1249, sha256: "6cc152a1b30adc090a0096d9d1b83dc2bcc01a0a8b2a3daf8c3e02fc9e0a703c", gitOID: "465d525e8029143c0fe3af3f06bb0536ba2e2374"),

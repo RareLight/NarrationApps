@@ -75,6 +75,9 @@ public struct Episode: Codable, Sendable {
     public var publicationDate: Date?
     /// Reading List save time, independent of the audio's generation/commit time.
     public var readingListSavedAt: Date? = nil
+    public var readingListEntryID: String? = nil
+    /// Only fresh Reading List generations may automatically replace older matching audio.
+    public var replacesDuplicateAudio: Bool? = nil
     public var podcastDate: Date? { readingListSavedAt ?? publicationDate }
     public var encodedHash: String?
     public var audioHash: String?

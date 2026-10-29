@@ -65,7 +65,10 @@ struct FixtureWorker {
         var initial: WorkerCommand?
         while let command = try reader.next() {
             try record(command.kind.rawValue, command)
-            if command.kind == .cancel || command.kind == .shutdown { return }
+            if command.kind == .cancel || command.kind == .shutdown {
+                if mode == "delayShutdown" { try await Task.sleep(for: .milliseconds(200)) }
+                return
+            }
             if command.kind == .prepare {
                 if mode == "assetStall" { signal(SIGTERM, SIG_IGN); try await Task.sleep(for: .seconds(30)) }
                 let total = NativePrimaryCatalog.specification(for: command.settings!.model).files.reduce(Int64(0)) { $0 + Int64($1.bytes) }

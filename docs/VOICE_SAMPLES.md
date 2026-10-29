@@ -5,17 +5,26 @@ loads a model, downloads files or starts the speech helper. NativeSpeech owns th
 catalog, resource folder and provenance manifest; AudioOutput owns one-at-a-time
 playback and completion/error state. AppPresentation retains no narration dependency.
 
-The inventory is Libro's 28 presented English Kokoro voices plus Soprano's single
-voice. VoiceRelay exposes 18 of those Kokoro voices. Other upstream languages and
-voices are not included. The October 15 accepted-policy recordings use the
-operator-selected common phrase:
+The shared inventory contains 47 samples: 28 English Kokoro voices, Soprano, all
+nine Qwen CustomVoice presets, Chatterbox Turbo's default and all eight Orpheus
+presets. Soprano is offered in Libro. Qwen samples are recorded in English;
+non-English selections and imported references use live previews instead. See
+[model selection](MODEL_SELECTION.md). All samples use the operator-selected phrase:
 
 > Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!
 
 The preceding voice-specific introductions are retained only in private build
-evidence. The current sample manifest is schema 3; all 29 records include a prepared-speech plan with
+evidence. The current sample manifest is schema 3; all 47 records include a prepared-speech plan with
 policy, frontend/resource provenance and final utterances. Kokoro uses the accepted
-200-phoneme pause profile; Soprano retains its text frontend.
+200-phoneme pause profile; Soprano retains its text frontend. The October 27
+Qwen/Chatterbox/Orpheus additions use native text and pinned model/dependency
+inventories. The 29 existing audio files were preserved byte for byte. Chatterbox
+uses raw output: upstream peak normalization and fade are disabled. This differs
+from its original benchmark audio; see [dependencies](DEPENDENCIES.md).
+The initial short Orpheus samples completed with clean EOS under the SDK's
+1,200-token cap. Product narration now uses the benchmark-matched 4,096-token
+cap for longer utterances. The manifest preserves the recordings' original
+generation-time provenance; increasing that ceiling does not change their files.
 
 Samples use speed 1.0, mono AAC-LC at 24 kHz and a target 64 kbps. Soprano's 32 kHz
 output is converted with the existing native resampler. Encoding applies no gain,
@@ -60,7 +69,9 @@ For each engine, it automatically finds an already prepared workspace in sibling
 `Libro`, `~/Library/Application Support/Libro/SpeechRuntime`, or
 `~/Library/Application Support/VoiceRelayPrototype/SpeechRuntime` (in that order).
 The selected Kokoro workspace must contain all 28 supported voices and the pinned
-pronunciation assets; Soprano must also be installed in one of these locations.
+pronunciation assets; Soprano and all three new families plus their auxiliary
+assets must also be installed in one of these locations. Regeneration covers the
+whole catalog and therefore needs the larger models' supported memory budgets.
 For an isolated prepared workspace, set `NARRATION_SAMPLE_WORKSPACE` to its absolute
 root path; the utility validates that workspace exclusively instead of falling back
 to an app folder. It still accepts exactly one command-line text argument.

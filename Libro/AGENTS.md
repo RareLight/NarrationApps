@@ -7,8 +7,8 @@ are app-local when run from Libro/. Dated feature plans are context, not new wor
 Follow the current architecture/status and remaining roadmap in the parent NarrationApps
 repository, indexed by ../docs/README.md. It supersedes previous CLI/Python work. Both Libro and VoiceRelay use
 the shared packages; keep Libro-specific GUI/workflow in this monorepo directory.
-Target macOS 27.0 and native Swift/Apple APIs. Initial native engines are Kokoro and
-Soprano. Keep MLX linked only into the private native helper, never the GUI. Speech has one
+Target macOS 27.0 and native Swift/Apple APIs. Native engines are Kokoro,
+Soprano, Qwen3-TTS CustomVoice, Chatterbox Turbo and Orpheus. Keep MLX linked only into the private native helper, never the GUI. Speech has one
 worker only and no serial/parallel UI mode. Libro requests interactive priority
 over background VoiceRelay through the shared lease; do not interrupt in-flight
 GPU work or change audio levels.

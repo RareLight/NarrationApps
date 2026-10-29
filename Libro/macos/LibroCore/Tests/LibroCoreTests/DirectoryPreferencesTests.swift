@@ -2,6 +2,37 @@ import XCTest
 @testable import LibroCore
 
 final class DirectoryPreferencesTests: XCTestCase {
+    func testModelDefaultMigrationRunsOnceAndLaterLegacyFolderOverridePersists() throws {
+        let suite = "LibroTests.\(UUID())", defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let legacy = root.appendingPathComponent("old-default"), shared = root.appendingPathComponent("shared-cache")
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let preferences = DirectoryPreferences(defaults: defaults)
+        try preferences.select(legacy, role: .workspace)
+        defaults.removeObject(forKey: DirectoryPreferences.modelStorageMigrationKey) // Record from the old app.
+        XCTAssertEqual(preferences.loadModelStorage(defaultRoot: shared, previousDefault: legacy).url?.path, shared.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacy.path))
+        try preferences.select(legacy, role: .workspace) // Explicitly selecting the old folder is a valid override.
+        XCTAssertEqual(preferences.loadModelStorage(defaultRoot: shared, previousDefault: legacy).url?.resolvingSymlinksInPath().path, legacy.resolvingSymlinksInPath().path)
+        XCTAssertEqual(DirectoryPreferences(defaults: defaults).loadModelStorage(defaultRoot: shared, previousDefault: legacy).url?.resolvingSymlinksInPath().path, legacy.resolvingSymlinksInPath().path)
+    }
+
+    func testClearingModelOverridePreservesOutputPreferenceAndFiles() throws {
+        let suite = "LibroTests.\(UUID())", defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let preferences = DirectoryPreferences(defaults: defaults)
+        try preferences.select(root, role: .output); try preferences.select(root, role: .workspace)
+        preferences.clear(.workspace)
+        XCTAssertNil(preferences.load(.workspace))
+        XCTAssertNotNil(preferences.load(.output))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.path))
+    }
+
     func testMovedBookmarkRefreshesResolvedIdentity() throws {
         let suite = "LibroTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

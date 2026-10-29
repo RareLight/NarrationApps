@@ -147,6 +147,7 @@ extension FixtureCoordinator {
         })
         let currentEntries = Dictionary(snapshot.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let queue = try store.queue()
+        var currentEpisodes = Dictionary(uniqueKeysWithValues: episodes.map { ($0.id, $0) })
         catalog.reconcile(snapshot)
         // Legacy exclusions are still decodable but no longer honored; each save clears them.
         catalog.excludedIDs = []
@@ -161,6 +162,7 @@ extension FixtureCoordinator {
                     episode.readingListRemoved = false
                 } else { continue }
                 try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
+                currentEpisodes[episode.id] = episode
             }
             // A duplicate URL may survive under another Safari ID. Keep its
             // existing job, but release a retargeted ID for its replacement URL.
@@ -172,6 +174,10 @@ extension FixtureCoordinator {
                 try store.saveQueueItem(.init(id: item.id, title: item.title, sourceEntryID: entry.id,
                     admissionID: item.admissionID, state: item.state, attempts: item.attempts,
                     lastError: item.lastError, sourceHost: item.sourceHost))
+                if var episode = currentEpisodes[item.id] {
+                    episode.readingListEntryID = entry.id
+                    try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
+                }
             }
             try store.saveCatalog(catalog)
             try store.execute("COMMIT")
@@ -257,36 +263,71 @@ extension FixtureCoordinator {
             throw RelayError.setup("Choose an available Reading List article before adding it to the queue.")
         }
         try ArticleURL.validate(entry.url)
-        let key = "reviewed-url-v1-" + Files.hash(Data(entry.url.absoluteString.utf8))
-        if let store = try metadataReader(storage.stateRoot), let episode = try store.existingEpisode(sourceKey: key),
-           let bytes = try store.snapshot(articleID: episode.id) {
-            let saved = try JSONDecoder().decode(StoredExtraction.self, from: bytes).review()
-            guard await shouldCommit() else { throw CancellationError() }
-            return try enqueue(saved, storage: storage, preferences: preferences, sourceEntryID: entryID,
-                               admissionControl: admissionControl)
-        }
+        var evidence = savedCatalog.duplicateEvidence ?? [:]
+        var reviews: [String: ReviewedSource] = [:]
+        var evaluated = Set<String>()
+        var group = ArticleDuplicates.groups(savedCatalog.entries, evidence: evidence).first { $0.contains(entry) } ?? [entry]
         let limits = try FetchLimits(maximumBytes: storage.profile.maxArticleBytes,
                                      timeout: Double(storage.profile.httpTimeoutSeconds))
-        let review = try await ArticleSourceLoader(limits: limits, useArchives: useArchives, fetch: fetch,
-            archiveFetch: archiveFetch, debugLog: debugLog, describeImages: describeImages,
-            speechSettings: .init(voice: preferences.voice.rawValue, speed: Float(preferences.speed)), narrationOptions: preferences.effectiveNarrationOptions,
-            sourceTitle: entry.title, generateMissingTitles: generateMissingTitles, titleGenerator: titleGenerator)
-            .load(entry.url, savedAt: entry.addedAt, chunkLimit: storage.profile.chunkMaxCharacters)
-        let page = review.page
-        try Task.checkCancellation()
-        guard page.originalURL == entry.url, page.bytes.count <= storage.profile.maxArticleBytes else {
-            throw RelayError.setup("The fetched article does not match the selected Reading List entry or exceeds its size limit.")
+        while let candidate = group.first(where: { !evaluated.contains($0.id) }) {
+            try Task.checkCancellation()
+            let key = "reviewed-url-v1-" + Files.hash(Data(candidate.url.absoluteString.utf8))
+            let review: ReviewedSource?
+            if let store = try metadataReader(storage.stateRoot), let episode = try store.recordedEpisode(sourceKey: key),
+               ((episode.readingListEntryID == candidate.id && episode.readingListSavedAt == candidate.addedAt) || (episode.readingListEntryID == nil
+                    && (candidate.addedAt == nil || candidate.addedAt! <= (episode.readingListSavedAt ?? episode.publicationDate ?? .distantFuture)))),
+               let bytes = try store.snapshot(articleID: episode.id) {
+                // The same admitted source stays resumable offline. A new save is fetched anew.
+                review = try JSONDecoder().decode(StoredExtraction.self, from: bytes).review()
+            } else {
+                do {
+                    review = try await ArticleSourceLoader(limits: limits, useArchives: useArchives, fetch: fetch,
+                        archiveFetch: archiveFetch, debugLog: debugLog, describeImages: describeImages,
+                        speechSettings: preferences.modelSelection, narrationOptions: preferences.effectiveNarrationOptions,
+                        sourceTitle: candidate.title, generateMissingTitles: generateMissingTitles, titleGenerator: titleGenerator)
+                        .load(candidate.url, savedAt: candidate.addedAt, chunkLimit: storage.profile.chunkMaxCharacters)
+                } catch is CancellationError { throw CancellationError() }
+                catch {
+                    // A failed copy cannot displace a readable one. If none is readable,
+                    // preserve the normal actionable failure and leave admissions unhandled.
+                    if group.count == 1 { throw error }
+                    review = nil
+                }
+            }
+            if let review {
+                guard review.page.originalURL == candidate.url, review.page.bytes.count <= storage.profile.maxArticleBytes else {
+                    throw RelayError.setup("The fetched article does not match the selected Reading List entry or exceeds its size limit.")
+                }
+                reviews[candidate.id] = review
+            }
+            evidence[candidate.id] = ArticleDuplicateEvidence(entry: candidate, review: review)
+            evaluated.insert(candidate.id)
+            group = ArticleDuplicates.groups(savedCatalog.entries, evidence: evidence).first { $0.contains(entry) } ?? [entry]
         }
-        try Task.checkCancellation()
-        if let message = review.issueMessage { throw RelayError.setup(message + " Double-click the article in Articles to preview it.") }
+        guard let winner = ArticleDuplicates.winner(group, evidence: evidence), let review = reviews[winner.id] else {
+            throw RelayError.setup((reviews[entry.id]?.issueMessage ?? "No readable duplicate was found.")
+                + " Double-click the article in Articles to preview it.")
+        }
         guard await shouldCommit() else { throw CancellationError() }
-        // enqueue rechecks persisted membership after the asynchronous fetch.
-        return try enqueue(review, storage: storage, preferences: preferences, sourceEntryID: entryID,
-                           admissionControl: admissionControl)
+        try Task.checkCancellation()
+        let current = try catalog(stateRoot: storage.stateRoot)
+        guard current.entries == savedCatalog.entries, current.currentIDs == savedCatalog.currentIDs else {
+            throw CancellationError() // Never bind a comparison to a changed Reading List.
+        }
+        return try enqueueResolved(review, storage: storage, preferences: preferences, sourceEntryID: winner.id,
+            admissionControl: admissionControl, duplicateEvidence: evidence.filter { evaluated.contains($0.key) },
+            handledIDs: Set(group.map(\.id)), replacePublished: true)
     }
     /// Enqueue commits approved text, captured settings and episode identity together, without TTS or scratch files.
     public func enqueue(_ review: ReviewedSource, storage: ManagedSpeechStorage, preferences: SpeechPreferences,
                         sourceEntryID: String? = nil, admissionControl: QueueAdmissionControl? = nil) throws -> SpeechQueueItem {
+        try enqueueResolved(review, storage: storage, preferences: preferences, sourceEntryID: sourceEntryID,
+                            admissionControl: admissionControl)
+    }
+    private func enqueueResolved(_ review: ReviewedSource, storage: ManagedSpeechStorage, preferences: SpeechPreferences,
+        sourceEntryID: String?, admissionControl: QueueAdmissionControl?,
+        duplicateEvidence: [String: ArticleDuplicateEvidence] = [:], handledIDs: Set<String> = [],
+        replacePublished: Bool = false) throws -> SpeechQueueItem {
         try Task.checkCancellation(); try preferences.validate(); try storage.validate()
         guard review.issue == nil, let document = review.document, let plan = review.narration, !plan.chunks.isEmpty,
               document.article.originalURL == review.page.originalURL, document.article.finalURL == review.page.finalURL,
@@ -303,15 +344,33 @@ extension FixtureCoordinator {
         var settings = storage.profile
         settings.backendSelector = "reviewed-article-speech"; settings.channelTitle = "VoiceRelay Articles"
         settings.channelDescription = "Private local speech; remote delivery disabled"
-        settings.voice = preferences.voice.rawValue; settings.backendSettings = ["speed": .number(preferences.speed)]
+        var selected = preferences.modelSelection
+        selected.savedChoices = nil
+        settings.speechSelection = selected.model == .kokoro && preferences.selection == nil ? nil : selected
+        settings.voice = selected.voice
+        // Keep legacy decimal preferences exact; Float is the native engine's
+        // input type, not the durable profile's storage representation.
+        settings.backendSettings = ["speed": .number(preferences.selection == nil ? preferences.speed : Double(String(selected.speed))!)]
         settings.narrationOptions = preferences.narrationOptions
         settings.publishTranscripts = preferences.timedTranscriptsEnabled
-        settings.language = preferences.languageRegion.rawValue
+        settings.language = selected.languageCode
         try settings.validate()
         if admissionControl?.isCancelled == true { throw CancellationError() }
         try store.execute("BEGIN IMMEDIATE")
         do {
-            var episode = try store.episode(sourceKey: "reviewed-url-v1-" + Files.hash(Data(review.page.originalURL.absoluteString.utf8)), settings: settings)
+            let key = "reviewed-url-v1-" + Files.hash(Data(review.page.originalURL.absoluteString.utf8))
+            let freshDuplicate = handledIDs.count > 1 && !handledIDs.subtracting(catalog.handledEntryIDs ?? []).isEmpty
+            if replacePublished, let previous = try store.existingEpisode(sourceKey: key),
+               previous.stage == .published || previous.stage == .expired || freshDuplicate {
+                // Keep the old bytes, snapshot, original identity and delivery history.
+                // The current URL key now belongs to a fresh generation with current settings.
+                try store.execute("UPDATE episodes SET source_key=?,record=? WHERE id=?", ["superseded-episode-v1-" + previous.id,
+                    String(decoding: try Files.json(previous), as: UTF8.self), previous.id])
+                if let queued = try store.queue().first(where: { $0.id == previous.id }), queued.state != .running {
+                    try store.execute("DELETE FROM speech_queue WHERE article_id=?", [previous.id])
+                }
+            }
+            var episode = try store.episode(sourceKey: key, settings: settings)
             if let bytes = try store.snapshot(articleID: episode.id) {
                 let saved = try JSONDecoder().decode(StoredExtraction.self, from: bytes).review()
                 guard Files.hash(saved.page.bytes) == Files.hash(review.page.bytes) else {
@@ -325,6 +384,8 @@ extension FixtureCoordinator {
             }
             if let saved = sourceEntry?.addedAt { episode.readingListSavedAt = saved }
             episode.originalSourceHost = review.page.originalURL.host
+            episode.readingListEntryID = episode.readingListEntryID ?? sourceEntryID
+            if replacePublished { episode.replacesDuplicateAudio = true }
             try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
             var item = try store.queue().first(where: { $0.id == episode.id }) ?? SpeechQueueItem(
                 id: episode.id, title: episode.title, sourceEntryID: sourceEntryID,
@@ -338,6 +399,18 @@ extension FixtureCoordinator {
             try store.saveQueueItem(item)
             if let sourceEntryID {
                 catalog.setResolvedTitle(episode.title, for: sourceEntryID)
+                try store.saveCatalog(catalog)
+            }
+            if !handledIDs.isEmpty {
+                catalog.duplicateEvidence = (catalog.duplicateEvidence ?? [:]).merging(duplicateEvidence) { _, new in new }
+                catalog.handledEntryIDs = (catalog.handledEntryIDs ?? []).union(handledIDs)
+                // Pending losers never reach speech. Running work retains its owned
+                // lifetime and the replacement safely supersedes its eventual output.
+                let inactive = catalog.inactiveDuplicateIDs
+                for queued in try store.queue() where queued.state != .running
+                    && queued.sourceEntryID.map(inactive.contains) == true {
+                    try store.execute("DELETE FROM speech_queue WHERE article_id=?", [queued.id])
+                }
                 try store.saveCatalog(catalog)
             }
             beforeEnqueueCommit?()
@@ -390,8 +463,12 @@ extension FixtureCoordinator {
         try store.execute("BEGIN IMMEDIATE")
         do {
             let existing = Set(try store.queue().map(\.id))
+            let superseded = Set(try store.query("SELECT id FROM episodes WHERE source_key LIKE 'superseded-episode-v1-%'").compactMap(\.first))
+            let inactive = try store.catalog().inactiveDuplicateIDs
             for episode in try store.published() where episode.settings.temporaryAudio == true || episode.localAudioReleased == true {
-                guard episode.readingListRemoved != true, episode.localAudioDiscarded != true, !existing.contains(episode.id), temporaryAudioIsMissing(episode) else { continue }
+                guard episode.readingListRemoved != true, episode.localAudioDiscarded != true,
+                      episode.readingListEntryID.map(inactive.contains) != true,
+                      !superseded.contains(episode.id), !existing.contains(episode.id), temporaryAudioIsMissing(episode) else { continue }
                 if let settings, DeliveryPublicationStatus.unconfirmed(episode, settings: settings) == .uploaded { continue }
                 // Disabled delivery retains confirmed history, without repeatedly regenerating it.
                 if settings == nil, episode.delivery?.status == .uploaded { continue }

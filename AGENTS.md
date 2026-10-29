@@ -21,7 +21,10 @@ reproducible; never copy build caches between checkouts.
 CONTRIBUTING.md and docs/DEVELOPMENT.md own setup, test tiers and evidence. Testing
 is **autonomous** for relevant synthetic isolated checks (confirmed October 17,
 2026). Run the narrowest adequate checks; bash scripts/check.sh is the full fixture
-gate. Layout/dependency changes also need Debug and Release workspace builds.
+gate. Layout/dependency changes also need Debug and Release workspace builds. Routine
+iterations use `bash scripts/check.sh --tier release --adhoc --skip-archives`;
+archives are operator-owned unless explicitly requested or needed to validate
+archive/distribution packaging changes.
 GUI/Canvas, listening, protected-file, private-document, live-server and signing-
 account acceptance remain operator-owned. Do not replace a bundle under active
 operator testing or treat compilation as those acceptances.

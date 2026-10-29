@@ -45,7 +45,7 @@ enum MixedDocumentCheck {
         }
         defer { sampling.cancel() }
         var records: [[String: Any]] = []
-        for model in SpeechModel.allCases {
+        for model in [SpeechModel.kokoro, .soprano] {
             let names = Dictionary(uniqueKeysWithValues: inputs.map { ($0.id, "\(model.rawValue)-\($0.source.deletingPathExtension().lastPathComponent).wav") })
             let planned = try BatchPlanner.plan(inputs, output: output, names: names)
             let request = BatchRequest(documents: planned, outputDirectory: output, workspace: workspace.root,
@@ -72,7 +72,7 @@ enum MixedDocumentCheck {
         let helperPeaks = regex.matches(in: log, range: NSRange(log.startIndex..., in: log)).compactMap {
             Range($0.range(at: 1), in: log).flatMap { UInt64(log[$0]) }
         }
-        guard meter.peak > 0, helperPeaks.count == SpeechModel.allCases.count else { throw AudioOutputError.encoding }
+        guard meter.peak > 0, helperPeaks.count == 2 else { throw AudioOutputError.encoding }
         let record: [String: Any] = ["version": 1, "pdfPages": 12, "markdownWords": words.count,
             "offline": true, "normalization": false, "volumeLeveling": false, "workers": 1,
             "coordinatorPeakFootprintBytes": meter.peak, "helperPeakFootprintBytes": helperPeaks,

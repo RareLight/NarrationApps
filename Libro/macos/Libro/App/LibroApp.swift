@@ -57,7 +57,7 @@ struct LibroApp: App {
                 }.keyboardShortcut(".").disabled(!model.cancellable || model.isStopping)
             }
         }
-        Window("Set Up Libro Speech", id: "speech-setup") {
+        Window(SpeechSetupOnboardingView.windowTitle, id: "speech-setup") {
             LibroSpeechSetupView(model: model).appTextSizing(textSize.wrappedValue)
         }.windowResizability(.contentSize).defaultLaunchBehavior(.suppressed).restorationBehavior(.disabled)
         Settings {
@@ -96,12 +96,13 @@ private final class LibroDelegate: NSObject, NSApplicationDelegate, UNUserNotifi
         }
         model.cancel()
         model.stopPlayback()
-        guard model.hasIntakeWork || model.hasCoverWork || model.pronunciationPreview.hasOwnedWork || model.hasOwnedProbe || model.isGenerating || model.isPreparingModel else { return .terminateNow }
+        guard model.hasIntakeWork || model.hasCoverWork || model.pronunciationPreview.hasOwnedWork || model.hasOwnedProbe || model.isGenerating || model.isPreparingModel || model.modelStorage.isBusy else { return .terminateNow }
         Task {
             await model.stopIntake()
             await model.stopCoverWork()
             await model.stopGeneration()
             await model.stopPreparation()
+            await model.modelStorage.waitForIdle()
             await model.stopProbe()
             sender.reply(toApplicationShouldTerminate: true)
         }

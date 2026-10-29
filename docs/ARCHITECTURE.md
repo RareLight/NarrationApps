@@ -1,6 +1,6 @@
 # Shared architecture
 
-Current contract reviewed October 21, 2026. Product boundaries and package installation
+Current contract reviewed October 27, 2026. Product boundaries and package installation
 are in [PACKAGE_BOUNDARIES.md](PACKAGE_BOUNDARIES.md); the app directories own
 GUI/workflow, preferences, source authorization and app-specific persistence.
 
@@ -122,6 +122,57 @@ Control IPC remains bounded/versioned. Large preparation payloads use private,
 exclusively owned spool files with size/count/digest/path/link validation. No
 whole-document MLX tensor or global text cache is introduced.
 
+## Shared model cache and deletion
+
+The pinned HuggingFace `HubCache` resolves the standard shared location for new
+installations. An app-specific storage override is retained. Existing workspace
+layouts continue to work; a versioned marker identifies new Hub-root layouts.
+Hub owns blobs, snapshots, metadata and transfer locks. Private runtime overlays
+use links to immutable, hash-validated blobs and own generated tokenizer files.
+They never rewrite a shared snapshot. Invalid shared blobs fail validation rather
+than being silently quarantined on behalf of other applications.
+
+`ModelStorageLease` holds shared access throughout a speech session or explicit
+installation, including admission waits and warm idle workers. Confirmed model
+deletion requires exclusive nonblocking access and validates all removal paths
+before mutation. It removes only the known primary repository and owned copies;
+imported sources, references, audio and unrelated repositories remain intact.
+External applications do not participate in this app-to-app lease. NativeSpeech
+owns the cache/inventory operations; NarrationUI owns the common settings list
+and app-joined deletion task. File enumeration and deletion run off the UI actor.
+
+## Additional native models
+
+Qwen3-TTS 1.7B CustomVoice 8-bit, Chatterbox Turbo FP16 and Orpheus 3B BF16
+use the same shared catalog, native-text preparation, private helpers and assembly.
+All nine Qwen presets, eight Orpheus English presets and Chatterbox default/reference
+conditioning are supported. VoiceRelay captures a typed optional model selection;
+legacy jobs still resolve to their original Kokoro settings. New frontend/codec/
+variant/language/reference/PCM policy identities prevent cross-model checkpoint reuse.
+Settings-only selection history is stripped from helper requests and acoustic identity.
+
+The native-text policy retains source mappings and structural boundaries, targets
+350 scalars with a 480-scalar window bound, and checks actual input tokenizer counts
+inside the helper against a conservative 512-token bound before inference. It requires
+clean model EOS; token-cap exhaustion is not successful speech. Qwen's language is
+independent of its speaker. English scientific expansion and dictionary word joining
+abstain for non-English narration. No source translation or rewrite is introduced.
+
+Model setup acquires pinned auxiliary assets as well as primary weights. Local
+SNAC/S3 loaders avoid hidden downloads; generated tokenizer sidecars are validated
+against deterministic hashes. Generation checks are offline and fail on incomplete
+conditioning. Large models have separate 8/16 GiB footprint guards and 16/24 GiB
+minimum-system-memory checks. To serialize residency as well as GPU operations,
+a large helper is reaped before releasing admission after each utterance. This
+conservative policy adds loading/validation time; old smaller-model reuse remains.
+These limits are not a hard whole-machine allocation guarantee.
+
+NativeSpeech owns static model guidance and reference-profile storage; NarrationUI
+owns the shared controls/meters. Guidance does not load models or affect acoustic
+identities. References are immutable private WAVs, staged with digest verification
+inside an owned attempt before helper access. Missing references never fall back
+to default conditioning. See [the model guide](MODEL_SELECTION.md).
+
 ## Audio
 
 The structural target gaps are continuation 0, sentence 0.12 s, paragraph 0.28 s,
@@ -131,7 +182,8 @@ there is no leading/trailing gap, silence trimming, gain or crossfade.
 VoiceRelay's saved nonzero artifact gap is a minimum target, not a second blanket
 gap; an explicit zero disables inserted gaps. Validate that preference in the GUI.
 
-WAV preserves native Float32 samples/rates: Kokoro 24 kHz, Soprano 32 kHz. Podcast
+WAV preserves native Float32 samples/rates: Kokoro/Qwen/Chatterbox/Orpheus
+24 kHz, Soprano 32 kHz. Podcast
 and bundled sample AAC-LC use mono 64 kbps/24 kHz with native resampling when needed.
 Libro's direct native-rate AAC exports retain the model rate; do not describe all
 Soprano exports as 24 kHz. MP3 uses the prepared native LAME library with ReplayGain
@@ -178,7 +230,8 @@ live-source checks per boundary without reconstructing every output plan.
 Settings and output names are
 captured for that batch before asynchronous cover preparation.
 
-Libro persists validated model, Kokoro voice and speed in app-owned preferences,
+Libro persists validated model, voice, applicable controls and per-model choices
+in app-owned preferences,
 independently of installed model assets. Unsupported/corrupt saved records use
 safe in-memory defaults and remain untouched until a valid user change is saved.
 The file-drop owner retains provider resolution through cancellation/shutdown,

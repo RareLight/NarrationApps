@@ -7,6 +7,7 @@ import AppKit
 import UniformTypeIdentifiers
 import LibroCore
 import NarrationCore
+import NativeSpeech
 import Darwin
 import AVFoundation
 import AudioOutput
@@ -97,7 +98,7 @@ struct LibroSettingsView: View {
                 Text(model.notificationStatus ?? "Notification permission is requested when you first generate audio.")
                     .appFont(.secondary)
             } header: {
-                SettingsSectionHeader(title: "Completion alerts", explanation: "Libro requests macOS notification permission when you first generate audio. One private summary follows each completed batch; cancelled batches do not send a success alert.")
+                SettingsSectionHeader(title: "Completion alerts", explanation: "Send one private notification after each completed batch.")
             }
         }.formStyle(.grouped)
     }
@@ -120,30 +121,19 @@ struct LibroSettingsView: View {
     private var models: some View {
         Form {
             Section {
-                DirectoryRow(model: model, label: "Libro workspace", selection: model.workspace, role: .workspace)
-            } header: {
-                SettingsSectionHeader(title: "Model storage", explanation: "Models, pronunciation assets, staging and local caches stay in this workspace, outside the app bundle. Existing compatible model files are reused read-only.")
-            }
+                ModelStorageSettings(root: model.workspace?.url ?? NativeModelStorage.defaultRoot,
+                    canManage: model.canManageSpeechSetup, revision: model.modelStorageRevision,
+                    choose: { model.browse(.workspace) }, useDefault: model.useDefaultModelStorage,
+                    changed: { model.refreshReadiness() }, maintenance: model.modelStorage)
+            } header: { SettingsSectionHeader(title: "Downloaded models", explanation: "Manage cached models and choose a storage location.") }
             Section {
-                Picker(model.isGenerating ? "Next batch model" : "Model", selection: $model.settings.model) {
-                    Text("Kokoro").tag(SpeechModel.kokoro)
-                    Text("Soprano").tag(SpeechModel.soprano)
-                }.disabled(model.isPreparingModel)
                 Text(model.readiness).appFont(.secondary).textSelection(.enabled)
-                SpeechSetupControls(activity: model.isPreparingModel ? (model.preparationIsCheck ? .checking : .installing) : nil,
-                    status: model.speechSetupStatus, canManage: model.canManageSpeechSetup,
-                    canCheck: model.workspace?.url != nil, disabledReason: model.speechSetupDisabledReason,
-                    installMessage: "Download or verify the selected \(model.settings.model.rawValue.capitalized) model and its pronunciation assets in the Libro workspace? Generation uses local assets.",
-                    install: model.installSpeechRuntime, check: model.checkSpeechSetup, cancel: model.cancel)
-                if model.isPreparingModel || !model.preparationStatus.isEmpty { PreparationProgressView(model: model) }
-                DisclosureGroup("Model details") {
-                    let specification = NativePrimaryCatalog.specification(for: model.settings.model)
-                    LabeledContent("Repository") { Text(specification.repository).textSelection(.enabled) }
-                    LabeledContent("Pinned revision") { Text(specification.revision).textSelection(.enabled) }
-                    Text("Native metadata and assets: models/.native/ in the selected workspace.")
-                        .appFont(.caption).foregroundStyle(.secondary)
+                Button("Check Speech Setup", action: model.checkSpeechSetup).disabled(!model.canPrepareModel)
+                if model.isPreparingModel {
+                    PreparationProgressView(model: model)
+                    Button("Cancel", action: model.cancel)
                 }
-            } header: { SettingsSectionHeader(title: "Speech setup", explanation: NarrationSettingsHelp.speechSetup) }
+            } header: { SettingsSectionHeader(title: "Speech setup", explanation: "Check the selected model offline.") }
         }.formStyle(.grouped)
     }
 
@@ -161,7 +151,7 @@ struct LibroSettingsView: View {
                 }
                 if let message = model.debugLogStatus { Text(message).appFont(.secondary).textSelection(.enabled) }
             } header: {
-                SettingsSectionHeader(title: "Debug logging", explanation: "Records local worker diagnostics. Library messages may include document text or paths. Nothing is uploaded. Up to two 1 MB log files are retained in the selected Libro workspace. Enable before generating or setting up a model. Copy uses the current log; Clear removes both retained logs while processing is idle.")
+                SettingsSectionHeader(title: "Debug logging", explanation: "Keep local diagnostics, which may contain private text and paths. Nothing is uploaded. Copy or clear logs while idle.")
             }
             Section {
                 HStack {
@@ -171,7 +161,7 @@ struct LibroSettingsView: View {
                 }
                 if !model.probeStatus.isEmpty { Text(model.probeStatus).textSelection(.enabled) }
             } header: {
-                SettingsSectionHeader(title: "Diagnostics", explanation: "Checks that the bundled helper and Metal runtime can start. This does not load a speech model. Use Check Speech Setup in Models to check the selected model offline.")
+                SettingsSectionHeader(title: "Diagnostics", explanation: "Check the bundled speech engine. To verify a model, use Check Speech Setup.")
             }
         }.formStyle(.grouped)
     }

@@ -9,11 +9,19 @@ behavioral constraints; historical one-time operations are not authorization to 
 The authorized native unification plan in the parent `../docs/IMPLEMENTATION_PLAN.md`
 supersedes previous Python/product CLI work. Shared implementation belongs in ../swift-packages;
 VoiceRelay owns discovery, retained article identity, SQLite and publication.
-Speech uses one resident native helper, with no serial/parallel mode or automatic
+Speech uses at most one native helper, with no serial/parallel mode or automatic
 fallback replay. VoiceRelay requests background admission through the shared lease
 and yields between chunks to pending Libro work. Do not change team/Keychain
 signing settings merely to produce local ad-hoc test artifacts.
 No maintained Python support remains. Audio is never normalized or volume leveled.
+
+Kokoro, Qwen3-TTS CustomVoice, Chatterbox Turbo and Orpheus use the shared
+catalog/adapters and NarrationUI controls; Soprano remains Libro-only. Capture
+model/voice/language/style with each admission. Large helpers are reaped under
+admission at completed utterance boundaries; do not restore idle large-model
+residency or silently substitute a missing model/reference. Guidance meters are
+static metadata, with no render-time model load/benchmark. See
+../docs/MODEL_SELECTION.md for capabilities and reference backup behavior.
 
 Timed transcripts are default-on for new admissions through SpeechPreferences;
 historical profile nil remains disabled. Derive segment cues from prepared text
@@ -53,8 +61,9 @@ While running, the app automatically admits newly discovered Reading List
 articles, processes the ready queue, and drains pending delivery — relaunch
 resumes owned work automatically. Explicit Stop suspends auto-processing until
 new work arrives or Generate is pressed; failed items stay manual-Retry.
-Manual controls remain as overrides. Automatic admission never re-adds entries
-with recorded audio, retained snapshots or absent source entries, and a failed
+Manual controls remain as overrides. Automatic admission never re-adds handled
+Reading List saves (including inactive duplicate copies), recorded legacy saves,
+retained snapshots or absent source entries, and a failed
 automatic admission is not retried until the next session. Automatic delivery
 drains run after publication, retirement/removal, launch and refresh, plus
 periodically while the app runs; interrupted queue items are re-readied on
@@ -62,11 +71,26 @@ launch only when automation is enabled. Each enabled/configured app session atte
 server reconciliation even if the prior session checked less than five minutes ago;
 reuse current audio proofs and keep upload backoff intact. Startup progress is neutral,
 and Publishing failures keep a direct Publishing Settings route alongside outbox issues.
-Optional main-app SMAppService login-item enrollment is user-controlled, off by
-default, and available in initial setup and General Settings. Registration is the
+Main-app SMAppService login-item enrollment defaults on once for fresh configurations
+and is controlled only in General Settings, not model onboarding. Existing saved
+configurations/library state retain their OS setting. Registration is the
 OS source of truth; never silently re-enable revoked consent. It does not create
 an agent or daemon. Persistent LaunchAgent/XPC ownership is not used. The inactive agent/XPC prototype and standalone
 layout-reproduction projects were removed at the user's request; do not reintroduce them.
+
+Duplicate management compares title plus original website or exact original URL
+without fragment; save/publication times rank copies, never match them. Compare
+readable extracted prose before admission; within 5% of the fullest text prefer
+newest save, then stable ID. Persist all evaluated handled IDs, extraction evidence
+and the chosen admission atomically. Inactive copies remain gray/labelled in
+Articles and cannot auto-recreate after refresh, restart, queue reset or audio
+removal. New saves may generate fresh opaque episodes with current settings;
+existing generations keep their source fingerprint/history. Resume managed speech
+by captured episode ID, never a mutable URL slot. Running work must still be joined.
+Retire older title/original-host matches only after confirmed current-destination
+replacement audio AND feed membership. Republish removal before owned audio/sidecar
+DELETEs; never delete arbitrary/unmatched server files. This intentional generation
+policy does not relax recovery matching, ownership, restore or backoff gates.
 
 Delivery is configured in the Publishing settings pane: complete HTTPS Feed folder
 and Public folder URLs plus channel details persist in UserDefaults. feed.xml
@@ -86,10 +110,14 @@ old-host deletes to a new destination. Failures use sanitized status text.
 Current UX direction: a compact SwiftUI menu in a native NSStatusItem/NSPopover host
 (the same popover opens on left- and right-click) and one sidebar library window
 (Articles with All Articles/Queue scopes, Uploads, Server Audio). Settings uses native pane navigation for
-General, Pronunciation, Publishing and Troubleshooting, with no global Cancel. Generate/Stop
+General, Voice Model, Pronunciation, Publishing and Troubleshooting, with no global Cancel. Generate/Stop
 live with audio work.
-Keep voice, speed and source choice as user preferences;
-technical encoding/runtime/feed details stay internal or diagnostic.
+Voice Model owns model/voice selection, download when missing,
+on-demand details/meters, samples, downloaded-model
+storage and setup checks; Articles has no model controls. Keep voice, speed and
+source choice as user preferences. File sizes and deletion appear only in
+Downloaded models, in compact fixed columns rather than a stretched row.
+Technical encoding/runtime/feed details stay internal or diagnostic.
 Audio encoding uses 64 kbps AAC-LC/M4A at mono 24 kHz, with floating-point
 intermediates and original levels/dynamics: no normalization, gain, limiter or
 DRC. The legacy loudness profile field is inert decoding/import metadata.
@@ -101,10 +129,10 @@ belongs to navigation/control chrome, not content backgrounds. Remove retired
 active UI, state, callbacks, scene wiring and previews; retain core fixture
 coverage. Remove abandoned prototypes rather than bundling inactive executables.
 
-Current storage/UI direction: General, Pronunciation, Publishing and Troubleshooting share one
+Current storage/UI direction: General, Voice Model, Pronunciation, Publishing and Troubleshooting share one
 resizable
-440×680-ideal Settings window (360×540 minimum) switched by a centered compact icon-navigation strip
-(392×46 selector — four 92pt tiles plus spacing, 16pt SF symbols, 12pt labels,
+540×680-ideal Settings window (360×540 minimum) switched by a centered compact icon-navigation strip
+(492×46 selector — five 92pt tiles plus spacing, 16pt SF symbols, 12pt labels,
 the selected tile using a real
 SwiftUI glassEffect); selection state is the glass tile, and keyboard focus is
 shown by a rounded keyboard-only focus cue, not a persistent tinted box. All visible app text
@@ -187,7 +215,11 @@ is requeued from retained article snapshots, preserving GUID and captured voice;
 failed rows remain manual Retry. Destination changes recreate released bytes from
 retained text and preserve old-host copies. VoiceRelay's Server Audio ×/Remove
 Selections and confirmed pane reset retire feed membership before remote deletion;
-keep pending server removals visible until confirmed. Upload New Items appears only
+retain pending server removals durably until confirmed. Accepted removals disappear
+from the list immediately without animation; a serial owned drain accepts further
+clicks while cleanup runs. The footer reports pending work. Restore failed or
+deferred items without changing the user's remaining selection; refreshes must not
+resurrect still-active removals. Upload New Items appears only
 for pending audio/publication, disables during delivery and hides after confirmation.
 Show in Finder remains only for legacy local audio. Server Audio normally reflects recorded confirmations. Sync Now and enabled
 Publishing automatically reconcile bounded authenticated feed/media before queued
@@ -208,7 +240,7 @@ API, never raw database copies.
 Processing and inference-helper scratch use app-owned macOS system temporary storage.
 Persistent runtime/model/cache assets and explicit installer scratch remain confined
 to the selected runtime root: legacy project-local installations remain supported;
-explicit General installation uses the private app-managed SpeechRuntime directory.
+explicit installation uses the library-resolved shared Hugging Face cache unless the user chooses a folder override.
 Bundle the native helper and Metal resources; never download models on build/startup/readiness.
 Library backups use SQLite backup, include retained text and delivery bookkeeping,
 exclude credentials/preferences/audio/runtime/scratch, and remain private. Restore
@@ -387,6 +419,6 @@ operate Developer ID/notarization accounts before operator acceptance/approval.
 October 15 shared Settings: use independent AppPresentation navigation, section help,
 notices and Appearance controls, plus SwiftNarration.NarrationUI narration controls.
 Keep preference keys, source/automation, Publishing, backup and session log ownership
-here. Speech setup appears once; Install Speech Model explicitly downloads and
+here. Speech setup appears once; Install Model explicitly downloads and
 Check Speech Setup initializes offline with joined cleanup. Generic offline failures
 must not suggest a network requirement. See ../docs/SETTINGS_ALIGNMENT.md for current ownership.

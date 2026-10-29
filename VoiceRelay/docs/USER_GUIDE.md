@@ -1,7 +1,7 @@
 # VoiceRelay user guide
 
 VoiceRelay turns Safari Reading List articles into a private podcast using local
-Kokoro speech and WebDAV publishing. While the macOS app runs, it discovers
+local native speech and WebDAV publishing. While the macOS app runs, it discovers
 articles, prepares saved text, processes the queue and publishes episodes according
 to your preferences. Failed items remain available for manual Retry. Safari
 bookmarks and Reading List flags are never modified.
@@ -11,27 +11,47 @@ Requires Apple Silicon and macOS 27.0 or later. For building/signing, use
 
 ## First launch and startup
 
-On first launch without a speech model, the speech setup window offers
-**Install Speech Model** or **Not Now**. Installation starts only after your choice;
+On first launch without a speech model, **Model Setup** offers
+**Install Model**, **Choose Custom Model Folder…** or **Not Now**. Choosing an
+installed model folder offers **Check Model** to verify it offline.
+Installation starts only after your choice;
 you can cancel or retry without leaving setup. Installed models skip this window
 and are checked offline at startup. To install later, use
-**Settings → General → Speech setup → Install Speech Model…**.
+the **Download** arrow icon beside the model picker in **Settings → Voice Model**.
 Installation explicitly downloads verified native model and pronunciation assets;
-**Check Speech Setup** loads the installed model offline without generating audio. The managed runtime is under
-`~/Library/Application Support/VoiceRelayPrototype/SpeechRuntime`. Existing
-checkout installations remain supported. Cancel and Quit join owned setup work;
-global environments are unchanged. See [Kokoro setup and pipeline](KOKORO_PROVIDER.md).
+**Check Speech Setup** loads the installed model offline without generating audio. Models default to the shared Hugging Face cache. **Voice Model → Downloaded models** lists disk usage, deletion controls and a folder override. Existing custom locations remain supported. Cancel and Quit join owned setup work;
+global environments are unchanged. See [model selection and setup](../../docs/MODEL_SELECTION.md); the [Kokoro provider notes](KOKORO_PROVIDER.md) describe the retained original backend.
 The result appears beside Check: Speech setup not checked, Speech setup ready or the failure.
 Publishing and source refreshes do not disable speech setup controls; active audio
-work and library maintenance do, with a reason shown in General.
+work and library maintenance do, with a reason shown in Voice Model.
 
-**Start VoiceRelay at login** is off by default. Opt in during initial speech setup
-or in **Settings → General → Startup**. If macOS requires approval, use **Open Login
+**Start VoiceRelay at login** defaults on for fresh configurations and is controlled
+only in **Settings → General → Startup**. Existing configurations retain their
+startup setting; disabling it in VoiceRelay or macOS is respected on later launches.
+The default is attempted once; failures can be retried from Settings.
+If macOS requires approval, use **Open Login
 Items Settings**. VoiceRelay starts in the menu bar after sign-in, without opening
 library/setup windows, and resumes your configured automation. Quit stops the app;
 it next starts when you open it or log in again. Turn the option off to stop future
 automatic launches. Changes in System Settings are reflected when you return to
 Settings. This starts the ordinary app at login, not a service before sign-in.
+
+## Voice model
+
+**Settings → Voice Model** brings together model and voice selection, speaking
+speed where supported, download when no files are cached, model details, and **Play Sample**.
+Model and Voice keep the same positions when switching models; extra options
+appear below them in compact, aligned rows, followed by **Play Sample**. The section
+grows or shrinks to fit the selected model's controls. Speed’s value and
+arrows stay beside its label. Cached models show only **ⓘ** beside the picker;
+sizes and deletion are in **Downloaded models**, in compact aligned columns.
+Click **ⓘ** for the
+model description and quality/speed meters. For cached models, **Download missing
+files** in that popover completes or repairs installation without deleting it first.
+Use **Downloaded models** for disk usage, deletion and storage location; use
+**Check Speech Setup** to verify the selected model offline. Changes apply to newly
+queued articles; existing jobs keep their captured choices. The Articles window
+focuses on browsing and processing your queue.
 
 ## Everyday use
 
@@ -61,10 +81,13 @@ Articles and Queue are scopes in one library window alongside Uploads and Server
 Audio. Opening a standalone window enables the Dock/⌘-Tab entry; closing the last
 returns to menu-bar-only operation. Closing windows does not stop work.
 
-1. In **General → Speech**, choose Language and region, Voice and speed. Defaults
-   are US English, Heart and 1.0×. Speed spans 0.5–2.0× in 0.05 steps;
-   existing saved values are preserved. Voice choices are ranked by upstream quality
-   grades: ten US voices and eight UK voices. New admissions capture these choices.
+1. In **Settings → Voice Model**, choose Model and Voice. Fresh settings use
+   **Kokoro (Recommended)** with Heart at 1.0×; saved choices are preserved. Kokoro offers 28 English
+   voices marked US/UK and speaking speed from 0.5–2.0× in 0.05 steps. Qwen offers a
+   narration language and optional delivery instruction; Chatterbox offers local
+   reference-voice import. The **ⓘ** popover’s relative speed/quality meters compare models
+   without benchmarking your Mac. See the [model guide](../../docs/MODEL_SELECTION.md).
+   New admissions capture these choices; earlier queued articles keep theirs.
 2. Safari's `~/Library/Safari/Bookmarks.plist` is the default source. In
    **General → Reading List**, choose another file if needed. Discovery runs at startup,
    every five minutes, when Articles appears or the source changes, and on
@@ -88,6 +111,27 @@ returns to menu-bar-only operation. Closing windows does not stop work.
 5. Queue removal deletes only queue membership. Source entries, saved text and
    server audio remain. Individual and multi-selection removal need no
    confirmation; **Reset Queue…** does. Scope selections remain independent.
+
+### Duplicate articles
+
+VoiceRelay compares copies with the same title and original website, or the same
+source URL. It chooses readable full text over a paywall preview or failed copy.
+Among copies within 5% of the longest extracted prose, the most recently saved
+wins. Dates help choose the copy; they are not part of duplicate matching.
+Other copies stay visible in All Articles, gray and labelled **Inactive duplicate**.
+
+A new save of an already narrated article generates fresh audio with your current
+voice settings. Existing unfinished work keeps its captured settings unless a new
+duplicate admission replaces it. VoiceRelay confirms the replacement audio and
+feed membership before removing older matching episodes from the feed, then
+cleans up their owned server audio and transcripts. Failures retain the old server
+files until safe cleanup can finish. No Safari entry is changed.
+
+Handled entries, including inactive copies, are remembered in the private library.
+Leaving duplicates in Safari, refreshing, restarting, clearing the queue or
+removing their audio does **not** automatically create more recordings. A genuinely
+new save is eligible again. You can explicitly Add to Queue for the active copy
+when you want another recording; queued retries retain their captured settings.
 
 Search in Articles (All Articles/Queue), Uploads and Server Audio matches visible
 titles, source, saved dates, status and errors. Searches are local, combine with
@@ -218,7 +262,11 @@ read back through authenticated WebDAV and its exact contents confirmed.
 **Server Audio** is durable episode history. **Published** means current-destination
 media bytes and feed membership are confirmed. **Upload New Items** appears only
 while shown episodes need upload/publication. Removing an episode retires feed
-membership before remote media deletion, and keeps unfinished removals visible.
+membership before remote media deletion. Clicking **×** removes the row immediately,
+without a deletion animation; cleanup continues in the background and the lower
+status bar reports progress. You can delete other items while it runs. Failed
+cleanup returns the affected item with its retry/error state. If Publishing is off
+or unavailable, unfinished server cleanup stays listed rather than remaining hidden.
 **Reset Server Audio…** requires confirmation. Source entries and retained text
 are preserved. **Show in Finder** applies only to older remaining local copies.
 
@@ -257,7 +305,8 @@ or their website filter. Search combines with the selected filter in each scope.
 Publishing automatically reconciles existing server feed/audio with local state.
 Verified matches restore history and leave Queue without regeneration or media PUT.
 At comparable voice/speed, the longer valid copy wins; ties retain the server copy.
-Replacements preserve the old server file, and item errors retain its feed membership
+Recovery conflict replacements preserve the old server file. Deliberate new-save
+replacements follow the duplicate rules above. Item errors retain existing feed membership
 while unrelated work continues. Cached proofs and conditional requests reduce
 repeated downloads. Exact identity or retained-link evidence is required; titles
 and orphan filenames are insufficient. See [automatic reconciliation and operator

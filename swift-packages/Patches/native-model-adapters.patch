@@ -1,0 +1,147 @@
+--- a/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift
++++ b/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift
+@@ -9,6 +9,10 @@
+ // MARK: - Qwen3TTS Model
+ 
+ public final class Qwen3TTSModel: Module, SpeechGenerationModel, @unchecked Sendable {
++    public private(set) var narrationCompleted = false
++    public func validateNarrationInput(_ text: String) throws {
++        guard let tokenizer, tokenizer.encode(text: text).count <= 512 else { throw AudioGenerationError.invalidInput("Narration input token limit") }
++    }
+     let config: Qwen3TTSModelConfig
+     let talker: Qwen3TTSTalkerForConditionalGeneration
+     var speakerEncoder: Qwen3TTSSpeakerEncoder?
+@@ -409,6 +413,7 @@
+             }
+         }
+ 
++        narrationCompleted = false
+         for step in 0 ..< effectiveMaxTokens {
+             try Task.checkCancellation()
+             // Forward pass through talker
+@@ -483,6 +488,7 @@
+             let tokenId = Int(nextToken[0, 0].item(Int32.self))
+             onToken?(tokenId)
+             if isEOS.item(Bool.self) {
++                narrationCompleted = true
+                 break
+             }
+             generatedCodebookTokens.append(tokenId)
+--- a/Sources/MLXAudioTTS/Models/Llama/LlamaTTS.swift
++++ b/Sources/MLXAudioTTS/Models/Llama/LlamaTTS.swift
+@@ -352,6 +352,10 @@
+ /// This model generates audio from text using SNAC audio codec tokens.
+ /// It supports voice cloning and streaming generation.
+ public class LlamaTTSModel: Module, KVCacheDimensionProvider, SpeechGenerationModel, @unchecked Sendable {
++    public private(set) var narrationCompleted = false
++    public func validateNarrationInput(_ text: String) throws {
++        guard let tokenizer, tokenizer.encode(text: text).count <= 512 else { throw LlamaTTSError.generationFailed("Narration input token limit") }
++    }
+     public let vocabularySize: Int
+     public let kvHeads: [Int]
+     public var tokenizer: Tokenizers.Tokenizer?
+@@ -701,6 +705,7 @@
+             cache = self.makeCache()
+         }
+ 
++        narrationCompleted = false
+         var generatedTokens: [Int32] = []
+         let promptTokensList = inputIds.squeezed(axis: 0).asArray(Int32.self)
+         generatedTokens.append(contentsOf: promptTokensList)
+@@ -732,6 +737,7 @@
+             }
+ 
+             if tokenValue == OrpheusTokens.endOfSpeech {
++                narrationCompleted = true
+                 break
+             }
+ 
+@@ -949,7 +955,8 @@
+ 
+     public static func fromModelDirectory(
+         _ modelDir: URL,
+-        cache: HubCache = .default
++        cache: HubCache = .default,
++        narrationCodecDirectory: URL? = nil
+     ) async throws -> LlamaTTSModel {
+         let configPath = modelDir.appendingPathComponent("config.json")
+         let configData = try Data(contentsOf: configPath)
+@@ -979,7 +986,12 @@
+         try model.update(parameters: ModuleParameters.unflattened(sanitizedWeights), verify: .all)
+         eval(model)
+ 
+-        try await model.post_load_hook(model: model, modelDir: modelDir, cache: cache)
++        if let narrationCodecDirectory {
++            model.tokenizer = try await AutoTokenizer.from(modelFolder: modelDir)
++            model._snacModel = try SNAC.fromModelDirectory(narrationCodecDirectory)
++        } else {
++            try await model.post_load_hook(model: model, modelDir: modelDir, cache: cache)
++        }
+ 
+         return model
+     }
+--- a/Sources/MLXAudioTTS/Models/Chatterbox/T3/T3GPT2Model.swift
++++ b/Sources/MLXAudioTTS/Models/Chatterbox/T3/T3GPT2Model.swift
+@@ -187,6 +187,7 @@
+ /// - speech_head has bias
+ /// - Simpler inference loop
+ public class T3GPT2Model: Module {
++    var narrationCompleted = false
+     let hp: T3Configuration
+     let gpt2Config: GPT2BackboneConfig
+     let dim: Int
+@@ -310,6 +311,7 @@
+         // Get first speech logits
+         var speechLogits = speechHead(hidden[0..., (-1)..., 0...])
+ 
++        narrationCompleted = false
+         var generatedIds = [Int]()
+ 
+         print("[T3-Turbo] Starting generation (maxNewTokens=\(maxNewTokens), temp=\(temperature), topK=\(topK), topP=\(topP))")
+@@ -332,6 +334,7 @@
+ 
+             // Check EOS
+             if nextTokenId == hp.stopSpeechToken {
++                narrationCompleted = true
+                 let elapsed = CFAbsoluteTimeGetCurrent() - genStart
+                 print("[T3-Turbo] EOS at step \(step)/\(maxNewTokens) (\(generatedIds.count) tokens, \(String(format: "%.2f", elapsed))s)")
+                 break
+--- a/Sources/MLXAudioTTS/Models/Chatterbox/ChatterboxModel.swift
++++ b/Sources/MLXAudioTTS/Models/Chatterbox/ChatterboxModel.swift
+@@ -75,6 +75,10 @@
+     /// Text tokenizer loaded from tokenizer.json.
+     public var tokenizer: Tokenizers.Tokenizer?
+ 
++    public var narrationCompleted: Bool { (t3 as? T3GPT2Model)?.narrationCompleted == true }
++    public func validateNarrationInput(_ text: String) throws {
++        guard let tokenizer, tokenizer.encode(text: text).count <= 512 else { throw AudioGenerationError.invalidInput("Narration input token limit") }
++    }
+     /// S3TokenizerV2: converts audio → speech token IDs (loaded separately).
+     public var s3Tokenizer: S3TokenizerV2?
+ 
+@@ -932,7 +936,8 @@
+ 
+     public static func fromModelDirectory(
+         _ modelDir: URL,
+-        hfToken: String?
++        hfToken: String?,
++        narrationTokenizerDirectory: URL? = nil
+     ) async throws -> ChatterboxModel {
+         // Load config
+         let configURL = modelDir.appendingPathComponent("config.json")
+@@ -1030,10 +1035,11 @@
+         // Load S3TokenizerV2 from separate HuggingFace repo (needed for voice cloning)
+         let s3TokenizerRepo = "mlx-community/S3TokenizerV2"
+         do {
+-            model.s3Tokenizer = try await S3TokenizerV2.fromPretrained(
+-                s3TokenizerRepo,
+-                hfToken: hfToken
+-            )
++            if let narrationTokenizerDirectory {
++                model.s3Tokenizer = try S3TokenizerV2.fromModelDirectory(narrationTokenizerDirectory)
++            } else {
++                model.s3Tokenizer = try await S3TokenizerV2.fromPretrained(s3TokenizerRepo, hfToken: hfToken)
++            }
+             print("[Chatterbox] Loaded S3TokenizerV2 from \(s3TokenizerRepo)")
+         } catch {
+             print("Warning: Could not load S3TokenizerV2: \(error)")

@@ -1,0 +1,28 @@
+--- a/Sources/MLXAudioTTS/Models/Chatterbox/ChatterboxModel.swift
++++ b/Sources/MLXAudioTTS/Models/Chatterbox/ChatterboxModel.swift
+@@ -75,6 +75,7 @@
+     /// Text tokenizer loaded from tokenizer.json.
+     public var tokenizer: Tokenizers.Tokenizer?
+ 
++    public var preserveNarrationPCM = false
+     public var narrationCompleted: Bool { (t3 as? T3GPT2Model)?.narrationCompleted == true }
+     public func validateNarrationInput(_ text: String) throws {
+         guard let tokenizer, tokenizer.encode(text: text).count <= 512 else { throw AudioGenerationError.invalidInput("Narration input token limit") }
+@@ -834,7 +835,7 @@
+         // 480 samples silence + 480 samples cosine ramp = 960 samples (40ms at 24kHz)
+         let nTrim = sampleRate / 50  // 480
+         let fadeLen = nTrim * 2      // 960
+-        if waveform.dim(waveform.ndim - 1) >= fadeLen {
++        if !preserveNarrationPCM, waveform.dim(waveform.ndim - 1) >= fadeLen {
+             // Build fade: [zeros(480), cosine_ramp(480)] — matches Python trim_fade
+             let zeros = MLXArray.zeros([nTrim])
+             let cosValues = (0..<nTrim).map { i -> Float in
+@@ -854,7 +855,7 @@
+         // The vocoder output can be quiet depending on conditioning strength.
+         // Scale so peak amplitude is ~0.95 (standard headroom for speech).
+         let peak = MLX.abs(waveform).max().item(Float.self)
+-        if peak > 1e-6 {
++        if !preserveNarrationPCM, peak > 1e-6 {
+             let targetPeak: Float = 0.95
+             waveform = waveform * MLXArray(targetPeak / peak)
+         }

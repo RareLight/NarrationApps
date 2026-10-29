@@ -66,3 +66,5 @@ public typealias QueueCoordinator = ProcessingPipeline.QueueCoordinator
 public typealias WorkerConfiguration = ProcessingPipeline.WorkerConfiguration
 
 public typealias PronunciationStore = Pronunciation.PronunciationStore
+
+public typealias NarrationSampleText = NativeSpeech.NarrationSampleText

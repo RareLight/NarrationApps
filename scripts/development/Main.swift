@@ -34,6 +34,7 @@ struct Options {
     var scope: String?
     var filter: String?
     var adhoc = false
+    var skipArchives = false
     var workspace: String?
     var libroWorker: String?
     var voiceRelayWorker: String?
@@ -67,6 +68,7 @@ struct Options {
             case "--scope" where command == "check": scope = try value()
             case "--filter" where command == "check": filter = try value()
             case "--adhoc" where command == "check": adhoc = true
+            case "--skip-archives" where command == "check": skipArchives = true
             case "--workspace" where command == "check": workspace = try value()
             case "--libro-worker" where command == "check": libroWorker = try value()
             case "--voicerelay-worker" where command == "check": voiceRelayWorker = try value()
@@ -76,7 +78,7 @@ struct Options {
         guard ["quick", "full", "native", "release"].contains(tier),
             scope == nil || ["presentation", "shared", "libro", "voicerelay"].contains(scope!),
             scope == nil || tier == "quick", filter == nil || scope != nil,
-            !adhoc || tier == "release",
+            !adhoc || tier == "release", !skipArchives || tier == "release",
             (workspace == nil && libroWorker == nil && voiceRelayWorker == nil) || tier == "native"
         else {
             throw ToolError("Invalid tier/scope/filter/signing/native option combination; see docs/DEVELOPMENT.md.")

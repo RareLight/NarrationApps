@@ -28,7 +28,7 @@ public struct SpeechFailure: Error, LocalizedError, Sendable {
         case .protocolViolation: "The speech worker returned an invalid response."
         case .timeout: "The speech worker did not respond within the time limit."
         case .workerExited: "The speech worker stopped before completing its request."
-        case .memoryLimit: "Speech generation was stopped because a worker used too much memory."
+        case .memoryLimit: "This model needs more system memory, or its worker exceeded the supported memory limit."
         }
         let stage = switch operation {
         case .initialize: " During model initialization."
@@ -107,7 +107,7 @@ public struct WorkerEvent: Codable, Sendable {
 }
 
 public enum SpeechIPC {
-    public static let protocolVersion = 2
+    public static let protocolVersion = 3
     public static let maximumRecordBytes = 65_536
 
     public static func encode<T: Encodable>(_ record: T) throws -> Data {

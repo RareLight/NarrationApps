@@ -6,6 +6,7 @@ import MLXAudioCore
 import MLXAudioTTS
 import HuggingFace
 import Darwin
+import CryptoKit
 
 public enum NativeSpeechWorker {
     public static func main() async {
@@ -88,7 +89,7 @@ public enum NativeSpeechWorker {
                     guard staging.path.hasPrefix(workspace.nativeRoot.path + "/staging/attempt-"),
                           staging == spool, (try staging.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true,
                           settings.speed.isFinite, settings.speed > 0 else { throw SpeechFailure(.invalidInput) }
-                    let engine = try await load(settings: settings, workspace: workspace)
+                    let engine = try await load(settings: settings, workspace: workspace, reference: staging.appendingPathComponent("reference.wav"))
                     context = WorkerContext(identity: command.identity, spool: staging, settings: settings, engine: engine, policy: command.policy ?? .legacy)
                     try control.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .ready, identity: command.identity)))
                 case .generate:
@@ -164,7 +165,9 @@ public enum NativeSpeechWorker {
               settings.speed > 0 else { throw WorkerError.invalidRequest }
     }
 
-    private static func load(settings: SpeechSettings, workspace: NativeWorkspace) async throws -> LoadedEngine {
+    private static func load(settings: SpeechSettings, workspace: NativeWorkspace, reference: URL? = nil) async throws -> LoadedEngine {
+        guard settings.isValid else { throw SpeechFailure(.invalidInput) }
+        Memory.memoryLimit = SpeechMemoryPolicy.workingLimit(for: settings.model)
         let primary = try workspace.primaryDirectory(for: settings.model, voice: settings.voice)
         switch settings.model {
         case .kokoro:
@@ -177,11 +180,37 @@ public enum NativeSpeechWorker {
             return .kokoro(model)
         case .soprano:
             return .soprano(try await SopranoModel.fromModelDirectory(primary, repo: settings.model.repository))
+        case .qwen3:
+            let model = try await Qwen3TTSModel.fromModelDirectory(primary)
+            try NativePrimaryStore.validateGenerated(directory: primary, specification: NativePrimaryCatalog.specification(for: .qwen3))
+            return .qwen3(model)
+        case .chatterbox:
+            let dependency = NativePrimaryCatalog.dependencies(for: .chatterbox)[0]
+            let folder = try NativePrimaryStore.directory(specification: dependency, workspace: workspace, voice: settings.voice)
+            let model = try await ChatterboxModel.fromModelDirectory(primary, hfToken: nil, narrationTokenizerDirectory: folder)
+            try NativePrimaryStore.validateGenerated(directory: primary, specification: NativePrimaryCatalog.specification(for: .chatterbox))
+            model.preserveNarrationPCM = true
+            guard model.s3Tokenizer != nil, let defaults = model.defaultConditioning, defaults.condPromptSpeechTokens.size > 0 else { throw SpeechFailure(.invalidInput) }
+            var referenceAudio: MLXArray?
+            if ReferenceVoiceStore.isIdentifier(settings.voice) {
+                guard let reference else { throw NativeAssetError.missing("reference recording") }
+                try workspace.validateFile(reference)
+                let bytes = try Data(contentsOf: reference)
+                guard bytes.count <= 20_000_000, settings.voice == "reference:" + SHA256.hash(data: bytes).map({ String(format: "%02x", $0) }).joined() else { throw NativeAssetError.changed("reference recording") }
+                let (_, audio) = try loadAudioArray(from: reference, sampleRate: model.sampleRate)
+                referenceAudio = audio
+            }
+            return .chatterbox(model, referenceAudio)
+        case .orpheus:
+            let dependency = NativePrimaryCatalog.dependencies(for: .orpheus)[0]
+            let folder = try NativePrimaryStore.directory(specification: dependency, workspace: workspace, voice: settings.voice)
+            return .orpheus(try await LlamaTTSModel.fromModelDirectory(primary, narrationCodecDirectory: folder))
         }
     }
 
     private static func configureCache(_ workspace: NativeWorkspace) throws {
-        for url in [workspace.hubCache, workspace.nativeRoot.appendingPathComponent("hf"),
+        if !workspace.usesSharedHub { _ = try workspace.managed(workspace.hubCache) }
+        for url in [workspace.nativeRoot.appendingPathComponent("hf"),
                     workspace.nativeRoot.appendingPathComponent("xet"), workspace.nativeRoot.appendingPathComponent("hf-assets")] {
             _ = try workspace.managed(url)
         }
@@ -195,13 +224,26 @@ public enum NativeSpeechWorker {
 
     private static func preparePrimary(_ workspace: NativeWorkspace, settings: SpeechSettings,
                                        report: @escaping @Sendable (ModelPreparationProgress) -> Void) async throws {
-        let specification = NativePrimaryCatalog.specification(for: settings.model)
+        let specs = [NativePrimaryCatalog.specification(for: settings.model)] + NativePrimaryCatalog.dependencies(for: settings.model)
+        let total = NativePrimaryCatalog.totalBytes(for: settings.model)
+        var completed: Int64 = 0
+        for spec in specs {
+            let offset = completed
+            try await prepareSpecification(spec, workspace: workspace, settings: settings) { value in
+                report(.init(scope: .primary, phase: value.phase, completedBytes: offset + value.completedBytes, totalBytes: total))
+            }
+            completed += spec.files.reduce(Int64(0)) { $0 + Int64($1.bytes) }
+        }
+    }
+
+    private static func prepareSpecification(_ specification: NativePrimarySpecification, workspace: NativeWorkspace, settings: SpeechSettings,
+        report: @escaping @Sendable (ModelPreparationProgress) -> Void) async throws {
         let total = specification.files.reduce(Int64(0)) { $0 + Int64($1.bytes) }
         report(.init(scope: .primary, phase: .waiting, totalBytes: total))
-        let lock = try acquisitionLock(workspace, name: settings.model.rawValue)
+        let lock = try acquisitionLock(workspace, name: settings.model.rawValue + "-" + specification.revision)
         defer { flock(lock, LOCK_UN); close(lock) }
         report(.init(scope: .primary, phase: .checking, totalBytes: total))
-        let shared = workspace.root.appendingPathComponent(settings.model.primaryRelativePath)
+        let shared = workspace.root.appendingPathComponent("models/\(settings.model.rawValue)/\(specification.repository.replacingOccurrences(of: "/", with: "__"))")
         if (try? NativePrimaryStore.validate(directory: shared, specification: specification, workspace: workspace, sharedVoice: settings.voice)) != nil {
             try NativePrimaryStore.recordReuse(directory: shared, specification: specification, workspace: workspace, voice: settings.voice)
             report(.init(scope: .primary, phase: .reusing, completedBytes: total, totalBytes: total))
@@ -210,7 +252,7 @@ public enum NativeSpeechWorker {
         let target = try NativePrimaryStore.nativeDirectory(specification, workspace: workspace)
         if (try? NativePrimaryStore.validateStaged(directory: target, specification: specification, workspace: workspace)) != nil { return }
         let stage = try workspace.managed(workspace.nativeRoot.appendingPathComponent("staging/primary-\(settings.model.rawValue)-\(specification.revision)"))
-        let files = specification.files.map { NativeAcquisitionFile(path: $0.path, bytes: $0.bytes, hash: $0.sha256, gitOID: $0.gitOID) }
+        let files = specification.files.map { NativeAcquisitionFile(path: $0.path, bytes: $0.bytes, hash: $0.sha256, gitOID: $0.gitOID.isEmpty ? nil : $0.gitOID) }
         try await acquire(repository: specification.repository, revision: specification.revision, files: files,
                           stage: stage, workspace: workspace, scope: .primary, report: report)
         report(.init(scope: .primary, phase: .validating, completedBytes: total, totalBytes: total))
@@ -316,9 +358,11 @@ public enum NativeSpeechWorker {
                 progress.value.completedUnitCount += Int64(file.bytes); continue
             }
             if let cached = cache.cachedFilePath(repo: repo, kind: .model, revision: revision, filename: file.path) {
-                let blob = try workspace.managed(cached.resolvingSymlinksInPath())
+                let blob = try workspace.cached(cached.resolvingSymlinksInPath())
                 guard blob.path.hasPrefix(workspace.hubCache.path + "/") else { throw NativeAssetError.outsideWorkspace }
-                if try !file.quarantineInvalidCopy(at: blob, workspace: workspace) { requiresNetwork = true }
+                if workspace.usesSharedHub {
+                    guard try file.matches(blob) else { throw NativeAssetError.changed(file.path) }
+                } else if try !file.quarantineInvalidCopy(at: blob, workspace: workspace) { requiresNetwork = true }
             } else { requiresNetwork = true }
             missing.append(file)
         }
@@ -332,7 +376,10 @@ public enum NativeSpeechWorker {
                 // Validate both possible identities before Hub's fast path.
                 for etag in Set([entry.oid, file.hash].compactMap { $0 }) {
                     let blob = try cache.blobPath(repo: repo, kind: .model, etag: etag)
-                    _ = try file.quarantineInvalidCopy(at: blob, workspace: workspace)
+                    if workspace.usesSharedHub {
+                        _ = try workspace.cached(blob)
+                        if FileManager.default.fileExists(atPath: blob.path), try !file.matches(blob) { throw NativeAssetError.changed(file.path) }
+                    } else { _ = try file.quarantineInvalidCopy(at: blob, workspace: workspace) }
                 }
             }
         }
@@ -354,8 +401,15 @@ public enum NativeSpeechWorker {
                 group.addTask {
                     let destination = try workspace.managed(stage.appendingPathComponent(file.path))
                     try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    _ = try await client.downloadFile(at: file.path, from: repo, to: destination, revision: revision,
+                    let cached = try await client.downloadFile(at: file.path, from: repo, to: workspace.usesSharedHub ? nil : destination, revision: revision,
                                                       progress: child.value, transport: .lfs, downloadInCache: true)
+                    if workspace.usesSharedHub {
+                        let blob = try workspace.cached(cached.resolvingSymlinksInPath())
+                        guard try file.matches(blob) else { throw NativeAssetError.changed(file.path) }
+                        // Immutable Hub bytes stay shareable. Runtime-generated
+                        // tokenizer metadata is written only in this overlay.
+                        try FileManager.default.createSymbolicLink(at: destination, withDestinationURL: blob)
+                    }
                     guard try file.matches(destination) else { throw NativeAssetError.changed(file.path) }
                     if ProcessInfo.processInfo.environment["NARRATION_DEBUG_LOG"] == "1" {
                         let offset = child.value.userInfo[ProgressUserInfoKey("cacheDownloadResumeOffset")] as? Int64 ?? 0
@@ -431,6 +485,7 @@ private struct WorkerContext {
 private enum LoadedEngine {
     case kokoro(KokoroModel)
     case soprano(SopranoModel)
+    case qwen3(Qwen3TTSModel), chatterbox(ChatterboxModel, MLXArray?), orpheus(LlamaTTSModel)
 
     func prepare(window: SpeechTextWindow, settings: SpeechSettings, policy: SpeechPreparationPolicy) throws -> [PreparedUtterance] {
         defer { Memory.clearCache() }
@@ -450,10 +505,10 @@ private enum LoadedEngine {
     }
 
     private func samples(_ audio: MLXArray, rate: Int, settings: SpeechSettings) throws -> ([Float], Int) {
-        guard audio.ndim == 1, audio.size > 0, audio.size <= rate * 120,
+        guard (audio.ndim == 1 || (audio.ndim == 2 && audio.dim(0) == 1)), audio.size > 0, audio.size <= rate * 120,
               rate == settings.model.capabilities.sampleRate else { throw WorkerError.invalidPCM }
-        let samples = audio.asArray(Float.self)
-        guard samples.allSatisfy(\.isFinite) else { throw WorkerError.invalidPCM }
+        let samples = audio.reshaped([-1]).asArray(Float.self)
+        guard samples.allSatisfy(\.isFinite), !settings.model.isLarge || samples.contains(where: { $0 != 0 }) else { throw WorkerError.invalidPCM }
         return (samples, rate)
     }
 
@@ -475,6 +530,24 @@ private enum LoadedEngine {
             rate = model.sampleRate
         case .soprano(let model):
             audio = try await model.generate(text: text)
+            rate = model.sampleRate
+        case .qwen3(let model):
+            try model.validateNarrationInput(text)
+            let voice = settings.voice + (settings.styleInstruction.map { ", " + $0 } ?? "")
+            audio = try await model.generate(text: text, voice: voice, refAudio: nil, refText: nil, language: settings.effectiveLanguage, generationParameters: model.defaultGenerationParameters)
+            guard model.narrationCompleted else { throw SpeechFailure(.generation) }
+            rate = model.sampleRate
+        case .chatterbox(let model, let reference):
+            try model.validateNarrationInput(text)
+            audio = try await model.generate(text: text, voice: nil, refAudio: reference, refText: nil, language: "en", generationParameters: model.defaultGenerationParameters)
+            guard model.narrationCompleted else { throw SpeechFailure(.generation) }
+            rate = model.sampleRate
+        case .orpheus(let model):
+            try model.validateNarrationInput(text)
+            var parameters = model.defaultGenerationParameters
+            parameters.maxTokens = settings.model.maximumGeneratedTokens
+            audio = try await model.generate(text: text, voice: settings.voice, refAudio: nil, refText: nil, language: "en", generationParameters: parameters)
+            guard model.narrationCompleted else { throw SpeechFailure(.generation) }
             rate = model.sampleRate
         }
         return try samples(audio, rate: rate, settings: settings)

@@ -9,6 +9,7 @@ implementation records are background, not additional setup instructions.
 | --- | --- |
 | Import documents/books and export audio | [Libro](../Libro/README.md) |
 | Make a podcast from Safari Reading List | [VoiceRelay](../VoiceRelay/README.md), [detailed user guide](../VoiceRelay/docs/USER_GUIDE.md) |
+| Choose a model, interpret speed/quality meters and use reference voices | [Model selection](MODEL_SELECTION.md) |
 | Choose voice previews, footnotes, citations and PDF cleanup | [Narration guide](NARRATION_GUIDE.md) |
 | Correct a word or name | [Pronunciation](PRONUNCIATION.md) |
 | Diagnose Libro setup, encoding, output or package errors | [Libro troubleshooting](../Libro/docs/TROUBLESHOOTING.md) |
@@ -21,7 +22,7 @@ implementation records are background, not additional setup instructions.
 | Fresh clone, prerequisites, preparation and signing | [Contributing](../CONTRIBUTING.md) |
 | Select quick/full/native/release checks and interpret evidence | [Development gates](DEVELOPMENT.md) |
 | Compare TTS models/voices and run a preference bracket | [Swift benchmark utility](../tools/TTSBenchmark/README.md), [design and evidence](TTS_MODEL_BENCHMARK_PLAN.md) |
-| Plan Qwen3-TTS, Chatterbox Turbo and Orpheus support in both apps | [Shared model integration plan](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md) |
+| Review Qwen3-TTS, Chatterbox Turbo and Orpheus integration and validation | [Shared model integration plan](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md) |
 | Understand implemented features and current evidence | [Current status](IMPLEMENTATION_STATUS.md) |
 | Find remaining acceptance and proposed work | [Roadmap](IMPLEMENTATION_PLAN.md) |
 | Perform GUI/listening/account checks | [Operator checklist](OPERATOR_VALIDATION.md) |

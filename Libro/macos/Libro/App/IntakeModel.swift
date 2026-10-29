@@ -7,6 +7,7 @@ import AppKit
 import UniformTypeIdentifiers
 import LibroCore
 import NarrationCore
+import NativeSpeech
 import Darwin
 import AVFoundation
 import AudioOutput
@@ -35,7 +36,8 @@ final class IntakeModel {
     var settings = SpeechSettingsPreference().load() {
         didSet {
             SpeechSettingsPreference().save(settings)
-            if oldValue.model != settings.model || oldValue.voice != settings.voice { voiceSamplePlayer.stop(); refreshReadiness() }
+            if oldValue != settings { pronunciationPreview.stop(); voiceSamplePlayer.stop() }
+            if oldValue.model != settings.model || oldValue.voice != settings.voice { refreshReadiness() }
         }
     }
     var outputFormat = OutputFormatPreference().load() {
@@ -148,7 +150,7 @@ final class IntakeModel {
     let voiceSamplePlayer = AudioPreviewPlayer()
     let pronunciationPreview = PronunciationPreview()
     var pronunciationConfiguration: PronunciationPreviewConfiguration? {
-        guard assetsReady, !setupVerificationFailed, !isGenerating, !isPreparingModel, !hasOwnedProbe, let root = workspace?.url else { return nil }
+        guard assetsReady, !modelStorage.isBusy, !setupVerificationFailed, !isGenerating, !isPreparingModel, !hasOwnedProbe, let root = workspace?.url else { return nil }
         return .init(worker: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), workspace: root, settings: settings, priority: .interactive)
     }
     private var onboarding = SpeechSetupOnboarding()
@@ -190,13 +192,14 @@ final class IntakeModel {
     var hasSelectedAudio: Bool { selectedDocument.map { outcomes[$0.id]?.state == .published } ?? false }
     var canQueueSelectedAgain: Bool { selectedDocument.map { !busy && !activeIDs.contains($0.id) && !retryQueued.contains($0.id) && (outcomes[$0.id] != nil || skippedExisting.contains($0.id)) } ?? false }
     var generationBlocker: GenerationBlocker? {
-        .evaluate(isGenerating: isGenerating, isPreparing: isPreparingModel, busy: busy || debugToolsBusy, planning: planning,
+        .evaluate(isGenerating: isGenerating, isPreparing: isPreparingModel, busy: busy || debugToolsBusy || modelStorage.isBusy, planning: planning,
                   workspaceAvailable: workspace?.url != nil, outputAvailable: output?.url != nil,
                   checkingAssets: checkingAssets, assetsReady: assetsReady && !setupVerificationFailed, queuedCount: candidates.count,
                   plannedCount: planned.count, hasPlanningError: planningError != nil)
     }
     var canGenerate: Bool { generationBlocker == nil }
     var speechSetupDisabledReason: String? {
+        if modelStorage.isBusy { return "Deleting a model." }
         if isGenerating { return "Wait for audio generation to finish before checking or installing a speech model." }
         if isPreparingModel { return "Speech setup is in progress." }
         if checkingAssets { return "Checking local model files." }
@@ -205,6 +208,8 @@ final class IntakeModel {
         return nil
     }
     var canManageSpeechSetup: Bool { speechSetupDisabledReason == nil }
+    let modelStorage = ModelStorageMaintenance()
+    var modelStorageRevision = 0
     var canPrepareModel: Bool { workspace?.url != nil && canManageSpeechSetup }
     var cancellable: Bool { hasCoverWork || pronunciationPreview.hasOwnedWork || droppedFiles.hasOwnedWork || scanner != nil || reader != nil || hasOwnedProbe || isGenerating || isPreparingModel }
     var inputCancelLabel: String { droppedFiles.hasOwnedWork || scanner != nil ? "Cancel Import" : (reader != nil ? "Cancel Analysis" : "Cancel Check") }
@@ -264,7 +269,8 @@ final class IntakeModel {
             Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), inferencePriority: .interactive, pronunciationStore: .init()))
         voices = [settings.voice]
         output = preferences.load(.output)
-        workspace = preferences.load(.workspace)
+        let oldDefault = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Libro/SpeechRuntime")
+        workspace = preferences.loadModelStorage(defaultRoot: NativeModelStorage.defaultRoot, previousDefault: oldDefault)
         if let root = workspace?.url { debugLogURL = DebugLog.existingURL(workspace: root) }
         refreshReadiness()
     }
@@ -284,17 +290,19 @@ final class IntakeModel {
     }
 
     func browse(_ role: DirectoryRole) {
-        guard role != .workspace || (!isPreparingModel && !debugToolsBusy) else { return }
+        guard role != .workspace || canManageSpeechSetup else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false; panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose"
-        panel.message = role == .output ? "Choose where Libro saves audio." : "Choose the Libro workspace containing models."
+        panel.message = role == .output ? "Choose where Libro saves audio." : "Choose a model storage folder."
         panel.begin { [weak self] result in
             guard let self, result == .OK, let url = panel.url else { return }
             do {
+                if role == .workspace { try NativeModelStorage.prepareRoot(url) }
                 let selected = try self.preferences.select(url, role: role)
                 if role == .output { self.output = selected } else {
+                    if url.resolvingSymlinksInPath().path == NativeModelStorage.defaultRoot.path { self.preferences.clear(.workspace) }
                     self.workspace = selected
                     self.debugLogURL = DebugLog.existingURL(workspace: url)
                     self.debugLogStatus = nil
@@ -695,18 +703,39 @@ final class IntakeModel {
 
     func installSpeechRuntime() {
         guard canManageSpeechSetup else { return }
+        if let workspace, workspace.url == nil {
+            preparationStatus = workspace.error ?? "Choose the unavailable model folder again in Settings."
+            setupResult = .failure(preparationStatus)
+            return
+        }
         do {
-            if workspace?.url == nil {
-                let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                    .appendingPathComponent("Libro/SpeechRuntime", isDirectory: true)
-                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-                workspace = try preferences.select(root, role: .workspace)
-            }
+            let root = workspace?.url ?? NativeModelStorage.defaultRoot
+            try NativeModelStorage.prepareRoot(root)
+            if root.resolvingSymlinksInPath().path == NativeModelStorage.defaultRoot.path {
+                preferences.clear(.workspace)
+                workspace = DirectorySelection(displayPath: root.path, url: root, error: nil)
+            } else { workspace = try preferences.select(root, role: .workspace) }
             prepareModel()
-        } catch { preparationStatus = error.localizedDescription }
+        } catch { preparationStatus = error.localizedDescription; setupResult = .failure(preparationStatus) }
+    }
+
+    func useDefaultModelStorage() {
+        guard canManageSpeechSetup else { return }
+        preferences.clear(.workspace)
+        workspace = DirectorySelection(displayPath: NativeModelStorage.defaultRoot.path, url: NativeModelStorage.defaultRoot, error: nil)
+        modelStorageRevision += 1
+        refreshReadiness()
     }
 
     func playVoiceSample() {
+        if settings.voice.hasPrefix("reference:") || settings.effectiveLanguage != "English" {
+            if pronunciationPreview.hasOwnedWork { pronunciationPreview.stop(); return }
+            guard let configuration = pronunciationConfiguration else { status = "Install and check the selected model before playing a live voice preview."; return }
+            stopPlayback()
+            let text = NarrationSampleText.text(language: settings.effectiveLanguage)
+            pronunciationPreview.play(entry: .init(word: text, spelling: text), dictionary: .empty, configuration: configuration)
+            return
+        }
         guard let sample = VoiceSamples.sample(model: settings.model, voice: settings.voice) else { return }
         if voiceSamplePlayer.playingID == sample.id { voiceSamplePlayer.stop(); return }
         stopPlayback()
@@ -762,6 +791,7 @@ final class IntakeModel {
             if log?.writeFailed == true { debugLogStatus = "Debug logging stopped because its file could not be written. Processing was unaffected." }
             ProcessInfo.processInfo.endActivity(activity)
             preparationOperation = UUID(); isPreparingModel = false; preparationTask = nil; preparationScopes = []
+            modelStorageRevision += 1
             preparationProgress = nil
             status = preparationStatus
             announce(preparationStatus)
@@ -794,6 +824,12 @@ final class IntakeModel {
     }
 
     func stopPreparation() async {
+        if let task = readinessTask {
+            let token = readinessOperation
+            task.cancel()
+            _ = try? await task.value
+            if readinessOperation == token { setupResult = .cancelled }
+        }
         preparationTask?.cancel()
         await preparationTask?.value
     }

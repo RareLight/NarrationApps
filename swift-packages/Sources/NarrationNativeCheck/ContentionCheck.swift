@@ -8,6 +8,73 @@ import AudioOutput
 /// Exercises the two packaged helpers without launching either GUI or touching
 /// production queues. Uses the real shared admission lock and synthetic prose.
 enum ContentionCheck {
+    /// Two app helpers share the existing lease, with a large background engine
+    /// reaped before interactive loading. No GUI or production queue is launched.
+    private static func runLarge(_ args: [String]) async throws {
+        let workspace = URL(fileURLWithPath: args[1]), output = URL(fileURLWithPath: args[2])
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let debug = try DebugLog(workspace: output)
+        let offset = (try? Data(contentsOf: debug.url).count) ?? 0
+        func configuration(_ path: String, _ priority: InferencePriority) -> WorkerConfiguration {
+            .init(executable: URL(fileURLWithPath: "/usr/bin/sandbox-exec"), arguments: ["-p", "(version 1)(allow default)(deny network*)", path, "--serve"], debugLog: debug, inferencePriority: priority)
+        }
+        let backgroundSettings = SpeechSettings(model: .orpheus, voice: "leah")
+        let foregroundSettings = SpeechSettings(model: .qwen3, voice: "Ryan")
+        let background = try NativeSpeechSession(configuration: configuration(args[4], .background), workspace: workspace, settings: backgroundSettings)
+        let foreground = try NativeSpeechSession(configuration: configuration(args[0], .interactive), workspace: workspace, settings: foregroundSettings)
+        let text = "A careful reader follows the evidence and pauses before the next chapter."
+        let document = SemanticDocument(blocks: [.init(kind: .paragraph, text: text, origin: .authored)], extractorVersion: "large-contention-1")
+        do {
+            try await background.prepare()
+            try await foreground.prepare()
+            let backgroundPlan = try await background.prepareSpeech(NarrationPlanner.prepareForSpeech(document, settings: backgroundSettings))
+            let foregroundPlan = try await foreground.prepareSpeech(NarrationPlanner.prepareForSpeech(document, settings: foregroundSettings))
+            let measurements = Measurements()
+            var held: InferenceLease? = try await InferenceLease.acquire(priority: .interactive)
+            let backgroundTask = Task {
+                try await background.render(plan: backgroundPlan, destination: output.appendingPathComponent("background.wav"), identity: .init(batch: UUID(), job: UUID()))
+                measurements.finish("background")
+            }
+            let foregroundTask = Task {
+                try await InferenceLease.withPriority(.interactive) {
+                    try await foreground.render(plan: foregroundPlan, destination: output.appendingPathComponent("foreground.wav"), identity: .init(batch: UUID(), job: UUID()))
+                    measurements.finish("foreground")
+                }
+            }
+            do {
+                try await Task.sleep(for: .milliseconds(150))
+                withExtendedLifetime(held) {}; held = nil
+                try await foregroundTask.value; try await backgroundTask.value
+            } catch {
+                held = nil; foregroundTask.cancel(); backgroundTask.cancel()
+                _ = await foregroundTask.result; _ = await backgroundTask.result
+                throw error
+            }
+            guard measurements.order == ["foreground", "background"] else { throw SpeechFailure(.protocolViolation) }
+            // Cancellation while queued must not recreate a helper or publish audio.
+            held = try await InferenceLease.acquire(priority: .interactive)
+            let cancelled = output.appendingPathComponent("cancelled.wav")
+            let task = Task { try await background.render(plan: backgroundPlan, destination: cancelled, identity: .init(batch: UUID(), job: UUID())) }
+            try await Task.sleep(for: .milliseconds(100)); task.cancel()
+            let result = await task.result
+            withExtendedLifetime(held) {}; held = nil
+            guard case .failure(let error) = result, error is CancellationError,
+                  !FileManager.default.fileExists(atPath: cancelled.path) else { throw SpeechFailure(.protocolViolation) }
+            await background.close(); await foreground.close()
+            let data = try Data(contentsOf: debug.url)
+            let lines = String(decoding: data.dropFirst(offset), as: UTF8.self).components(separatedBy: "\n")
+            var resident = 0, maximum = 0, starts = 0
+            for line in lines {
+                if line.contains("started pid=") { resident += 1; starts += 1; maximum = max(maximum, resident) }
+                if line.contains("stopped pid=") { resident -= 1 }
+                guard (0...1).contains(resident) else { throw SpeechFailure(.protocolViolation) }
+            }
+            guard resident == 0, starts == 4 else { throw SpeechFailure(.protocolViolation) }
+            for name in ["foreground.wav", "background.wav"] { _ = try NativeAudio.inspect(output.appendingPathComponent(name)) }
+            try JSONSerialization.data(withJSONObject: ["version": 1, "offline": true, "backgroundModel": "orpheus", "foregroundModel": "qwen3", "completionOrder": measurements.order, "maximumResidentHelpers": maximum, "helpersStartedAndReaped": starts, "waitingCancellationReaped": true, "libroWorkerSHA256": try NativeG2P.sha256(URL(fileURLWithPath: args[0])), "voiceRelayWorkerSHA256": try NativeG2P.sha256(URL(fileURLWithPath: args[4]))], options: [.prettyPrinted, .sortedKeys]).write(to: output.appendingPathComponent("contention.json"), options: .atomic)
+            print("PASS large-model contention: interactive Qwen before background Orpheus; no overlapping helpers; waiting cancellation published nothing.")
+        } catch { await background.close(); await foreground.close(); throw error }
+    }
     private final class Measurements: @unchecked Sendable {
         let lock = NSLock()
         var order: [String] = []
@@ -21,6 +88,7 @@ enum ContentionCheck {
     }
     static func run() async throws {
         let args = Array(CommandLine.arguments.dropFirst())
+        if args.count == 6, args[5] == "large" { try await runLarge(args); return }
         guard args.count == 5 else { throw SpeechFailure(.invalidInput) }
         let workspace = try NativeWorkspace(root: URL(fileURLWithPath: args[1]))
         let output = URL(fileURLWithPath: args[2]); try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)

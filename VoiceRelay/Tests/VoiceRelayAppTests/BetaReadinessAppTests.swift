@@ -255,13 +255,16 @@ private final class RuntimeInstallationProbe: @unchecked Sendable {
     let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
         runtimeSetup: { install, _ in #expect(install); try probe.install() },
         runtimeInstalled: { _ in probe.available })
+    model.runtimeProject = root.appendingPathComponent("custom-models")
+    let selectedStorage = model.runtimeProject
     model.sourceReview.plist = URL(fileURLWithPath: "/synthetic/Bookmarks.plist")
     #expect(model.runtimeSetupNeededAtLaunch && !model.speechRuntimeAvailable)
-    #expect(model.appHealth == .needsSetup("Set up speech", .general))
-    #expect(model.appHealth.symbol == "arrow.down.circle" && model.appHealth.settingsSection == .general)
+    #expect(model.appHealth == .needsSetup("Set up speech", .voiceModel))
+    #expect(model.appHealth.symbol == "arrow.down.circle" && model.appHealth.settingsSection == .voiceModel)
     #expect(!model.canGenerateAudio && probe.calls == 0 && !model.runtimeBusy)
-    // Rendering and declining the window do not install; the General action remains available.
+    // Rendering and declining the window do not install; the main Download action remains available.
     _ = SpeechRuntimeOnboardingView(model: model).body
+    _ = VoiceModelSettingsView(model: model).body
     #expect(probe.calls == 0 && model.canManageSpeechRuntime)
     model.installSpeechRuntime(); model.installSpeechRuntime()
     await model.waitForRuntimeSetup()
@@ -271,7 +274,8 @@ private final class RuntimeInstallationProbe: @unchecked Sendable {
     #expect(model.canManageSpeechRuntime && !model.speechRuntimeAvailable)
     model.installSpeechRuntime(); await model.waitForRuntimeSetup()
     #expect(probe.calls == 3 && model.runtimeTestResult == .success && model.speechRuntimeAvailable)
-    #expect(defaults.string(forKey: "runtimeProject") == NativeSpeechSetup.managedRoot.path)
+    #expect(model.runtimeProject == selectedStorage)
+    #expect(defaults.string(forKey: "runtimeProject") == selectedStorage.path)
     let installed = AppModel(storage: betaAppStorage(root, "installed"), defaults: defaults,
         runtimeSetup: { _, _ in Issue.record("Installed startup must not download") },
         runtimeInstalled: { _ in probe.available })
@@ -318,5 +322,21 @@ private final class RuntimeInstallationProbe: @unchecked Sendable {
     guard case .failure(let installation) = model.runtimeTestResult else { Issue.record("Install should fail"); return }
     #expect(installation.contains("internet connection"))
     #expect(!FileManager.default.fileExists(atPath: root.path))
+    await model.shutdown()
+}
+
+@Test @MainActor func modelInstallationKeepsDefaultCacheImplicitAndCustomOverrideExplicit() async throws {
+    let suite = "voicerelay-cache-choice-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let root = URL(fileURLWithPath: "/synthetic/cache-choice")
+    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
+        runtimeSetup: { _, _ in }, runtimeInstalled: { _ in true })
+    model.runtimeProject = NativeSpeechSetup.managedRoot
+    model.installSpeechRuntime(); await model.waitForRuntimeSetup()
+    #expect(model.runtimeTestResult == .success)
+    #expect(defaults.string(forKey: "runtimeProject") == nil)
+    model.runtimeProject = root
+    model.installSpeechRuntime(); await model.waitForRuntimeSetup()
+    #expect(defaults.string(forKey: "runtimeProject") == root.path)
     await model.shutdown()
 }

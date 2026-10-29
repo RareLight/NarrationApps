@@ -1,1743 +1,2592 @@
 {
-  "inputText" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-  "plannerVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1",
-  "pronunciationRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-  "samples" : [
+  "inputText": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+  "plannerVersion": "native-narration-1/unicode-chunks-1/image-captions-1",
+  "pronunciationRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+  "samples": [
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-af_alloy",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Alloy",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-af_alloy",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Alloy",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "7172824e37b664c21499f82d9e8793d5afadbd2ccb45efdc3b0f8c5b31b441b7",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "7172824e37b664c21499f82d9e8793d5afadbd2ccb45efdc3b0f8c5b31b441b7",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "af_alloy"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "af_alloy"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "7172824e37b664c21499f82d9e8793d5afadbd2ccb45efdc3b0f8c5b31b441b7",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "1d3eeb0b8c1ba8e1b03bbbfd398f7ec068d2dc7ea936a4dd45fd4806e355a6fc",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "7172824e37b664c21499f82d9e8793d5afadbd2ccb45efdc3b0f8c5b31b441b7",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "1d3eeb0b8c1ba8e1b03bbbfd398f7ec068d2dc7ea936a4dd45fd4806e355a6fc",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "57b2856babb89b57a6941c8274b54858a5e2f77f370b4a56988b0dd8e223439d",
-      "speed" : 1,
-      "voice" : "af_alloy"
+      "sampleRate": 24000,
+      "sha256": "57b2856babb89b57a6941c8274b54858a5e2f77f370b4a56988b0dd8e223439d",
+      "speed": 1,
+      "voice": "af_alloy"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-af_aoede",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Aoede",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-af_aoede",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Aoede",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "61bed8c3c9530bfb260da836b7c7237b38711cc5c22c0a9ae88fc6e211ca2d39",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "61bed8c3c9530bfb260da836b7c7237b38711cc5c22c0a9ae88fc6e211ca2d39",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "af_aoede"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "af_aoede"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "61bed8c3c9530bfb260da836b7c7237b38711cc5c22c0a9ae88fc6e211ca2d39",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "690a31095a6bba90c7c1bf0d9da4cc73134ab35fa89d765236e79f92e5de8a0c",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "61bed8c3c9530bfb260da836b7c7237b38711cc5c22c0a9ae88fc6e211ca2d39",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "690a31095a6bba90c7c1bf0d9da4cc73134ab35fa89d765236e79f92e5de8a0c",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "388f0bc380312ac14e890f74639b482bfd23a451dbb2a59472511196980e39d8",
-      "speed" : 1,
-      "voice" : "af_aoede"
+      "sampleRate": 24000,
+      "sha256": "388f0bc380312ac14e890f74639b482bfd23a451dbb2a59472511196980e39d8",
+      "speed": 1,
+      "voice": "af_aoede"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-af_bella",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Bella",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-af_bella",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Bella",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "440b3bf1fd4abfa08921fc1315801af92d8495a65a9f15e6f8882b196e6a9400",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "440b3bf1fd4abfa08921fc1315801af92d8495a65a9f15e6f8882b196e6a9400",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "af_bella"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "af_bella"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "440b3bf1fd4abfa08921fc1315801af92d8495a65a9f15e6f8882b196e6a9400",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "6fa8ab9eef156ad9bce6e306b1f155c9c251ec32583cc89a76cae21aa6df5738",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "440b3bf1fd4abfa08921fc1315801af92d8495a65a9f15e6f8882b196e6a9400",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "6fa8ab9eef156ad9bce6e306b1f155c9c251ec32583cc89a76cae21aa6df5738",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "5e78134e10d3a46d5d79d0e1f2f37671082c253e77261fac3a0d05295deaabdb",
-      "speed" : 1,
-      "voice" : "af_bella"
+      "sampleRate": 24000,
+      "sha256": "5e78134e10d3a46d5d79d0e1f2f37671082c253e77261fac3a0d05295deaabdb",
+      "speed": 1,
+      "voice": "af_bella"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-af_heart",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Heart",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-af_heart",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Heart",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "d677cbc15c0e45b4daacf37db1ac714c8d6665fbcff4460693d33c89cd9a1942",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "d677cbc15c0e45b4daacf37db1ac714c8d6665fbcff4460693d33c89cd9a1942",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "af_heart"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "af_heart"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "d677cbc15c0e45b4daacf37db1ac714c8d6665fbcff4460693d33c89cd9a1942",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "763d2448b71628046458417365762c085a90b985a18de7a48c97800528b26af9",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "d677cbc15c0e45b4daacf37db1ac714c8d6665fbcff4460693d33c89cd9a1942",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "763d2448b71628046458417365762c085a90b985a18de7a48c97800528b26af9",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "2e32ca1b7c11441df9e231d712a338c681eaac8b761327aa9f89bc8eb8ba5e29",
-      "speed" : 1,
-      "voice" : "af_heart"
+      "sampleRate": 24000,
+      "sha256": "2e32ca1b7c11441df9e231d712a338c681eaac8b761327aa9f89bc8eb8ba5e29",
+      "speed": 1,
+      "voice": "af_heart"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-af_jessica",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Jessica",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-af_jessica",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Jessica",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "ae5246eead885ba66be55830746fd3aba67e60586d97a6de8bc0effddbfd19b7",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "ae5246eead885ba66be55830746fd3aba67e60586d97a6de8bc0effddbfd19b7",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "af_jessica"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "af_jessica"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "ae5246eead885ba66be55830746fd3aba67e60586d97a6de8bc0effddbfd19b7",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "cd97e40f05995aa2f5e27d5e609f63fb70f569ac3669a1208113c3c41a26c2e4",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "ae5246eead885ba66be55830746fd3aba67e60586d97a6de8bc0effddbfd19b7",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "cd97e40f05995aa2f5e27d5e609f63fb70f569ac3669a1208113c3c41a26c2e4",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "70c400bf1453876e2b4b8aa3ba8c6885b1240866f9c104d8d147dd82d14ae045",
-      "speed" : 1,
-      "voice" : "af_jessica"
+      "sampleRate": 24000,
+      "sha256": "70c400bf1453876e2b4b8aa3ba8c6885b1240866f9c104d8d147dd82d14ae045",
+      "speed": 1,
+      "voice": "af_jessica"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-af_kore",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Kore",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-af_kore",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Kore",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "918a75ff4948b7fed989b256ad758a348fee2f402bd285f33117071a8fbc1fe9",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "918a75ff4948b7fed989b256ad758a348fee2f402bd285f33117071a8fbc1fe9",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "af_kore"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "af_kore"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "918a75ff4948b7fed989b256ad758a348fee2f402bd285f33117071a8fbc1fe9",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "a95cff4a43de2858366cbe979be644b645b33efdd9ddf3c45aaa476baadb75ea",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "918a75ff4948b7fed989b256ad758a348fee2f402bd285f33117071a8fbc1fe9",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "a95cff4a43de2858366cbe979be644b645b33efdd9ddf3c45aaa476baadb75ea",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "44f4984d93c9551b63cefff25c1138be493773ab4bc9f90c48816360b7192608",
-      "speed" : 1,
-      "voice" : "af_kore"
+      "sampleRate": 24000,
+      "sha256": "44f4984d93c9551b63cefff25c1138be493773ab4bc9f90c48816360b7192608",
+      "speed": 1,
+      "voice": "af_kore"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-af_nicole",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Nicole",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-af_nicole",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Nicole",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "788dbbcdd8a7a71e38f617f07367ac04634d149ba880f6d1d3a42d1e528f3216",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "788dbbcdd8a7a71e38f617f07367ac04634d149ba880f6d1d3a42d1e528f3216",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "af_nicole"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "af_nicole"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "788dbbcdd8a7a71e38f617f07367ac04634d149ba880f6d1d3a42d1e528f3216",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "7cd882f84d8f9c09083de8d409628cae323156c0dc826dcd100448d303bd896e",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "788dbbcdd8a7a71e38f617f07367ac04634d149ba880f6d1d3a42d1e528f3216",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "7cd882f84d8f9c09083de8d409628cae323156c0dc826dcd100448d303bd896e",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "71d322404f7a308d0eb6e43459fc51987a04931bdfed642e14523a7273dd1f64",
-      "speed" : 1,
-      "voice" : "af_nicole"
+      "sampleRate": 24000,
+      "sha256": "71d322404f7a308d0eb6e43459fc51987a04931bdfed642e14523a7273dd1f64",
+      "speed": 1,
+      "voice": "af_nicole"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-af_nova",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Nova",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-af_nova",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Nova",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "81e9bd92c60ff289b040f25e9a3de9e7352cad5e2e9621343474e72b8d3770d6",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "81e9bd92c60ff289b040f25e9a3de9e7352cad5e2e9621343474e72b8d3770d6",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "af_nova"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "af_nova"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "81e9bd92c60ff289b040f25e9a3de9e7352cad5e2e9621343474e72b8d3770d6",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "02fdab3b136519dd6cfd851b87346b949e152458bed512e916bff049c02603ee",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "81e9bd92c60ff289b040f25e9a3de9e7352cad5e2e9621343474e72b8d3770d6",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "02fdab3b136519dd6cfd851b87346b949e152458bed512e916bff049c02603ee",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "17ad7d044549fe34ce637c08cb4160f06db352dcdbdac324aaf1e0b2ff4e59f1",
-      "speed" : 1,
-      "voice" : "af_nova"
+      "sampleRate": 24000,
+      "sha256": "17ad7d044549fe34ce637c08cb4160f06db352dcdbdac324aaf1e0b2ff4e59f1",
+      "speed": 1,
+      "voice": "af_nova"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-af_river",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "River",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-af_river",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "River",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "01e24948e58884ebdfa084dfd42fae44f92a47e501a25c3316a537e656cb1f16",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "01e24948e58884ebdfa084dfd42fae44f92a47e501a25c3316a537e656cb1f16",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "af_river"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "af_river"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "01e24948e58884ebdfa084dfd42fae44f92a47e501a25c3316a537e656cb1f16",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "0ea781df451319fe4d187e6c49312190180439640fa7a174a1f07965559b6d2d",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "01e24948e58884ebdfa084dfd42fae44f92a47e501a25c3316a537e656cb1f16",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "0ea781df451319fe4d187e6c49312190180439640fa7a174a1f07965559b6d2d",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "4e84feedd1935e83c1af61c185263d171becf61ed338c8b73749a8cbcbab76a1",
-      "speed" : 1,
-      "voice" : "af_river"
+      "sampleRate": 24000,
+      "sha256": "4e84feedd1935e83c1af61c185263d171becf61ed338c8b73749a8cbcbab76a1",
+      "speed": 1,
+      "voice": "af_river"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-af_sarah",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Sarah",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-af_sarah",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Sarah",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "8428bf6d57d668c9381bfda9c85dfa65df673b79dfb01d12556fc4c380df7115",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "8428bf6d57d668c9381bfda9c85dfa65df673b79dfb01d12556fc4c380df7115",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "af_sarah"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "af_sarah"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "8428bf6d57d668c9381bfda9c85dfa65df673b79dfb01d12556fc4c380df7115",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "d74b673582648a5f8ef01a9e58b437d00860ea5015c65063d9c6b39fdf1676b0",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "8428bf6d57d668c9381bfda9c85dfa65df673b79dfb01d12556fc4c380df7115",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "d74b673582648a5f8ef01a9e58b437d00860ea5015c65063d9c6b39fdf1676b0",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "63b3566f33af43fbc2eaa53d6eea8723026dd861027911b7e1a38c4b605100d3",
-      "speed" : 1,
-      "voice" : "af_sarah"
+      "sampleRate": 24000,
+      "sha256": "63b3566f33af43fbc2eaa53d6eea8723026dd861027911b7e1a38c4b605100d3",
+      "speed": 1,
+      "voice": "af_sarah"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-af_sky",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Sky",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-af_sky",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Sky",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "030e0d8dd2ed7f16b151050c16b5745779fd16018bdf2863510b450d264cda4f",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "030e0d8dd2ed7f16b151050c16b5745779fd16018bdf2863510b450d264cda4f",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "af_sky"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "af_sky"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "030e0d8dd2ed7f16b151050c16b5745779fd16018bdf2863510b450d264cda4f",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "8237a1f21bdf0e3c0045f150e07ad3d13d879d92d1fe8f574f20556c1f447f1e",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "030e0d8dd2ed7f16b151050c16b5745779fd16018bdf2863510b450d264cda4f",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "8237a1f21bdf0e3c0045f150e07ad3d13d879d92d1fe8f574f20556c1f447f1e",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "d8422b5b1e053e7caa3e9cb328e3ca50fc683dbb8f88fca4eb2e513083f90241",
-      "speed" : 1,
-      "voice" : "af_sky"
+      "sampleRate": 24000,
+      "sha256": "d8422b5b1e053e7caa3e9cb328e3ca50fc683dbb8f88fca4eb2e513083f90241",
+      "speed": 1,
+      "voice": "af_sky"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-am_adam",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Adam",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-am_adam",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Adam",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "71103192c6182dadb4e528682cff715f5f4fc869948a9f584421e96630ec0022",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "71103192c6182dadb4e528682cff715f5f4fc869948a9f584421e96630ec0022",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "am_adam"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "am_adam"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "71103192c6182dadb4e528682cff715f5f4fc869948a9f584421e96630ec0022",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "83f73d9f20ac29664ae3cb7c79a67d3edcee60ee2a2917cdac9f2a453de272b2",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "71103192c6182dadb4e528682cff715f5f4fc869948a9f584421e96630ec0022",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "83f73d9f20ac29664ae3cb7c79a67d3edcee60ee2a2917cdac9f2a453de272b2",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "aebfa6b26b464eb05432d1d2b40f6de0a7839dfc12a4115b6c9aa3447d6083e9",
-      "speed" : 1,
-      "voice" : "am_adam"
+      "sampleRate": 24000,
+      "sha256": "aebfa6b26b464eb05432d1d2b40f6de0a7839dfc12a4115b6c9aa3447d6083e9",
+      "speed": 1,
+      "voice": "am_adam"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-am_echo",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Echo",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-am_echo",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Echo",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "ca6795550d06a369a200721c170beac32e14108cae1b644a6559b191ee48274f",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "ca6795550d06a369a200721c170beac32e14108cae1b644a6559b191ee48274f",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "am_echo"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "am_echo"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "ca6795550d06a369a200721c170beac32e14108cae1b644a6559b191ee48274f",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "47b7b34b2696c11f129694ac6ec021b7fdeff554050077f4e4fcaae8123b8238",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "ca6795550d06a369a200721c170beac32e14108cae1b644a6559b191ee48274f",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "47b7b34b2696c11f129694ac6ec021b7fdeff554050077f4e4fcaae8123b8238",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "e9cb5426c812c1d2983f8ab3ed484cb7f55d03dea5af337cfd0f1ae984d9ef6d",
-      "speed" : 1,
-      "voice" : "am_echo"
+      "sampleRate": 24000,
+      "sha256": "e9cb5426c812c1d2983f8ab3ed484cb7f55d03dea5af337cfd0f1ae984d9ef6d",
+      "speed": 1,
+      "voice": "am_echo"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-am_eric",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Eric",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-am_eric",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Eric",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "4728e8731756d577ac0017a4f9d6f98ce4a0cf9a9a444cc6da1992c1374412b7",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "4728e8731756d577ac0017a4f9d6f98ce4a0cf9a9a444cc6da1992c1374412b7",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "am_eric"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "am_eric"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "4728e8731756d577ac0017a4f9d6f98ce4a0cf9a9a444cc6da1992c1374412b7",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "073cf8e77c2bb28afe96126f4d6518a2cfcc47f50df3a307eb4bb32e03ddb43e",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "4728e8731756d577ac0017a4f9d6f98ce4a0cf9a9a444cc6da1992c1374412b7",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "073cf8e77c2bb28afe96126f4d6518a2cfcc47f50df3a307eb4bb32e03ddb43e",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "bf1f40c099235b5e44548ec2100921dc3eeef9ec2919d3456f96040421fefd6d",
-      "speed" : 1,
-      "voice" : "am_eric"
+      "sampleRate": 24000,
+      "sha256": "bf1f40c099235b5e44548ec2100921dc3eeef9ec2919d3456f96040421fefd6d",
+      "speed": 1,
+      "voice": "am_eric"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-am_fenrir",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Fenrir",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-am_fenrir",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Fenrir",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "2edb17ea37fbd478515960554df37f6009d13242242b785f9d7c7ac065100748",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "2edb17ea37fbd478515960554df37f6009d13242242b785f9d7c7ac065100748",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "am_fenrir"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "am_fenrir"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "2edb17ea37fbd478515960554df37f6009d13242242b785f9d7c7ac065100748",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "d6a657d0ab0cdd6b39eb991676bf0320f9cfb96b732a72baf7b84e63f0e09893",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "2edb17ea37fbd478515960554df37f6009d13242242b785f9d7c7ac065100748",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "d6a657d0ab0cdd6b39eb991676bf0320f9cfb96b732a72baf7b84e63f0e09893",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "9de6c5f11e2c8152d2dbb2fade0865bc4a090d368a9b12e11a8e611ab1424f30",
-      "speed" : 1,
-      "voice" : "am_fenrir"
+      "sampleRate": 24000,
+      "sha256": "9de6c5f11e2c8152d2dbb2fade0865bc4a090d368a9b12e11a8e611ab1424f30",
+      "speed": 1,
+      "voice": "am_fenrir"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-am_liam",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Liam",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-am_liam",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Liam",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "42cecbe0164aed5c981fa9595579f32ebe83effe66680fb80dd8517df54c51f1",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "42cecbe0164aed5c981fa9595579f32ebe83effe66680fb80dd8517df54c51f1",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "am_liam"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "am_liam"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "42cecbe0164aed5c981fa9595579f32ebe83effe66680fb80dd8517df54c51f1",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "e6435b3d4016e8b0fac7e2f55da798c679e745461514d14167d07d0649506b10",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "42cecbe0164aed5c981fa9595579f32ebe83effe66680fb80dd8517df54c51f1",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "e6435b3d4016e8b0fac7e2f55da798c679e745461514d14167d07d0649506b10",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "1f4683295c48fc448b964aa2f6620fe1e0f3a3953c8af35d0920a2de67c25c77",
-      "speed" : 1,
-      "voice" : "am_liam"
+      "sampleRate": 24000,
+      "sha256": "1f4683295c48fc448b964aa2f6620fe1e0f3a3953c8af35d0920a2de67c25c77",
+      "speed": 1,
+      "voice": "am_liam"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-am_michael",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Michael",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-am_michael",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Michael",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "dc2a72fb17a15bdbe946db2eadc798efde5dd2b447e50b7862b6ac5a044230e0",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "dc2a72fb17a15bdbe946db2eadc798efde5dd2b447e50b7862b6ac5a044230e0",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "am_michael"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "am_michael"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "dc2a72fb17a15bdbe946db2eadc798efde5dd2b447e50b7862b6ac5a044230e0",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "f23c649c8e9b3eba5ad3d0a92944e6903c8ce30863d48a99a2028b7678a76a88",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "dc2a72fb17a15bdbe946db2eadc798efde5dd2b447e50b7862b6ac5a044230e0",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "f23c649c8e9b3eba5ad3d0a92944e6903c8ce30863d48a99a2028b7678a76a88",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "eb05edb8a78f0ade7a3c2aac4fe6e4dd39bcc6f2920c18090b4ce5b42ed9802a",
-      "speed" : 1,
-      "voice" : "am_michael"
+      "sampleRate": 24000,
+      "sha256": "eb05edb8a78f0ade7a3c2aac4fe6e4dd39bcc6f2920c18090b4ce5b42ed9802a",
+      "speed": 1,
+      "voice": "am_michael"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-am_onyx",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Onyx",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-am_onyx",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Onyx",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "38d6083bcd5f36ecb4768e33be870397e3d60fbab8145836f10e1a129f311a43",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "38d6083bcd5f36ecb4768e33be870397e3d60fbab8145836f10e1a129f311a43",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "am_onyx"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "am_onyx"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "38d6083bcd5f36ecb4768e33be870397e3d60fbab8145836f10e1a129f311a43",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "ee65e673af4353a37d87101735841af17086f2fffcea79a64d4e03cbc289a568",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "38d6083bcd5f36ecb4768e33be870397e3d60fbab8145836f10e1a129f311a43",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "ee65e673af4353a37d87101735841af17086f2fffcea79a64d4e03cbc289a568",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "722b0a5738ac2fb4caf4d392e67246a3a7d1d5eb9d49e172a0db887b905e4a10",
-      "speed" : 1,
-      "voice" : "am_onyx"
+      "sampleRate": 24000,
+      "sha256": "722b0a5738ac2fb4caf4d392e67246a3a7d1d5eb9d49e172a0db887b905e4a10",
+      "speed": 1,
+      "voice": "am_onyx"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-am_puck",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Puck",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-am_puck",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Puck",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "dad96fb9d8d6962df46152499520ac2cd3ed8063b79e3521f207c11fb82c78a1",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "dad96fb9d8d6962df46152499520ac2cd3ed8063b79e3521f207c11fb82c78a1",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "am_puck"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "am_puck"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "dad96fb9d8d6962df46152499520ac2cd3ed8063b79e3521f207c11fb82c78a1",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "da0b7a9d2848b470198bb43bed3fd8492d344b2182d4270d786baa1695037d52",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "dad96fb9d8d6962df46152499520ac2cd3ed8063b79e3521f207c11fb82c78a1",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "da0b7a9d2848b470198bb43bed3fd8492d344b2182d4270d786baa1695037d52",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "aca1e8a4cea16f3e9140dafa911967440009e95ff52815407810863299842c32",
-      "speed" : 1,
-      "voice" : "am_puck"
+      "sampleRate": 24000,
+      "sha256": "aca1e8a4cea16f3e9140dafa911967440009e95ff52815407810863299842c32",
+      "speed": 1,
+      "voice": "am_puck"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-am_santa",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Santa",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-am_santa",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Santa",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "86690c5b41c191e1c89c0002ba65c51ce1fd7fb60cbc6bce8afecbcec2c9c033",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-US",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "9c692b92682d959d9013a9cfe6a49541997add18",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "86690c5b41c191e1c89c0002ba65c51ce1fd7fb60cbc6bce8afecbcec2c9c033",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-US",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "9c692b92682d959d9013a9cfe6a49541997add18",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "am_santa"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "am_santa"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "86690c5b41c191e1c89c0002ba65c51ce1fd7fb60cbc6bce8afecbcec2c9c033",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "8db4e0f2fcfc45bec978078efe76630df8f76a398c0abe92db341145c69c28ef",
-            "phonemes" : "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "86690c5b41c191e1c89c0002ba65c51ce1fd7fb60cbc6bce8afecbcec2c9c033",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "8db4e0f2fcfc45bec978078efe76630df8f76a398c0abe92db341145c69c28ef",
+            "phonemes": "həlˈO, ˌI kæn nˈɛɹˌAt ˈɛvəɹiθˌɪŋ fɹʌm ʃˈɔɹt ˈɑɹTəkᵊlz tʊ əntˈIəɹ ˈibˌɑks. lˈɛts ɡɛt stˈɑɹTᵻd ˌɔn ɐ nˈu ɹˈid təɡˈɛðəɹ!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 117
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 117
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "59c8222c402389b62694f3fd3af77c3d4547d87b04bcc1d5087d765e33bd1f8f",
-      "speed" : 1,
-      "voice" : "am_santa"
+      "sampleRate": 24000,
+      "sha256": "59c8222c402389b62694f3fd3af77c3d4547d87b04bcc1d5087d765e33bd1f8f",
+      "speed": 1,
+      "voice": "am_santa"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-bf_alice",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Alice",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-bf_alice",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Alice",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "cb7d30c39bc8bd5b74cb43c93eb2c02307c4de7aff3f8e4ef5830806dbd67248",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-GB",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "cb7d30c39bc8bd5b74cb43c93eb2c02307c4de7aff3f8e4ef5830806dbd67248",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-GB",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "bf_alice"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "bf_alice"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "cb7d30c39bc8bd5b74cb43c93eb2c02307c4de7aff3f8e4ef5830806dbd67248",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "cdbcf55a9bedbcfcd9edfeb815e155f2b521b4ee8175bb98ae1e0deb519a4232",
-            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "cb7d30c39bc8bd5b74cb43c93eb2c02307c4de7aff3f8e4ef5830806dbd67248",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "cdbcf55a9bedbcfcd9edfeb815e155f2b521b4ee8175bb98ae1e0deb519a4232",
+            "phonemes": "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 114
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 114
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "ac82a7c94716def0fe6526f72ded9840085cf741dd3425c6f2a18e7377b3c30c",
-      "speed" : 1,
-      "voice" : "bf_alice"
+      "sampleRate": 24000,
+      "sha256": "ac82a7c94716def0fe6526f72ded9840085cf741dd3425c6f2a18e7377b3c30c",
+      "speed": 1,
+      "voice": "bf_alice"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-bf_emma",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Emma",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-bf_emma",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Emma",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "74fbf01fe0922fe1519df83074b7300f05a5d6b3e2955a77cae0393ccc9faaed",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-GB",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "74fbf01fe0922fe1519df83074b7300f05a5d6b3e2955a77cae0393ccc9faaed",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-GB",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "bf_emma"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "bf_emma"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "74fbf01fe0922fe1519df83074b7300f05a5d6b3e2955a77cae0393ccc9faaed",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "9d47a53d71dd63413cbd451b347e2be594e88cf1e04fab25ffcf103af174838a",
-            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "74fbf01fe0922fe1519df83074b7300f05a5d6b3e2955a77cae0393ccc9faaed",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "9d47a53d71dd63413cbd451b347e2be594e88cf1e04fab25ffcf103af174838a",
+            "phonemes": "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 114
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 114
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "6d8bf758cc5b51468bdba77f7b74c24fd34bd6b066772a4fd00f37d11b5cff67",
-      "speed" : 1,
-      "voice" : "bf_emma"
+      "sampleRate": 24000,
+      "sha256": "6d8bf758cc5b51468bdba77f7b74c24fd34bd6b066772a4fd00f37d11b5cff67",
+      "speed": 1,
+      "voice": "bf_emma"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-bf_isabella",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Isabella",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-bf_isabella",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Isabella",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "b65f94873bb65e07ca1cb0780526a8f93832bedf6991800d1d72c68e057f952d",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-GB",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "b65f94873bb65e07ca1cb0780526a8f93832bedf6991800d1d72c68e057f952d",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-GB",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "bf_isabella"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "bf_isabella"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "b65f94873bb65e07ca1cb0780526a8f93832bedf6991800d1d72c68e057f952d",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "068269d2ca09b47c7bfb2ecd9abb1ccb59b1bc623aa220d3216ef7ba6efd66b1",
-            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "b65f94873bb65e07ca1cb0780526a8f93832bedf6991800d1d72c68e057f952d",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "068269d2ca09b47c7bfb2ecd9abb1ccb59b1bc623aa220d3216ef7ba6efd66b1",
+            "phonemes": "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 114
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 114
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "d71b73769faf071d7384bb1487d94967ee25ddb76bfb56b56c88cea0489af1f3",
-      "speed" : 1,
-      "voice" : "bf_isabella"
+      "sampleRate": 24000,
+      "sha256": "d71b73769faf071d7384bb1487d94967ee25ddb76bfb56b56c88cea0489af1f3",
+      "speed": 1,
+      "voice": "bf_isabella"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-bf_lily",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Lily",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-bf_lily",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Lily",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "a40fc3b98f2307ad7bb5cfeb14e788eb14d42960b62dc4e9c6f2f37f5043012e",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-GB",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "a40fc3b98f2307ad7bb5cfeb14e788eb14d42960b62dc4e9c6f2f37f5043012e",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-GB",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "bf_lily"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "bf_lily"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "a40fc3b98f2307ad7bb5cfeb14e788eb14d42960b62dc4e9c6f2f37f5043012e",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "3d6bcc7f485c4d0b008c56421b90dfd0824c6cbbf9de34ac60d8fae591231c95",
-            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "a40fc3b98f2307ad7bb5cfeb14e788eb14d42960b62dc4e9c6f2f37f5043012e",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "3d6bcc7f485c4d0b008c56421b90dfd0824c6cbbf9de34ac60d8fae591231c95",
+            "phonemes": "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 114
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 114
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "01c29f2e870a4d818037453030eab8cde171cf24da4248f96a3a17cb1805d3b4",
-      "speed" : 1,
-      "voice" : "bf_lily"
+      "sampleRate": 24000,
+      "sha256": "01c29f2e870a4d818037453030eab8cde171cf24da4248f96a3a17cb1805d3b4",
+      "speed": 1,
+      "voice": "bf_lily"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-bm_daniel",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Daniel",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-bm_daniel",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Daniel",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "85441a077baf6c525f4ce681e68bc35a547a0c8d32e029a2fc388ba49a3867cf",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-GB",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "85441a077baf6c525f4ce681e68bc35a547a0c8d32e029a2fc388ba49a3867cf",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-GB",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "bm_daniel"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "bm_daniel"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "85441a077baf6c525f4ce681e68bc35a547a0c8d32e029a2fc388ba49a3867cf",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "508351079358018b8682e808bb3c7371c3cad0a22befded2a85f365c57236485",
-            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "85441a077baf6c525f4ce681e68bc35a547a0c8d32e029a2fc388ba49a3867cf",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "508351079358018b8682e808bb3c7371c3cad0a22befded2a85f365c57236485",
+            "phonemes": "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 114
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 114
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "c0a47dc8bd39a7a7817eb8fe2b29a11f04fa4d2ebf991dd3df8536e7ebf7aa84",
-      "speed" : 1,
-      "voice" : "bm_daniel"
+      "sampleRate": 24000,
+      "sha256": "c0a47dc8bd39a7a7817eb8fe2b29a11f04fa4d2ebf991dd3df8536e7ebf7aa84",
+      "speed": 1,
+      "voice": "bm_daniel"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-bm_fable",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Fable",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-bm_fable",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Fable",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "54176e897c0d12896524d4b2296c0d132d91c13a786e69389efa8e92540dadd6",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-GB",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "54176e897c0d12896524d4b2296c0d132d91c13a786e69389efa8e92540dadd6",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-GB",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "bm_fable"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "bm_fable"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "54176e897c0d12896524d4b2296c0d132d91c13a786e69389efa8e92540dadd6",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "8c9931e0cf84356b7838ba4f9cd744d696bfb176113f4561022bec7273e014be",
-            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "54176e897c0d12896524d4b2296c0d132d91c13a786e69389efa8e92540dadd6",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "8c9931e0cf84356b7838ba4f9cd744d696bfb176113f4561022bec7273e014be",
+            "phonemes": "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 114
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 114
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "bb23b5d2b738ea4ee56fc6d484e730a7f9857feb72ceec8a82a230c4bdea09a3",
-      "speed" : 1,
-      "voice" : "bm_fable"
+      "sampleRate": 24000,
+      "sha256": "bb23b5d2b738ea4ee56fc6d484e730a7f9857feb72ceec8a82a230c4bdea09a3",
+      "speed": 1,
+      "voice": "bm_fable"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-bm_george",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "George",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-bm_george",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "George",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "76f8c44d8a290a49c44b4343a3f5a71802cc284bdc893cd97fd51e5d7de0f3cf",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-GB",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "76f8c44d8a290a49c44b4343a3f5a71802cc284bdc893cd97fd51e5d7de0f3cf",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-GB",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "bm_george"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "bm_george"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "76f8c44d8a290a49c44b4343a3f5a71802cc284bdc893cd97fd51e5d7de0f3cf",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "fc5d6c7b72d8ee91bc9d59ac49a246d95b10d1c69368690ed324705c01f2f00e",
-            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "76f8c44d8a290a49c44b4343a3f5a71802cc284bdc893cd97fd51e5d7de0f3cf",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "fc5d6c7b72d8ee91bc9d59ac49a246d95b10d1c69368690ed324705c01f2f00e",
+            "phonemes": "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 114
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 114
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "cb11910ef85b925fa0a8052deeb5b42e796ea75b1ea4e50ac3890830727423d4",
-      "speed" : 1,
-      "voice" : "bm_george"
+      "sampleRate": 24000,
+      "sha256": "cb11910ef85b925fa0a8052deeb5b42e796ea75b1ea4e50ac3890830727423d4",
+      "speed": 1,
+      "voice": "bm_george"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "kokoro-bm_lewis",
-      "model" : "kokoro",
-      "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-      "name" : "Lewis",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "kokoro-bm_lewis",
+      "model": "kokoro",
+      "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "name": "Lewis",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "c5338960090303465442a404f1882073b3c6e1c656eb89b1e98d6aee9d79ead3",
-        "notices" : [
-
-        ],
-        "policy" : "phoneme-200-pauses-candidate-1",
-        "provenance" : {
-          "assembly" : "structural-exact-zero-candidate-1",
-          "frontend" : "misaki-aligned-2\/numeric-dots-1\/foundation-numbers-1\/currency-tags-1\/strict-vocab-1",
-          "locale" : "en-GB",
-          "modelRevision" : "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
-          "packing" : "phoneme-200-candidate-1",
-          "resourceRevision" : "b7477b15fc46cf8e20b32c008126611b38ec6b79",
-          "styleSelection" : "length-minus-one-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "c5338960090303465442a404f1882073b3c6e1c656eb89b1e98d6aee9d79ead3",
+        "notices": [],
+        "policy": "phoneme-200-pauses-candidate-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "misaki-aligned-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1",
+          "locale": "en-GB",
+          "modelRevision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+          "packing": "phoneme-200-candidate-1",
+          "resourceRevision": "b7477b15fc46cf8e20b32c008126611b38ec6b79",
+          "styleSelection": "length-minus-one-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1\/spoken-projection-1",
-        "settings" : {
-          "model" : "kokoro",
-          "speed" : 1,
-          "voice" : "bm_lewis"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/spoken-projection-1",
+        "settings": {
+          "model": "kokoro",
+          "speed": 1,
+          "voice": "bm_lewis"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "c5338960090303465442a404f1882073b3c6e1c656eb89b1e98d6aee9d79ead3",
-            "boundaryAfter" : "paragraph",
-            "fingerprint" : "6509a155424669ad223d24f127b364c90f68c49c46a8e222b7b3e91c679302cb",
-            "phonemes" : "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "c5338960090303465442a404f1882073b3c6e1c656eb89b1e98d6aee9d79ead3",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "6509a155424669ad223d24f127b364c90f68c49c46a8e222b7b3e91c679302cb",
+            "phonemes": "həlˈQ, ˌI kan nəɹˈAt ˈɛvɹɪθɪŋ fɹɒm ʃˈɔːt ˈɑːtɪkᵊlz tʊ ɪntˈIə ɪbˈʊks. lˈɛts ɡɛt stˈɑːtɪd ˌɒn ɐ njˈuː ɹˈiːd təɡˈɛðə!",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0,
-              "origin" : "authored",
-              "pronunciationApplications" : [
-
-              ]
+              "length": 111,
+              "location": 0,
+              "origin": "authored",
+              "pronunciationApplications": []
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 114
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 114
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "21adffb68d863aef6c5fe92fe5a73535d4142fdf11d013903d1fb49b0355b46f",
-      "speed" : 1,
-      "voice" : "bm_lewis"
+      "sampleRate": 24000,
+      "sha256": "21adffb68d863aef6c5fe92fe5a73535d4142fdf11d013903d1fb49b0355b46f",
+      "speed": 1,
+      "voice": "bm_lewis"
     },
     {
-      "bitRate" : 64000,
-      "codec" : "AAC-LC",
-      "id" : "soprano-soprano",
-      "model" : "soprano",
-      "modelRevision" : "745350c27f356c3910eebcb49e29760dcf6a643c",
-      "name" : "Soprano",
-      "narrationChunks" : [
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "soprano-soprano",
+      "model": "soprano",
+      "modelRevision": "745350c27f356c3910eebcb49e29760dcf6a643c",
+      "name": "Soprano",
+      "narrationChunks": [
         "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
       ],
-      "phrase" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-      "preparedSpeech" : {
-        "acousticIdentity" : "f02d4522d2b865c7f72f5378a0285c44f318c0310a27e63106e13c48f331502d",
-        "notices" : [
-
-        ],
-        "policy" : "legacy-character-1",
-        "provenance" : {
-          "assembly" : "legacy-unchanged-pcm-1",
-          "frontend" : "soprano-text-1",
-          "locale" : "en",
-          "modelRevision" : "745350c27f356c3910eebcb49e29760dcf6a643c",
-          "packing" : "legacy-character-1",
-          "resourceRevision" : "745350c27f356c3910eebcb49e29760dcf6a643c",
-          "styleSelection" : "soprano-native-1"
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "f02d4522d2b865c7f72f5378a0285c44f318c0310a27e63106e13c48f331502d",
+        "notices": [],
+        "policy": "legacy-character-1",
+        "provenance": {
+          "assembly": "legacy-unchanged-pcm-1",
+          "frontend": "soprano-text-1",
+          "locale": "en",
+          "modelRevision": "745350c27f356c3910eebcb49e29760dcf6a643c",
+          "packing": "legacy-character-1",
+          "resourceRevision": "745350c27f356c3910eebcb49e29760dcf6a643c",
+          "styleSelection": "soprano-native-1"
         },
-        "semanticVersion" : "native-narration-1\/unicode-chunks-1\/image-captions-1",
-        "settings" : {
-          "model" : "soprano",
-          "speed" : 1,
-          "voice" : "soprano"
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1",
+        "settings": {
+          "model": "soprano",
+          "speed": 1,
+          "voice": "soprano"
         },
-        "utterances" : [
+        "utterances": [
           {
-            "acousticIdentity" : "f02d4522d2b865c7f72f5378a0285c44f318c0310a27e63106e13c48f331502d",
-            "boundaryAfter" : "continuation",
-            "fingerprint" : "d6af456d3e530b448dc4f928429113b79832ac7265f5dde19c63deabe46eb415",
-            "source" : {
-              "blockIndices" : [
+            "acousticIdentity": "f02d4522d2b865c7f72f5378a0285c44f318c0310a27e63106e13c48f331502d",
+            "boundaryAfter": "continuation",
+            "fingerprint": "d6af456d3e530b448dc4f928429113b79832ac7265f5dde19c63deabe46eb415",
+            "source": {
+              "blockIndices": [
                 0
               ],
-              "length" : 111,
-              "location" : 0
+              "length": 111,
+              "location": 0
             },
-            "text" : "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
-            "tokenCount" : 0
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
           }
         ],
-        "version" : 1
+        "version": 1
       },
-      "sampleRate" : 24000,
-      "sha256" : "4e59e1b0fed866d8c123eccf8a082ddd528bd2d22c4503596310e0db511d14b0",
-      "speed" : 1,
-      "voice" : "soprano"
+      "sampleRate": 24000,
+      "sha256": "4e59e1b0fed866d8c123eccf8a082ddd528bd2d22c4503596310e0db511d14b0",
+      "speed": 1,
+      "voice": "soprano"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "qwen3-Ryan",
+      "model": "qwen3",
+      "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+      "name": "Ryan",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "f4ab21aff299074709b386ab5cc64a4fc78d7ab8a455af0e858ee65605e8d9aa",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+          "resources": "",
+          "variant": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "qwen3",
+          "speed": 1,
+          "voice": "Ryan"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "f4ab21aff299074709b386ab5cc64a4fc78d7ab8a455af0e858ee65605e8d9aa",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "c6ed07c61a33f7aff953da14ed227d4a09340e289f8aa92dd4a4a1964871bd2d",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "4a27b1a6455e5f0d33c17b0e60cfeba67da3280df07dfacfe0829ec3d297e091",
+      "speed": 1,
+      "voice": "Ryan"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "qwen3-Aiden",
+      "model": "qwen3",
+      "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+      "name": "Aiden",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "7fe9199acbff31cb8217e17be2073a19c75e7cd7e247318000c8a09626136dbe",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+          "resources": "",
+          "variant": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "qwen3",
+          "speed": 1,
+          "voice": "Aiden"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "7fe9199acbff31cb8217e17be2073a19c75e7cd7e247318000c8a09626136dbe",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "39322a2daf468297735095c8be118b72366a6792698cd78e97166419ecc8b1ae",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "bfd5434b18ec18052a879c52c4ea3278b7b732c0df07bbaa254bd0b47bac2314",
+      "speed": 1,
+      "voice": "Aiden"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "qwen3-Vivian",
+      "model": "qwen3",
+      "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+      "name": "Vivian",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "0fae9448072f2dc6f095664375ef11e3288c35437d7e59446d36cae943743e63",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+          "resources": "",
+          "variant": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "qwen3",
+          "speed": 1,
+          "voice": "Vivian"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "0fae9448072f2dc6f095664375ef11e3288c35437d7e59446d36cae943743e63",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "efd3f5fff38820102ef2af7e2aeca18848537d0707a4c1139cdac19a00c5a711",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "c9e5b304a65af4c63e3d93a091b8b6643af2791f2f619244917ea8052ac5877f",
+      "speed": 1,
+      "voice": "Vivian"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "qwen3-Serena",
+      "model": "qwen3",
+      "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+      "name": "Serena",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "f181ecc671dc2f1fe763c9182403e3f97630aa706fa238d4923ab504632ba716",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+          "resources": "",
+          "variant": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "qwen3",
+          "speed": 1,
+          "voice": "Serena"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "f181ecc671dc2f1fe763c9182403e3f97630aa706fa238d4923ab504632ba716",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "1c2e0db73385cbe6d42dc44dc113c7f41cb617492abaafe032caf1939dc3eeb8",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "98e4aff53f96504250c371028a2097ff78a358d6cba72710945c69a0b5c4d9d3",
+      "speed": 1,
+      "voice": "Serena"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "qwen3-Uncle_Fu",
+      "model": "qwen3",
+      "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+      "name": "Uncle_Fu",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "5322921c812a1876f51024d4c80fabf18ba0496d32f630c9f639c6d7f52d6916",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+          "resources": "",
+          "variant": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "qwen3",
+          "speed": 1,
+          "voice": "Uncle_Fu"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "5322921c812a1876f51024d4c80fabf18ba0496d32f630c9f639c6d7f52d6916",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "81d92c271a2b41a005170e5d106c41820c7c310aefc650e63f0341a76759cdda",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "af0442c4ffd0cacfcde5c8c9713c1417074f4857d1408adc88b7d127b773c85a",
+      "speed": 1,
+      "voice": "Uncle_Fu"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "qwen3-Dylan",
+      "model": "qwen3",
+      "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+      "name": "Dylan",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "d40bb04c1359ca9a7e87fc2e42d6e1f7985d3d4106c3886b46b198d3dace6691",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+          "resources": "",
+          "variant": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "qwen3",
+          "speed": 1,
+          "voice": "Dylan"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "d40bb04c1359ca9a7e87fc2e42d6e1f7985d3d4106c3886b46b198d3dace6691",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "88f085e66102977a6f11bd47b7a318a494ffa8652877c7d91e5167b7bcfb1e85",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "defccc447663a225f7b180a4b64031e5cbb33491cfa8bc4fc07bfc2596f8abd0",
+      "speed": 1,
+      "voice": "Dylan"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "qwen3-Eric",
+      "model": "qwen3",
+      "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+      "name": "Eric",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "0882f30e2c040b1d2bbce47dfc02d978268483cd4e98f5776a5f1f3786d3f7cb",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+          "resources": "",
+          "variant": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "qwen3",
+          "speed": 1,
+          "voice": "Eric"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "0882f30e2c040b1d2bbce47dfc02d978268483cd4e98f5776a5f1f3786d3f7cb",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "0ff1e06d63dddcc4f101bf186b0f059dede1960e17ba96d47d1489036f5d3c59",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "e3a5fb973762b22baec14aa884cd03aa3fdee70bc3a5745a9f6d8fbaa4788fd4",
+      "speed": 1,
+      "voice": "Eric"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "qwen3-Ono_Anna",
+      "model": "qwen3",
+      "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+      "name": "Ono_Anna",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "222484deaa87f2b281471de0a7035998aa759e82713e49513d204aad49302357",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+          "resources": "",
+          "variant": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "qwen3",
+          "speed": 1,
+          "voice": "Ono_Anna"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "222484deaa87f2b281471de0a7035998aa759e82713e49513d204aad49302357",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "79eb2502fa8e01bc7f19cc063d7bdd6d11fc8f8094d888c355d03e0d8304036f",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "2d2131d37493d8647c9c3c147d42083f7627c1743416b66a97eff6440ac69222",
+      "speed": 1,
+      "voice": "Ono_Anna"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "qwen3-Sohee",
+      "model": "qwen3",
+      "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+      "name": "Sohee",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "c28d02f43713a3be4eb20865b26e8aad52e0f5cb7b6498fc04970873e902f4f0",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+          "resources": "",
+          "variant": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "qwen3",
+          "speed": 1,
+          "voice": "Sohee"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "c28d02f43713a3be4eb20865b26e8aad52e0f5cb7b6498fc04970873e902f4f0",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "965cb61a52bc2238f0e3ca7573f441c058447f76fbe9b53633f5d493c8dc9be4",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "20502b84a3c7312a68fe3d4d967fc2f179a31718f8392cd82f0c4150c540bd55",
+      "speed": 1,
+      "voice": "Sohee"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "chatterbox-default",
+      "model": "chatterbox",
+      "modelRevision": "b2d0a13aa7cfff0a06d9acb247ae91c8f19a6d75",
+      "name": "Default",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "70e80fd6c911b12dc5f0c0b6f533ba33b4bcc100775d47936fa94bdb6ad41b6f",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "b2d0a13aa7cfff0a06d9acb247ae91c8f19a6d75",
+          "pcmPolicy": "raw-vocoder-no-gain-or-fade-1",
+          "resources": "e0c9886f0e1c35ae85b1f27277416fb19fc72bec",
+          "variant": "mlx-community/chatterbox-turbo-fp16"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "chatterbox",
+          "speed": 1,
+          "voice": "default"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "70e80fd6c911b12dc5f0c0b6f533ba33b4bcc100775d47936fa94bdb6ad41b6f",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "79f4e485dddc39b3411e3b4a308a004789dc03df87fb55d2ba48fa47018b00af",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "d668a0ecbc1edaf7bd78bb7cd3211cee4530cc44d5d4aea52e624c55d7502260",
+      "speed": 1,
+      "voice": "default"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "orpheus-tara",
+      "model": "orpheus",
+      "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+      "name": "Tara",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "580066204c0abf77d2c1e43a62e601e14bda3e638382d0d7e0ba55f1e1a722d6",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+          "pcmPolicy": "native-pcm-1",
+          "resources": "556af1cd3b1c5f2d294f6aa9bb886245d7b716ac",
+          "variant": "mlx-community/orpheus-3b-0.1-ft-bf16"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "orpheus",
+          "speed": 1,
+          "voice": "tara"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "580066204c0abf77d2c1e43a62e601e14bda3e638382d0d7e0ba55f1e1a722d6",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "2caea41f5a050c7fbfdb9bb7192aaa6da130e9ac89f79007b0a14664e23ea193",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "9f8f8307f3ccad6ea5d4c1cd7c77c516ebf8dfc2ca01939af84b26c805b54e0a",
+      "speed": 1,
+      "voice": "tara"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "orpheus-leah",
+      "model": "orpheus",
+      "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+      "name": "Leah",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "f5023897a78eadae64630cfe2d079442a2b290ec9e412fa96710a403cabb57b2",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+          "pcmPolicy": "native-pcm-1",
+          "resources": "556af1cd3b1c5f2d294f6aa9bb886245d7b716ac",
+          "variant": "mlx-community/orpheus-3b-0.1-ft-bf16"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "orpheus",
+          "speed": 1,
+          "voice": "leah"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "f5023897a78eadae64630cfe2d079442a2b290ec9e412fa96710a403cabb57b2",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "4829bbd64d6cbd3e694c4c315617add8604ab78dc9a02e5214db78a680a75a4a",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "eeacd85f5629b34f7ff0cf519abb4d8364973f820097984a52e2cb2bed3a91bb",
+      "speed": 1,
+      "voice": "leah"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "orpheus-jess",
+      "model": "orpheus",
+      "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+      "name": "Jess",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "e3cee322bbdbbaf732664a310e3fb6d0169cd547b593a42546c3590c4ff800fc",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+          "pcmPolicy": "native-pcm-1",
+          "resources": "556af1cd3b1c5f2d294f6aa9bb886245d7b716ac",
+          "variant": "mlx-community/orpheus-3b-0.1-ft-bf16"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "orpheus",
+          "speed": 1,
+          "voice": "jess"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "e3cee322bbdbbaf732664a310e3fb6d0169cd547b593a42546c3590c4ff800fc",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "974a3239c5d969304583a92dc618c568400e3e478e203e0b073605275a7dc2d6",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "0fe80b29944cd9a15fce7f01381383d54ce98bab294a0dfede66bb99bcbe0b0e",
+      "speed": 1,
+      "voice": "jess"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "orpheus-leo",
+      "model": "orpheus",
+      "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+      "name": "Leo",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "9c8e931a95e20a83a1e1ca061773c472c73c880721e9eca8f4e555c8fad1587b",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+          "pcmPolicy": "native-pcm-1",
+          "resources": "556af1cd3b1c5f2d294f6aa9bb886245d7b716ac",
+          "variant": "mlx-community/orpheus-3b-0.1-ft-bf16"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "orpheus",
+          "speed": 1,
+          "voice": "leo"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "9c8e931a95e20a83a1e1ca061773c472c73c880721e9eca8f4e555c8fad1587b",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "242327c964b6daf311715660140bab19d196e193a15ec1267340a6e695898255",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "af508be61ad83d4006974480acd7f5d50f4f2fea825a5c46074be1e834c402fb",
+      "speed": 1,
+      "voice": "leo"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "orpheus-dan",
+      "model": "orpheus",
+      "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+      "name": "Dan",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "8ddfb8c69b191b33eb7de13527da7a68d26d0d6c6d374177907d2ccc50115a05",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+          "pcmPolicy": "native-pcm-1",
+          "resources": "556af1cd3b1c5f2d294f6aa9bb886245d7b716ac",
+          "variant": "mlx-community/orpheus-3b-0.1-ft-bf16"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "orpheus",
+          "speed": 1,
+          "voice": "dan"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "8ddfb8c69b191b33eb7de13527da7a68d26d0d6c6d374177907d2ccc50115a05",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "9d0fb9953beb8f4ac5b6d4be81879025e93802af53de4f509e34042a4780046e",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "6cc4a6d235f43e2c509ff375c183b6f5bff9db6e28eb59b75598cdd4c39b6f83",
+      "speed": 1,
+      "voice": "dan"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "orpheus-mia",
+      "model": "orpheus",
+      "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+      "name": "Mia",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "0bf33d9409ea7628dfacd6ca9712a55c661cbb7e0158e06a51cde236c303b1ce",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+          "pcmPolicy": "native-pcm-1",
+          "resources": "556af1cd3b1c5f2d294f6aa9bb886245d7b716ac",
+          "variant": "mlx-community/orpheus-3b-0.1-ft-bf16"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "orpheus",
+          "speed": 1,
+          "voice": "mia"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "0bf33d9409ea7628dfacd6ca9712a55c661cbb7e0158e06a51cde236c303b1ce",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "5fb784c0026570aff848ea86b71894a4ff9b1d6c8b8e8c506dc559c2e1ac26ba",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "c0b6470150c9c92979adbe7d18f9d5ec2f3102431c228fbb76c69d3ba41d073e",
+      "speed": 1,
+      "voice": "mia"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "orpheus-zac",
+      "model": "orpheus",
+      "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+      "name": "Zac",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "55f673dc3f82da1b79e79cd9345e6febbf4de4950d7240db17e31162d36e05d9",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+          "pcmPolicy": "native-pcm-1",
+          "resources": "556af1cd3b1c5f2d294f6aa9bb886245d7b716ac",
+          "variant": "mlx-community/orpheus-3b-0.1-ft-bf16"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "orpheus",
+          "speed": 1,
+          "voice": "zac"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "55f673dc3f82da1b79e79cd9345e6febbf4de4950d7240db17e31162d36e05d9",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "5dbac2857f2d01dc576632c43c80743dc8b7f03e7834863a1e186281d88f5c7f",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "d66f3bb89ca16d220bf124964757904e871efff6351326984db52eef16d00615",
+      "speed": 1,
+      "voice": "zac"
+    },
+    {
+      "bitRate": 64000,
+      "codec": "AAC-LC",
+      "id": "orpheus-zoe",
+      "model": "orpheus",
+      "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+      "name": "Zoe",
+      "narrationChunks": [
+        "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!"
+      ],
+      "phrase": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+      "preparedSpeech": {
+        "acousticIdentity": "177f5295532e012e08725b1346d7a2b4db355215079e9e7b5c602af56a8bb399",
+        "notices": [],
+        "policy": "native-text-1",
+        "provenance": {
+          "assembly": "structural-exact-zero-candidate-1",
+          "frontend": "native-text-1",
+          "locale": "English",
+          "modelRevision": "3786aac51797181edddeb0d89a8253deaee99aab",
+          "pcmPolicy": "native-pcm-1",
+          "resources": "556af1cd3b1c5f2d294f6aa9bb886245d7b716ac",
+          "variant": "mlx-community/orpheus-3b-0.1-ft-bf16"
+        },
+        "semanticVersion": "native-narration-1/unicode-chunks-1/image-captions-1/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2/notes-current/aux-included/spoken-projection-1",
+        "settings": {
+          "model": "orpheus",
+          "speed": 1,
+          "voice": "zoe"
+        },
+        "utterances": [
+          {
+            "acousticIdentity": "177f5295532e012e08725b1346d7a2b4db355215079e9e7b5c602af56a8bb399",
+            "boundaryAfter": "paragraph",
+            "fingerprint": "65b95fec4324cf77e1db2620e04c3f87aaebe6280f70882504c2d5c05cc65ac9",
+            "source": {
+              "blockIndices": [
+                0
+              ],
+              "length": 111,
+              "location": 0,
+              "origin": "authored"
+            },
+            "text": "Hello, I can narrate everything from short articles to entire ebooks. Let's get started on a new read together!",
+            "tokenCount": 0
+          }
+        ],
+        "version": 1
+      },
+      "sampleRate": 24000,
+      "sha256": "fb21e6abd52f811b379921536695c6202de84aaf56eab00e57bc851ba26692f3",
+      "speed": 1,
+      "voice": "zoe"
     }
   ],
-  "version" : 3
+  "version": 3
 }

@@ -17,10 +17,12 @@ public actor NativeSpeechSession {
     private let configuration: WorkerConfiguration
     private let workspace: NativeWorkspace
     private let settings: SpeechSettings
+    private let referenceStore: ReferenceVoiceStore
     private let policy: SpeechPreparationPolicy
     private let leaseFile: URL
     private let identity: AttemptIdentity
     private var worker: SpeechWorkerProcess?
+    private var storageLease: ModelStorageLease?
     private var spool: URL?
     private var lease: InferenceLease?
     private var nextChunk = 0
@@ -29,12 +31,21 @@ public actor NativeSpeechSession {
     private var closed = false
 
     public init(configuration: WorkerConfiguration, workspace: URL, settings: SpeechSettings,
-                leaseFile: URL = InferenceLease.defaultFile, policy: SpeechPreparationPolicy? = nil, identity: AttemptIdentity = .init(batch: UUID(), job: UUID())) throws {
+                leaseFile: URL = InferenceLease.defaultFile, policy: SpeechPreparationPolicy? = nil, identity: AttemptIdentity = .init(batch: UUID(), job: UUID()), referenceStore: ReferenceVoiceStore = .init()) throws {
         self.identity = identity
-        self.configuration = configuration
+        self.referenceStore = referenceStore
+        var selected = configuration
+        if settings.model.isLarge {
+            guard settings.isValid else { throw SpeechFailure(.invalidInput) }
+            guard SpeechMemoryPolicy.canLoad(settings.model) else { throw SpeechFailure(.memoryLimit) }
+            if selected.maximumFootprintBytes == SpeechMemoryPolicy.workerFootprintLimitBytes { selected.maximumFootprintBytes = SpeechMemoryPolicy.footprintLimit(for: settings.model) }
+            if selected.requestTimeout == .seconds(180) { selected.requestTimeout = .seconds(900) }
+        }
+        self.configuration = selected
         self.workspace = try NativeWorkspace(root: workspace)
-        self.settings = settings
-        self.policy = settings.model == .soprano ? .legacy : (policy ?? configuration.preparationPolicy)
+        var captured = settings; captured.savedChoices = nil
+        self.settings = captured
+        self.policy = settings.model.isLarge ? .nativeText : settings.model == .soprano ? .legacy : (policy ?? configuration.preparationPolicy)
         self.leaseFile = leaseFile
     }
 
@@ -45,6 +56,7 @@ public actor NativeSpeechSession {
         busy = true
         defer { busy = false; lease = nil }
         do {
+            storageLease = try ModelStorageLease(workspace: workspace)
             let acquired = try await InferenceLease.acquire(at: leaseFile, priority: configuration.inferencePriority)
             guard !closed else { throw CancellationError() }
             lease = acquired
@@ -53,12 +65,17 @@ public actor NativeSpeechSession {
             let staging = try workspace.managed(parent.appendingPathComponent("attempt-\(identity.attempt.uuidString)"))
             guard mkdir(staging.path, 0o700) == 0 else { throw SpeechFailure(.storage) }
             spool = staging
+            if settings.model == .chatterbox, ReferenceVoiceStore.isIdentifier(settings.voice) {
+                try referenceStore.bytes(for: settings.voice).write(to: staging.appendingPathComponent("reference.wav"), options: [.withoutOverwriting])
+            }
             let owned = try SpeechWorkerProcess(configuration: configuration, identity: identity)
             worker = owned
             _ = try await owned.request(.init(kind: .initialize, identity: identity, workspace: workspace.root,
                                              settings: settings, spoolDirectory: staging, policy: policy))
             guard !closed else { throw CancellationError() }
             ready = true
+            if settings.model.isLarge { await releaseLargeWorker() }
+            guard !closed else { throw CancellationError() }
         } catch {
             await close()
             throw error
@@ -76,7 +93,7 @@ public actor NativeSpeechSession {
         if !policy.usesPreparedPhonemes {
             let values = try projection.chunks.map { chunk in
                 let utterance = PreparedUtterance(text: chunk.text, phonemes: nil, tokenCount: 0,
-                    source: .init(blockIndices: chunk.blockIndices, location: 0, length: chunk.text.utf16.count, origin: chunk.origin),
+                    source: .init(blockIndices: chunk.blockIndices, location: 0, length: chunk.text.utf16.count, origin: chunk.origin, sourceMappings: chunk.sourceMappings),
                     boundaryAfter: chunk.boundaryAfter ?? .continuation, acousticIdentity: acousticIdentity)
                 try utterance.validate(identity: acousticIdentity, prepared: false)
                 return utterance
@@ -230,9 +247,23 @@ public actor NativeSpeechSession {
             }
     }
 
+    private func releaseLargeWorker() async {
+        // Keep the worker visible during the await so concurrent close calls
+        // join this same reap before removing scratch or releasing admission.
+        let owned = worker
+        await owned?.stop()
+        worker = nil
+    }
+
     private func generateSamples(text: String) async throws -> [Float] {
         try Task.checkCancellation()
-        guard !closed, let worker, let spool else { throw CancellationError() }
+        guard !closed, let spool else { throw CancellationError() }
+        if settings.model.isLarge, worker == nil {
+            let owned = try SpeechWorkerProcess(configuration: configuration, identity: identity)
+            worker = owned
+            _ = try await owned.request(.init(kind: .initialize, identity: identity, workspace: workspace.root, settings: settings, spoolDirectory: spool, policy: policy))
+        }
+        guard let worker else { throw CancellationError() }
         let index = nextChunk
         nextChunk += 1
         let event = try await worker.request(.init(kind: .generate, identity: identity, chunk: index, text: text))
@@ -240,6 +271,9 @@ public actor NativeSpeechSession {
         guard !closed else { throw CancellationError() }
         let samples = try WorkerPCM.read(event, index: index, spool: spool, model: settings.model)
         try FileManager.default.removeItem(at: SpeechIPC.chunkFile(in: spool, index: index))
+        if settings.model.isLarge { await releaseLargeWorker() }
+        try Task.checkCancellation()
+        guard !closed else { throw CancellationError() }
         return samples
     }
 
@@ -252,5 +286,6 @@ public actor NativeSpeechSession {
         if let spool { try? FileManager.default.removeItem(at: spool) }
         spool = nil
         lease = nil
+        storageLease = nil
     }
 }

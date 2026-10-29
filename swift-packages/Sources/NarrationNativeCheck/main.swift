@@ -14,6 +14,7 @@ struct NativeCheck {
         do {
             if CommandLine.arguments.dropFirst().dropFirst(3).first == "prepare" { try await prepare() }
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "contention" { try await ContentionCheck.run() }
+            else if CommandLine.arguments.dropFirst().dropFirst(3).first == "models" { try await ExpandedModelCheck.run() }
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "catalog" { try await CatalogCheck.run() }
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "frontend" { try await FrontendCheck.run() }
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "pdf-word-joins" { try await PDFWordJoinCheck.run() }
@@ -129,7 +130,7 @@ struct NativeCheck {
         let coordinator = QueueCoordinator(configuration: configuration)
         let debugLog = ProcessInfo.processInfo.environment["NARRATION_CHECK_DEBUG_LOG"] == "1" ? try DebugLog(workspace: workspace.root) : nil
         var results: [[String: Any]] = []
-        for model in SpeechModel.allCases {
+        for model in [SpeechModel.kokoro, .soprano] {
             let settings = SpeechSettings(model: model)
             let plan = try BatchPlanner.plan([input], output: output, names: [input.id: "\(model.rawValue).\(outputFormat.rawValue)"], format: outputFormat)
             let request = BatchRequest(documents: plan, outputDirectory: output, workspace: workspace.root,
@@ -191,7 +192,7 @@ struct NativeCheck {
         defer { try? FileManager.default.removeItem(at: stage) }
         let text = "Dr. Smith paid $12.50 for three books. NASA will read them at 3 p.m. Hello, Anna! Libro makes local narration."
         var results: [[String: Any]] = []
-        for model in SpeechModel.allCases {
+        for model in [SpeechModel.kokoro, .soprano] {
             let settings = SpeechSettings(model: model)
             let request: [String: Any] = [
                 "workspace": workspace.root.absoluteString,

@@ -23,9 +23,10 @@ private func deliveryStorage(root: URL) throws -> ManagedSpeechStorage {
                                 temporaryRoot: root.appendingPathComponent("scratch"))
 }
 
-private func deliveryReview(_ path: String = "one", host: String = "articles.example") throws -> ReviewedSource {
+private func deliveryReview(_ path: String = "one", host: String = "articles.example", title: String? = nil) throws -> ReviewedSource {
     let url = URL(string: "https://\(host)/\(path)")!
-    let html = String(decoding: try FixtureResource.html(), as: UTF8.self)
+    var html = String(decoding: try FixtureResource.html(), as: UTF8.self)
+    if let title { html = html.replacingOccurrences(of: "A &amp; B: Reading &lt;Carefully&gt;", with: RSS.escaped(title)) }
     let page = FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
                            contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
     return try ReviewedSource.prepare(page, chunkLimit: 1800)
@@ -165,7 +166,7 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     // Generate in the opposite order to the dates saved in Reading List.
     var results: [FixtureResult] = []
     for entry in [newest, oldest] {
-        let review = try deliveryReview(entry.id)
+        let review = try deliveryReview(entry.id, title: entry.title)
         let item = try await coordinator.enqueueReadingList(entry.id, storage: storage, preferences: SpeechPreferences(),
                                                             fetch: { _ in review.page })
         let queued = try #require(await coordinator.library(storage: storage).first { $0.id == item.id })
@@ -2270,4 +2271,78 @@ func retirementKeepsTranscriptOnlyFailureVisibleUntilRetryCompletes(transcriptFi
     #expect(retry.remoteDeletes == 1)
     #expect(try await !coordinator.savedAudio(storage: storage).contains { $0.id == generated.episode.id })
     #expect(try DeliveryLedger.load(stateRoot: storage.stateRoot).pendingRemoteDeletes.isEmpty)
+}
+
+@Test(arguments: ["none", "media", "firstFeed", "replacementFeed", "delete"], [false, true])
+func duplicateReplacementKeepsOldServerAudioUntilNewFeedIsConfirmed(failure: String, sameURL: Bool) async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()
+    let review = try deliveryReview("duplicate")
+    let oldEntry = ReadingListEntry(id: "old-save", safariID: "old-save", url: review.page.originalURL,
+        title: review.document!.article.title, addedAt: Date(timeIntervalSinceReferenceDate: 1))
+    _ = try await coordinator.reconcile(.init(entries: [oldEntry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let oldItem = try await coordinator.enqueueReadingList(oldEntry.id, storage: storage, preferences: .init(voice: .emma),
+        fetch: { _ in review.page }, describeImages: false)
+    let old = try await coordinator.runQueued(oldItem.id, storage: storage, backend: { _ in DeliveryTestBackend() }, delivery: settings)
+    let transport = FakeWebDAVTransport(), credential = FakeCredentials(password: "synthetic-only")
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credential, transport: transport)
+    let feedPath = settings.feedFolderURL!.appendingPathComponent("feed.xml").path
+    let oldPath = "/" + settings.remoteMediaPath(oldItem.id)
+    #expect(transport.objectLength(oldPath) == Int(old.episode.info!.byteLength))
+    let oldTranscript = try #require(old.episode.transcript)
+    let oldTranscriptPath = "/" + oldTranscript.remotePath(id: oldItem.id, settings: settings)
+    #expect(transport.objectLength(oldTranscriptPath) != nil)
+    let newReview = sameURL ? review : try deliveryReview("duplicate-new", title: oldEntry.title)
+    let newEntry = ReadingListEntry(id: "new-save", safariID: "new-save", url: newReview.page.originalURL,
+        title: oldEntry.title, addedAt: Date(timeIntervalSinceReferenceDate: 2))
+    _ = try await coordinator.reconcile(.init(entries: [oldEntry, newEntry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let newItem = try await coordinator.enqueueReadingList(newEntry.id, storage: storage, preferences: .init(voice: .bella, speed: 1.2),
+        fetch: { _ in newReview.page }, describeImages: false)
+    let replacement = try await coordinator.runQueued(newItem.id, storage: storage, backend: { _ in DeliveryTestBackend() }, delivery: settings)
+    #expect(replacement.episode.id == newItem.id && newItem.id != oldItem.id)
+    #expect(replacement.episode.settings.voice == "af_bella")
+    let newPath = "/" + settings.remoteMediaPath(newItem.id)
+    var feedPuts = 0
+    transport.statusFor = { method, path in
+        if method == "PUT" && path == feedPath {
+            feedPuts += 1
+            if (failure == "firstFeed" && feedPuts == 1) || (failure == "replacementFeed" && feedPuts == 2) { return 503 }
+        }
+        if failure == "media" && method == "PUT" && path == newPath { return 503 }
+        if failure == "delete" && method == "DELETE" && path == oldPath { return 503 }
+        return nil
+    }
+    let start = transport.recordedCalls.count
+    _ = try await coordinator.deliverPending(storage: storage, settings: settings, credential: credential, transport: transport, force: true)
+    let calls = Array(transport.recordedCalls.dropFirst(start))
+    let finalFeed = String(decoding: transport.body(feedPath)!, as: UTF8.self)
+    if failure == "none" {
+        #expect(transport.objectLength(oldPath) == nil)
+        #expect(transport.objectLength(oldTranscriptPath) == nil)
+        #expect(finalFeed.contains(newItem.id) && !finalFeed.contains(oldItem.id))
+        let deleted = try #require(calls.firstIndex { $0.method == "DELETE" && $0.path == oldPath })
+        #expect(calls[..<deleted].filter { $0.method == "PUT" && $0.path == feedPath }.count == 2)
+    } else {
+        #expect(transport.objectLength(oldPath) != nil)
+        if failure == "media" || failure == "firstFeed" {
+            #expect(finalFeed.contains(oldItem.id))
+            #expect(transport.objectLength(oldTranscriptPath) != nil)
+            #expect(!calls.contains { $0.method == "DELETE" && $0.path == oldPath })
+            #expect(try await coordinator.library(storage: storage).first { $0.id == oldItem.id }?.stage == .published)
+        }
+        if failure == "replacementFeed" { #expect(finalFeed.contains(oldItem.id) && finalFeed.contains(newItem.id)) }
+        transport.statusFor = nil
+        // Relaunch and force reconciliation: superseded URL slots cannot steal the
+        // successor's identity/settings, and expired copies cannot be resurrected.
+        _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings, credential: credential,
+            transport: transport, force: true, reconcileNow: true)
+        #expect(transport.objectLength(oldPath) == nil)
+        #expect(transport.objectLength(oldTranscriptPath) == nil)
+        let retried = String(decoding: transport.body(feedPath)!, as: UTF8.self)
+        #expect(retried.contains(newItem.id) && !retried.contains(oldItem.id))
+    }
+    for entry in [oldEntry, newEntry] {
+        #expect(try await FixtureCoordinator().hasRecordedArticle(entry: entry, stateRoot: storage.stateRoot))
+    }
+    #expect(try await coordinator.catalog(stateRoot: storage.stateRoot).inactiveDuplicateIDs == [oldEntry.id])
 }

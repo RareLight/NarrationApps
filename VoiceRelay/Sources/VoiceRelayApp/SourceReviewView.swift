@@ -481,6 +481,7 @@ struct ArticleLibraryRow: Identifiable {
     var jobs: [SpeechQueueItem]
     let preparationID: String?
     let retained: Bool
+    var inactiveDuplicate: Bool = false
     var queueSummary: String? {
         guard jobs.count > 1 else { return nil }
         let failures = jobs.filter { $0.state == .failed || $0.state == .paused }.count
@@ -563,12 +564,14 @@ extension AppModel {
     }
     var allArticleRows: [ArticleLibraryRow] {
         let jobsBySource = Dictionary(grouping: queueItems, by: \.sourceEntryID)
+        let inactive = sourceReview.catalog.inactiveDuplicateIDs
         var rows = sourceReview.catalog.entries.map { entry in
             ArticleLibraryRow(id: .source(entry.id), title: sourceReview.catalog.displayTitle(for: entry), host: entry.url.host,
                 savedAt: entry.addedAt, source: entry,
                 jobs: jobsBySource[entry.id] ?? [],
                 preparationID: pendingAdds[entry.id] == nil ? nil : entry.id,
-                retained: !sourceReview.catalog.currentIDs.contains(entry.id))
+                retained: !sourceReview.catalog.currentIDs.contains(entry.id),
+                inactiveDuplicate: inactive.contains(entry.id))
         }
         let catalogIDs = Set(sourceReview.catalog.entries.map(\.id))
         var retainedSources: [String: Int] = [:]
@@ -835,7 +838,7 @@ struct ArticleSelectionList: View {
 
     var body: some View {
         let selected = projection.selectedRows(model.articleListSelection)
-        let eligible = selected.filter { $0.jobs.isEmpty && $0.preparationID == nil }.compactMap(\.source)
+        let eligible = selected.filter { !$0.inactiveDuplicate && $0.jobs.isEmpty && $0.preparationID == nil }.compactMap(\.source)
         let canAdd = model.articleScope == .all && model.canAddArticles(eligible)
         let canPreview = model.canPreviewArticleRows(selected)
         let queueIDs = Set(selected.flatMap { row in
@@ -928,6 +931,8 @@ struct ArticleLibraryRowView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(row.title).appFont(.headline).lineLimit(2)
+                    .foregroundStyle(row.inactiveDuplicate ? Color.secondary : Color.primary)
+                if row.inactiveDuplicate { Text("Inactive duplicate").appFont(.secondary).foregroundStyle(.secondary) }
                 ArticleOriginLine(metadata: ArticleOriginMetadata(host: row.host, savedAt: row.savedAt))
                 if row.retained { Text("Retained; absent from Reading List").appFont(.secondary).foregroundStyle(.secondary) }
                 if row.jobs.count > 1 {

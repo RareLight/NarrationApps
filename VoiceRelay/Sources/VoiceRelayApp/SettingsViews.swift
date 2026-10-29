@@ -1,6 +1,8 @@
 import AppPresentation
 import PronunciationUI
 import NarrationUI
+import NarrationCore
+import NativeSpeech
 import SwiftUI
 import AppKit
 import Observation
@@ -10,36 +12,16 @@ struct ConfigurationView: View {
     @Bindable var model: AppModel
     var body: some View {
         Form {
-            if !model.speechRuntimeAvailable { speechSetup }
             AppearanceSettingsSection(textSize: $model.textSize)
             Section {
                 StartupControls(model: model)
             } header: {
-                SectionHelpHeader(title: "Startup", explanation: "Off by default. When enabled, VoiceRelay starts in the menu bar after you sign in and continues your configured automation. Quit stops it until you open it again or next log in.")
-            }
-            Section {
-                Picker("Language and region", selection: $model.preferences.languageRegion) {
-                    ForEach(SpeechLanguageRegion.allCases) { region in Text(region.label).tag(region) }
-                }
-                Picker("Voice", selection: $model.preferences.voice) {
-                    ForEach(model.preferences.languageRegion.voices) { voice in Text(voice.label).tag(voice) }
-                }
-                SpeechSpeedControl(speed: $model.preferences.speed)
-            } header: {
-                SectionHelpHeader(title: "Speech",
-                    explanation: "Voice and speed apply to newly added articles. Queued articles keep their original settings.")
-            }.disabled(model.running)
-            Section {
-                VoiceSampleButton(playing: model.voiceSamplePlayer.playingID != nil) { model.playVoiceSample() }
-                    .disabled(!model.canPlayVoiceSample)
-                if let error = model.voiceSamplePlayer.error { InlineNotice(message: error) }
-            } header: {
-                SectionHelpHeader(title: "Voice sample", explanation: "Plays the bundled sample at its recorded speed. It does not generate new audio.")
+                SectionHelpHeader(title: "Startup", explanation: "Start in the menu bar after login. On for new configurations.")
             }
             Section {
                 NarrationOptionsControls(options: $model.preferences.effectiveNarrationOptions)
             } header: {
-                SectionHelpHeader(title: "Document Narration", explanation: "Notes and auxiliary choices apply to newly queued articles with explicit source markup. Unclassified text and bibliographies are retained. Queued articles keep their settings.")
+                SectionHelpHeader(title: "Document Narration", explanation: "Choose what to read in newly queued articles. Existing jobs keep their settings.")
             }.disabled(model.preview || model.stopping)
             ImageDescriptionSettingsSection(enabled: $model.describeArticleImages,
                 additionalHelp: "Applies to newly added articles. Existing queued articles keep their prepared text. Web images may be fetched from public sites to create descriptions.")
@@ -47,12 +29,12 @@ struct ConfigurationView: View {
             Section {
                 Toggle("Publish timed transcripts", isOn: $model.preferences.timedTranscriptsEnabled)
             } header: {
-                SectionHelpHeader(title: "Episode transcripts", explanation: "On by default for newly queued articles. Publishes the narration text with segment timestamps beside each episode for compatible podcast apps. No extra transcription service is used. Queued articles and existing recordings keep their settings; support depends on your player.")
+                SectionHelpHeader(title: "Episode transcripts", explanation: "Publish timed narration text for compatible podcast apps. On for new articles; existing jobs stay unchanged.")
             }.disabled(model.preview || model.stopping)
             Section {
                 Toggle("Generate missing titles using Apple Intelligence", isOn: $model.generateMissingTitles)
             } header: {
-                SectionHelpHeader(title: "Article titles", explanation: "VoiceRelay first looks for an existing title or opening headline. Titles that repeat a PDF filename are checked for a richer headline. This optional fallback creates a short title from the opening text using available on-device Apple Intelligence. Generated titles may be inaccurate. Applies to newly prepared articles; saved text and recordings keep their titles.")
+                SectionHelpHeader(title: "Article titles", explanation: "Use on-device Apple Intelligence when no useful headline is found. New articles only; generated titles may be inaccurate.")
             }.disabled(model.preview || model.stopping)
             Section {
                 LabeledContent("Source", value: model.sourceReview.plist?.lastPathComponent ?? "Not chosen")
@@ -71,60 +53,68 @@ struct ConfigurationView: View {
                     .disabled(model.preview || model.stopping)
             } header: {
                 SectionHelpHeader(title: "Reading List",
-                    explanation: "Safari’s source is checked every five minutes and never modified. PDFs use local text extraction and OCR. Image descriptions use available Apple Intelligence locally and may be inaccurate; web images may be fetched. Archive recovery sends eligible public article URLs to Archive.ph or Wayback.")
+                    explanation: "Checks Safari every five minutes without changing it. Web image descriptions may fetch public images; archive recovery sends eligible URLs to Archive.ph or Wayback.")
             }
-            if model.speechRuntimeAvailable { speechSetup }
+        }.formStyle(.grouped)
+    }
+}
+
+struct VoiceModelSettingsView: View {
+    @Bindable var model: AppModel
+    var body: some View {
+        Form {
+            Section {
+                ScrollView(.horizontal) {
+                    SpeechModelControls(settings: $model.preferences.modelSelection,
+                        models: SpeechModel.allCases.filter { $0 != .soprano },
+                        storageRoot: model.runtimeProject, storageRevision: model.modelStorageRevision,
+                        maintenance: model.modelStorage,
+                        downloading: model.runtimeBusy && model.runtimeInstalling,
+                        canDownload: model.canManageSpeechRuntime,
+                        controlsEnabled: !model.running && !model.runtimeBusy && !model.modelStorage.isBusy,
+                        download: model.installSpeechRuntime,
+                        samplePlaying: model.voiceSamplePlayer.playingID != nil || model.pronunciationPreview.hasOwnedWork,
+                        canPlaySample: model.canPlayVoiceSample, playSample: model.playVoiceSample)
+                }
+                if let error = model.voiceSamplePlayer.error ?? model.pronunciationPreview.error {
+                    InlineNotice(message: error)
+                }
+            } header: {
+                SectionHelpHeader(title: "Voice Model", explanation: "Choose the voice for newly queued articles. Existing jobs keep their settings.")
+            }
+            Section {
+                ModelStorageSettings(root: model.runtimeProject, canManage: model.canManageSpeechRuntime,
+                    revision: model.modelStorageRevision, choose: model.chooseModelStorage,
+                    useDefault: model.useDefaultModelStorage,
+                    changed: { model.runtimeVerificationFailed = false; model.runtimeTestResult = .untested; model.maybeAutoProcess() },
+                    maintenance: model.modelStorage)
+            } header: { SectionHelpHeader(title: "Downloaded models", explanation: "Manage cached models and choose a storage location.") }
+            speechSetup
         }.formStyle(.grouped)
     }
     private var speechSetup: some View {
         Section {
-            SpeechSetupControls(activity: model.runtimeBusy ? (model.runtimeInstalling ? .installing : .checking) : nil,
-                status: model.speechSetupStatus, canManage: model.canManageSpeechRuntime,
-                disabledReason: model.runtimeControlDisabledReason,
-                installMessage: "Download the pinned Kokoro model and pronunciation assets into VoiceRelay’s private model folder? Speech runs locally with the bundled native engine.",
-                install: model.installSpeechRuntime, check: model.checkSpeechRuntime, cancel: model.cancelRuntimeSetup)
+            SpeechRuntimeTestIndicator(model: model)
+            if model.runtimeBusy {
+                ProgressView().controlSize(.small)
+                Button("Cancel", action: model.cancelRuntimeSetup)
+            } else {
+                Button("Check Speech Setup", action: model.checkSpeechRuntime).disabled(!model.canManageSpeechRuntime)
+            }
         } header: { SectionHelpHeader(title: "Speech setup", explanation: NarrationSettingsHelp.speechSetup) }
     }
-
 }
 
-/// Launch-only setup uses the same cancellable installation as General settings.
+/// Launch-only setup uses the same cancellable installation as Voice Model settings.
 struct SpeechRuntimeOnboardingView: View {
     @Bindable var model: AppModel
     @Environment(\.dismissWindow) private var dismissWindow
-    @Environment(\.appTextSize) private var textSize
-    @Environment(\.dynamicTypeSize) private var dynamicType
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label("Set up local speech", systemImage: "waveform.circle").appFont(.headline)
-            Text("VoiceRelay needs to download its speech model and pronunciation assets before it can generate audio. After setup, speech runs locally on your Mac.")
-                .fixedSize(horizontal: false, vertical: true)
-            Text("An internet connection is needed for installation. You can also install later in Settings → General.")
-                .appFont(.secondary).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if model.runtimeBusy {
-                HStack {
-                    ProgressView().controlSize(.small)
-                    Text(model.runtimeInstalling ? "Installing speech model…" : "Checking speech setup…")
-                }
-            }
-            SpeechRuntimeTestIndicator(model: model)
-            StartupControls(model: model)
-            HStack {
-                Spacer()
-                if model.runtimeBusy {
-                    Button(model.runtimeInstalling ? "Cancel Installation" : "Cancel Check") { model.cancelRuntimeSetup() }
-                } else {
-                    Button("Not Now") { dismissWindow() }.keyboardShortcut(.cancelAction)
-                    Button("Install Speech Model") { model.installSpeechRuntime() }
-                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                        .disabled(!model.canManageSpeechRuntime)
-                }
-            }
-        }.padding(24).frame(width: 460 * max(1, AppTypography.scale(size: textSize, dynamic: dynamicType)))
-            .onChange(of: model.runtimeTestResult) { _, result in
-                if result == .success { dismissWindow() }
-            }
+        SpeechSetupOnboardingView(status: model.speechSetupStatus,
+            activity: model.runtimeBusy ? (model.runtimeInstalling ? .installing : .checking) : nil,
+            canInstall: model.canManageSpeechRuntime, install: model.installSpeechRuntime,
+            check: model.checkSpeechRuntime, chooseFolder: model.chooseModelStorage,
+            cancel: model.cancelRuntimeSetup, notNow: { dismissWindow() })
     }
 }
 
@@ -218,7 +208,7 @@ struct DeliveryPaneView: View {
 
             } header: {
                 SectionHelpHeader(title: "Upload destination",
-                    explanation: "Feed folder holds feed.xml and audio/. Save your upload password in device-local Keychain for background publishing after your first login, including while the screen is locked. Re-save an older password once to update access; macOS may request authorization when saving.", helpTopic: .publishing)
+                    explanation: "Feed folder holds feed.xml and audio/. Save the password in Keychain for background publishing. Saving may require authorization; re-save older credentials once.", helpTopic: .publishing)
             }
             Section {
                 TextField("Public folder URL", text: $publicFolderText)
@@ -241,7 +231,7 @@ struct DeliveryPaneView: View {
                     choose: model.choosePodcastCover, remove: model.removePodcastCover,
                     failure: { model.podcastCoverError = $0 })
                     .disabled(model.preview || model.coverImporting || model.libraryMaintenanceBusy)
-                    .help("Square JPEG or PNG, at least 1400 pixels per side, without transparency. Episode images still come from their articles.")
+                    .help("Square JPEG or PNG, at least 1400 × 1400, without transparency.")
                 if let error = model.podcastCoverError { InlineNotice(message: error) { model.podcastCoverError = nil } }
             } header: {
                 SectionHelpHeader(title: "Public feed",
@@ -309,6 +299,7 @@ struct DeliveryPaneView: View {
 
 enum SettingsSection: String, SettingsPane {
     case general = "General"
+    case voiceModel = "Voice Model"
     case pronunciation = "Pronunciation"
     case delivery = "Publishing"
     case troubleshooting = "Troubleshooting"
@@ -317,6 +308,7 @@ enum SettingsSection: String, SettingsPane {
     var systemImage: String {
         switch self {
         case .general: "gearshape"
+        case .voiceModel: "waveform"
         case .pronunciation: "text.word.spacing"
         case .delivery: "antenna.radiowaves.left.and.right"
         case .troubleshooting: "stethoscope"
@@ -324,7 +316,8 @@ enum SettingsSection: String, SettingsPane {
     }
     var help: String {
         switch self {
-        case .general: "Speech, Reading List and automation"
+        case .general: "Appearance, narration, Reading List and automation"
+        case .voiceModel: "Models, voices, samples and downloads"
         case .pronunciation: "Shared word pronunciations and live voice previews"
         case .delivery: "Podcast connection, publishing and subscription URL"
         case .troubleshooting: "Library backup and logs"
@@ -333,7 +326,7 @@ enum SettingsSection: String, SettingsPane {
 }
 
 struct SettingsView: View {
-    static let windowWidth: CGFloat = 440
+    static let windowWidth: CGFloat = 540
     static let windowHeight: CGFloat = 680
     static let minWindowWidth: CGFloat = 360
     static let minWindowHeight: CGFloat = 540
@@ -354,6 +347,8 @@ struct SettingsView: View {
                 switch section {
                 case .general:
                     ConfigurationView(model: model).padding(.horizontal, 8)
+                case .voiceModel:
+                    VoiceModelSettingsView(model: model).padding(.horizontal, 8)
                 case .pronunciation:
                     PronunciationSettingsView(preview: model.pronunciationPreview, configuration: model.pronunciationConfiguration,
                         unavailableReason: model.pronunciationUnavailableReason,
@@ -376,17 +371,17 @@ struct SettingsView: View {
 
 #if DEBUG
 #Preview("Settings — inert defaults") { SettingsView(model: AppModel(preview: true)) }
-#Preview("General — verified speech runtime") {
+#Preview("Voice Model — verified speech runtime") {
     let storage = ManagedSpeechStorage(audioDirectory: URL(fileURLWithPath: "/synthetic/audio"),
         stateRoot: URL(fileURLWithPath: "/synthetic/state"), temporaryRoot: URL(fileURLWithPath: "/synthetic/scratch"))
     let model = AppModel(preview: true, storage: storage)
     model.runtimeTestResult = .success
-    return ConfigurationView(model: model).frame(width: 400, height: 620)
+    return VoiceModelSettingsView(model: model).frame(width: 500, height: 620)
 }
 #Preview("General — speech verification failed") {
     let model = AppModel(preview: true)
     model.runtimeTestResult = .failure("Speech setup or verification failed. Check the required tools and retry.")
-    return ConfigurationView(model: model).frame(width: 400, height: 620)
+    return VoiceModelSettingsView(model: model).frame(width: 500, height: 620)
 }
 #Preview("Settings — inert Publishing") { SettingsView(model: AppModel(preview: true), initialSection: .delivery) }
 #Preview("Settings — inert UK English voices") {

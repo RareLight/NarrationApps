@@ -9,7 +9,7 @@ import AudioOutput
 final class VoiceSampleTests: XCTestCase {
     func testEveryPresentedVoiceHasAnIntactFiniteAACSampleAndRecordedPhrase() throws {
         let samples = VoiceSamples.catalog
-        XCTAssertEqual(samples.count, 29)
+        XCTAssertEqual(samples.count, 47)
         XCTAssertEqual(Set(samples.map(\.id)).count, samples.count)
         XCTAssertEqual(Set(samples.filter { $0.model == .kokoro }.map(\.voice)), Set(NativePrimaryCatalog.specification(for: .kokoro).voices))
         let folder = try XCTUnwrap(samples.first?.url).deletingLastPathComponent()
@@ -24,7 +24,7 @@ final class VoiceSampleTests: XCTestCase {
             let preparedObject = try XCTUnwrap(record["preparedSpeech"] as? [String: Any])
             let plan = try JSONDecoder().decode(PreparedSpeechPlan.self, from: JSONSerialization.data(withJSONObject: preparedObject))
             XCTAssertEqual(plan.settings, sample.settings)
-            XCTAssertEqual(plan.policy, sample.model == .kokoro ? .current : .legacy)
+            XCTAssertEqual(plan.policy, sample.model.isLarge ? .nativeText : sample.model == .kokoro ? .current : .legacy)
             XCTAssertNotNil(plan.provenance)
             XCTAssertFalse(plan.utterances.isEmpty)
             for utterance in plan.utterances {

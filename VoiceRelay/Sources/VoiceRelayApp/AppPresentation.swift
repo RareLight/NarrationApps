@@ -88,8 +88,8 @@ struct WorkspaceReadinessView: View {
         } else {
             if !model.preview && (!model.speechRuntimeAvailable || model.runtimeBusy) {
                 notice(model.runtimeBusy ? "Speech setup is in progress" : "Speech setup required",
-                    detail: model.runtimeBusy ? "Wait for setup, or cancel it in General." : "Install the speech model or check speech setup in General before generating audio.",
-                    symbol: "gearshape", action: "Open General", pane: .general)
+                    detail: model.runtimeBusy ? "Wait for setup, or cancel it in Voice Model." : "Download a model or check speech setup in Settings → Voice Model.",
+                    symbol: "gearshape", action: "Open Voice Model", pane: .voiceModel)
             }
             if model.publishingReadiness == .checking {
                 HStack(spacing: 8) {
@@ -132,7 +132,12 @@ struct WorkspaceActivityView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if model.showsProcessingProgress { ProcessingSummary(model: model) }
-            if model.deliveryBusy {
+            if model.audioMutationBusy || !model.hiddenServerAudioRemovalIDs.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Removing audio… · \(model.hiddenServerAudioRemovalIDs.union(model.mutatingSavedAudioIDs).count) pending").monospacedDigit()
+                }
+            } else if model.deliveryBusy {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Publishing… · \(model.deliveryPendingCount) server operations pending").monospacedDigit()
@@ -213,7 +218,7 @@ enum AppHelpTopic: String, Codable, CaseIterable, Identifiable {
             AppHelpSection(title: "Connect your podcast", text: "In Publishing settings, enter the WebDAV Feed folder and the Public folder that serves the same files. VoiceRelay creates feed.xml and audio/ under that folder. Choose a square Podcast Cover for the show; episode pictures still come from their articles. Copy the Subscription URL into your podcast app. Test Connection checks folder access; confirm public playback in your podcast app separately."),
             AppHelpSection(title: "Save your password", text: "Use your provider’s upload username and password or app password. Click Save Password after editing. The password stays in device-local Keychain and background publishing can use it after your first login following a reboot, including while the screen is locked. Re-save a password from an older build once to update its access policy; macOS may request authorization for that Save. Opening Settings never reads the password. Replacing or clearing a password may need separate approval."),
             AppHelpSection(title: "Watch pending uploads", text: "Publishing runs automatically while enabled and VoiceRelay is running. Uploads shows pending transfers and verification issues. An item clears after its audio and feed entry are confirmed, unless local cleanup needs attention. Fully sent bytes alone do not confirm publication. Use Retry Uploads after resolving an error; other items can continue."),
-            AppHelpSection(title: "Remove a copy", text: "Uploads × discards the local copy and cancels its pending generation job, keeping server audio and saved article text. It will not automatically regenerate. Add the article to Queue to request it again. Server Audio × removes the episode from the feed and deletes its audio, including a matching local copy. Saved article text is kept. Files that cannot be safely removed stay listed."),
+            AppHelpSection(title: "Remove a copy", text: "Uploads × discards the local copy and cancels its pending generation job, keeping server audio and saved article text. It will not automatically regenerate. Add the article to Queue to request it again. Server Audio × hides the row immediately, then removes the episode from the feed and deletes its audio in the background. Saved article text is kept. Failed cleanup returns the item for retry; progress appears below the list."),
             AppHelpSection(title: "Existing server episodes", text: "VoiceRelay checks for matching server audio before generating or uploading again. It verifies complete copies and prefers longer valid audio at comparable voice and speed; ties and uncertain variants keep the server copy. For persistent errors, enable debug logging in Troubleshooting and copy the log.")
         ]
         case .libraryBackup: [
@@ -568,8 +573,8 @@ struct LibraryView: View {
     var body: some View {
         Group {
             if model.visibleServerAudio.isEmpty {
-                ContentUnavailableView(model.savedEpisodes.isEmpty ? "No Server Audio" : "No Matching Episodes", systemImage: "waveform",
-                                       description: Text(model.savedEpisodes.isEmpty ? "Add selected articles to the queue, then choose Generate Audio." : "Try another search or state filter."))
+                ContentUnavailableView(model.serverAudioListEpisodes.isEmpty ? "No Server Audio" : "No Matching Episodes", systemImage: "waveform",
+                                       description: Text(model.serverAudioListEpisodes.isEmpty ? "Add selected articles to the queue, then choose Generate Audio." : "Try another search or state filter."))
             } else {
                 List(selection: $model.savedAudioSelection) {
                     ForEach(model.visibleServerAudio, id: \.id) { episode in
@@ -580,7 +585,7 @@ struct LibraryView: View {
                             let meta = model.savedAudioMeta(episode)
                             let removal = model.savedAudioRemovalStatus(episode)
                             Text(removal.map { "\($0)\(meta.map { " · " + $0 } ?? "")" }
-                                 ?? meta ?? "Speech ready").appFont(.secondary).foregroundStyle(.secondary)
+                                 ?? meta ?? "Speech ready").appFont(.secondary).foregroundStyle(.secondary).lineLimit(1)
                             if removal == nil {
                                 AudioVerificationIndicator(item: model.audioState(episode))
                             }
@@ -601,6 +606,7 @@ struct LibraryView: View {
                 }
             }
         }
+        .transaction { transaction in transaction.animation = nil; transaction.disablesAnimations = true }
         .searchable(text: $model.serverAudioSearchText, placement: .toolbar, prompt: "Search Server Audio")
         .onChange(of: model.serverAudioSearchText) {
             model.savedAudioSelection.formIntersection(Set(model.visibleServerAudio.map(\.id)))
@@ -620,7 +626,7 @@ struct LibraryView: View {
         }
         .toolbar {
             ToolbarItem {
-                AudioStateFilterControl(selection: $model.serverAudioFilter, options: AudioStateFilter.allCases, items: model.savedEpisodes.map(model.audioState))
+                AudioStateFilterControl(selection: $model.serverAudioFilter, options: AudioStateFilter.allCases, items: model.serverAudioListEpisodes.map(model.audioState))
             }
             ToolbarItem {
                 Menu {

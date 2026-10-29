@@ -21,17 +21,53 @@ Pronunciation remains in its dedicated pane; the shared dictionary list and edit
 buttons use a centered 75% of the window width in both apps. The list uses a soft
 gray rounded background with native row selection, adapting to light/dark appearance.
 Future document text controls belong in Document.
-Main-window speech and export choices remain part of its batch workflow; Models owns workspace/install/
-offline setup checks and Troubleshooting owns the separate embedded-helper check.
-VoiceRelay has General, Pronunciation, Publishing and Troubleshooting; General owns
-Speech, Reading List, automation, optional login startup and the default-on timed
-episode transcript choice; Publishing owns credentials/destination/channel,
+Main-window speech, Download and export choices remain part of its batch workflow; Models owns downloaded-model inventory, deletion, storage overrides and offline checks and Troubleshooting owns the separate embedded-helper check.
+VoiceRelay has General, Voice Model, Pronunciation, Publishing and Troubleshooting.
+Voice Model owns model/voice selection, samples, guidance, downloads, storage and
+offline setup checks. General owns Reading List, automation, optional login startup
+and the default-on timed episode transcript choice; Publishing owns credentials/destination/channel,
 and Troubleshooting owns library backup/review and sanitized session logs.
 
-Common actions use Install Speech Model, Check Speech Setup and Play Sample/Stop
+The shared model chooser pins Model and Voice to common label/field columns,
+including Chatterbox reference selection. Only the selected model's controls
+contribute to section height. Model, Voice, model options and Play Sample form
+left-aligned rows with a 6pt gap and 4pt column gaps, scaled to text size. Sample is part of
+SpeechModelControls in both apps, with app-supplied playing/enabled state and an
+action; duplicate app-local sample columns/rows are removed. The active rows flow
+together without reserved space afterward; the section grows or shrinks below
+the common menus. Speed's numeric value and Stepper hug their intrinsic width in the
+value column. Qwen's Native/Language/Delivery rows share the field alignment.
+The download symbol (when needed) and info sit close to the picker. Warnings may expand below
+the controls. Libro keeps its output-format column top-aligned and anchors the
+group to the leading edge, with the existing narrow-window fallback. Input gating
+is separate from sample gating, preserving VoiceRelay's bundled playback while
+other model controls are busy.
+
+VoiceRelay model/voice/preview controls live in Settings → Voice Model. Both apps
+share a compact model row: an icon-only Download action appears when no files are
+cached, and the adjacent ⓘ opens model details and
+the speed/quality meters; onboarding uses Install Model. Other common actions use Check Speech Setup and Play Sample/Stop
 Sample. Installation is explicit; checks initialize offline without playback or
 model downloads. A busy/failed/missing state gives a direct reason or recovery action.
 Samples play recorded audio and do not preview selected speed or spelling rules.
+
+File sizes and deletion appear only in Downloaded models. Its shared inventory
+uses fixed, text-size-aware name/size/delete columns beneath the folder buttons;
+numbers align right and action positions stay fixed across model names and sizes.
+Narrow windows can scroll the inventory horizontally. Imported folders retain
+Finder guidance and no delete action. Folder changes invalidate pending deletion
+targets, and returning to the app refreshes the inventory.
+
+Both apps also use NarrationUI's `SpeechSetupOnboardingView` for fresh-start model
+setup. The shared component owns the Model Setup title, concise explanation,
+progress/status, Choose Custom Model Folder, Install Model/Check Model, Not Now and
+Cancel actions, semantic sizing and dismissal when ready. Apps supply only typed
+state and operation/dismiss callbacks; there are no app-specific content slots.
+Folder paths remain in model Settings. Login startup belongs only in VoiceRelay's
+General Settings, defaulting on once for fresh configurations while preserving
+existing choices. Download/check tasks and joined cancellation remain app-owned.
+Rendering never installs models, probes storage or changes preferences; model
+cache/default selection is unchanged.
 
 New Kokoro settings share Heart at 1.0×; valid existing saved values remain intact.
 Text-size preferences stay app-owned; the pronunciation dictionary is shared.
@@ -59,7 +95,7 @@ batches; VoiceRelay captures them when adding queue records. These preferences
 remain app-specific, unlike the shared pronunciation dictionary.
 
 These controls also offer **Join split words in PDFs (experimental)**, off by
-default and captured with future jobs. Both engines use the same source-mapped
+default and captured with future jobs. Both apps use the same source-mapped
 PDF rule. English dictionary checks preserve recognized compound hyphens and leave
 unknown spellings unchanged; unsupported layouts and non-PDF inputs retain their text.
 
@@ -69,11 +105,13 @@ Both offer Choose/Replace/Remove; validation/storage remain in shared AudioOutpu
 and app-owned state. Podcast cover import errors are separate from server delivery
 errors. AppPresentation remains independent of narration, documents and audio.
 
-## Planned model-selection guidance
+## Model-selection guidance
 
 The [multi-model integration plan](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md#model-selection-guidance-speed-and-quality-meters)
-adds common static generation-speed and narration-quality meters, text tiers and
-model details to both apps. NativeSpeech will own reviewed generalized guidance;
-NarrationUI will own presentation. These are shipped estimates, with no user-system
-benchmark, automatic model load or network lookup. Current model/voice controls
-have not yet been replaced by this planned UI.
+specifies the common static generation-speed and narration-quality meters, text tiers and
+model details to both apps. Model descriptions and meters live in the trailing ⓘ
+popover beside the compact picker/download row, with no size, deletion or inline stats
+panel. Hover help stays concise. NativeSpeech owns generalized guidance metadata;
+NarrationUI owns presentation. These are shipped estimates, with no user-system
+benchmark, automatic model load or network lookup. Both apps now use SpeechModelControls. Final visual/keyboard behavior remains
+operator acceptance, separate from compilation and inert-view fixtures.

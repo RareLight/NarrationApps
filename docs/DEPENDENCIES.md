@@ -164,6 +164,48 @@ LAME is LGPL-licensed. Its `COPYING` and `README` are retained under `.build/not
 
 ## Native assets
 
+October 27 adds three exact checkpoints at the existing MLX Audio Swift pin:
+
+| Model | Repository | Revision |
+| --- | --- | --- |
+| Qwen3-TTS CustomVoice | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | `41d3337e8b7f2843a75841595fc14e4b9a7a4b96` |
+| Chatterbox Turbo | `mlx-community/chatterbox-turbo-fp16` | `b2d0a13aa7cfff0a06d9acb247ae91c8f19a6d75` |
+| Orpheus | `mlx-community/orpheus-3b-0.1-ft-bf16` | `3786aac51797181edddeb0d89a8253deaee99aab` |
+
+`Sources/NativeSpeech/ExpandedModelAssets.swift` owns complete size/SHA-256
+inventories, including Qwen's nested speech tokenizer, Chatterbox's S3TokenizerV2
+(`e0c9886f0e1c35ae85b1f27277416fb19fc72bec`) and Orpheus's SNAC
+(`556af1cd3b1c5f2d294f6aa9bb886245d7b716ac`). Deterministically generated
+Qwen/Chatterbox tokenizer JSON is validated against recorded digests before use;
+it is generated locally rather than requested as a nonexistent Hub asset.
+Unexpected tensor and tokenizer sidecars are rejected. No weights are bundled.
+Recursive inventories use Foundation's relative-path enumeration after resolving
+contained directory aliases. SHA-256 reads drain Foundation autoreleased buffers
+per one-megabyte block, keeping multi-GB integrity validation bounded in memory.
+
+`Patches/native-model-adapters.patch` injects validated local auxiliary folders,
+exposes authoritative clean-EOS completion and actual-token input guards on the
+three concrete adapters. `Patches/chatterbox-narration-pcm.patch` adds an opt-in
+raw-PCM output mode, disabling Chatterbox's inherited peak normalization and fade.
+The apps and future benchmark runs enable it; upstream default behavior is kept
+for callers that do not opt in. Original benchmark recordings are unchanged and
+used the inherited processing. No gain, normalization or fade is added elsewhere.
+Both patches are ordered and audited by `scripts/prepare-dependencies.sh` at the
+existing pin. See [model selection](MODEL_SELECTION.md) for capabilities and RAM.
+The product Orpheus profile explicitly uses the benchmark's 4,096-token generation
+cap instead of the SDK's 1,200-token convenience default. Longer bounded text can
+exhaust the smaller cap. The cap and generation-policy version participate in
+acoustic identity; clean EOS remains mandatory before publication.
+
+The conversion cards declare Apache-2.0:
+[Qwen](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit),
+[Chatterbox](https://huggingface.co/mlx-community/chatterbox-turbo-fp16),
+[Orpheus](https://huggingface.co/mlx-community/orpheus-3b-0.1-ft-bf16).
+These metadata declarations do not close public distribution review, including
+base-model, auxiliary-model and reference-recording obligations. New bundled
+samples use project-authored synthetic text, with exact model/revision and output
+digests in the sample manifest. Original dependency notice texts are preserved.
+
 Kokoro primary: pinned `mlx-community/Kokoro-82M-bf16`, default `af_heart` at 1.0×
 with the accepted prepared-phoneme pause profile. Explicit saved settings remain
 unchanged. Soprano primary: `mlx-community/Soprano-1.1-80M-bf16`; retain that exact
@@ -181,7 +223,7 @@ English native G2P: `beshkenadze/kitten-tts-g2p` revision `9c692b92682d959d9013a
 
 The preparation action uses `HubClient`/`HubCache`, exact revision and file allowlist, with a workspace-local cache. It records SHA-256 digests and checks the published LFS digest of the weight. Runtime rechecks required files, sizes, JSON and all digests. The unpatched upstream port substituted US files for missing GB resources. The recorded longform adaptation now rejects that substitution; British voices use the separately pinned inventory described below. Broader pronunciation acceptance remains open.
 
-All native caches, locks, inventories, staging and auxiliary resources are under the selected workspace's `models/.native/`. Inventory replacement uses a synchronized private sibling and atomic rename, avoiding Foundation's OS replacement scratch. No weights belong in the signed app bundle. No narration text is passed to acquisition APIs. Explicit preparation covers the selected K/S primary inventory and required auxiliaries; CLI coexistence and remaining GUI relocation/operator gates stay separate.
+All native caches, locks, inventories, staging and auxiliary resources are under the selected workspace's `models/.native/`. Inventory replacement uses a synchronized private sibling and atomic rename, avoiding Foundation's OS replacement scratch. No weights belong in the signed app bundle. No narration text is passed to acquisition APIs. Explicit preparation covers the selected model's primary inventory and required auxiliaries; CLI coexistence and remaining GUI relocation/operator gates stay separate.
 
 ## Notices
 
@@ -311,3 +353,23 @@ No publication/export/registry activation is requested. Root has no Package.swif
 its bare URL is not a consumable SwiftNarration release. Patched ignored source
 dependencies still require preparation. Future package-root export/registry work
 is described in [package boundaries](PACKAGE_BOUNDARIES.md#management-and-independent-releases).
+
+### Shared cache and generated-tokenizer validation — October 28
+
+NativeSpeech now uses the existing pinned HuggingFace product for default cache
+resolution and inventory paths; no dependency revision changed. New model storage
+uses standard Hub blobs/snapshots with private runtime overlays. Existing custom
+workspaces keep their layout. Read leases cover sessions/installation; confirmed
+deletion takes exclusive access across Libro and VoiceRelay. Other applications
+do not participate in that lease.
+
+Fresh-cache validation exposed Foundation `JSONSerialization.sortedKeys` collation
+ties in tokenizer vocabulary keys: the SDK can emit different object-key orders
+with identical JSON content and file size. Generated Qwen/Chatterbox tokenizers
+retain their original reference byte digests and exact size, and additionally
+accept one pinned `generated-json-structure-1` digest. It sorts object keys by
+literal UTF-8 bytes and hashes length-framed typed values, preserving strings,
+numbers, booleans and array order. Modified vocabulary or token order fails.
+Remote model/tokenizer inputs still require their exact pinned byte hashes.
+This changes validation only; tokenizer content and acoustic identities stay
+compatible. Network-denied fresh-cache checks cover installation and real speech.

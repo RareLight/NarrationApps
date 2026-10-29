@@ -8,10 +8,12 @@ public struct NativePrimaryFile: Sendable {
     public let sha256: String
     public let gitOID: String
     public let compatibleKokoroConfigSHA256: String?
+    public let structuralJSONSHA256: String?
 
-    init(path: String, bytes: Int, sha256: String, gitOID: String, compatibleKokoroConfigSHA256: String? = nil) {
+    init(path: String, bytes: Int, sha256: String, gitOID: String = "", compatibleKokoroConfigSHA256: String? = nil, structuralJSONSHA256: String? = nil) {
         self.path = path; self.bytes = bytes; self.sha256 = sha256; self.gitOID = gitOID
         self.compatibleKokoroConfigSHA256 = compatibleKokoroConfigSHA256
+        self.structuralJSONSHA256 = structuralJSONSHA256
     }
 }
 
@@ -21,7 +23,8 @@ public struct NativePrimarySpecification: Sendable {
     public let revision: String
     public let files: [NativePrimaryFile]
     public var voices: [String] {
-        files.filter { $0.path.hasPrefix("voices/") }.map { ($0.path as NSString).lastPathComponent.replacingOccurrences(of: ".safetensors", with: "") }
+        if model != .kokoro { return model.presetVoices }
+        return files.filter { $0.path.hasPrefix("voices/") }.map { ($0.path as NSString).lastPathComponent.replacingOccurrences(of: ".safetensors", with: "") }
     }
 }
 
@@ -29,11 +32,15 @@ public struct NativePrimarySpecification: Sendable {
 /// or changes a Python snapshot/manifest. Preparation calls record explicitly.
 public enum NativePrimaryStore {
     public static func directory(for model: SpeechModel, workspace: NativeWorkspace, voice: String) throws -> URL {
-        try directory(specification: NativePrimaryCatalog.specification(for: model), workspace: workspace, voice: voice)
+        let primary = try directory(specification: NativePrimaryCatalog.specification(for: model), workspace: workspace, voice: voice)
+        for dependency in NativePrimaryCatalog.dependencies(for: model) {
+            _ = try directory(specification: dependency, workspace: workspace, voice: voice)
+        }
+        return primary
     }
 
-    static func directory(specification: NativePrimarySpecification, workspace: NativeWorkspace, voice: String) throws -> URL {
-        let shared = try workspace.contained(workspace.root.appendingPathComponent(specification.model.primaryRelativePath))
+    public static func directory(specification: NativePrimarySpecification, workspace: NativeWorkspace, voice: String) throws -> URL {
+        let shared = try workspace.contained(workspace.root.appendingPathComponent("models/\(specification.model.rawValue)/\(specification.repository.replacingOccurrences(of: "/", with: "__"))"))
         if let records = try? validate(directory: shared, specification: specification, workspace: workspace, sharedVoice: voice) {
             let metadata = try reuseRecordURL(specification, workspace: workspace)
             if FileManager.default.fileExists(atPath: metadata.path) {
@@ -60,10 +67,30 @@ public enum NativePrimaryStore {
     /// supported voice is inventoried, and the requested voice is mandatory.
     public static func validate(directory: URL, specification: NativePrimarySpecification, workspace: NativeWorkspace,
                                 sharedVoice: String? = nil) throws -> [NativePrimaryRecord] {
-        _ = try workspace.contained(directory)
+        // Enumerators do not consistently descend through a symlink supplied
+        // as their root. Use the same contained canonical directory as loaders.
+        let directory = try workspace.contained(directory)
         // Both loaders inspect top-level tensors; Kokoro even prefers an
         // unrequested model.safetensors over the named pinned weight. Do not
         // accept a directory whose extra tensors can alter the loaded model.
+        if specification.model.isLarge {
+            let generated = NativePrimaryCatalog.generatedFiles(for: specification)
+            let expectedFiles = Set((specification.files + generated).map(\.path))
+            let expectedTensors = Set(specification.files.filter { $0.path.hasSuffix(".safetensors") }.map(\.path))
+            var actualTensors = Set<String>()
+            // The path enumerator supplies relative names directly. URL-based
+            // enumeration can return /private/var while its root uses /var.
+            guard let entries = FileManager.default.enumerator(atPath: directory.path) else { throw NativeAssetError.missing("tensor inventory") }
+            for case let relative as String in entries {
+                let ext = (relative as NSString).pathExtension
+                if ext == "safetensors" { actualTensors.insert(relative) }
+                if ["json", "txt", "safetensors"].contains(ext) {
+                    guard expectedFiles.contains(relative) || ["benchmark-assets.json", ".libro-native.json"].contains(relative) else { throw NativeAssetError.changed("unexpected model sidecar") }
+                }
+            }
+            guard expectedTensors == actualTensors else { throw NativeAssetError.changed("tensor inventory") }
+            try validateGenerated(directory: directory, specification: specification, requireAll: false)
+        }
         let expectedWeights = Set(specification.files.filter { !$0.path.contains("/") && $0.path.hasSuffix(".safetensors") }.map(\.path))
         let actualWeights = Set(try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "safetensors" }.map(\.lastPathComponent))
@@ -77,7 +104,7 @@ public enum NativePrimaryStore {
             guard !file.path.hasPrefix("/"), !file.path.split(separator: "/").contains(".."), file.bytes > 0 else {
                 throw NativeAssetError.invalid("primary inventory path")
             }
-            let url = directory.appendingPathComponent(file.path)
+            let url = try workspace.contained(directory.appendingPathComponent(file.path))
             if let sharedVoice, file.path.hasPrefix("voices/"), file.path != "voices/\(sharedVoice).safetensors",
                !FileManager.default.fileExists(atPath: url.path) { continue }
             try workspace.validateFile(url)
@@ -117,6 +144,16 @@ public enum NativePrimaryStore {
         let records = try validate(directory: directory, specification: specification, workspace: workspace)
         try validateRecord(directory.appendingPathComponent(".libro-native.json"), records: records,
                            source: try nativeDirectory(specification, workspace: workspace), specification: specification, workspace: workspace)
+    }
+
+    public static func validateGenerated(directory: URL, specification: NativePrimarySpecification, requireAll: Bool = true) throws {
+        for file in NativePrimaryCatalog.generatedFiles(for: specification) {
+            let path = directory.appendingPathComponent(file.path)
+            if !requireAll && !FileManager.default.fileExists(atPath: path.path) { continue }
+            guard (try FileManager.default.attributesOfItem(atPath: path.path)[.type]) as? FileAttributeType == .typeRegular,
+                  (try path.resourceValues(forKeys: [.fileSizeKey])).fileSize == file.bytes,
+                  try (NativeG2P.sha256(path) == file.sha256 || file.structuralJSONSHA256.map { try NativeJSONDigest.sha256(path) == $0 } == true) else { throw NativeAssetError.changed("generated tokenizer") }
+        }
     }
 
     private static func compatibleKokoroConfigHash(_ url: URL) throws -> String {

@@ -1,15 +1,16 @@
 # VoiceRelay
 
 VoiceRelay turns Safari Reading List articles into a private podcast on Apple
-Silicon Macs running macOS 27.0 or later. It generates speech locally with Kokoro
+Silicon Macs running macOS 27.0 or later. It generates speech locally with Kokoro, Qwen3-TTS, Chatterbox Turbo or Orpheus
 and publishes to your HTTPS/WebDAV server. Safari entries are read-only.
 
 ## Get started
 
 1. Open VoiceRelay and install its speech model when prompted, or defer setup.
    **Play Sample** works without a model; **Check Speech Setup** checks installed
-   models offline.
-2. In **Settings → General**, choose your Reading List source, voice and automation
+   models offline. Choose models and download when needed in **Settings → Voice Model**;
+   use its **Downloaded models** section for disk usage, deletion and storage location.
+2. In **Settings → General**, choose your Reading List source and automation
    preferences. New settings use Heart at 1.0×.
 3. In **Settings → Publishing**, enter your Feed folder URL, Public folder URL,
    channel information and WebDAV credentials. **Test Connection** checks read
@@ -18,9 +19,10 @@ and publishes to your HTTPS/WebDAV server. Safari entries are read-only.
 4. Use the menu-bar popover's **Sync Now** to refresh, generate eligible articles
    and publish them. Copy **Subscription URL** from Publishing into your podcast app.
 
-VoiceRelay continues while its windows are closed. **Quit** stops it. Optional
-**Start VoiceRelay at login** is off by default and is available during setup and
-in **Settings → General → Startup**; it starts the ordinary app after sign-in.
+VoiceRelay continues while its windows are closed. **Quit** stops it.
+**Start VoiceRelay at login** defaults on for fresh configurations and is controlled
+in **Settings → General → Startup**. It starts the ordinary app after sign-in;
+existing startup choices are preserved.
 
 ## Know the three library destinations
 
