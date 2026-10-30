@@ -71,5 +71,7 @@ prepare_patches "$dependency_dir" "$revision" "$native_root/.build" \
     "$native_root/Patches/misaki-currency-tags.patch" \
     "$native_root/Patches/misaki-subtoken-ranges.patch" \
     "$native_root/Patches/native-model-adapters.patch" \
-    "$native_root/Patches/chatterbox-narration-pcm.patch"
+    "$native_root/Patches/chatterbox-narration-pcm.patch" \
+    "$native_root/Patches/native-token-count.patch" \
+    "$native_root/Patches/qwen-narration-token-ceiling.patch"
 echo 'Pinned native packages and recorded compatibility patches prepared.'

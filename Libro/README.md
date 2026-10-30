@@ -15,7 +15,11 @@ Kokoro, Soprano, Qwen3-TTS, Chatterbox Turbo or Orpheus. Your original documents
    the model description and speed/quality meters. Model and Voice menus keep
    their positions when switching models; extra options and **Play Sample** appear
    in compact, left-aligned rows below them. The section shrinks for simpler models.
-   Speed’s value and arrows stay beside its label. **Check Speech Setup** in **Settings → Models** checks
+   The inline **Format** label keeps the output dropdown level with Model; the
+   group moves below the voice controls in narrow layouts. Qwen's native language
+   is emphasized in the Language menu rather than shown in a separate row.
+   Qwen’s **Delivery** label and optional instruction field explain tone/pacing cues
+   on hover. Speed’s value and arrows stay beside its label. **Check Speech Setup** in **Settings → Models** checks
    installed models offline.
 2. Add files or folders through **Open** or Finder drag and drop. Select a row and
    choose **Preview Selected** to compare **Narration** with **Original Source**.
@@ -118,3 +122,10 @@ external FFmpeg installation is needed.
 
 [Documentation index](docs/README.md) · [Automated validation](docs/VALIDATION.md) ·
 [Operator checks](../docs/OPERATOR_VALIDATION.md#libro)
+
+Kokoro always uses semantic phrasing. Other models offer **Try semantic phrasing**
+in the main voice controls to compare an experimental policy with their default.
+Model details can retain private
+chunks for review; Pronunciation Settings contains sentence previews, advanced
+scopes and retained-passage checks/repair. These features preserve existing
+exports. See [long-form quality](../docs/LONGFORM_QUALITY.md).

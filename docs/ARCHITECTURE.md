@@ -27,11 +27,13 @@ on-demand preview lifecycle. See [pronunciation](PRONUNCIATION.md).
 
 ## Kokoro and Soprano
 
-New Kokoro settings use `af_heart` at 1.0×. The accepted preparation policy retains
-its evidence identifier `phoneme-200-pauses-candidate-1`; “candidate” is an internal
-version string, not a user quality setting. It targets 200 actual supported phoneme
-scalars, prefers sentence/clause boundaries and never exceeds the 510-token model
-limit or cuts an indivisible word's phonemes. Source windows are independently
+New Kokoro settings use `af_heart` at 1.0×. Mandatory semantic packing uses
+`phoneme-semantic-compounds-2`, replacing the October 15 packing policy after
+operator listening. It targets 200 actual supported phoneme scalars, may grow
+toward 300 to complete a phrase, prefers sentence/clause boundaries and never
+exceeds the 510-token model limit or cuts an indivisible word/compound's phonemes.
+Aligned letter-to-letter compound hyphens become word-separator phones rather
+than dash pauses; original text/mappings stay intact. Source windows are independently
 bounded to 1,000 scalars. Voice style uses the verified length-minus-one row.
 
 Misaki uses pinned regional US/GB resources with no silent British-to-US fallback.
@@ -292,3 +294,33 @@ omissions retain original UTF-16 spans, optional PDF page and visible reasons;
 local structural heading deduplication uses the same mechanism. Optional PDF
 layout-budget fallback preserves these explicit policy decisions. Source/metadata
 upgrades retain compatible unchanged chunk fingerprints and finished recordings.
+
+## Experimental long-form preparation and review
+
+The October 30 semantic experiment remains opt-in for non-Kokoro models through
+captured SpeechSettings. Kokoro uses semantic packing regardless of the optional
+saved planning value; this does not opt other models in when switching models.
+Old policy identifiers remain decodable as artifact history, but new Kokoro sessions
+always select the current policy, including recovery/review regeneration. Incompatible
+unfinished work is reprepared; completed recordings and bundled samples remain intact.
+Explicit semantic planning uses native helper tokenizer counts for
+Qwen/Chatterbox/Orpheus, retaining independent IPC bounds and structural boundary types. Soprano
+uses a disclosed scalar budget because its public frontend lacks token counts.
+No new default sampling, prompt, residency or waveform policy is enabled.
+
+Pronunciation entries can qualify language, exact document title and model, with
+document overrides preceding shared defaults. Legacy aliases are English-scoped.
+Trusted Kokoro phone overrides are separate aligned values, not prose markup.
+Optional dictionary metadata and captured document titles decode absent in old
+artifacts. Optional English spoken forms stay separate from segmentation and
+never activate for non-English narration.
+
+ProcessingPipeline owns opt-in private review plans, per-chunk lossless journals,
+read-only diagnostic flags, installed-only Apple SpeechAnalyzer checks and explicit
+selective repair. Review shares each app's existing joined pronunciation-preview
+ownership; no second app helper or automatic replay is introduced. Completed media,
+server state and transcript references are never changed by review. Explicit new
+WAV exports recompute segment frame intervals from actual PCM and inserted exact
+zeros; ASR cannot provide authoritative text or word timestamps. See
+[quality behavior and limits](LONGFORM_QUALITY.md) and its
+[implementation plan](LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md).

@@ -5,7 +5,7 @@ import ProcessingPipeline
 
 /// Pinned lexical conformance plus native fallback smoke, no acoustic quality claim.
 enum FrontendCheck {
-    struct Case: Codable { let text: String; let us: String?; let gb: String?; let reject: Bool?; let spoken: String? }
+    struct Case: Codable { let text: String; let us: String?; let gb: String?; let reject: Bool?; let spoken: String?; let compounds: [String]? }
     static func run() async throws {
         let args = Array(CommandLine.arguments.dropFirst())
         guard args.count == 5 else { throw SpeechFailure(.invalidInput) }
@@ -50,6 +50,11 @@ enum FrontendCheck {
                         guard phones == control.utterances.compactMap(\.phonemes).joined(separator: " ") else { throw NSError(domain: "FrontendCheck", code: 3, userInfo: [NSLocalizedDescriptionKey: "Independent phoneme reference mismatch at fixture \(caseIndex + 1), \(voice)"]) }
                     }
                     let expected = voice.hasPrefix("b") ? item.gb : item.us
+                    if let compounds = item.compounds {
+                        guard plan.policy == .current, !phones.contains("—"), compounds.allSatisfy({ compound in
+                            plan.utterances.contains { $0.text.contains(compound) }
+                        }) else { throw NSError(domain: "FrontendCheck", code: 4, userInfo: [NSLocalizedDescriptionKey: "Compound gained a dash pause or split at fixture \(caseIndex + 1), \(voice)"]) }
+                    }
                     guard !phones.isEmpty, expected == nil || expected == phones else {
                         throw NSError(domain: "FrontendCheck", code: 1, userInfo: [NSLocalizedDescriptionKey: "Pinned lexical conformance failed for \(voice): \(item.text)"])
                     }

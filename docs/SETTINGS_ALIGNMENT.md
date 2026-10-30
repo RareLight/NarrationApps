@@ -36,10 +36,16 @@ SpeechModelControls in both apps, with app-supplied playing/enabled state and an
 action; duplicate app-local sample columns/rows are removed. The active rows flow
 together without reserved space afterward; the section grows or shrinks below
 the common menus. Speed's numeric value and Stepper hug their intrinsic width in the
-value column. Qwen's Native/Language/Delivery rows share the field alignment.
+value column. Qwen's Language/Delivery rows share the field alignment; native
+language is bold and star-marked in the language menu instead of occupying its own
+row. Regional detail remains in hover/accessibility help.
 The download symbol (when needed) and info sit close to the picker. Warnings may expand below
-the controls. Libro keeps its output-format column top-aligned and anchors the
-group to the leading edge, with the existing narrow-window fallback. Input gating
+the controls. Libro uses an inline Format label to align the output dropdown with
+Model and anchors the group to the leading edge, with 4pt horizontal spacing. The main-window wrapper
+and horizontal scrollers use intrinsic content height; narrow windows put Output
+format below the voice controls without reserving blank vertical space. Qwen's
+Delivery label and instruction field share the same concise hover help in both apps,
+including examples, the default when empty and the 128-character limit. Input gating
 is separate from sample gating, preserving VoiceRelay's bundled playback while
 other model controls are busy.
 
@@ -115,3 +121,10 @@ panel. Hover help stays concise. NativeSpeech owns generalized guidance metadata
 NarrationUI owns presentation. These are shipped estimates, with no user-system
 benchmark, automatic model load or network lookup. Both apps now use SpeechModelControls. Final visual/keyboard behavior remains
 operator acceptance, separate from compilation and inert-view fixtures.
+
+October 30 quality controls are also shared: mandatory Kokoro semantic phrasing
+(no toggle), optional semantic phrasing for other models, explicit native-text
+English expansion/retention switches in model details, optional Qwen delivery
+presets, and advanced pronunciation/context/retained-passage review. Review tasks
+use each app's existing joined pronunciation-preview lifecycle. Details and manual
+acceptance are in [long-form quality](LONGFORM_QUALITY.md) and B09.

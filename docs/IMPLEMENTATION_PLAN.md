@@ -52,6 +52,13 @@ source/finished-recording preservation and unchanged audio levels remain invaria
 
 ## Remaining operator acceptance
 
+October 30 long-form preparation work is detailed in the authorized
+[quality implementation plan](LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md). Its
+Kokoro semantic activation is approved and implemented; other models retain their
+optional experiment. Compound-flow retesting, broader paired listening and review
+controls require B09. Contextual homograph inference and automatic
+repair/emotion remain deferred, not implicitly enabled by the new lexicon.
+
 Use the [single checklist](OPERATOR_VALIDATION.md) to record results. Unreported
 cases remain open; successful builds or document planning do not mark them passed.
 

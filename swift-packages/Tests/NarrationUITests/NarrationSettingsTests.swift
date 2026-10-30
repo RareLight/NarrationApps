@@ -264,6 +264,16 @@ private func seedSelectedModel(_ model: SpeechModel, root: URL) throws -> URL {
                     .appTextSizing(textSize).dynamicTypeSize(dynamicType)
                 let host = NSHostingView(rootView: view)
                 let fitted = host.fittingSize
+                // Main-window/Settings wrappers must size to the selected controls,
+                // even when the viewport is narrower than enlarged text.
+                for viewport: CGFloat in [240, 748] {
+                    let scroll = NSHostingView(rootView: ScrollView(.horizontal) { view }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: viewport, alignment: .topLeading)).fittingSize
+                    #expect(abs(scroll.width - viewport) < 0.5)
+                    #expect(scroll.height >= fitted.height - 0.5, "Narrow container clipped model options")
+                    #expect(scroll.height <= fitted.height + 20 * scale, "Scroller reserved empty space after model options")
+                }
                 #expect(fitted.width.isFinite && fitted.height.isFinite && fitted.width > 0 && fitted.height > 0)
                 if let commonWidth {
                     #expect(abs(fitted.width - commonWidth) < 0.5, "Model width shifted for \(model.rawValue)")
@@ -276,7 +286,7 @@ private func seedSelectedModel(_ model: SpeechModel, root: URL) throws -> URL {
         }
         let shortest = try #require(modelSizes[.soprano])
         #expect(abs(shortest.height - (try #require(modelSizes[.orpheus])).height) < 0.5)
-        for model in [SpeechModel.kokoro, .chatterbox] {
+        for model in [SpeechModel.chatterbox] {
             let middle = try #require(modelSizes[model])
             #expect(middle.height > shortest.height, "Unused model options left blank space")
             #expect((try #require(modelSizes[.qwen3])).height > middle.height, "Qwen options should expand the section")
@@ -332,4 +342,22 @@ private func seedSelectedModel(_ model: SpeechModel, root: URL) throws -> URL {
         }
     }
     #expect(calls == 0)
+}
+
+@Test @MainActor func languageMenuHighlightsNativeLanguageIncludingRegionalVoices() {
+    for model in SpeechModel.allCases {
+        for voice in model.presetVoices {
+            let native = model.nativeLanguage(for: voice)
+            let choices = model.languages.map { SpeechLanguageOption(language: $0, nativeLanguage: native) }
+            #expect(choices.filter(\.isNative).count == (native == nil ? 0 : 1))
+            for choice in choices { _ = choice.body }
+        }
+    }
+    for voice in ["Dylan", "Eric"] {
+        #expect(SpeechLanguageOption(language: "Chinese", nativeLanguage: SpeechModel.qwen3.nativeLanguage(for: voice)).isNative)
+        #expect(!SpeechLanguageOption(language: "English", nativeLanguage: SpeechModel.qwen3.nativeLanguage(for: voice)).isNative)
+    }
+    #expect(SpeechLanguageOption(language: "English", nativeLanguage: SpeechModel.qwen3.nativeLanguage(for: "Ryan")).isNative)
+    #expect(SpeechLanguageOption(language: "Japanese", nativeLanguage: SpeechModel.qwen3.nativeLanguage(for: "Ono_Anna")).isNative)
+    #expect(SpeechLanguageOption(language: "Korean", nativeLanguage: SpeechModel.qwen3.nativeLanguage(for: "Sohee")).isNative)
 }

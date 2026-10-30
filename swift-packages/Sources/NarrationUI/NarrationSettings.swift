@@ -62,6 +62,7 @@ public struct SpeechSetupStatusView: View {
 }
 
 public enum NarrationSettingsHelp {
+    public static let qwenDeliveryInstruction = "Describe tone or pacing, e.g. ‘calm and measured’. Leave blank for default delivery. Up to 128 characters."
     public static let speechSetup = "Download installs the selected model. Check verifies it offline."
     public static let imageDescriptions = "Add missing descriptions with on-device Apple Intelligence. Results may contain mistakes; existing descriptions and OCR stay active."
     public static let previewModelMissing = "Install the selected speech model to preview pronunciations."

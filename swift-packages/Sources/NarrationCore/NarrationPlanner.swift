@@ -31,7 +31,12 @@ public enum NarrationPlanner {
     }
     public static func version(settings: SpeechSettings, pronunciations: PronunciationDictionary = .empty, options: NarrationOptions = .init()) -> String {
         let base = version(pronunciations: pronunciations) + "/text-flow-1/pdf-layout-2/document-structure-1/scientific-text-2" + options.versionSuffix
-        return settings.model == .kokoro ? base + "/" + SpokenFormNormalizer.version + "-" + SpokenFormNormalizer.locale(settings) : base
+        let spoken = settings.model == .kokoro ? base + "/" + SpokenFormNormalizer.version + "-" + SpokenFormNormalizer.locale(settings) : base
+        // Mandatory Kokoro packing is versioned in the prepared acoustic policy,
+        // not in source-only plans shared with non-native backends. Its former
+        // optional setting no longer changes the preparation.
+        return spoken + (settings.model == .kokoro ? "" : settings.planning.map { "/" + $0.rawValue } ?? "") +
+            (settings.model != .kokoro && settings.expandSpokenForms == true && settings.effectiveLanguage == "English" ? "/experimental-" + SpokenFormNormalizer.version + "-" + SpokenFormNormalizer.locale(settings) : "")
     }
     // These upgrades omit separators and duplicate placeholders. Identical text, index,
     // provenance and engine still produce identical audio, so keep those checkpoints.
@@ -62,11 +67,12 @@ public enum NarrationPlanner {
             // Replan once, before any G2P or inference, retaining all PDF prose.
             let plain = try prepare(article, limit: limit, settings: settings, profile: profile, pronunciations: pronunciations, purpose: purpose, options: options, layoutEnabled: false)
             return .init(version: plain.version, chunks: plain.chunks,
-                         notices: plain.notices + ["PDF layout changes exceeded the source-mapping budget and were skipped; source text is retained."], omissions: plain.omissions)
+                         notices: plain.notices + ["PDF layout changes exceeded the source-mapping budget and were skipped; source text is retained."], omissions: plain.omissions, documentTitle: article.title)
         }
     }
     private static func prepare(_ article: SemanticDocument, limit: Int = 480, settings: SpeechSettings = .init(), profile: NarrationProfile = .document, pronunciations: PronunciationDictionary = .empty, purpose: NarrationPlanPurpose, options: NarrationOptions, layoutEnabled: Bool) throws -> NarrationPlan {
         try Task.checkCancellation()
+        let pronunciations = try pronunciations.resolving(language: settings.languageCode, documentTitle: article.title, model: settings.model.rawValue)
         guard limit > 0 else { throw NarrationError.invalidInput("Narration chunk limit must be positive.") }
         var chunks: [NarrationChunk] = []; var notices: [String] = []; var usedPronunciations = false; var mappedRules = 0; var mappingCount = 0
         let structuralOmissions = NarrationStructure.omissions(article, options: options)
@@ -100,8 +106,8 @@ public enum NarrationPlanner {
             guard mappingCount <= 100_000 else {
                 if hasLayoutChanges { throw OptionalLayoutBudget.exceeded }
                 throw NarrationError.invalidInput("Spoken-form mapping budget exceeded. No text was truncated.") }
-            usedPronunciations = usedPronunciations || application.text != text
-            let parts = purpose == .speechPreparation && !settings.model.isLarge ? [spoken] : try NarrationText.chunks(spoken, settings: settings, maximumScalars: min(limit, 480))
+            usedPronunciations = usedPronunciations || !application.applications.isEmpty
+            let parts = purpose == .speechPreparation && (!settings.model.isLarge || settings.planning != nil) ? [spoken] : try NarrationText.chunks(spoken, settings: settings, maximumScalars: min(limit, 480))
             var partOffset = 0
             for part in parts {
                 let value = part.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -297,6 +303,6 @@ public enum NarrationPlanner {
             if hasLayoutChanges { throw OptionalLayoutBudget.exceeded }
             throw NarrationError.invalidInput("Spoken-form mapping budget exceeded after cue composition. No text was truncated.") }
         let omissions = layout.omissions + structuralOmissions.values.sorted { $0.source.blockIndex < $1.source.blockIndex } + citations.omissions + equations.omissions
-        return NarrationPlan(version: version(settings: settings, pronunciations: pronunciations, options: options) + (purpose == .speechPreparation ? "/spoken-projection-1" : ""), chunks: chunks, notices: notices, omissions: omissions.isEmpty ? nil : omissions)
+        return NarrationPlan(version: version(settings: settings, pronunciations: pronunciations, options: options) + (purpose == .speechPreparation ? "/spoken-projection-1" : ""), chunks: chunks, notices: notices, omissions: omissions.isEmpty ? nil : omissions, documentTitle: article.title)
     }
 }

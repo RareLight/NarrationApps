@@ -1,0 +1,17 @@
+--- a/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift
++++ b/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift
+@@ -11,5 +11,7 @@
+ public final class Qwen3TTSModel: Module, SpeechGenerationModel, @unchecked Sendable {
+     public private(set) var narrationCompleted = false
++    /// Explicit product bound; nil preserves the SDK's length heuristic.
++    public var narrationMaximumTokens: Int?
+     public func narrationTokenCount(_ text: String) throws -> Int {
+         guard let tokenizer else { throw AudioGenerationError.invalidInput("Missing narration tokenizer") }
+         return tokenizer.encode(text: text).count
+@@ -387,5 +389,5 @@
+         let targetTokenCount = tokenizer.encode(text: text).count
+-        let effectiveMaxTokens = min(maxTokens, max(75, targetTokenCount * 6))
++        let effectiveMaxTokens = min(maxTokens, narrationMaximumTokens ?? max(75, targetTokenCount * 6))
+ 
+         // Initialize cache and timing
+         let startTime = Date()

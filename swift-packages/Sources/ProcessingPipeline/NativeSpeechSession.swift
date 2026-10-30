@@ -29,11 +29,19 @@ public actor NativeSpeechSession {
     private var busy = false
     private var ready = false
     private var closed = false
+    private var reviewID: UUID?
+    private var reviewPlan: PreparedSpeechPlan?
+    private var reviewWritten: Set<Int> = []
+    private var reviewBytes: Int64 = 0
+    private var reviewTargets: [String: [Int]] = [:]
+    private let reviewStore: NarrationReviewStore
+    public private(set) var reviewIssue: String?
 
     public init(configuration: WorkerConfiguration, workspace: URL, settings: SpeechSettings,
-                leaseFile: URL = InferenceLease.defaultFile, policy: SpeechPreparationPolicy? = nil, identity: AttemptIdentity = .init(batch: UUID(), job: UUID()), referenceStore: ReferenceVoiceStore = .init()) throws {
+                leaseFile: URL = InferenceLease.defaultFile, policy: SpeechPreparationPolicy? = nil, identity: AttemptIdentity = .init(batch: UUID(), job: UUID()), referenceStore: ReferenceVoiceStore = .init(), reviewStore: NarrationReviewStore = .init()) throws {
         self.identity = identity
         self.referenceStore = referenceStore
+        self.reviewStore = reviewStore
         var selected = configuration
         if settings.model.isLarge {
             guard settings.isValid else { throw SpeechFailure(.invalidInput) }
@@ -45,7 +53,7 @@ public actor NativeSpeechSession {
         self.workspace = try NativeWorkspace(root: workspace)
         var captured = settings; captured.savedChoices = nil
         self.settings = captured
-        self.policy = settings.model.isLarge ? .nativeText : settings.model == .soprano ? .legacy : (policy ?? configuration.preparationPolicy)
+        self.policy = .selected(settings: settings, requested: policy ?? configuration.preparationPolicy)
         self.leaseFile = leaseFile
     }
 
@@ -90,7 +98,7 @@ public actor NativeSpeechSession {
         try Task.checkCancellation()
         guard ready, !closed, !busy, !projection.chunks.isEmpty else { throw SpeechFailure(.invalidInput) }
         let acousticIdentity = SpeechAcousticIdentity.make(settings: settings, policy: policy)
-        if !policy.usesPreparedPhonemes {
+        if !policy.usesPreparedPhonemes && settings.planning == nil {
             let values = try projection.chunks.map { chunk in
                 let utterance = PreparedUtterance(text: chunk.text, phonemes: nil, tokenCount: 0,
                     source: .init(blockIndices: chunk.blockIndices, location: 0, length: chunk.text.utf16.count, origin: chunk.origin, sourceMappings: chunk.sourceMappings),
@@ -98,8 +106,8 @@ public actor NativeSpeechSession {
                 try utterance.validate(identity: acousticIdentity, prepared: false)
                 return utterance
             }
-            return .init(policy: policy, settings: settings, semanticVersion: projection.version,
-                acousticIdentity: acousticIdentity, utterances: values, notices: projection.notices, provenance: SpeechAcousticIdentity.provenance(settings: settings, policy: policy))
+            return captureReview(.init(policy: policy, settings: settings, semanticVersion: projection.version,
+                acousticIdentity: acousticIdentity, utterances: values, notices: projection.notices, provenance: SpeechAcousticIdentity.provenance(settings: settings, policy: policy), documentTitle: projection.documentTitle))
         }
         guard policy == .correctnessCandidate || projection.version.hasSuffix("/spoken-projection-1") else {
             throw SpeechFailure(.invalidInput)
@@ -107,22 +115,30 @@ public actor NativeSpeechSession {
         busy = true
         defer { busy = false; lease = nil }
         do {
-            let windows = try SpeechTextWindows.make(from: projection)
+            let windows = try SpeechTextWindows.boundedForControl(SpeechTextWindows.make(from: projection))
             var utterances: [PreparedUtterance] = []
             progress(0, windows.count)
             for (index, window) in windows.enumerated() {
                 try Task.checkCancellation()
                 if let checkpoint { try await checkpoint() }
                 lease = try await InferenceLease.acquire(at: leaseFile, priority: configuration.inferencePriority)
-                guard !closed, let worker else { throw CancellationError() }
+                guard !closed else { throw CancellationError() }
+                if worker == nil {
+                    guard let spool else { throw SpeechFailure(.storage) }
+                    let owned = try SpeechWorkerProcess(configuration: configuration, identity: identity)
+                    worker = owned
+                    _ = try await owned.request(.init(kind: .initialize, identity: identity, workspace: workspace.root, settings: settings, spoolDirectory: spool, policy: policy))
+                }
+                guard let worker else { throw CancellationError() }
                 let workerWindow = SpeechTextWindow(text: window.text,
                     source: .init(blockIndices: window.source.blockIndices, location: window.source.location,
-                        length: window.source.length, origin: window.source.origin), boundaryAfter: window.boundaryAfter)
+                        length: window.source.length, origin: window.source.origin,
+                        pronunciationApplications: window.source.pronunciationApplications?.filter { $0.phonemes != nil }), boundaryAfter: window.boundaryAfter)
                 let event = try await worker.request(.init(kind: .prepareText, identity: identity, chunk: index, textWindow: workerWindow))
                 guard let reference = event.preparedFile, let spool else { throw SpeechFailure(.protocolViolation) }
                 let values = try PreparedSpeechTransfer.read(reference, index: index, spool: spool)
                 try FileManager.default.removeItem(at: SpeechIPC.preparationFile(in: spool, index: index))
-                for value in values { try value.validate(identity: acousticIdentity, prepared: true) }
+                for value in values { try value.validate(identity: acousticIdentity, prepared: policy.usesPreparedPhonemes) }
                 try PreparedSpeechCoverage.validate(values, window: window)
                 let mapped = values.map { value in
                     PreparedUtterance(text: value.text, phonemes: value.phonemes, tokenCount: value.tokenCount,
@@ -133,11 +149,13 @@ public actor NativeSpeechSession {
                             }, sourceMappings: ProjectionMapping.intersecting(window.source.sourceMappings, location: value.source.location, length: value.source.length)), boundaryAfter: value.boundaryAfter, acousticIdentity: value.acousticIdentity)
                 }
                 utterances.append(contentsOf: mapped)
+                if settings.model.isLarge { await releaseLargeWorker() }
+                guard !closed else { throw CancellationError() }
                 lease = nil
                 progress(index + 1, windows.count)
             }
-            return .init(policy: policy, settings: settings, semanticVersion: projection.version,
-                acousticIdentity: acousticIdentity, utterances: utterances, notices: projection.notices, provenance: SpeechAcousticIdentity.provenance(settings: settings, policy: policy))
+            return captureReview(.init(policy: policy, settings: settings, semanticVersion: projection.version,
+                acousticIdentity: acousticIdentity, utterances: utterances, notices: projection.notices, provenance: SpeechAcousticIdentity.provenance(settings: settings, policy: policy), documentTitle: projection.documentTitle))
         } catch { await close(); throw error }
     }
 
@@ -175,6 +193,14 @@ public actor NativeSpeechSession {
                     lease = try await InferenceLease.acquire(at: leaseFile, priority: .background)
                 }
                 let samples = try await generateSamples(utterance: utterance)
+                if let reviewID, let reviewPlan {
+                    do {
+                        if let target = reviewTargets[utterance.fingerprint]?.first(where: { !reviewWritten.contains($0) }) {
+                            try reviewStore.record(reviewID, index: target, samples: samples, plan: reviewPlan, existingBytes: reviewBytes)
+                            reviewWritten.insert(target); reviewBytes += Int64(samples.count) * 4
+                        }
+                    } catch { reviewIssue = "Some review chunks could not be retained. Generated audio is unchanged." }
+                }
                 let gap = index > 0 && policy.usesStructuralPauses
                     ? NarrationPausePolicy.seconds(after: plan.utterances[index - 1].boundaryAfter, explicitGap: explicitGap) : 0
                 try assembler.append(samples: samples, gapBeforeSeconds: gap)
@@ -214,6 +240,31 @@ public actor NativeSpeechSession {
         let samples = try WorkerPCM.read(event, index: index, spool: spool, model: settings.model)
         try FileManager.default.removeItem(at: SpeechIPC.chunkFile(in: spool, index: index))
         return samples
+    }
+
+    private func captureReview(_ plan: PreparedSpeechPlan) -> PreparedSpeechPlan {
+        reviewID = nil; reviewPlan = nil; reviewWritten = []; reviewBytes = 0; reviewTargets = [:]; reviewIssue = nil
+        if settings.retainReview == true {
+            do {
+                reviewID = try reviewStore.begin(plan: plan); reviewPlan = plan
+                reviewTargets = Dictionary(grouping: plan.utterances.indices, by: { plan.utterances[$0].fingerprint })
+            }
+            catch { reviewIssue = "Narration review could not be retained. Generated audio is unchanged." }
+        }
+        return plan
+    }
+
+    /// Explicit selective repair. The session's captured model/voice and validated
+    /// preparation identity still apply; no fallback or automatic retry occurs.
+    public func renderReviewChunk(_ utterance: PreparedUtterance) async throws -> [Float] {
+        try Task.checkCancellation()
+        guard ready, !closed, !busy else { throw SpeechFailure(.invalidInput) }
+        try utterance.validate(identity: SpeechAcousticIdentity.make(settings: settings, policy: policy), prepared: policy.usesPreparedPhonemes)
+        busy = true
+        defer { busy = false; lease = nil }
+        lease = try await InferenceLease.acquire(at: leaseFile, priority: configuration.inferencePriority)
+        do { return try await generateSamples(utterance: utterance) }
+        catch { await close(); throw error }
     }
 
     public func synthesize(text: String, destination: URL) async throws -> NativeSpeechArtifact {

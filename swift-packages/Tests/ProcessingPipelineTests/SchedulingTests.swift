@@ -23,6 +23,7 @@ private final class TaskCancellation: @unchecked Sendable {
 }
 
 private struct ProcessFixture {
+    static var transportSettings: SpeechSettings { .init(model: .soprano, voice: "soprano") }
     let root: URL
     let output: URL
     let trace: URL
@@ -69,9 +70,9 @@ private struct ProcessFixture {
         try Data(text.utf8).write(to: url)
         return .init(source: url, kind: .text, relativePath: name)
     }
-    func request(_ inputs: [InputDocument], replaceExisting: Bool = false) throws -> BatchRequest {
+    func request(_ inputs: [InputDocument], replaceExisting: Bool = false, settings: SpeechSettings = ProcessFixture.transportSettings) throws -> BatchRequest {
         .init(documents: try BatchPlanner.plan(inputs, output: output), outputDirectory: output,
-              workspace: root, settings: .init(), replaceExisting: replaceExisting)
+              workspace: root, settings: settings, replaceExisting: replaceExisting)
     }
     func samples(_ destination: URL? = nil) throws -> [Float] {
         let file = try AVAudioFile(forReading: destination ?? self.destination, commonFormat: .pcmFormatFloat32, interleaved: true)
@@ -177,7 +178,7 @@ final class SchedulingTests: XCTestCase {
         for format in AudioOutputFormat.allCases where format != .mp3 || configuration.mp3Library != nil {
             let plans = try BatchPlanner.plan([input], output: fixture.output, format: format)
             let request = BatchRequest(documents: plans, outputDirectory: fixture.output, workspace: fixture.root,
-                                       settings: .init(), outputFormat: format)
+                                       settings: ProcessFixture.transportSettings, outputFormat: format)
             let summary = try await coordinator.run(request)
             XCTAssertEqual(summary.successfulCount, 1)
             XCTAssertTrue(FileManager.default.fileExists(atPath: plans[0].destination.path))
@@ -192,7 +193,7 @@ final class SchedulingTests: XCTestCase {
         try prior.write(to: destination)
         do {
             try await ChunkScheduler(configuration: broken).render(chunks: ["One.", "Two.", "Three."],
-                batchID: UUID(), jobID: UUID(), workspace: fixture.root, settings: .init(),
+                batchID: UUID(), jobID: UUID(), workspace: fixture.root, settings: ProcessFixture.transportSettings,
                 destination: destination, outputFormat: .mp3, progress: { log.append($0) })
             XCTFail("Missing encoder must fail")
         } catch AudioOutputError.encoderUnavailable { }
@@ -204,7 +205,7 @@ final class SchedulingTests: XCTestCase {
                         log: ProgressLog = ProgressLog(), beforePublication: @escaping @Sendable () throws -> Void = {}) async throws {
         try await ChunkScheduler(configuration: fixture.configuration(mode)).render(
             chunks: (0..<count).map { "Public fixture chunk \($0)." }, batchID: UUID(), jobID: UUID(),
-            workspace: fixture.root, settings: .init(), destination: fixture.destination,
+            workspace: fixture.root, settings: ProcessFixture.transportSettings, destination: fixture.destination,
             beforePublication: beforePublication, progress: { log.append($0) })
     }
 
@@ -220,7 +221,7 @@ final class SchedulingTests: XCTestCase {
         }
         let fixture = try ProcessFixture(); defer { fixture.remove() }
         try await ChunkScheduler(configuration: fixture.configuration()).render(chunks: ["One.", "\u{a0}\n", "Two."],
-            batchID: UUID(), jobID: UUID(), workspace: fixture.root, settings: .init(), destination: fixture.destination)
+            batchID: UUID(), jobID: UUID(), workspace: fixture.root, settings: ProcessFixture.transportSettings, destination: fixture.destination)
         XCTAssertEqual(try fixture.samples().count, 8)
         try fixture.assertClean()
     }
@@ -235,7 +236,7 @@ final class SchedulingTests: XCTestCase {
         let log = ProgressLog()
         do {
             try await ChunkScheduler(configuration: configuration).render(chunks: ["One.", "Two.", "Three."],
-                batchID: UUID(), jobID: UUID(), workspace: fixture.root, settings: .init(),
+                batchID: UUID(), jobID: UUID(), workspace: fixture.root, settings: ProcessFixture.transportSettings,
                 destination: fixture.destination, progress: { log.append($0) })
             XCTFail("Expected the worker memory guard")
         } catch let failure as SpeechFailure {
@@ -324,7 +325,7 @@ final class SchedulingTests: XCTestCase {
         try Data([1]).write(to: obstruction)
         do {
             try await ChunkScheduler(configuration: fixture.configuration()).render(chunks: ["One.", "Two.", "Three."],
-                batchID: UUID(), jobID: UUID(), workspace: fixture.root, settings: .init(),
+                batchID: UUID(), jobID: UUID(), workspace: fixture.root, settings: ProcessFixture.transportSettings,
                 destination: obstruction.appendingPathComponent("audio.wav"))
             XCTFail("Expected storage failure before launch")
         } catch let failure as SpeechFailure { XCTAssertEqual(failure.code, .storage) }
@@ -349,7 +350,7 @@ final class SchedulingTests: XCTestCase {
         let started = ContinuousClock.now
         do {
             try await scheduler.render(chunks: ["One."], batchID: UUID(), jobID: UUID(), workspace: fixture.root,
-                                       settings: .init(), destination: fixture.destination)
+                                       settings: ProcessFixture.transportSettings, destination: fixture.destination)
             XCTFail("Expected timeout")
         } catch let failure as SpeechFailure { XCTAssertEqual(failure.code, .timeout) }
         XCTAssertLessThan(started.duration(to: .now), .seconds(2))
@@ -361,7 +362,7 @@ final class SchedulingTests: XCTestCase {
         let task = Task {
             try await ChunkScheduler(configuration: cancelled.configuration("stall", timeout: .seconds(30))).render(
                 chunks: ["One.", "Two.", "Three."], batchID: UUID(), jobID: UUID(), workspace: cancelled.root,
-                settings: .init(), destination: cancelled.destination)
+                settings: ProcessFixture.transportSettings, destination: cancelled.destination)
         }
         try await waitForRecord(cancelled, name: "generate")
         task.cancel()
@@ -403,7 +404,7 @@ final class SchedulingTests: XCTestCase {
         let task = Task {
             try await ChunkScheduler(configuration: fixture.configuration()).render(
                 chunks: ["One.", "Two.", "Three."], batchID: UUID(), jobID: UUID(), workspace: fixture.root,
-                settings: .init(), destination: fixture.destination, progress: {
+                settings: ProcessFixture.transportSettings, destination: fixture.destination, progress: {
                     log.append($0)
                     if $0.phase == .publishing { cancellation.cancel() }
                 })
@@ -467,7 +468,7 @@ final class SchedulingTests: XCTestCase {
         do {
             try await ChunkScheduler(configuration: fixture.configuration("initializeFailure", timeout: .seconds(30))).render(
                 chunks: ["One.", "Two.", "Three."], batchID: UUID(), jobID: UUID(), workspace: fixture.root,
-                settings: .init(), destination: fixture.destination, progress: { log.append($0) })
+                settings: ProcessFixture.transportSettings, destination: fixture.destination, progress: { log.append($0) })
             XCTFail("Expected initialization failure")
         } catch let failure as SpeechFailure { XCTAssertEqual(failure.code, .invalidInput) }
         XCTAssertLessThan(started.duration(to: .now), .seconds(2))
@@ -569,7 +570,7 @@ final class SchedulingTests: XCTestCase {
         try original.write(to: destination)
         let input = InputDocument(source: book, kind: .epub, relativePath: "Book.epub")
         let plan = PlannedDocument(input: input, destination: destination, relativeOutput: "chapter.wav", replacesExisting: true)
-        let request = BatchRequest(documents: [plan], outputDirectory: resources, workspace: fixture.root, settings: .init(), replaceExisting: true)
+        let request = BatchRequest(documents: [plan], outputDirectory: resources, workspace: fixture.root, settings: ProcessFixture.transportSettings, replaceExisting: true)
         do {
             _ = try await QueueCoordinator(configuration: fixture.configuration()).run(request)
             XCTFail("Expected source protection before extraction or model initialization")
@@ -647,7 +648,7 @@ extension SchedulingTests {
         let previous = Data([17, 18])
         try previous.write(to: fixture.destination)
         let session = try NativeSpeechSession(configuration: configuration, workspace: fixture.root,
-                                               settings: .init(), leaseFile: configuration.inferenceLeaseFile)
+                                               settings: ProcessFixture.transportSettings, leaseFile: configuration.inferenceLeaseFile)
         try await session.prepare()
         _ = try await session.synthesize(text: "First.", destination: fixture.output.appendingPathComponent("first.wav"))
         do {
@@ -666,7 +667,7 @@ extension SchedulingTests {
         let fixture = try ProcessFixture(); defer { fixture.remove() }
         let configuration = fixture.configuration("slowFirst")
         let session = try NativeSpeechSession(configuration: configuration, workspace: fixture.root,
-            settings: .init(), leaseFile: configuration.inferenceLeaseFile)
+            settings: ProcessFixture.transportSettings, leaseFile: configuration.inferenceLeaseFile)
         try await session.prepare()
         let rendering = Task {
             try await session.render(chunks: ["First.", "Second.", "Third."], destination: fixture.destination,
@@ -720,7 +721,7 @@ extension SchedulingTests {
         for cancel in [false, true] {
             let fixture = try ProcessFixture(); defer { fixture.remove() }
             let configuration = fixture.configuration(cancel ? "prepareStall" : "initializeFailure", timeout: .seconds(5))
-            let task = Task { try await SpeechSetupCheck.run(configuration: configuration, workspace: fixture.root, settings: .init()) }
+            let task = Task { try await SpeechSetupCheck.run(configuration: configuration, workspace: fixture.root, settings: ProcessFixture.transportSettings) }
             if cancel { try await waitForRecord(fixture, name: "initialize"); task.cancel() }
             do { try await task.value; XCTFail("Unsuccessful check reported ready") }
             catch is CancellationError { XCTAssertTrue(cancel) }
@@ -821,9 +822,9 @@ extension SchedulingTests {
         let store = PronunciationStore(file: fixture.root.appendingPathComponent("pronunciation.json"))
         _ = try store.save(entries: [.init(word: "SQLite", spelling: "sequel lite")], expectedRevision: nil)
         configuration.pronunciationStore = store
-        XCTAssertEqual(configuration.preparationPolicy, .longformPausesCandidate)
+        XCTAssertEqual(configuration.preparationPolicy, .semantic)
         let inputs = try [fixture.input("one.txt", text: "SQLite is useful."), fixture.input("two.txt", text: "SQLite remains useful.")]
-        let summary = try await QueueCoordinator(configuration: configuration).run(fixture.request(inputs))
+        let summary = try await QueueCoordinator(configuration: configuration).run(fixture.request(inputs, settings: .init()))
         XCTAssertEqual(summary.successfulCount, 2)
         let records = try fixture.records()
         XCTAssertEqual(records.filter { $0["event"] as? String == "launch" }.count, 1)

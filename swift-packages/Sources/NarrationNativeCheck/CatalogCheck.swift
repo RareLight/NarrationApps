@@ -17,7 +17,7 @@ enum CatalogCheck {
             guard !FileManager.default.fileExists(atPath: file.path) else { throw CocoaError(.fileWriteFileExists) }
             let configuration = WorkerConfiguration(executable: URL(fileURLWithPath: "/usr/bin/sandbox-exec"),
                 arguments: ["-p", "(version 1)(allow default)(deny network*)", URL(fileURLWithPath: args[0]).standardizedFileURL.path, "--serve"])
-            let policy: SpeechPreparationPolicy = sample.model == .soprano ? .legacy : .longformPausesCandidate
+            let policy = SpeechPreparationPolicy.selected(settings: sample.settings, requested: .current)
             let session = try NativeSpeechSession(configuration: configuration, workspace: workspace.root, settings: sample.settings,
                 leaseFile: configuration.inferenceLeaseFile, policy: policy)
             do {

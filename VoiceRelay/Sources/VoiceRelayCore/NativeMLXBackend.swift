@@ -64,7 +64,7 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
 
     public init(configuration: NativeSpeechConfiguration, worker: WorkerConfiguration? = nil, pronunciations: PronunciationDictionary = .empty, policy requestedPolicy: SpeechPreparationPolicy = .current, gapSeconds: Double? = nil, narrationOptions: NarrationOptions = .init()) throws {
         let settings = configuration.settings
-        let policy: SpeechPreparationPolicy = settings.model.isLarge ? .nativeText : settings.model == .soprano ? .legacy : requestedPolicy
+        let policy = SpeechPreparationPolicy.selected(settings: settings, requested: requestedPolicy)
         self.pronunciations = pronunciations; voice = settings.voice; speed = Double(settings.speed)
         speechSettings = settings; self.policy = policy; self.gapSeconds = gapSeconds
         narrationVersion = Narration.version(settings: settings, pronunciations: pronunciations, options: narrationOptions) + "/native-preparation-1/" + SpeechAcousticIdentity.make(settings: settings, policy: policy)
@@ -87,7 +87,7 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
         return NarrationPlan(version: narrationVersion, chunks: plan.utterances.enumerated().map {
             .init(index: $0.offset, text: $0.element.text, blockIndices: $0.element.source.blockIndices,
                 boundaryAfter: $0.element.boundaryAfter, origin: $0.element.source.origin, preparedUtterance: $0.element, sourceMappings: $0.element.source.sourceMappings)
-        }, notices: plan.notices, omissions: projection.omissions)
+        }, notices: plan.notices, omissions: projection.omissions, documentTitle: projection.documentTitle)
     }
 
     public func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {

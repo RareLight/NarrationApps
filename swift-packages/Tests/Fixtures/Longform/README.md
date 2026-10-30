@@ -10,6 +10,9 @@ are intentional. The indivisible lowercase overlong word must fail before synthe
 it exercises the existing BART positional limit without truncation. Native checks
 also exercise an invented in-range out-of-dictionary name. Matching these expected
 values verifies regression conformance, not voice quality or all English grammar.
+The compound cases also verify that ASCII/Unicode hyphens retain written source
+coverage without dash pause phones or internal utterance splits under the current
+mandatory Kokoro policy. Listen separately to assess naturalness.
 
 Currency/decimal expectations accompany independent Foundation English-word
 fixtures in `DependencyTests/EnglishNumbers.swift`. The audit found that the old

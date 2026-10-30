@@ -21,8 +21,8 @@ import Pronunciation
     private func validated() throws -> PronunciationDictionary {
         try PronunciationDictionary(entries: entries.filter { !$0.word.isEmpty || !$0.spelling.isEmpty })
     }
-    public func add() -> UUID {
-        let entry = PronunciationEntry(); entries.append(entry); changed(); return entry.id
+    public func add(word: String = "") -> UUID {
+        let entry = PronunciationEntry(word: word); entries.append(entry); changed(); return entry.id
     }
     public func remove(id: UUID) { entries.removeAll { $0.id == id }; changed() }
     public func update(_ entry: PronunciationEntry) {

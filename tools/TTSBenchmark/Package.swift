@@ -22,8 +22,15 @@ if !coreOnly {
         .package(path: "../../swift-packages"),
     ]
     products += [.executable(name: "tts-benchmark-worker", targets: ["TTSBenchmarkWorker"]),
+                 .executable(name: "tts-narration-quality", targets: ["TTSNarrationQuality"]),
                  .executable(name: "tts-benchmark-reference", targets: ["TTSBenchmarkReference"])]
     targets += [
+        .executableTarget(name: "TTSNarrationQuality", dependencies: ["BenchmarkCore",
+            .product(name: "Pronunciation", package: "swift-packages"),
+            .product(name: "NarrationCore", package: "swift-packages"),
+            .product(name: "NativeSpeech", package: "swift-packages"),
+            .product(name: "ProcessingPipeline", package: "swift-packages"),
+            .product(name: "AudioOutput", package: "swift-packages")]),
         .executableTarget(name: "TTSBenchmarkWorker", dependencies: ["BenchmarkCore",
             .product(name: "NarrationCore", package: "swift-packages"),
             .product(name: "MLX", package: "mlx-swift"),

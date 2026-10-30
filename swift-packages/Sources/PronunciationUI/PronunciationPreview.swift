@@ -11,8 +11,10 @@ public struct PronunciationPreviewConfiguration: Sendable, Equatable {
     public let workspace: URL
     public let settings: SpeechSettings
     public let priority: InferencePriority
-    public init(worker: URL, workspace: URL, settings: SpeechSettings, priority: InferencePriority) {
+    public let documentTitle: String?
+    public init(worker: URL, workspace: URL, settings: SpeechSettings, priority: InferencePriority, documentTitle: String? = nil) {
         self.worker = worker; self.workspace = workspace; self.settings = settings; self.priority = priority
+        self.documentTitle = documentTitle
     }
 }
 
@@ -38,7 +40,7 @@ struct PronunciationPreviewArtifact: Sendable {
     public init() { render = Self.renderNative }
     init(render: @escaping @Sendable (String, PronunciationDictionary, PronunciationPreviewConfiguration) async throws -> PronunciationPreviewArtifact) { self.render = render }
 
-    public func play(entry: PronunciationEntry, dictionary: PronunciationDictionary, configuration: PronunciationPreviewConfiguration) {
+    public func play(entry: PronunciationEntry, dictionary: PronunciationDictionary, configuration: PronunciationPreviewConfiguration, sentence: String = "") {
         if renderingID == entry.id || playingID == entry.id.uuidString { stop(); return }
         let previous = task
         stop()
@@ -52,7 +54,9 @@ struct PronunciationPreviewArtifact: Sendable {
             }
             guard !Task.isCancelled, self.token == operation else { return }
             do {
-                let artifact = try await render(entry.word, dictionary, configuration)
+                let context = PronunciationPreviewConfiguration(worker: configuration.worker, workspace: configuration.workspace,
+                    settings: configuration.settings, priority: configuration.priority, documentTitle: entry.documentTitle)
+                let artifact = try await render(sentence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? entry.word : sentence, dictionary, context)
                 if Task.isCancelled || self.token != operation { await artifact.remove(); return }
                 self.renderingID = nil
                 self.player.toggle(url: artifact.audio, id: entry.id.uuidString)
@@ -72,6 +76,21 @@ struct PronunciationPreviewArtifact: Sendable {
     }
     public func stopAndWait() async { let previous = task; stop(); await previous?.value }
 
+    /// Share the app's existing joined preview ownership with manual review work.
+    /// Normal narration/setup cancels and awaits this task before owning a helper.
+    public func performReview(_ operation: @escaping @MainActor () async throws -> Void) {
+        let previous = task; stop()
+        let operationID = UUID(); token = operationID; workID = operationID
+        task = Task { [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled, self.token == operationID else { return }
+            defer { if self.workID == operationID { self.workID = nil; self.task = nil } }
+            do { try await operation() }
+            catch is CancellationError {}
+            catch { if self.token == operationID { self.error = error.localizedDescription } }
+        }
+    }
+
     nonisolated static func renderNative(word: String, dictionary: PronunciationDictionary,
         configuration: PronunciationPreviewConfiguration) async throws -> PronunciationPreviewArtifact {
         let accessed = configuration.workspace.startAccessingSecurityScopedResource()
@@ -80,7 +99,7 @@ struct PronunciationPreviewArtifact: Sendable {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         let artifact = PronunciationPreviewArtifact(directory: directory)
         do {
-            let projection = try NarrationPlanner.prepareForSpeech(.init(blocks: [.init(kind: .paragraph, text: word)], extractorVersion: "pronunciation-preview-1"),
+            let projection = try NarrationPlanner.prepareForSpeech(.init(title: configuration.documentTitle, blocks: [.init(kind: .paragraph, text: word)], extractorVersion: "pronunciation-preview-1"),
                 settings: configuration.settings, pronunciations: dictionary)
             let worker = WorkerConfiguration(executable: configuration.worker, inferencePriority: configuration.priority)
             let session = try NativeSpeechSession(configuration: worker, workspace: configuration.workspace,

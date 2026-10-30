@@ -26,16 +26,23 @@ variants and hosted providers' voice libraries are not included.
 Model and Voice use the same label and menu columns for every model, including
 Chatterbox reference voices. Controls form evenly spaced, left-aligned rows:
 Model, Voice, supported model options, then **Play Sample**. Kokoro's Speed value
-and arrows stay together beside the label. For Qwen, **Native** identifies the
-voice's native language, **Language** chooses the narration language, and
-**Delivery** accepts an optional instruction. Chatterbox's import action appears
+and arrows stay together beside the label. For Qwen, **Language** chooses the
+narration language; the voice's native language is bold and star-marked in that
+menu. Hover the native entry for regional detail where applicable. There is no
+separate Native row, and changing voices does not override your language choice.
+**Delivery** accepts an optional instruction. Hover its label or field for help:
+use a short tone or pacing cue, such as “calm and measured”, or leave it blank
+for default delivery (128 characters maximum). Chatterbox's import action appears
 beneath Voice. Unsupported controls are omitted.
 
 Sample follows the selected model's options, without an empty gap between them.
 The section grows or shrinks to fit the visible controls; simpler models have no
 reserved blank area. Model and Voice retain their top/left alignment. Compact row
 spacing (6pt rows, 4pt columns) follows text size; narrow windows retain scrolling/compact fallbacks.
-Libro keeps its separate output-format controls top-aligned.
+Libro's inline **Format** label keeps its output dropdown level with the Model
+menu, with the same compact 4pt horizontal gap. Its main-window header fits the
+controls' height instead of stretching into unused space; narrow layouts place Output format below the voice
+controls and scroll either group horizontally when necessary.
 
 ## Understand the meters
 
@@ -151,3 +158,14 @@ Existing WAV/AAC/MP3 export and podcast encoding/transcript rules still apply.
 
 See [implementation and validation](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md),
 [architecture](ARCHITECTURE.md) and [operator checks](OPERATOR_VALIDATION.md).
+
+## Experimental narration preparation
+
+Kokoro always uses semantic phrasing, with no switch. For the other models, the
+shared controls offer **Try semantic phrasing**, off by default pending listening
+comparison. Model details also contain optional English spoken-form
+expansion for native-text models and private chunk retention for review. Qwen
+Delivery presets are optional shortcuts to its existing instruction. These choices
+are captured for new work; they never change published audio. See
+[long-form quality](LONGFORM_QUALITY.md) for scopes, verification, selective repair,
+privacy/storage limits and the separate blind product-pipeline comparison.

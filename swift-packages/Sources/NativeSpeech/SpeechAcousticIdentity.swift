@@ -6,15 +6,18 @@ public enum SpeechAcousticIdentity {
     public static func provenance(settings: SpeechSettings, policy: SpeechPreparationPolicy) -> [String: String] {
         if settings.model.isLarge {
             let spec = NativePrimaryCatalog.specification(for: settings.model)
-            return ["modelRevision": spec.revision, "variant": settings.model.repository,
+            var result = ["modelRevision": spec.revision, "variant": settings.model.repository,
                 "adapter": "mlx-audio-swift-8d86630/native-adapters-1",
-                "generation": "native-product-defaults-20261027-2",
+                "generation": settings.model == .qwen3 ? "native-qwen-explicit-ceiling-20261030-1" : "native-product-defaults-20261027-2",
                 "maximumGeneratedTokens": settings.model.maximumGeneratedTokens.map(String.init) ?? "model-config",
                 "generatedTokenizer": NativePrimaryCatalog.generatedFiles(for: spec).map(\.sha256).joined(separator: "/"),
                 "locale": settings.effectiveLanguage, "frontend": "native-text-1",
                 "pcmPolicy": settings.model == .chatterbox ? "raw-vocoder-no-gain-or-fade-1" : "native-pcm-1",
                 "resources": NativePrimaryCatalog.dependencies(for: settings.model).map(\.revision).joined(separator: "/"),
                 "assembly": NarrationPausePolicy.candidateVersion]
+            if let planning = settings.planning { result["packing"] = planning.rawValue }
+            if let seed = settings.seed { result["seed"] = String(seed) }
+            return result
         }
         let soprano = settings.model == .soprano
         var result = ["modelRevision": NativePrimaryCatalog.specification(for: settings.model).revision,
@@ -32,7 +35,7 @@ public enum SpeechAcousticIdentity {
     public static func make(settings: SpeechSettings, policy: SpeechPreparationPolicy) -> String {
         if settings.model.isLarge {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-            var acoustic = settings; acoustic.savedChoices = nil
+            var acoustic = settings; acoustic.savedChoices = nil; acoustic.retainReview = nil
             let value = try! encoder.encode(acoustic) + encoder.encode(provenance(settings: settings, policy: policy))
             return SHA256.hash(data: value).map { String(format: "%02x", $0) }.joined()
         }
@@ -41,7 +44,7 @@ public enum SpeechAcousticIdentity {
         let frontend = settings.model == .soprano ? "soprano-text-1" : policy.usesPreparedPhonemes ? "misaki-aligned-3/subtoken-ranges-1/numeric-dots-1/foundation-numbers-1/currency-tags-1/strict-vocab-1/style-length-minus-one-1/" + region : "misaki-legacy-2/numeric-dots-1/foundation-numbers-1/currency-tags-1/" + region
         // Pause-only changes do not invalidate raw acoustic material.
         let packing = policy == .longformPausesCandidate ? SpeechPreparationPolicy.longformCandidate.rawValue : policy.rawValue
-        let value = ["acoustic-1", model.revision, settings.voice, String(settings.speed), frontend, packing].joined(separator: "\n")
+        let value = (["acoustic-1", model.revision, settings.voice, String(settings.speed), frontend, packing] + (settings.seed.map { ["seed-\($0)"] } ?? [])).joined(separator: "\n")
         return SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }

@@ -70,8 +70,8 @@ final class PreparedSpeechTests: XCTestCase {
         let data = Data(#"{"version":"old","chunks":[{"index":0,"text":"hello","blockIndices":[0]}],"notices":[]}"#.utf8)
         let plan = try JSONDecoder().decode(NarrationPlan.self, from: data)
         XCTAssertNil(plan.chunks.first?.boundaryAfter)
-        XCTAssertEqual(SpeechPreparationPolicy.current, .longformPausesCandidate)
-        XCTAssertEqual(SpeechPreparationPolicy.current.rawValue, "phoneme-200-pauses-candidate-1")
+        XCTAssertEqual(SpeechPreparationPolicy.current, .semantic)
+        XCTAssertEqual(SpeechPreparationPolicy.current.rawValue, "phoneme-semantic-compounds-2")
         XCTAssertTrue(SpeechPreparationPolicy.current.usesPreparedPhonemes)
         XCTAssertTrue(SpeechPreparationPolicy.current.usesStructuralPauses)
     }

@@ -32,7 +32,7 @@ final class SpokenFormNormalizer {
         formatters[fractionDigits] = value
         return value
     }
-    init(settings: SpeechSettings) { locale = Self.locale(settings); usesSpokenForms = settings.model == .kokoro }
+    init(settings: SpeechSettings) { locale = Self.locale(settings); usesSpokenForms = settings.model == .kokoro || (settings.expandSpokenForms == true && settings.effectiveLanguage == "English") }
     struct Result {
         let text: String
         let applications: [PronunciationApplication]

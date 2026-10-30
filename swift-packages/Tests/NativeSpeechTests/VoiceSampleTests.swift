@@ -24,7 +24,9 @@ final class VoiceSampleTests: XCTestCase {
             let preparedObject = try XCTUnwrap(record["preparedSpeech"] as? [String: Any])
             let plan = try JSONDecoder().decode(PreparedSpeechPlan.self, from: JSONSerialization.data(withJSONObject: preparedObject))
             XCTAssertEqual(plan.settings, sample.settings)
-            XCTAssertEqual(plan.policy, sample.model.isLarge ? .nativeText : sample.model == .kokoro ? .current : .legacy)
+            // Bundled samples retain their recorded preparation, independent of
+            // the policy used for newly generated narration.
+            XCTAssertEqual(plan.policy, sample.model.isLarge ? .nativeText : sample.model == .kokoro ? .longformPausesCandidate : .legacy)
             XCTAssertNotNil(plan.provenance)
             XCTAssertFalse(plan.utterances.isEmpty)
             for utterance in plan.utterances {

@@ -78,6 +78,7 @@ public struct SpeechModelControls: View {
                 Text(error).foregroundStyle(.red).appFont(.caption).fixedSize(horizontal: false, vertical: true)
             }
         }.frame(width: controlWidth, alignment: .topLeading)
+        .fixedSize(horizontal: false, vertical: true)
         .task(id: refreshKey) {
             if !downloading, let selectedStorage { await localStorage.load(selectedStorage) }
         }
@@ -142,27 +143,29 @@ public struct SpeechModelControls: View {
                 }
             }
             if selected.model == .qwen3 {
-                if let nativeLanguage = selected.model.nativeLanguage(for: selected.voice) {
-                    GridRow {
-                        controlLabel("Native").appFont(.caption).foregroundStyle(.secondary).help("Voice’s native language")
-                        Text(nativeLanguage).appFont(.caption).foregroundStyle(.secondary)
-                            .frame(width: fieldWidth, alignment: .leading)
-                            .accessibilityLabel("Native language: " + nativeLanguage)
-                        metadataPlaceholder
-                    }
-                }
                 GridRow {
                     controlLabel("Language")
                     Picker("Narration language", selection: Binding(get: { selection.wrappedValue.effectiveLanguage }, set: { selection.wrappedValue.language = $0 })) {
-                        ForEach(selected.model.languages, id: \.self) { Text($0).tag($0) }
+                        ForEach(selected.model.languages, id: \.self) { language in
+                            SpeechLanguageOption(language: language,
+                                nativeLanguage: selected.model.nativeLanguage(for: selected.voice)).tag(language)
+                        }
                     }.labelsHidden().frame(width: fieldWidth, alignment: .leading).disabled(!controlsEnabled)
                     metadataPlaceholder
                 }
                 GridRow {
-                    controlLabel("Delivery")
+                    controlLabel("Delivery").help(NarrationSettingsHelp.qwenDeliveryInstruction)
                     TextField("Optional instruction", text: Binding(get: { selection.wrappedValue.styleInstruction ?? "" }, set: { selection.wrappedValue.styleInstruction = $0.isEmpty ? nil : String($0.prefix(128)) }))
-                        .accessibilityLabel("Delivery instruction").disabled(!controlsEnabled)
+                        .accessibilityLabel("Delivery instruction").help(NarrationSettingsHelp.qwenDeliveryInstruction)
+                        .disabled(!controlsEnabled)
                         .gridCellColumns(2)
+                }
+                GridRow {
+                    Menu("Delivery presets") {
+                        Button("Model default") { selection.wrappedValue.styleInstruction = nil }
+                        Button("Clear narration") { selection.wrappedValue.styleInstruction = "Clear, measured narration with natural phrasing." }
+                        Button("Warm storytelling") { selection.wrappedValue.styleInstruction = "Warm storytelling with restrained expression and a steady pace." }
+                    }.fixedSize().gridCellColumns(3).disabled(!controlsEnabled)
                 }
             }
             if selected.model == .kokoro {
@@ -178,6 +181,13 @@ public struct SpeechModelControls: View {
                     .disabled(!canPlaySample)
                     .frame(maxWidth: .infinity, minHeight: 28 * scale, alignment: .leading)
                     .gridCellColumns(3)
+            }
+            if selected.model != .kokoro {
+                GridRow {
+                    Toggle("Try semantic phrasing", isOn: Binding(get: { selection.wrappedValue.planning != nil }, set: { selection.wrappedValue.planning = $0 ? .semanticCandidate : nil }))
+                        .help("Experimental phrase boundaries for new narration.")
+                        .disabled(!controlsEnabled).gridCellColumns(3)
+                }
             }
         }.frame(width: controlWidth, alignment: .topLeading)
     }
@@ -197,6 +207,12 @@ public struct SpeechModelControls: View {
                     meter("Generation speed", value: guide.speed, label: ModelGuidance.speedLabel(guide.speed))
                     let quality = settings.voice.hasPrefix("reference:") ? nil : guide.quality
                     meter("Narration quality", value: quality, label: ModelGuidance.qualityLabel(quality))
+                    if settings.model != .kokoro && settings.effectiveLanguage == "English" {
+                        Toggle("Expand explicit quantities and times", isOn: Binding(get: { settings.expandSpokenForms == true }, set: { settings.expandSpokenForms = $0 ? true : nil }))
+                            .help("Experimental English spoken forms. Compare with native model handling.").disabled(!controlsEnabled)
+                    }
+                    Toggle("Keep chunks for narration review", isOn: Binding(get: { settings.retainReview == true }, set: { settings.retainReview = $0 ? true : nil }))
+                        .help("Retain private text and lossless audio locally for checks and selective regeneration. Manage in Pronunciation settings.").disabled(!controlsEnabled)
                     if let currentEntry, !currentEntry.imported {
                         Button("Download missing files") {
                             guard canDownload, !downloading, !maintenance.isBusy else { return }
@@ -259,5 +275,22 @@ public struct SpeechModelControls: View {
                 Capsule().fill(index <= (value ?? 0) ? Color.accentColor : Color.secondary.opacity(0.25)).frame(height: 5)
             }
         }.frame(minWidth: 90, maxWidth: 210).accessibilityHidden(true)
+    }
+}
+
+/// Keep regional metadata (for example Chinese · Sichuan) attached to its base
+/// menu language. The symbol survives native menu styles that ignore font weight.
+struct SpeechLanguageOption: View {
+    let language: String
+    let nativeLanguage: String?
+    var isNative: Bool {
+        nativeLanguage == language || nativeLanguage?.hasPrefix(language + " · ") == true
+    }
+    var body: some View {
+        if isNative {
+            Label { Text(language).bold() } icon: { Image(systemName: "star.fill") }
+                .accessibilityLabel((nativeLanguage ?? language) + ", native language")
+                .help("Voice’s native language: " + (nativeLanguage ?? language))
+        } else { Text(language) }
     }
 }

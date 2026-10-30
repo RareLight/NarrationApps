@@ -12,6 +12,7 @@ implementation records are background, not additional setup instructions.
 | Choose a model, interpret speed/quality meters and use reference voices | [Model selection](MODEL_SELECTION.md) |
 | Choose voice previews, footnotes, citations and PDF cleanup | [Narration guide](NARRATION_GUIDE.md) |
 | Correct a word or name | [Pronunciation](PRONUNCIATION.md) |
+| Compare phrase boundaries, review names or check retained narration | [Long-form quality](LONGFORM_QUALITY.md) |
 | Diagnose Libro setup, encoding, output or package errors | [Libro troubleshooting](../Libro/docs/TROUBLESHOOTING.md) |
 | Understand VoiceRelay source failures or server conflicts | [Source handling](../VoiceRelay/docs/SOURCE_REVIEW.md), [server recovery](../VoiceRelay/docs/SERVER_RECOVERY.md) |
 

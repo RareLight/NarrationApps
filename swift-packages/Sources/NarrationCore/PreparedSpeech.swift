@@ -3,17 +3,24 @@ import CryptoKit
 import NaturalLanguage
 import Pronunciation
 
-/// Versioned preparation contracts, not user quality modes. The operator accepted
-/// the pause profile on October 15, 2026; retain its identifier for evidence and recovery.
+/// Versioned preparation contracts, not user quality modes. Historical identifiers
+/// remain decodable; Kokoro's mandatory semantic policy was accepted October 30, 2026.
 public enum SpeechPreparationPolicy: String, Codable, Sendable {
     case nativeText = "native-text-1"
     case legacy = "legacy-character-1"
     case correctnessCandidate = "misaki-correctness-candidate-1"
     case longformCandidate = "phoneme-200-candidate-1"
     case longformPausesCandidate = "phoneme-200-pauses-candidate-1"
-    public static let current: Self = .longformPausesCandidate
+    case semanticCandidate = "phoneme-semantic-200-1"
+    case semantic = "phoneme-semantic-compounds-2"
+    public static let current: Self = .semantic
     public var usesPreparedPhonemes: Bool { self != .legacy && self != .nativeText }
-    public var usesStructuralPauses: Bool { self == .longformPausesCandidate || self == .nativeText }
+    public var usesStructuralPauses: Bool { self == .longformPausesCandidate || self == .nativeText || self == .semanticCandidate || self == .semantic }
+    public static func selected(settings: SpeechSettings, requested: Self) -> Self {
+        if settings.model.isLarge { return .nativeText }
+        if settings.model == .soprano { return settings.planning == nil ? .legacy : .nativeText }
+        return .current
+    }
 }
 
 public enum SpeechBoundary: String, Codable, Sendable {
@@ -100,10 +107,12 @@ public struct PreparedSpeechPlan: Codable, Equatable, Sendable {
     public let utterances: [PreparedUtterance]
     public let notices: [String]
     public let provenance: [String: String]?
+    public let documentTitle: String?
     public init(policy: SpeechPreparationPolicy, settings: SpeechSettings, semanticVersion: String,
-                acousticIdentity: String, utterances: [PreparedUtterance], notices: [String], provenance: [String: String]? = nil) {
+                acousticIdentity: String, utterances: [PreparedUtterance], notices: [String], provenance: [String: String]? = nil, documentTitle: String? = nil) {
         version = 1; self.policy = policy; self.settings = settings; self.semanticVersion = semanticVersion
         self.acousticIdentity = acousticIdentity; self.utterances = utterances; self.notices = notices; self.provenance = provenance
+        self.documentTitle = documentTitle
     }
 }
 
@@ -121,13 +130,35 @@ public struct SpeechPreparationError: Error, LocalizedError, Sendable {
 /// unsupported symbols. Soft target 200, hard model ceiling 510.
 public enum PhonemeUtterancePacker {
     public static func pack(window: SpeechTextWindow, tokens: [AlignedPhonemeToken], vocabulary: Set<String>,
-                            identity: String, target: Int = 200) throws -> [PreparedUtterance] {
+                            identity: String, target: Int = 200, semantic: Bool = false) throws -> [PreparedUtterance] {
         guard !tokens.isEmpty, (100...400).contains(target), window.text.unicodeScalars.count <= 1_000,
               window.source.location >= 0, window.source.length == window.text.utf16.count,
               window.source.location <= Int.max - window.source.length else {
             throw SpeechPreparationError(source: window.source)
         }
         let ns = window.text as NSString
+        // A letter-to-letter compound is one packing unit. Misaki tags its
+        // hyphens as dashes; use a word separator instead of a pause phoneme.
+        // Keep source ranges/text intact, and leave punctuation/numeric dashes alone.
+        let compounds = semantic ? compoundPattern.matches(in: window.text, range: NSRange(location: 0, length: ns.length)).map(\.range) : []
+        let interior = Set(compounds.flatMap { ($0.location + 1)..<NSMaxRange($0) })
+        let tokens = tokens.map { token in
+            if semantic, token.range.length == 1, token.range.location >= 0, token.range.location < ns.length,
+               interior.contains(token.range.location), interior.contains(NSMaxRange(token.range)),
+               ["-", "\u{2010}", "\u{2011}"].contains(ns.substring(with: token.range)),
+               ["", "-", "—"].contains(token.phonemes) {
+                return AlignedPhonemeToken(range: token.range, phonemes: " ", whitespace: token.whitespace)
+            }
+            return token
+        }
+        let tagger = NLTagger(tagSchemes: [.lexicalClass, .nameType]); tagger.string = window.text
+        let sentences = NLTokenizer(unit: .sentence); sentences.string = window.text
+        var sentenceEnds = Set<Int>()
+        sentences.enumerateTokens(in: window.text.startIndex..<window.text.endIndex) { range, _ in
+            var end = range.upperBound
+            while end > range.lowerBound && window.text[window.text.index(before: end)].isWhitespace { end = window.text.index(before: end) }
+            sentenceEnds.insert(NSRange(window.text.startIndex..<end, in: window.text).length); return true
+        }
         var previous = 0
         for token in tokens {
             guard token.range.location >= previous, token.range.length > 0,
@@ -157,7 +188,8 @@ public enum PhonemeUtterancePacker {
                 let token = tokens[end]
                 let added = token.phonemes.unicodeScalars.count + (end == start ? 0 : tokens[end - 1].whitespace.unicodeScalars.count)
                 if count + added > 510 { break }
-                if count + added > target && count >= 100 { break }
+                if count + added > (semantic ? target + target / 2 : target) && count >= 100,
+                   !semantic || end > start && !tokens[end - 1].whitespace.isEmpty { break }
                 count += added; end += 1
                 let text = ns.substring(with: token.range)
                 let priority = text.contains(where: { ".!?…".contains($0) }) ? 3 : text.contains(where: { ";:".contains($0) }) ? 2 : text.contains(where: { ",—–".contains($0) }) ? 1 : 0
@@ -165,7 +197,33 @@ public enum PhonemeUtterancePacker {
             }
             guard end > start else { throw SpeechPreparationError(source: .init(blockIndices: window.source.blockIndices,
                 location: window.source.location + tokens[start].range.location, length: tokens[start].range.length, origin: window.source.origin)) }
-            if end < tokens.count, let best = preferred.max(by: { $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 < $1.1 }) { end = best.0 }
+            if semantic {
+                var used = 0, bestScore = Int.min, selected = end
+                for candidate in start..<end {
+                    used += tokens[candidate].phonemes.unicodeScalars.count + (candidate == start ? 0 : tokens[candidate - 1].whitespace.unicodeScalars.count)
+                    if interior.contains(NSMaxRange(tokens[candidate].range)) { continue }
+                    let tail = ns.substring(with: tokens[candidate].range).trimmingCharacters(in: CharacterSet(charactersIn: "\"'”’»)]}"))
+                    let strength = sentenceEnds.contains(NSMaxRange(tokens[candidate].range)) ? 8 : tail.last.map { ";:—".contains($0) ? 5 : ",".contains($0) ? 2 : 0 } ?? 0
+                    var penalty = 0
+                    if let range = Range(tokens[candidate].range, in: window.text) {
+                        let tag = tagger.tag(at: range.lowerBound, unit: .word, scheme: .lexicalClass).0
+                        if tag == .determiner || tag == .preposition || tag == .conjunction || tag == .number { penalty += 500 }
+                        if candidate + 1 < tokens.count, let next = Range(tokens[candidate + 1].range, in: window.text) {
+                            let name = tagger.tag(at: range.lowerBound, unit: .word, scheme: .nameType).0
+                            if name == .personalName && tagger.tag(at: next.lowerBound, unit: .word, scheme: .nameType).0 == name { penalty += 500 }
+                            let nextText = ns.substring(with: tokens[candidate + 1].range)
+                            if tokens[candidate].whitespace.isEmpty, tail.last?.isLetter == true,
+                               nextText.first.map({ $0.isLetter || "'’".contains($0) }) == true { continue }
+                        }
+                    }
+                    let score = strength * 100 - abs(target - used) - (used < target / 2 ? 600 : 0) - penalty
+                    if score >= bestScore { bestScore = score; selected = candidate + 1 }
+                }
+                if end < tokens.count {
+                    guard bestScore > Int.min else { throw SpeechPreparationError(source: window.source) }
+                    end = selected
+                }
+            } else if end < tokens.count, let best = preferred.max(by: { $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 < $1.1 }) { end = best.0 }
             // Keep trailing punctuation/quotes with the preceding phrase. If the
             // hard ceiling would be exceeded, choose an earlier natural boundary.
             while end < tokens.count {
@@ -184,12 +242,14 @@ public enum PhonemeUtterancePacker {
                 source: .init(blockIndices: window.source.blockIndices, location: window.source.location + range.location,
                     length: range.length, origin: window.source.origin, pronunciationApplications: window.source.pronunciationApplications?.filter {
                         $0.spokenLocation < window.source.location + range.location + range.length && $0.spokenLocation + $0.spokenLength > window.source.location + range.location
-                    }, sourceMappings: ProjectionMapping.intersecting(window.source.sourceMappings, location: window.source.location + range.location, length: range.length)), boundaryAfter: end == tokens.count ? window.boundaryAfter : boundary(text),
+                    }, sourceMappings: ProjectionMapping.intersecting(window.source.sourceMappings, location: window.source.location + range.location, length: range.length)), boundaryAfter: end == tokens.count ? window.boundaryAfter : semantic ? (sentenceEnds.contains(NSMaxRange(tokens[end - 1].range)) ? .sentence : .continuation) : boundary(text),
                 acousticIdentity: identity))
             start = end
         }
         return output
     }
+
+    private static let compoundPattern = try! NSRegularExpression(pattern: #"[\p{L}\p{M}]+(?:[-\x{2010}\x{2011}][\p{L}\p{M}]+)+"#)
 
     private static func boundary(_ text: String) -> SpeechBoundary {
         let trimmed = text.trimmingCharacters(in: CharacterSet(charactersIn: "\"'”’»)] "))
@@ -222,7 +282,7 @@ public extension NarrationPlanner {
                                  profile: NarrationProfile = .document,
                                  pronunciations: PronunciationDictionary = .empty,
                                  policy: SpeechPreparationPolicy = .current, options: NarrationOptions = .init()) throws -> NarrationPlan {
-        let projection = (settings.model == .kokoro || settings.model.isLarge) && policy != .legacy && policy != .correctnessCandidate
+        let projection = settings.effectivePlanning != nil || (settings.model.isLarge && policy != .legacy && policy != .correctnessCandidate)
         return try prepare(document, settings: settings, profile: profile, pronunciations: pronunciations,
                            purpose: projection ? .speechPreparation : .preview, options: options)
     }

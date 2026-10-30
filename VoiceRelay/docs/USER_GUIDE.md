@@ -399,3 +399,13 @@ For detailed source failures, see [source handling](SOURCE_REVIEW.md). For pendi
 or conflicting server copies, see [server recovery](SERVER_RECOVERY.md). Back up
 before experimenting with a library restore; never delete the live library or
 models to fix an Xcode build problem.
+
+### Optional narration quality review
+
+Kokoro always uses semantic phrasing. For other models, Voice Model Settings offers
+**Try semantic phrasing**, initially off. Model details
+can retain private chunks for review. Pronunciation Settings then supports
+sentence-context previews, scoped rules and explicit retained-passage checks or
+regeneration. Reviewing/exporting a new WAV does not replace podcast episodes,
+RSS or transcripts. See [long-form quality](../../docs/LONGFORM_QUALITY.md) for
+local recognition availability, storage limits and the blind comparison.

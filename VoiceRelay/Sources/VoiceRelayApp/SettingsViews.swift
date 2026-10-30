@@ -75,7 +75,7 @@ struct VoiceModelSettingsView: View {
                         download: model.installSpeechRuntime,
                         samplePlaying: model.voiceSamplePlayer.playingID != nil || model.pronunciationPreview.hasOwnedWork,
                         canPlaySample: model.canPlayVoiceSample, playSample: model.playVoiceSample)
-                }
+                }.fixedSize(horizontal: false, vertical: true)
                 if let error = model.voiceSamplePlayer.error ?? model.pronunciationPreview.error {
                     InlineNotice(message: error)
                 }

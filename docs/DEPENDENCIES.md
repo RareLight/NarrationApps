@@ -190,8 +190,17 @@ raw-PCM output mode, disabling Chatterbox's inherited peak normalization and fad
 The apps and future benchmark runs enable it; upstream default behavior is kept
 for callers that do not opt in. Original benchmark recordings are unchanged and
 used the inherited processing. No gain, normalization or fade is added elsewhere.
-Both patches are ordered and audited by `scripts/prepare-dependencies.sh` at the
+These patches and `Patches/native-token-count.patch` are ordered and audited by
+`scripts/prepare-dependencies.sh` at the
 existing pin. See [model selection](MODEL_SELECTION.md) for capabilities and RAM.
+The last patch exposes Qwen's existing tokenizer count through a narrow public
+method for candidate preparation; it changes neither tokenization nor model weights.
+`Patches/qwen-narration-token-ceiling.patch` adds an opt-in explicit output ceiling.
+The product sets its already-declared 4,096-token bound instead of the SDK's
+lower text-length heuristic, which a deterministic native long-form run exhausted
+before EOS. Nil retains upstream behavior for other callers. Clean EOS, worker
+memory/timeout and PCM-duration guards remain mandatory. The Qwen acoustic
+generation identity is versioned separately; completed recordings are preserved.
 The product Orpheus profile explicitly uses the benchmark's 4,096-token generation
 cap instead of the SDK's 1,200-token convenience default. Longer bounded text can
 exhaust the smaller cap. The cap and generation-policy version participate in

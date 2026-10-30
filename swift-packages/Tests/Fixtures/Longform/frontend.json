@@ -150,5 +150,13 @@
   {
     "text": "discre­\ntionary well-known",
     "spoken": "discretionary well-known"
+  },
+  {
+    "text": "A behind-the-scenes look at a well-known, state-of-the-art workshop.",
+    "compounds": ["behind-the-scenes", "well-known", "state-of-the-art"]
+  },
+  {
+    "text": "A well‐known café hosts a behind‑the‑scenes tour.",
+    "compounds": ["well‐known", "behind‑the‑scenes"]
   }
 ]

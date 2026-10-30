@@ -85,16 +85,24 @@ public struct SpeechSettings: Codable, Equatable, Sendable {
     public var language: String?
     public var styleInstruction: String?
     public var savedChoices: [String: SpeechChoice]?
+    /// Optional experiment for non-Kokoro models. Kokoro always uses semantic planning.
+    public var planning: SpeechPlanning?
+    public var expandSpokenForms: Bool?
+    public var retainReview: Bool?
+    public var seed: UInt64?
 
     public init(model: SpeechModel = .kokoro, voice: String = SpeechSettings.defaultKokoroVoice, speed: Float = 1.0, language: String? = nil, styleInstruction: String? = nil) {
         self.model = model
         self.voice = voice
         self.speed = speed
         self.language = language; self.styleInstruction = styleInstruction; self.savedChoices = nil
+        self.planning = nil
+        self.expandSpokenForms = nil; self.retainReview = nil; self.seed = nil
     }
 }
 
 public extension SpeechSettings {
+    var effectivePlanning: SpeechPlanning? { model == .kokoro ? .semanticCandidate : planning }
     var effectiveLanguage: String { language ?? "English" }
     var languageCode: String {
         if model == .kokoro { return voice.hasPrefix("b") ? "en-GB" : "en-US" }
@@ -121,6 +129,12 @@ public extension SpeechSettings {
         var result = Self(model: model, voice: prior?.voice ?? model.defaultVoice, speed: prior?.speed ?? 1,
                           language: prior?.language, styleInstruction: prior?.style)
         result.savedChoices = history
+        result.planning = planning
+        result.expandSpokenForms = expandSpokenForms; result.retainReview = retainReview; result.seed = seed
         return result
     }
+}
+
+public enum SpeechPlanning: String, Codable, Sendable {
+    case semanticCandidate = "semantic-boundaries-1"
 }

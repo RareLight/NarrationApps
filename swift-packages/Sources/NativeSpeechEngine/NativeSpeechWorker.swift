@@ -90,7 +90,8 @@ public enum NativeSpeechWorker {
                           staging == spool, (try staging.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true,
                           settings.speed.isFinite, settings.speed > 0 else { throw SpeechFailure(.invalidInput) }
                     let engine = try await load(settings: settings, workspace: workspace, reference: staging.appendingPathComponent("reference.wav"))
-                    context = WorkerContext(identity: command.identity, spool: staging, settings: settings, engine: engine, policy: command.policy ?? .legacy)
+                    context = WorkerContext(identity: command.identity, spool: staging, settings: settings, engine: engine,
+                        policy: settings.model == .kokoro ? .current : command.policy ?? .legacy)
                     try control.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .ready, identity: command.identity)))
                 case .generate:
                     guard let context, context.identity == command.identity, !context.policy.usesPreparedPhonemes,
@@ -106,7 +107,7 @@ public enum NativeSpeechWorker {
                     try control.write(contentsOf: SpeechIPC.encode(event))
                 case .prepareText:
                     guard let context, context.identity == command.identity,
-                          context.policy.usesPreparedPhonemes, context.settings.model == .kokoro,
+                          (context.policy.usesPreparedPhonemes || context.settings.planning != nil),
                           let window = command.textWindow, let index = command.chunk, index >= 0,
                           window.text.unicodeScalars.count <= 1_000, !window.text.isEmpty else {
                         throw SpeechFailure(.invalidInput)
@@ -182,6 +183,7 @@ public enum NativeSpeechWorker {
             return .soprano(try await SopranoModel.fromModelDirectory(primary, repo: settings.model.repository))
         case .qwen3:
             let model = try await Qwen3TTSModel.fromModelDirectory(primary)
+            model.narrationMaximumTokens = settings.model.maximumGeneratedTokens
             try NativePrimaryStore.validateGenerated(directory: primary, specification: NativePrimaryCatalog.specification(for: .qwen3))
             return .qwen3(model)
         case .chatterbox:
@@ -489,16 +491,50 @@ private enum LoadedEngine {
 
     func prepare(window: SpeechTextWindow, settings: SpeechSettings, policy: SpeechPreparationPolicy) throws -> [PreparedUtterance] {
         defer { Memory.clearCache() }
-        guard case .kokoro(let model) = self,
-              let processor = model.textProcessor as? MisakiTextProcessor else { throw SpeechFailure(.invalidInput) }
-        let aligned = try processor.processAligned(text: window.text, language: settings.voice.hasPrefix("b") ? "en-gb" : "en-us")
-        return try PhonemeUtterancePacker.pack(window: window,
-            tokens: aligned.map { .init(range: $0.sourceRange, phonemes: $0.phonemes, whitespace: $0.whitespace) },
-            vocabulary: model.supportedPhonemeVocabulary, identity: SpeechAcousticIdentity.make(settings: settings, policy: policy))
+        let identity = SpeechAcousticIdentity.make(settings: settings, policy: policy)
+        if case .kokoro(let model) = self {
+            guard let processor = model.textProcessor as? MisakiTextProcessor else { throw SpeechFailure(.invalidInput) }
+            let aligned = try processor.processAligned(text: window.text, language: settings.voice.hasPrefix("b") ? "en-gb" : "en-us")
+            let tokens = try PronunciationPhoneOverrides.apply(window: window,
+                tokens: aligned.map { .init(range: $0.sourceRange, phonemes: $0.phonemes, whitespace: $0.whitespace) })
+            return try PhonemeUtterancePacker.pack(window: window, tokens: tokens,
+                vocabulary: model.supportedPhonemeVocabulary, identity: identity, semantic: true)
+        }
+        guard settings.planning != nil else { throw SpeechFailure(.invalidInput) }
+        let measure: (String) throws -> Int
+        switch self {
+        case .qwen3(let model):
+            measure = { try model.narrationTokenCount($0) }
+        case .chatterbox(let model, _):
+            guard let tokenizer = model.tokenizer else { throw SpeechFailure(.invalidInput) }
+            measure = { tokenizer.encode(text: $0).count }
+        case .orpheus(let model):
+            guard let tokenizer = model.tokenizer else { throw SpeechFailure(.invalidInput) }
+            measure = { tokenizer.encode(text: $0).count }
+        case .soprano:
+            // Soprano's public frontend owns its tokenizer; retain a scalar
+            // budget rather than pretending to expose native token counts.
+            measure = { $0.unicodeScalars.count }
+        default: throw SpeechFailure(.invalidInput)
+        }
+        let target = settings.model == .soprano ? 180 : settings.model == .chatterbox ? 80 : 96
+        let slices = try SemanticSpeechSegmentation.slices(window.text, language: settings.languageCode,
+            target: target, maximum: settings.model == .soprano ? 480 : 512, measure: measure)
+        return slices.compactMap { slice in
+            let raw = window.text[slice.range]
+            let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty, let range = raw.range(of: text) else { return nil }
+            return PreparedUtterance(text: text, phonemes: nil, tokenCount: 0,
+                source: .init(blockIndices: window.source.blockIndices, location: window.source.location + NSRange(range, in: window.text).location,
+                              length: text.utf16.count, origin: window.source.origin),
+                boundaryAfter: slice.range.upperBound == window.text.endIndex ? window.boundaryAfter : slice.boundary,
+                acousticIdentity: identity)
+        }
     }
 
     func generate(utterance: PreparedUtterance, settings: SpeechSettings) async throws -> ([Float], Int) {
         defer { Memory.clearCache() }
+        if let seed = settings.seed { MLXRandom.seed(seed) }
         guard case .kokoro(let model) = self, let phonemes = utterance.phonemes else { throw SpeechFailure(.invalidInput) }
         let audio = try await model.generatePrepared(phonemes: phonemes, voice: settings.voice, speed: settings.speed)
         return try samples(audio, rate: model.sampleRate, settings: settings)
@@ -520,6 +556,7 @@ private enum LoadedEngine {
     }
 
     private func generatePCM(text: String, settings: SpeechSettings) async throws -> ([Float], Int) {
+        if let seed = settings.seed { MLXRandom.seed(seed) }
         let audio: MLXArray
         let rate: Int
         switch self {
@@ -534,17 +571,20 @@ private enum LoadedEngine {
         case .qwen3(let model):
             try model.validateNarrationInput(text)
             let voice = settings.voice + (settings.styleInstruction.map { ", " + $0 } ?? "")
-            audio = try await model.generate(text: text, voice: voice, refAudio: nil, refText: nil, language: settings.effectiveLanguage, generationParameters: model.defaultGenerationParameters)
+            var parameters = model.defaultGenerationParameters; parameters.seed = settings.seed
+            audio = try await model.generate(text: text, voice: voice, refAudio: nil, refText: nil, language: settings.effectiveLanguage, generationParameters: parameters)
             guard model.narrationCompleted else { throw SpeechFailure(.generation) }
             rate = model.sampleRate
         case .chatterbox(let model, let reference):
             try model.validateNarrationInput(text)
-            audio = try await model.generate(text: text, voice: nil, refAudio: reference, refText: nil, language: "en", generationParameters: model.defaultGenerationParameters)
+            var parameters = model.defaultGenerationParameters; parameters.seed = settings.seed
+            audio = try await model.generate(text: text, voice: nil, refAudio: reference, refText: nil, language: "en", generationParameters: parameters)
             guard model.narrationCompleted else { throw SpeechFailure(.generation) }
             rate = model.sampleRate
         case .orpheus(let model):
             try model.validateNarrationInput(text)
             var parameters = model.defaultGenerationParameters
+            parameters.seed = settings.seed
             parameters.maxTokens = settings.model.maximumGeneratedTokens
             audio = try await model.generate(text: text, voice: settings.voice, refAudio: nil, refText: nil, language: "en", generationParameters: parameters)
             guard model.narrationCompleted else { throw SpeechFailure(.generation) }

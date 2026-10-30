@@ -60,3 +60,20 @@ No new performance baseline is claimed by this inventory. Real document layout,
 OCR/caption quality and listening stay in [operator validation](OPERATOR_VALIDATION.md).
 Never add private books, recordings or generated expected values to Git to make
 those gates appear automated.
+
+## October 30 long-form quality candidate
+
+`NarrationCoreTests/LongformQualityTests.swift` covers semantic/phone budgets,
+Unicode coverage, sentence completion, mandatory Kokoro policy with legacy settings,
+atomic compound handling without dash phones, dense trusted-phone control payloads,
+explicit English spoken forms and read-only diagnostic/WER bounds.
+`PronunciationTests/ScopedPronunciationTests.swift` owns language/document/model
+precedence, schema migration, stable identity and conflict preservation.
+`ProcessingPipelineTests/NarrationReviewTests.swift` owns immutable plans,
+per-chunk integrity journals, exact PCM/export frame intervals, explicit repair,
+missing-passage continuation, historical Kokoro re-preparation with unchanged PCM
+reuse, and cancellation with a model-free helper.
+`PronunciationUITests` owns sentence context and joined review ownership.
+The benchmark's `QualityComparisonTests.swift` checks anonymous local page data;
+actual native helper rendering and the US/GB phone-override check are explicit
+separate runs. Recognition availability, Safari and listening remain B09.

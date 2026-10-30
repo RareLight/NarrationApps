@@ -3,6 +3,40 @@ import Pronunciation
 import NaturalLanguage
 
 public enum SpeechTextWindows {
+    /// Keep trusted phone overrides inside bounded control records without
+    /// splitting an override or sending presentation/source maps to the helper.
+    public static func boundedForControl(_ windows: [SpeechTextWindow]) throws -> [SpeechTextWindow] {
+        func divide(_ window: SpeechTextWindow) throws -> [SpeechTextWindow] {
+            try Task.checkCancellation()
+            let transfer = SpeechTextWindow(text: window.text, source: .init(blockIndices: window.source.blockIndices,
+                location: window.source.location, length: window.source.length, origin: window.source.origin,
+                pronunciationApplications: window.source.pronunciationApplications?.filter { $0.phonemes != nil }), boundaryAfter: window.boundaryAfter)
+            if try JSONEncoder().encode(transfer).count <= SpeechIPC.maximumRecordBytes / 2 { return [window] }
+            let middle = window.text.utf16.count / 2
+            let cuts = window.text.indices.filter { index in
+                guard window.text[index].isWhitespace, index > window.text.startIndex else { return false }
+                let offset = window.source.location + NSRange(window.text.startIndex..<index, in: window.text).length
+                return !(window.source.pronunciationApplications ?? []).contains { $0.spokenLocation < offset && $0.spokenLocation + $0.spokenLength > offset }
+            }
+            guard let cut = cuts.min(by: { abs(NSRange(window.text.startIndex..<$0, in: window.text).length - middle) < abs(NSRange(window.text.startIndex..<$1, in: window.text).length - middle) }) else {
+                throw SpeechPreparationError(source: window.source)
+            }
+            var result: [SpeechTextWindow] = []
+            for raw in [window.text.startIndex..<cut, cut..<window.text.endIndex] {
+                let value = window.text[raw].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty, let range = window.text[raw].range(of: value) else { throw SpeechPreparationError(source: window.source) }
+                let offset = window.source.location + NSRange(range, in: window.text).location
+                let applications = window.source.pronunciationApplications?.filter { $0.spokenLocation < offset + value.utf16.count && $0.spokenLocation + $0.spokenLength > offset }
+                let part = SpeechTextWindow(text: value, source: .init(blockIndices: window.source.blockIndices, location: offset,
+                    length: value.utf16.count, origin: window.source.origin, pronunciationApplications: applications,
+                    sourceMappings: ProjectionMapping.intersecting(window.source.sourceMappings, location: offset, length: value.utf16.count)),
+                    boundaryAfter: raw.upperBound == window.text.endIndex ? window.boundaryAfter : .continuation)
+                result += try divide(part)
+            }
+            return result
+        }
+        return try windows.flatMap { try divide($0) }
+    }
     /// Sentence context within bounded, word-aligned windows. No phoneme cuts.
     /// This is an IPC/context bound, not a source-character quality target.
     public static func make(from plan: NarrationPlan, maximumScalars: Int = 1_000) throws -> [SpeechTextWindow] {

@@ -1,6 +1,6 @@
 # Current implementation status
 
-Current-state documentation updated October 29, 2026. Feature-specific engineering
+Current-state documentation updated October 30, 2026. Feature-specific engineering
 evidence is dated below. NarrationApps is one repository containing Libro,
 VoiceRelay, SwiftNarration, AppPresentation and the combined Xcode workspace.
 The containing commit identifies all maintained source. See
@@ -8,6 +8,114 @@ The containing commit identifies all maintained source. See
 [remaining work](IMPLEMENTATION_PLAN.md) and [operator validation](OPERATOR_VALIDATION.md).
 Private document reviews and their input-specific results are retained locally;
 they are excluded from the publication history. Synthetic fixtures remain maintained.
+
+## Mandatory Kokoro semantic phrasing — October 30
+
+Following the operator's paired listening and explicit activation decision, new
+Kokoro narration always uses semantic phrasing in both apps. Its experiment switch
+is removed; older saved preferences cannot disable the policy. Other models retain
+their opt-in switch and existing defaults. Switching away from Kokoro does not
+implicitly enable the experiment for another model.
+
+`phoneme-semantic-compounds-2` also protects letter-to-letter compounds from internal
+packing splits and converts their aligned hyphen pause phones to word separators.
+Source hyphens/mappings, real dashes, numeric handling, audio levels and the hard
+510-phone ceiling are preserved. Incompatible unfinished plans are reprepared;
+old completed recordings and bundled samples remain historical. Explicit review
+repair/continuation prepares only generated passages with current packing and
+reuses unchanged verified PCM. New phrasing comparisons exclude Kokoro; existing
+blind pages and choices remain readable. Compound naturalness and current UI
+remain operator checks in B09.
+
+Full fixtures pass in `.local/validation/full-B94B7AEB-961C-4DBB-9A0A-E994A54CB55C/`.
+Final Debug/Release workspace builds and all four bundle audits pass in
+`.local/validation/release-2E09E733-7746-475C-ADE8-4C948514F33C/`; archives were skipped.
+The full rerun includes the corrected source-only checkpoint compatibility cases.
+All 27 benchmark fixtures pass; an inert-helper routing check verifies exactly
+four non-Kokoro models, eight retained expected failures and no invalid audio.
+Each packaged helper passed 36 frontend cases in both US and GB English, including
+ASCII/Unicode compounds. Two native compound WAVs passed independent finite-PCM,
+frame/hash, source-coverage and no-dash-phone checks. Private receipts and short
+listening samples are under `.local/kokoro-semantic/`. No models were downloaded,
+installed apps replaced or live services used.
+
+## Long-form narration quality — October 30
+
+Operator paired listening is now recorded in the
+[listening results](LONGFORM_QUALITY_LISTENING_RESULTS.md): semantic phrasing was
+preferred for Kokoro/Heart; all four other pairs were rated Same. Contextual
+read/lead, selected unit/time pronunciations, paragraph timing and Ryan's pacing
+remain follow-up issues. This supports considering Kokoro-only activation on
+this evidence; the initial import did not change defaults. The subsequent operator
+decision above activates it for Kokoro. B09 remains partial because GUI,
+recognition and broader pronunciation acceptance were not reported.
+
+The authorized [implementation plan](LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md) is
+implemented across the shared packages and both apps. The accepted preparation
+remains available for the other models; their semantic phrasing, native-text English
+expansions and private review retention are opt-in. Kokoro's newer mandatory policy
+is described above. Scoped language/document/model rules, trusted aligned
+Kokoro phones, sentence-context previews, name-review drafts and optional Qwen
+delivery presets share one implementation. See [behavior and limits](LONGFORM_QUALITY.md).
+
+Private immutable plans and bounded chunk journals support read-only duration,
+silence/repetition checks, installed-only local Apple recognition, explicit
+selective/current-rule regeneration, continuation of missing passages and a new
+WAV export with measured frame intervals. Repairs stream one passage at a time.
+Corrupt frame/hash metadata fails before byte accounting. Source records,
+finished audio, publishing and authoritative transcript timing remain independent.
+
+The new Swift product-pipeline comparison rendered five matched pairs (ten native
+Float32 WAVs), with no failed takes in the final run. Native US/GB checks also
+validated scoped phone overrides, preserved written text and rendered audio.
+The first native run exposed Qwen's hidden input-length-derived output cap; an
+opt-in adapter now honors the already-declared 4,096-token ceiling. The same
+fixed-seed passage completed with accepted and candidate preparation afterward.
+Its generation identity changed; memory, timeout, duration and clean-EOS guards
+remain active. Old recordings and failed-run evidence are preserved.
+
+Final full fixtures pass in
+`.local/validation/full-7956855B-3686-4B6D-82EF-999B525C2660/`; final Debug/Release
+builds and all four bundle audits pass in
+`.local/validation/release-4BE588B8-38A7-4043-92C3-C15C1EBC6BF2/`.
+The benchmark's 27 isolated fixtures pass. An inert failing-helper run verifies
+four preserved failure receipts, continuation and no invalid listening clips.
+Native audio hashes, finite samples, frame counts, matched settings and anonymous
+page data pass independent inspection. Private receipts/source fingerprints are
+under `.local/longform-quality/`. Paired audio was rendered before the last
+cache-integrity/editor/streaming-repair refinements; generation source is unchanged,
+and final packaged frontend checks remain separate receipts.
+
+The listening page is
+`.local/tts-model-benchmark/phrasing-20261030-final/comparison.html`.
+Open it directly; identities remain outside page data until an explicit final
+reveal. Current ad-hoc app candidates remain under
+`.build/WorkspaceDerivedData/Build/Products/Release/`. No installed app was replaced,
+no models downloaded and no live-source/server operation performed. Archives were
+skipped. GUI, local recognition availability and listening are operator-owned B09;
+automated recording checks alone do not establish that the candidate sounds better.
+
+## Libro voice-control layout and Qwen help — October 29
+
+Libro's main-window voice controls now use a tightly fitted wrapper, with 6pt
+vertical and 4pt horizontal spacing scaled to text size. Model/Voice stay anchored
+to the top/leading edge; simpler models shrink the header, while narrow layouts
+place Output format below the voice controls and scroll either group when needed.
+The inline Format label keeps its dropdown level with Model. Qwen's separate
+Native row is removed in both apps; the native language is bold and star-marked
+inside the Language menu, with regional detail in hover/accessibility help.
+Settings remains focused on model storage/setup. Both apps share the Qwen Delivery
+label/field tooltip explaining tone/pacing cues, default delivery when blank and
+the 128-character limit. Their shared controls/scrollers retain intrinsic height.
+
+All 14 NarrationUI tests passed, including offscreen sizing across models,
+control states, narrow widths and text sizes, plus native-language emphasis for
+all Qwen voices and regional Chinese variants. The quick gate, Debug/Release
+workspace builds and all four bundle audits passed; archives were skipped.
+Current build receipt:
+`.local/validation/release-E68D2341-3E0A-442F-AF54-924FD749B21B/`.
+Focused logs/source hashes are in `.local/voice-menu-labels/`. No installed app
+was replaced; visual/hover acceptance remains operator-owned.
 
 ## Duplicate article management — October 29
 
@@ -288,8 +396,9 @@ SpeechModelControls: Model (with download/delete, size and info), Voice,
 model-specific options and Play Sample. All rows are left-aligned with uniform,
 text-size-aware spacing. Picker frames explicitly align to the leading edge.
 Kokoro's speed value and Stepper stay together in the value column. Qwen's
-Native/Language/Delivery rows share that alignment; Chatterbox import is a full
-row beneath Voice. Unsupported parameters are omitted.
+Native/Language/Delivery rows initially shared that alignment. The current
+revision above replaces Native with language-menu emphasis; Chatterbox import
+remains a full row beneath Voice. Unsupported parameters are omitted.
 
 Play Sample is inside the shared component, with app-owned playback/enabled state
 and callbacks; separate app-local sample columns/rows are removed. Active options

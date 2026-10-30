@@ -112,3 +112,12 @@ is provided.
 [audio contracts](ARCHITECTURE.md#audio) provide the implementation-level detail.
 Manual quality checks remain in the [operator checklist](OPERATOR_VALIDATION.md);
 use private aliases when reporting document problems.
+
+## Experimental phrasing and passage review
+
+Both apps use semantic phrasing for Kokoro and offer it as an off-by-default
+experiment for other models. Both also provide scoped
+pronunciation rules and optional private retention for checking/regenerating
+individual passages. Review never replaces published recordings or derives
+podcast word timings from recognition. Start with [long-form quality](LONGFORM_QUALITY.md)
+for the controls, storage/privacy limits and blind listening procedure.

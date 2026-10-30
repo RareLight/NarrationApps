@@ -67,4 +67,14 @@ extension NativeAssetsTests {
         XCTAssertNotEqual(SpeechAcousticIdentity.make(settings: settings, policy: .legacy),
                           SpeechAcousticIdentity.make(settings: settings, policy: .longformCandidate))
     }
+    func testMandatorySemanticPolicyInvalidatesOlderPackingButIgnoresFormerKokoroToggle() {
+        var settings = SpeechSettings()
+        let identity = SpeechAcousticIdentity.make(settings: settings, policy: .current)
+        for old in [SpeechPreparationPolicy.longformPausesCandidate, .semanticCandidate] {
+            XCTAssertNotEqual(identity, SpeechAcousticIdentity.make(settings: settings, policy: old))
+        }
+        settings.planning = .semanticCandidate
+        XCTAssertEqual(identity, SpeechAcousticIdentity.make(settings: settings, policy: .current))
+        XCTAssertEqual(SpeechAcousticIdentity.provenance(settings: settings, policy: .current)["packing"], "phoneme-semantic-compounds-2")
+    }
 }

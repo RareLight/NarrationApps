@@ -94,7 +94,8 @@ struct FixtureWorker {
             guard let initial, let spool = initial.spoolDirectory, let index = command.chunk else { exit(4) }
             if command.kind == .prepareText {
                 guard let window = command.textWindow, let settings = initial.settings else { exit(4) }
-                let utterance = PreparedUtterance(text: window.text, phonemes: "a", tokenCount: 1,
+                let prepared = (initial.policy ?? .legacy).usesPreparedPhonemes
+                let utterance = PreparedUtterance(text: window.text, phonemes: prepared ? "a" : nil, tokenCount: prepared ? 1 : 0,
                     source: window.source, boundaryAfter: window.boundaryAfter,
                     acousticIdentity: SpeechAcousticIdentity.make(settings: settings, policy: initial.policy ?? .legacy))
                 let reference = try PreparedSpeechTransfer.write([utterance], index: index, spool: spool)

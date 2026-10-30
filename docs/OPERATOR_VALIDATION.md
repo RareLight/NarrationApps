@@ -530,6 +530,36 @@ separate from automated fixture tests.
 
 ## Model evaluation (developer utility)
 
+- [ ] **B09 — Long-form quality candidate (both apps).** See
+  [quality controls and limits](LONGFORM_QUALITY.md) and the
+  [paired comparison commands](../tools/TTSBenchmark/README.md#product-phrasing-comparisons).
+  **Partial listening result, October 30:** the operator preferred semantic
+  phrasing for Kokoro/Heart and rated the other four pairs Same. Pronunciation
+  and model-specific pacing issues remain; see the
+  [recorded results](LONGFORM_QUALITY_LISTENING_RESULTS.md). GUI, recognition and
+  broader acceptance remain unconfirmed. The operator subsequently approved
+  semantic phrasing as Kokoro's only preparation path. Retest compound flow
+  (“behind-the-scenes”, “state-of-the-art”) after the hyphen correction.
+  Compare the numbered A/B recordings in generated `comparison.html`, preserving
+  blinding until all choices/notes are saved. Evaluate multi-minute continuity,
+  names, read/lead ambiguity, quantities, dialogue, closing quotations and joins;
+  note fatigue and total generation time. Do not infer acceptance from EOS or
+  basic audio flags. In each app, confirm Kokoro has no semantic switch and always
+  uses that policy, including with older preferences. Other models retain an
+  initially-off switch whose saved selection survives relaunch. Optional spoken forms stay English-only and
+  Qwen presets preserve custom delivery until explicitly changed. Test advanced
+  language/document/model pronunciation scopes, sentence preview and approved
+  repeated-name drafts with disposable text. Enable retention for new disposable
+  narration; select/play/check a passage, stop during recognition/regeneration,
+  start normal work and quit to check joined ownership. Missing local recognition
+  assets must report unavailable without download/service fallback. Explicitly
+  regenerate one passage, optionally replan/apply updated rules, and export to a
+  new WAV. Compare untouched passages, structural gaps and original recordings;
+  no published audio/feed/transcript may change. Remove retained takes and check
+  finished exports remain. Retention can be partial after failure/resume; it must
+  not turn an otherwise successful audio render into failure. Accept candidate
+  defaults only after recording this result; current accepted defaults remain.
+
 - [ ] **M01 — Narrator preferences and finalist confirmation.** Use the
   [Swift benchmark guide](../tools/TTSBenchmark/README.md) to open the generated
   blind local-web bracket (`bracket.html` in the run folder, rather than the

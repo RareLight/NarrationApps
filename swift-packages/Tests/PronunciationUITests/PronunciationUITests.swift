@@ -6,6 +6,24 @@ import AudioOutput
 @testable import PronunciationUI
 
 @MainActor final class PronunciationUITests: XCTestCase {
+    func testContextPreviewCapturesSentenceAndDocumentScope() async throws {
+        let invoked = expectation(description: "Context captured")
+        let preview = PronunciationPreview { text, _, configuration in
+            XCTAssertEqual(text, "Mina opened the book."); XCTAssertEqual(configuration.documentTitle, "The station")
+            invoked.fulfill(); throw CancellationError()
+        }
+        let entry = PronunciationEntry(word: "Mina", spelling: "mee nah", documentTitle: "The station")
+        preview.play(entry: entry, dictionary: try .init(entries: [entry]), configuration: .init(worker: URL(fileURLWithPath: "/synthetic/worker"), workspace: URL(fileURLWithPath: "/synthetic/workspace"), settings: .init(), priority: .background), sentence: "Mina opened the book.")
+        await fulfillment(of: [invoked], timeout: 2)
+        await preview.stopAndWait(); XCTAssertFalse(preview.hasOwnedWork)
+    }
+    func testManualReviewSharesJoinedPreviewOwnership() async throws {
+        let began = expectation(description: "Review owns work"), ended = expectation(description: "Review cancelled")
+        let preview = PronunciationPreview()
+        preview.performReview { began.fulfill(); do { try await Task.sleep(for: .seconds(30)) } catch { ended.fulfill(); throw error } }
+        await fulfillment(of: [began], timeout: 2); XCTAssertTrue(preview.hasOwnedWork)
+        await preview.stopAndWait(); await fulfillment(of: [ended], timeout: 2); XCTAssertFalse(preview.hasOwnedWork)
+    }
     private func root() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

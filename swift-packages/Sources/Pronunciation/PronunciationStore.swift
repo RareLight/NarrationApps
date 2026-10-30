@@ -26,7 +26,7 @@ public struct PronunciationStore: Sendable {
         guard data.count <= 1_048_576 else { throw PronunciationError.invalidFile }
         do {
             let document = try JSONDecoder().decode(Document.self, from: data)
-            guard document.version == 1 else { throw PronunciationError.invalidFile }
+            guard (1...2).contains(document.version) else { throw PronunciationError.invalidFile }
             return .init(dictionary: try PronunciationDictionary(entries: document.entries), revision: PronunciationDictionary.digest(data))
         } catch { throw PronunciationError.invalidFile }
     }
@@ -41,7 +41,8 @@ public struct PronunciationStore: Sendable {
         guard flock(descriptor, LOCK_EX) == 0 else { throw PronunciationError.invalidFile }
         guard try load().revision == expectedRevision else { throw PronunciationError.conflict }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(Document(version: 1, entries: dictionary.entries))
+        let advanced = dictionary.entries.contains { $0.language != nil || $0.documentTitle != nil || $0.model != nil || $0.phonemes != nil }
+        let data = try encoder.encode(Document(version: advanced ? 2 : 1, entries: dictionary.entries))
         try data.write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         return .init(dictionary: dictionary, revision: PronunciationDictionary.digest(data))

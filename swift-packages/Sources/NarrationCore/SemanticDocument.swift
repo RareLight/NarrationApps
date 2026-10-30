@@ -67,7 +67,8 @@ public struct NarrationPlan: Codable, Sendable, Equatable {
     public let chunks: [NarrationChunk]
     public let notices: [String]
     public let omissions: [NarrationOmission]?
-    public init(version: String, chunks: [NarrationChunk], notices: [String], omissions: [NarrationOmission]? = nil) {
-        self.version = version; self.chunks = chunks; self.notices = notices; self.omissions = omissions
+    public let documentTitle: String?
+    public init(version: String, chunks: [NarrationChunk], notices: [String], omissions: [NarrationOmission]? = nil, documentTitle: String? = nil) {
+        self.version = version; self.chunks = chunks; self.notices = notices; self.omissions = omissions; self.documentTitle = documentTitle
     }
 }

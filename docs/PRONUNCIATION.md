@@ -28,19 +28,24 @@ Rules match complete words or literal phrases, without regard to capitalization.
 They respect Unicode letter/number boundaries; `read` does not match `reader`.
 Longer overlapping keys win. All replacements happen in a single pass: with
 `read` → `reed` and `reed` → `red`, the original `read` becomes `reed` once.
-Keys are literal text, not regular expressions. The same word cannot be added
-twice with different capitalization.
+Keys are literal text, not regular expressions. Duplicate capitalization is not
+a distinct rule within the same language/document/model scope. Advanced scopes,
+Kokoro phone overrides, sentence previews and retained-passage review are described
+in [long-form narration quality](LONGFORM_QUALITY.md).
 
 Keys support up to 120 characters and must contain a letter or number. Phonetic
 spellings support up to 160 characters, using ASCII English letters, spaces,
-hyphens and apostrophes. IPA and other symbols are rejected. There are at most
+hyphens and apostrophes. Ordinary English spellings reject IPA and other symbols;
+advanced Kokoro phone entries use separate aligned vocabulary validation. There are at most
 500 entries. An empty dictionary preserves the existing narration path and
 checkpoint identity.
 
 Overrides are applied by the common NarrationPlanner **before sentence/chunk
 packing**, including article openings, footnotes and closing text. Expansions are
 re-chunked to the existing engine limits. Replacement spellings then go through
-the normal native model/G2P; there is no alternate phoneme engine or IPA adapter.
+the normal native model/G2P. Advanced trusted Kokoro phones instead replace the
+exact aligned token span and use the existing validated prepared-phoneme path;
+other models never receive phone strings as prose.
 Original semantic blocks, source files and provenance remain intact. Narration
 plans retain source-block indices and note that pronunciation overrides were used.
 The matcher enumerates matches incrementally and checks cancellation rather than
