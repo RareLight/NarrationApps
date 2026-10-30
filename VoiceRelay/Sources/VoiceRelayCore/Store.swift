@@ -213,6 +213,7 @@ final class NativeStore {
             if let record = try query("SELECT record FROM episodes WHERE id=?", [e.id]).first?.first,
                let current = try? JSONDecoder().decode(Episode.self, from: Data(record.utf8)) {
                 saved.originalSourceHost = saved.originalSourceHost ?? current.originalSourceHost
+                saved.sourceName = saved.sourceName ?? current.sourceName
                 saved.readingListEntryID = current.readingListEntryID ?? saved.readingListEntryID
                 saved.replacesDuplicateAudio = saved.replacesDuplicateAudio ?? current.replacesDuplicateAudio
                 saved.readingListSavedAt = saved.readingListSavedAt ?? current.readingListSavedAt
@@ -269,13 +270,16 @@ final class NativeStore {
         if ServerRecoveryIdentity.validSource(sourceKey) { episode.originalSourceIdentity = sourceKey }
         let entry = entries[sourceKey]
         if episode.readingListSavedAt == nil { episode.readingListSavedAt = entry?.addedAt }
-        guard episode.originalSourceHost == nil else { return }
-        episode.originalSourceHost = entry?.url.host
-        if episode.originalSourceHost == nil, let bytes = try? snapshot(articleID: episode.id),
+        if episode.originalSourceHost == nil { episode.originalSourceHost = entry?.url.host }
+        let nameMissing = episode.sourceName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        guard episode.originalSourceHost == nil || nameMissing else { return }
+        if let bytes = try? snapshot(articleID: episode.id),
            let review = try? JSONDecoder().decode(StoredExtraction.self, from: bytes).review() {
             let original = review.page.originalURL
-            if sourceKey == "reviewed-url-v1-" + Files.hash(Data(original.absoluteString.utf8)) {
-                episode.originalSourceHost = original.host
+            let identity = episode.originalSourceIdentity ?? sourceKey
+            if identity == "reviewed-url-v1-" + Files.hash(Data(original.absoluteString.utf8)) {
+                if episode.originalSourceHost == nil { episode.originalSourceHost = original.host }
+                if nameMissing { episode.sourceName = review.document?.article.sourceName }
             }
         }
     }

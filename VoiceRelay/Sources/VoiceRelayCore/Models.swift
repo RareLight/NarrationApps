@@ -103,6 +103,7 @@ public struct Episode: Codable, Sendable {
     /// Hashed original source identity, exported for future server recovery without private paths.
     public var originalSourceIdentity: String? = nil
     public var sourceURL: URL? = nil
+    public var sourceName: String? = nil
     public var artworkURL: URL? = nil
     public var transcript: EpisodeTranscript? = nil
     /// Published references, including those retained from a reconciled server feed.

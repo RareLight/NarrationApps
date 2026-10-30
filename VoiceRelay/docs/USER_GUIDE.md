@@ -207,10 +207,12 @@ addresses need not be identical. VoiceRelay puts `feed.xml` and lowercase `audio
 under each folder. **Subscription URL** is read-only with **Copy** for Overcast
 or another podcatcher.
 
-Each published episode carries its recorded **Original source** link: the feed item's
-link and a clickable URL in the episode description/notes, including public PDF
-articles. It uses the recorded publisher URL, and already-published episodes pick
-it up at the next normal feed update without regenerating audio. Local filesystem
+Each published episode carries its recorded source link: the feed item's link
+and a clickable publication name in the episode description/notes, including
+public PDF articles. The link target is the recorded publisher URL and the label
+is the captured publication name, falling back to the source hostname when no
+name is known. Already-published episodes pick the note up at the next normal
+feed update without regenerating audio or fetching pages. Local filesystem
 paths are never published. Whether and how a podcast client shows episode notes
 is that client's own behavior.
 

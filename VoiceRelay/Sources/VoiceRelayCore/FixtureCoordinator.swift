@@ -647,6 +647,7 @@ public actor FixtureCoordinator {
             e.sourceHost = article.archivedCopy == nil ? (article.finalURL.host ?? article.originalURL.host) : article.originalURL.host
             e.originalSourceHost = article.originalURL.host
             e.sourceURL = article.archivedCopy == nil ? (article.canonicalURL ?? article.finalURL) : article.originalURL
+            e.sourceName = e.sourceName ?? article.sourceName
             e.artworkURL = article.previewImageURL
             if let delivery {
                 e.delivery = DeliveryState(status: .pending, remotePath: delivery.remoteMediaPath(e.id))
@@ -663,6 +664,7 @@ public actor FixtureCoordinator {
             e.sourceHost = article.archivedCopy == nil ? (article.finalURL.host ?? article.originalURL.host) : article.originalURL.host
             e.originalSourceHost = article.originalURL.host
             e.sourceURL = article.archivedCopy == nil ? (article.canonicalURL ?? article.finalURL) : article.originalURL
+            e.sourceName = e.sourceName ?? article.sourceName
             e.artworkURL = article.previewImageURL
             try store.save(e)
         }

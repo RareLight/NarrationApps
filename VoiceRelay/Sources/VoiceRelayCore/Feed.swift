@@ -42,7 +42,12 @@ enum RSS {
     private static func sourceMetadata(_ episode: Episode) -> String {
         guard let source = episode.sourceURL, (try? ArticleURL.validate(source)) != nil else { return "" }
         let url = escaped(source.absoluteString)
-        let note = "<p>Original source: <a href=\"\(url)\">\(url)</a></p>"
+        var name = episode.sourceName.map { ArticleExtractor.normalize($0) } ?? ""
+        if name.isEmpty, let host = source.host { name = host }
+        if name.lowercased().hasPrefix("www.") { name.removeFirst(4) }
+        name = String(name.prefix(200))
+        guard !name.isEmpty else { return "<link>\(url)</link>" }
+        let note = "<a href=\"\(url)\">\(escaped(name))</a>"
         return "<link>\(url)</link><description>\(escaped(note))</description>"
     }
     static func render(_ episodes: [Episode], settings: PrototypeProfile) throws -> Data {

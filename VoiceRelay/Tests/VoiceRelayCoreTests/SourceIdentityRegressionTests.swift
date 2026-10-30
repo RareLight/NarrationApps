@@ -7,7 +7,7 @@ private func sourceIdentityReview(original: URL, final: URL? = nil, canonical: U
                                   archive: ArchivedArticleCopy? = nil) throws -> ReviewedSource {
     let prose = String(repeating: "The synthetic article explains how coastal habitats shelter nearby communities from storm damage. ", count: 8)
     let link = canonical.map { "<link rel='canonical' href='\($0.absoluteString)'>" } ?? ""
-    let html = "<html><head><title>Coastal Habitats and Communities</title>\(link)</head><body><article><p>\(prose)</p><p>\(prose)</p></article></body></html>"
+    let html = "<html><head><title>Coastal Habitats and Communities</title>\(link)<meta property='og:site_name' content='Synthetic News'></head><body><article><p>\(prose)</p><p>\(prose)</p></article></body></html>"
     return try ReviewedSource.prepare(.init(originalURL: original, finalURL: final ?? original,
         bytes: Data(html.utf8), html: html, contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast,
         archivedCopy: archive), chunkLimit: 1800)
@@ -80,7 +80,7 @@ func archivedPublicationKeepsOriginalPublisherLinkAndPrivateReplayProvenance(rew
     let feed = try RSS.renderRemote([uploaded], channel: .init(settings: settings))
     let xml = String(decoding: feed, as: UTF8.self)
     #expect(xml.contains("<link>\(original.absoluteString)</link>") && !xml.contains(replay.absoluteString))
-    #expect(xml.contains("&lt;a href=&quot;\(original.absoluteString)&quot;&gt;\(original.absoluteString)&lt;/a&gt;"))
+    #expect(xml.contains("&lt;a href=&quot;\(original.absoluteString)&quot;&gt;Synthetic News&lt;/a&gt;") && !xml.contains(replay.absoluteString))
     // Existing completed recordings retain their previously captured metadata.
     do {
         let store = try NativeStore(url: storage.profile.database)

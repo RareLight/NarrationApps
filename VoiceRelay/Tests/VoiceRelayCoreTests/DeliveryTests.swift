@@ -158,10 +158,11 @@ private struct DeliveryTestBackend: TTSBackend {
     var episode = result.episode
     let source = URL(string: "https://articles.example/report?one=1&two=two%20words#section")!
     episode.sourceURL = source
+    episode.sourceName = "Ars   Technica"
     episode.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/\(episode.id).m4a",
                                     uploadedByteLength: episode.info!.byteLength)
     let channel = try RemoteChannel(settings: settings)
-    let expectedNote = "<p>Original source: <a href=\"https://articles.example/report?one=1&amp;two=two%20words#section\">https://articles.example/report?one=1&amp;two=two%20words#section</a></p>"
+    let expectedNote = "<a href=\"https://articles.example/report?one=1&amp;two=two%20words#section\">Ars Technica</a>"
     for feed in [try RSS.render([episode], settings: episode.settings), try RSS.renderRemote([episode], channel: channel)] {
         let document = try XMLDocument(data: feed)
         let items = try document.nodes(forXPath: "//item")
@@ -198,6 +199,66 @@ private struct DeliveryTestBackend: TTSBackend {
                                     uploadedByteLength: missing.info!.byteLength)
     let document = try XMLDocument(data: try RSS.renderRemote([missing], channel: channel))
     #expect(try document.nodes(forXPath: "//item/link").isEmpty && document.nodes(forXPath: "//item/description").isEmpty)
+}
+
+@Test func feedItemSourceLabelFallsBackToHostnameAndEscapesNames() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let channel = try RemoteChannel(settings: settings)
+    func noteFor(_ url: String, name: String?) throws -> String {
+        var episode = result.episode
+        episode.sourceURL = URL(string: url)
+        episode.sourceName = name
+        episode.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/\(episode.id).m4a",
+                                        uploadedByteLength: episode.info!.byteLength)
+        let document = try XMLDocument(data: try RSS.renderRemote([episode], channel: channel))
+        return try document.nodes(forXPath: "//item/description").first?.stringValue ?? ""
+    }
+    #expect(try noteFor("https://articles.example/paper.pdf", name: nil)
+            == "<a href=\"https://articles.example/paper.pdf\">articles.example</a>")
+    #expect(try noteFor("https://www.example.com/story", name: "   ")
+            == "<a href=\"https://www.example.com/story\">example.com</a>")
+    let markup = try noteFor("https://articles.example/x", name: "Research & <Science> \"Daily\"")
+    #expect(markup == "<a href=\"https://articles.example/x\">Research &amp; &lt;Science&gt; &quot;Daily&quot;</a>")
+}
+
+@Test func legacyEpisodeWithoutSourceNameRecoversItReadOnlyFromItsSnapshot() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let url = URL(string: "https://arstechnica.com/security/report")!
+    let html = String(decoding: try FixtureResource.html(), as: UTF8.self).replacingOccurrences(of: "</head>",
+        with: "<meta property='og:site_name' content='Ars Technica'></head>")
+    let page = FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
+        contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
+    let review = try ReviewedSource.prepare(page, chunkLimit: 1800)
+    let result = try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: review,
+        backend: DeliveryTestBackend(), storage: storage, delivery: settings)
+    #expect(result.episode.sourceName == "Ars Technica")
+    let store = try NativeStore(url: storage.profile.database)
+    var stale = result.episode; stale.sourceName = nil
+    try store.save(stale)
+    #expect(try store.episodes().first { $0.id == result.episode.id }?.sourceName == "Ars Technica")
+    var raw = try #require(JSONSerialization.jsonObject(with: Files.json(result.episode)) as? [String: Any])
+    raw.removeValue(forKey: "sourceName")
+    let legacyJSON = try JSONSerialization.data(withJSONObject: raw)
+    #expect(try JSONDecoder().decode(Episode.self, from: legacyJSON).sourceName == nil)
+    let saved = String(decoding: legacyJSON, as: UTF8.self)
+    try store.execute("UPDATE episodes SET record=? WHERE id=?", [saved, result.episode.id])
+    let recovered = try #require(try store.episodes().first { $0.id == result.episode.id })
+    #expect(recovered.sourceName == "Ars Technica" && recovered.id == result.episode.id
+            && recovered.audioHash == result.episode.audioHash && recovered.sourceURL == result.episode.sourceURL)
+    #expect(try store.query("SELECT record FROM episodes WHERE id=?", [result.episode.id]).first?.first == saved)
+    var mismatchedRaw = try #require(JSONSerialization.jsonObject(with: Files.json(result.episode)) as? [String: Any])
+    mismatchedRaw["id"] = "legacy-mismatch"; mismatchedRaw.removeValue(forKey: "sourceName")
+    let otherKey = "reviewed-url-v1-" + Files.hash(Data("https://other.example/page".utf8))
+    try store.execute("INSERT INTO episodes VALUES(?,?,?)",
+        ["legacy-mismatch", otherKey, String(decoding: try JSONSerialization.data(withJSONObject: mismatchedRaw), as: UTF8.self)])
+    try store.saveSnapshot(articleID: "legacy-mismatch", data: try #require(try store.snapshot(articleID: result.episode.id)))
+    let mismatched = try #require(try store.episodes().first { $0.id == "legacy-mismatch" })
+    #expect(mismatched.sourceName == nil)
 }
 
 @Test func serverFeedParserKeepsIdentityWithSourceDescriptionPresent() async throws {
@@ -836,7 +897,7 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     let feed = String(decoding: try RSS.renderRemote([uploaded], channel: channel), as: UTF8.self)
     #expect(feed.contains("xmlns:dc=\"http://purl.org/dc/elements/1.1/\""))
     #expect(feed.contains("<link>https://articles.example/private-canonical</link>"))
-    #expect(feed.contains("&lt;a href=&quot;https://articles.example/private-canonical&quot;&gt;https://articles.example/private-canonical&lt;/a&gt;"))
+    #expect(feed.contains("&lt;a href=&quot;https://articles.example/private-canonical&quot;&gt;articles.example&lt;/a&gt;"))
     #expect(feed.contains("<dc:creator>Private Author</dc:creator>"))
     #expect(feed.contains("<enclosure url=\"https://podcast.example/audio/\(uploaded.id).m4a\""))
     #expect(feed.contains("<itunes:block>yes</itunes:block>") && XMLParser(data: Data(feed.utf8)).parse())
@@ -1396,6 +1457,7 @@ private final class SessionCredentialFixture: DeliveryCredentialStore, @unchecke
     let result = try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: review,
         backend: DeliveryTestBackend(), storage: storage, delivery: settings)
     #expect(result.episode.artworkURL?.absoluteString == "https://images.example/preview.jpg?a=1&b=2")
+    #expect(result.episode.sourceName == "Synthetic News")
     #expect(result.narration.chunks.first?.text.contains("Source: Synthetic News.") == true)
     #expect(result.narration.chunks.last?.text == "End of article.")
     let image = "<itunes:image href=\"https://images.example/preview.jpg?a=1&amp;b=2\"/>"
@@ -1405,6 +1467,7 @@ private final class SessionCredentialFixture: DeliveryCredentialStore, @unchecke
         credential: FakeCredentials(password: "pw"), transport: transport)
     let feed = try #require(transport.body("/" + settings.remoteFeedPath))
     #expect(String(decoding: feed, as: UTF8.self).contains(image))
+    #expect(String(decoding: feed, as: UTF8.self).contains("&gt;Synthetic News&lt;/a&gt;"))
     #expect(XMLParser(data: feed).parse())
     var episode = try #require(await FixtureCoordinator().library(storage: storage).first)
     episode.artworkURL = URL(string: "https://user:secret@images.example/private.jpg")

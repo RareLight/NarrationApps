@@ -384,6 +384,7 @@ extension FixtureCoordinator {
             }
             if let saved = sourceEntry?.addedAt { episode.readingListSavedAt = saved }
             episode.originalSourceHost = review.page.originalURL.host
+            episode.sourceName = episode.sourceName ?? review.document?.article.sourceName
             episode.readingListEntryID = episode.readingListEntryID ?? sourceEntryID
             if replacePublished { episode.replacesDuplicateAudio = true }
             try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
