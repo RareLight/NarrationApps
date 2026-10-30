@@ -138,6 +138,13 @@ final class IntakeModel {
     var setupResult: SpeechSetupStatus = .notChecked
     var setupVerificationFailed = false
     var speechSetupStatus: SpeechSetupStatus { setupResult == .notChecked && !assetsReady ? .notInstalled : setupResult }
+    var speechSetupHeaderPresented: Bool {
+        isPreparingModel || (workspace?.url != nil && !checkingAssets && (!assetsReady || setupVerificationFailed))
+    }
+    var speechSetupFailureDetail: String? {
+        guard !isPreparingModel, case .failure(let message) = speechSetupStatus else { return nil }
+        return message
+    }
     var pronunciationUnavailableReason: String? {
         guard pronunciationConfiguration == nil else { return nil }
         if isPreparingModel || isGenerating || hasOwnedProbe { return NarrationSettingsHelp.previewBusy }

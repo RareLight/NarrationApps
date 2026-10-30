@@ -48,15 +48,17 @@ public enum NativeSpeechSetup {
                                            workspace: root, settings: settings)
         }
     }
-    public static func install(at root: URL = managedRoot, settings: SpeechSettings = .init()) throws {
+    public static func install(at root: URL = managedRoot, settings: SpeechSettings = .init(),
+                               progress: @escaping @Sendable (ModelPreparationProgress) -> Void = { _ in }) throws {
         guard root.isFileURL, root.path != "/", !Files.samePath(root, FileManager.default.homeDirectoryForCurrentUser) else {
             throw RelayError.setup("Choose an app-owned model folder.")
         }
         try NativeModelStorage.prepareRoot(root)
         let configuration = WorkerConfiguration(executable: workerExecutable, requestTimeout: .seconds(5_400))
         try NativeOperationBridge().run {
-            try await ModelPreparation.run(configuration: configuration, workspace: root, settings: settings)
+            try await ModelPreparation.run(configuration: configuration, workspace: root, settings: settings, progress: progress)
         }
+        progress(.init(scope: .primary, phase: .checking, totalBytes: 0))
         try check(at: root, settings: settings)
     }
 }

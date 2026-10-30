@@ -43,15 +43,10 @@ final class SampleGenerationTests: XCTestCase, @unchecked Sendable {
             let chunks = try SampleGeneration.chunks(text: text, sample: sample)
             XCTAssertEqual(chunks, expected)
             XCTAssertFalse(chunks.isEmpty)
-            if sample.model == .kokoro {
-                // Acoustic packing belongs to the helper, after G2P; projection
-                // must not apply the superseded character-size chunking first.
-                XCTAssertEqual(chunks.count, 1)
-                XCTAssertTrue(chunks[0].hasSuffix("This is the next sentence."))
-            } else {
-                XCTAssertGreaterThan(chunks.count, 1)
-                XCTAssertTrue(chunks.allSatisfy { $0.unicodeScalars.count <= 480 })
-            }
+            // Acoustic packing belongs to the helper, after G2P; projection
+            // must not apply the superseded character-size chunking first.
+            XCTAssertEqual(chunks.count, 1)
+            XCTAssertTrue(chunks[0].hasSuffix("This is the next sentence."))
         }
     }
 

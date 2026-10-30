@@ -297,13 +297,15 @@ upgrades retain compatible unchanged chunk fingerprints and finished recordings.
 
 ## Experimental long-form preparation and review
 
-The October 30 semantic experiment remains opt-in for non-Kokoro models through
-captured SpeechSettings. Kokoro uses semantic packing regardless of the optional
-saved planning value; this does not opt other models in when switching models.
-Old policy identifiers remain decodable as artifact history, but new Kokoro sessions
+Semantic phrasing is mandatory for every model. Saved planning values decode as
+inert compatibility metadata and never change effective preparation; Kokoro selects
+its current policy and all other models select native text, regardless of any
+requested historical policy. Non-Kokoro narration versions carry
+`semantic-boundaries-1`; Kokoro's packing stays versioned in its acoustic policy.
+Old policy identifiers remain decodable as artifact history, but new sessions
 always select the current policy, including recovery/review regeneration. Incompatible
 unfinished work is reprepared; completed recordings and bundled samples remain intact.
-Explicit semantic planning uses native helper tokenizer counts for
+Semantic planning uses native helper tokenizer counts for
 Qwen/Chatterbox/Orpheus, retaining independent IPC bounds and structural boundary types. Soprano
 uses a disclosed scalar budget because its public frontend lacks token counts.
 No new default sampling, prompt, residency or waveform policy is enabled.

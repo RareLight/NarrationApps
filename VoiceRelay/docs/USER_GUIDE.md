@@ -17,7 +17,8 @@ installed model folder offers **Check Model** to verify it offline.
 Installation starts only after your choice;
 you can cancel or retry without leaving setup. Installed models skip this window
 and are checked offline at startup. To install later, use
-the **Download** arrow icon beside the model picker in **Settings → Voice Model**.
+the **Download Model** button in the **Speech Setup Required** banner at the top of
+**Settings → Voice Model** and above the workspace lists.
 Installation explicitly downloads verified native model and pronunciation assets;
 **Check Speech Setup** loads the installed model offline without generating audio. Models default to the shared Hugging Face cache. **Voice Model → Downloaded models** lists disk usage, deletion controls and a folder override. Existing custom locations remain supported. Cancel and Quit join owned setup work;
 global environments are unchanged. See [model selection and setup](../../docs/MODEL_SELECTION.md); the [Kokoro provider notes](KOKORO_PROVIDER.md) describe the retained original backend.
@@ -43,7 +44,7 @@ speed where supported, download when no files are cached, model details, and **P
 Model and Voice keep the same positions when switching models; extra options
 appear below them in compact, aligned rows, followed by **Play Sample**. The section
 grows or shrinks to fit the selected model's controls. Speed’s value and
-arrows stay beside its label. Cached models show only **ⓘ** beside the picker;
+arrows stay beside its label. The details **ⓘ** sits beside the model picker;
 sizes and deletion are in **Downloaded models**, in compact aligned columns.
 Click **ⓘ** for the
 model description and quality/speed meters. For cached models, **Download missing
@@ -402,8 +403,7 @@ models to fix an Xcode build problem.
 
 ### Optional narration quality review
 
-Kokoro always uses semantic phrasing. For other models, Voice Model Settings offers
-**Try semantic phrasing**, initially off. Model details
+All models always use semantic phrasing. Model details
 can retain private chunks for review. Pronunciation Settings then supports
 sentence-context previews, scoped rules and explicit retained-passage checks or
 regeneration. Reviewing/exporting a new WAV does not replace podcast episodes,

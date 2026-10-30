@@ -48,11 +48,10 @@ final class ExpandedModelTests: XCTestCase {
         for model in [SpeechModel.qwen3, .chatterbox, .orpheus] {
             let settings = SpeechSettings(model: model, voice: model.defaultVoice)
             let plan = try NarrationPlanner.prepareForSpeech(doc, settings: settings)
-            XCTAssertGreaterThan(plan.chunks.count, 1)
-            XCTAssertTrue(plan.chunks.allSatisfy { $0.text.unicodeScalars.count <= 480 })
+            XCTAssertEqual(plan.chunks.count, 1)
             XCTAssertEqual(plan.chunks.map(\.text).joined(separator: " ").split(whereSeparator: \.isWhitespace), text.split(whereSeparator: \.isWhitespace))
             XCTAssertTrue(plan.chunks.allSatisfy { $0.origin == .authored })
-            XCTAssertTrue(plan.chunks.dropLast().allSatisfy { $0.boundaryAfter == .continuation })
+            XCTAssertEqual(plan.chunks[0].boundaryAfter, .paragraph)
         }
     }
     func testGuidanceIsBoundedAndLanguageScoped() {

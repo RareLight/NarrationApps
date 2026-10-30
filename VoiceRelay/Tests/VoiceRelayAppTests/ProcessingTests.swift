@@ -2092,7 +2092,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
         if url.lastPathComponent == "unreadable" { throw SourceFetchError.network }
         return try fetchFixture(url: url)
     }, defaults: defaults, deliveryTransport: { transport }, credentialStore: credentials,
-        runtimeSetup: { _, _ in checks.increment() }, readingListReader: { _ in
+        runtimeSetup: { _, _, _, _ in checks.increment() }, readingListReader: { _ in
             sourceReads.increment(); return ReadingListSnapshot(entries: entries, skippedEntries: 0)
         })
     model.sourceReview.plist = root.appendingPathComponent("Bookmarks.plist") // Only the injected reader sees this URL.
@@ -2125,7 +2125,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, enqueueFetch: { url in
         fetches.increment(); return try fetchFixture(url: url)
     }, defaults: defaults, deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "fixture"),
-        runtimeSetup: { _, _ in checks.increment() }, readingListReader: { _ in throw SourceFetchError.network })
+        runtimeSetup: { _, _, _, _ in checks.increment() }, readingListReader: { _ in throw SourceFetchError.network })
     model.sourceReview.plist = root.appendingPathComponent("Bookmarks.plist")
     model.sourceReview.lastSyncedAt = .distantPast
     model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: [ReadingListEntry(id: "stale", safariID: nil,
@@ -2145,7 +2145,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
         url: URL(string: "https://synthetic.example/\($0)")!, title: $0, addedAt: nil) }
     let provider = GateProvider()
     let model = AppModel(storage: storage, backend: { _ in provider }, enqueueFetch: { try fetchFixture(url: $0) },
-        defaults: defaults, runtimeSetup: { _, _ in }, readingListReader: { _ in ReadingListSnapshot(entries: entries, skippedEntries: 0) })
+        defaults: defaults, runtimeSetup: { _, _, _, _ in }, readingListReader: { _ in ReadingListSnapshot(entries: entries, skippedEntries: 0) })
     model.sourceReview.plist = root.appendingPathComponent("Bookmarks.plist")
     model.syncNow()
     #expect(try await awaitMainActor { provider.synthesizeEntered })

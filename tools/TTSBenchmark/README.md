@@ -238,57 +238,37 @@ evaluation permission do not establish product redistribution rights.
 
 ## Product phrasing comparisons
 
-Use the separate `tts-narration-quality` utility to compare accepted and candidate
-preparation within the same narrator. It calls the actual shared product planner,
-private helper, tokenizer/phoneme packing and structural assembly for the four
-experimental product engines. Kokoro's accepted semantic policy is now mandatory;
-new runs exclude it instead of presenting identical policies as an A/B comparison.
-Earlier Kokoro comparisons remain readable. It does not add cold/warm variants to the model bracket or change
-app preferences. This is a separate paired-preference page, not a model ranking.
+**Retired.** Every product model now always uses semantic phrasing, so new
+baseline-versus-semantic comparison runs are retired. `tts-narration-quality`
+with the former comparison arguments reports this and exits unsuccessfully;
+with no arguments or `--help` it prints the same notice and exits successfully.
+Existing `comparison.html` pages, saved choices and identity files remain
+readable and unchanged. It never added cold/warm variants to the model bracket
+or changed app preferences.
 
-After the fixture and app-build gates pass, build the developer tools with
-`bash tools/TTSBenchmark/scripts/build.sh`. From the monorepo root:
+Earlier runs called the actual shared product planner, private helper,
+tokenizer/phoneme packing and structural assembly. Each pair used the same
+original multi-paragraph passage, voice, fixed recorded seed and model; private
+receipts retained prepared plans, PCM/helper/host hashes and elapsed time.
+Review chunks used a separate private directory inside the run rather than the
+user's review library.
+
+Historical `comparison.html` pages still open directly in Safari, restore
+exported choice backups, and reveal `identities.json` after completion.
+Names/preparation settings stay outside page data and anonymous audio
+filenames. Basic diagnostic flags, exact prepared utterances and frame
+intervals remain available in the retained review material. Actual ASR
+availability, listening and Safari playback remain operator acceptance, not
+fixture assertions.
+
+For a short explicit native check of scoped Kokoro phone overrides, build the
+developer tools with `bash tools/TTSBenchmark/scripts/build.sh`, then run from
+the monorepo root with an explicitly prepared workspace and a new output
+directory. It downloads nothing:
 
 ```sh
 bench_bin=tools/TTSBenchmark/.build/native/out/Products/Release
 product_worker=.build/WorkspaceDerivedData/Build/Products/Release/Libro.app/Contents/Helpers/LibroSpeechWorker
-sandbox-exec -p '(version 1)(allow default)(deny network*)' \
-  "$bench_bin/tts-narration-quality" /path/to/prepared/product-workspace \
-  .local/tts-model-benchmark/phrasing-comparison "$product_worker"
-```
-
-Pass a new output directory. Supply an explicitly selected, already prepared
-product workspace; the utility never installs models or silently downloads missing
-assets. Optional trailing model IDs (`soprano`, `qwen3`, `chatterbox`,
-`orpheus`) limit the run. Dependencies and the complete validation helper bundle
-must be present; no installed app is replaced or launched.
-
-Each pair uses the same original multi-paragraph passage, voice, fixed recorded
-seed and model. Preparation changes; Soprano's candidate also enables structural
-gap assembly absent from its legacy baseline. Native calls remain serial under the
-background lease, and large helpers retain their existing reap policy. The private
-receipts retain prepared plans, PCM/helper/host hashes and elapsed time; seeds do
-not promise bit-identical results on another environment. Review chunks use a
-separate private directory inside the run rather than the user's review library.
-
-Open the generated `comparison.html` directly in Safari. Listen to all pairs,
-record preferences/notes and use Save choices for a portable JSON backup. Import
-restores that backup; this page does not promise browser storage. After all pairs
-are answered, Reveal completed results asks you to select `identities.json`.
-Names/preparation settings stay outside page data and anonymous audio filenames.
-Avoid `private-evidence/` and the identity file before finishing. No server,
-external scripts, upload, gain, normalization or fades are used.
-
-These comparisons leave optional spoken-form expansion and
-Qwen delivery presets remain off. Evaluate those separately to avoid confounding
-which change helped. Basic diagnostic flags, exact prepared utterances and frame
-intervals remain available in the retained review material. Actual ASR availability,
-listening and Safari playback remain operator acceptance, not fixture assertions.
-
-For a short explicit native check of scoped Kokoro phone overrides, with the same
-prepared workspace and validation helper:
-
-```sh
 sandbox-exec -p '(version 1)(allow default)(deny network*)' \
   "$bench_bin/tts-narration-quality" --pronunciation-check \
   /path/to/prepared/product-workspace .local/tts-model-benchmark/phone-check \
@@ -296,7 +276,7 @@ sandbox-exec -p '(version 1)(allow default)(deny network*)' \
 ```
 
 It verifies the exact trusted phone sequence, preserved written text and generated
-Float32 WAV for US/GB voices; it does not claim listening acceptance. Failed main
-comparison takes retain private preparation/failure receipts, continue to later
-takes without replay, and are excluded from the listening page. The command exits
-unsuccessfully if any take failed. Interrupting joins the owned helper before exit.
+Float32 WAV for US/GB voices; it does not claim listening acceptance. On retired
+main comparison runs, failed takes retained private preparation/failure receipts,
+continued to later takes without replay and were excluded from the listening
+page. Interrupting joins the owned helper before exit.

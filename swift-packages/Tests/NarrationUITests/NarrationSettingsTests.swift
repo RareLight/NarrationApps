@@ -34,6 +34,20 @@ import Foundation
     _ = ImageDescriptionSettingsSection(enabled: .constant(false), additionalHelp: "Future work only.", showsExample: true).body
     _ = DocumentTextExample(source: "Synthetic input", narration: "Synthetic narration").body
     _ = DocumentTextExample(source: "Synthetic input", narration: "Synthetic narration", detail: "Synthetic explanation.").body
+    for model in SpeechModel.allCases {
+        for presented in [false, true] {
+            for activity in [SpeechSetupActivity?.none, .installing, .checking] {
+                for progress in [ModelPreparationProgress?.none,
+                                 .init(scope: .primary, phase: .downloading, completedBytes: 40, totalBytes: 100),
+                                 .init(scope: .g2p, phase: .validating, completedBytes: 8, totalBytes: 8),
+                                 .init(scope: .primary, phase: .checking, completedBytes: 0, totalBytes: 0)] {
+                    _ = SpeechSetupRequiredHeader(model: model, isPresented: presented, activity: activity,
+                        progress: progress, canDownload: true, detail: "Synthetic failure",
+                        download: { calls += 1 }, cancel: { calls += 1 }).body
+                }
+            }
+        }
+    }
     #expect(calls == 0)
 }
 
@@ -360,4 +374,32 @@ private func seedSelectedModel(_ model: SpeechModel, root: URL) throws -> URL {
     #expect(SpeechLanguageOption(language: "English", nativeLanguage: SpeechModel.qwen3.nativeLanguage(for: "Ryan")).isNative)
     #expect(SpeechLanguageOption(language: "Japanese", nativeLanguage: SpeechModel.qwen3.nativeLanguage(for: "Ono_Anna")).isNative)
     #expect(SpeechLanguageOption(language: "Korean", nativeLanguage: SpeechModel.qwen3.nativeLanguage(for: "Sohee")).isNative)
+}
+
+@Test @MainActor func setupRequiredHeaderFitsStatesAcrossModelsAndTextSizes() throws {
+    _ = NSApplication.shared
+    var calls = 0
+    for percent in [80, 100, 200] {
+        let size = AppTextSize(percent: percent)
+        func measure(_ presented: Bool, activity: SpeechSetupActivity? = nil,
+                     progress: ModelPreparationProgress? = nil, detail: String? = nil, width: CGFloat = 360) -> CGSize {
+            NSHostingView(rootView: SpeechSetupRequiredHeader(model: .qwen3, isPresented: presented,
+                activity: activity, progress: progress, canDownload: true, detail: detail,
+                download: { calls += 1 }, cancel: { calls += 1 })
+                .appTextSizing(size).dynamicTypeSize(.large).frame(width: width)).fittingSize
+        }
+        let hidden = measure(false)
+        #expect(hidden.height < 2)
+        let idle = measure(true)
+        let downloading = measure(true, activity: .installing,
+            progress: .init(scope: .primary, phase: .downloading, completedBytes: 512, totalBytes: 1024))
+        let checking = measure(true, activity: .checking,
+            progress: .init(scope: .primary, phase: .checking, completedBytes: 0, totalBytes: 0))
+        let failure = measure(true, detail: String(repeating: "Synthetic setup failure. ", count: 10))
+        #expect(idle.width <= 360 && idle.height > 0)
+        #expect(downloading.height > idle.height - 1)
+        #expect(checking.height > 0 && failure.height > idle.height)
+        #expect(measure(true, width: 180).width <= 180)
+    }
+    #expect(calls == 0)
 }

@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+import NarrationCore
+import NarrationUI
 @testable import VoiceRelayCore
 @testable import VoiceRelayApp
 
@@ -50,7 +52,7 @@ private final class RuntimeCheckProbe: @unchecked Sendable {
     let suite = "voicerelay-runtime-controls-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let probe = RuntimeCheckProbe()
-    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults, runtimeSetup: { _, _ in _ = probe.next() })
+    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults, runtimeSetup: { _, _, _, _ in _ = probe.next() })
     model.debugLoggingEnabled = true
     #expect(model.runtimeTestResult == .untested && model.canManageSpeechRuntime)
     model.deliveryBusy = true; model.deliveryTesting = true; model.deliveryCredentialBusy = true
@@ -88,7 +90,7 @@ private final class RuntimeCheckProbe: @unchecked Sendable {
     let suite = "voicerelay-runtime-result-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let probe = RuntimeCheckProbe()
-    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults, runtimeSetup: { _, _ in
+    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults, runtimeSetup: { _, _, _, _ in
         if probe.next() == 1 { throw RelayError.setup("Synthetic verification failure") }
     })
     model.checkSpeechRuntime(); await model.waitForRuntimeSetup()
@@ -97,12 +99,132 @@ private final class RuntimeCheckProbe: @unchecked Sendable {
     _ = SpeechRuntimeTestIndicator(model: model).body
     model.checkSpeechRuntime(); await model.waitForRuntimeSetup()
     #expect(model.runtimeTestResult == .success && model.speechRuntimeAvailable)
-    let cancelled = AppModel(storage: betaAppStorage(root, "other"), defaults: defaults, runtimeSetup: { _, _ in throw CancellationError() })
+    let cancelled = AppModel(storage: betaAppStorage(root, "other"), defaults: defaults, runtimeSetup: { _, _, _, _ in throw CancellationError() })
     cancelled.checkSpeechRuntime(); await cancelled.waitForRuntimeSetup()
     #expect(cancelled.runtimeTestResult == .cancelled && cancelled.speechRuntimeAvailable && cancelled.canManageSpeechRuntime)
     _ = SpeechRuntimeTestIndicator(model: cancelled).body
     await model.shutdown(); await cancelled.shutdown()
     #expect(!FileManager.default.fileExists(atPath: root.path))
+}
+
+private final class SetupProgressProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var installed = false
+    private var requests: [(install: Bool, root: URL, settings: SpeechSettings, report: @Sendable (ModelPreparationProgress) -> Void)] = []
+    private var outcome: (any Error)?
+    private let gate = DispatchSemaphore(value: 0)
+    var available: Bool { lock.withLock { installed } }
+    var calls: Int { lock.withLock { requests.count } }
+    var captured: [(install: Bool, root: URL, settings: SpeechSettings)] {
+        lock.withLock { requests.map { ($0.install, $0.root, $0.settings) } }
+    }
+    func setOutcome(_ error: (any Error)?) { lock.withLock { outcome = error } }
+    func markUnavailable() { lock.withLock { installed = false } }
+    func reporter(_ index: Int) -> (@Sendable (ModelPreparationProgress) -> Void)? {
+        lock.withLock { requests.count > index ? requests[index].report : nil }
+    }
+    func run(install: Bool, root: URL, settings: SpeechSettings,
+             report: @escaping @Sendable (ModelPreparationProgress) -> Void) throws {
+        lock.withLock { requests.append((install, root, settings, report)) }
+        gate.wait()
+        if let outcome = lock.withLock({ outcome }) { throw outcome }
+    }
+    func emit(_ index: Int, _ value: ModelPreparationProgress) {
+        lock.withLock { requests.count > index ? requests[index].report : nil }?(value)
+    }
+    func finish(installed: Bool = true) { lock.withLock { self.installed = installed }; gate.signal() }
+}
+
+@MainActor private func awaitCondition(_ timeout: TimeInterval = 10, _ condition: @MainActor () -> Bool) async -> Bool {
+    let deadline = Date() + timeout
+    while !condition() {
+        if Date() > deadline { return false }
+        try? await Task.sleep(for: .milliseconds(5))
+    }
+    return true
+}
+
+@Test @MainActor func setupProgressCapturesSelectedModelRootAndClearsAfterSetup() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("voicerelay-setup-progress-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let suite = "voicerelay-setup-progress-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let probe = SetupProgressProbe()
+    defer { probe.finish() }
+    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
+        runtimeSetup: { install, root, settings, report in try probe.run(install: install, root: root, settings: settings, report: report) },
+        runtimeInstalled: { _ in probe.available })
+    defer { Task { await model.shutdown() } }
+    let selected = URL(fileURLWithPath: "/synthetic/voicerelay-progress-models")
+    model.runtimeProject = selected
+    model.preferences.modelSelection = .init(model: .qwen3, voice: "Ryan")
+    _ = SpeechSetupRequiredHeader(model: model.preferences.modelSelection.model,
+        isPresented: model.speechSetupHeaderPresented, activity: nil, progress: model.runtimeSetupProgress,
+        canDownload: model.canManageSpeechRuntime, download: { Issue.record("Header body must not download") },
+        cancel: { Issue.record("Header body must not cancel") }).body
+    _ = VoiceModelSettingsView(model: model).body
+    _ = WorkspaceReadinessView(model: model).body
+    #expect(probe.calls == 0 && model.speechSetupHeaderPresented)
+    model.installSpeechRuntime(); model.installSpeechRuntime()
+    #expect(await awaitCondition { probe.calls == 1 && model.runtimeBusy })
+    let request = try #require(probe.captured.first)
+    #expect(request.install && request.root == selected && request.settings.model == .qwen3 && request.settings.voice == "Ryan")
+    probe.emit(0, .init(scope: .primary, phase: .downloading, completedBytes: 1_024, totalBytes: 2_048))
+    #expect(await awaitCondition { model.runtimeSetupProgress?.phase == .downloading })
+    #expect(model.runtimeSetupProgress?.completedBytes == 1_024 && model.runtimeSetupProgress?.scope == .primary)
+    #expect(model.speechSetupHeaderPresented)
+    probe.emit(0, .init(scope: .primary, phase: .checking, completedBytes: 0, totalBytes: 0))
+    #expect(await awaitCondition { model.runtimeSetupProgress?.phase == .checking })
+    probe.finish()
+    await model.waitForRuntimeSetup()
+    #expect(model.runtimeSetupProgress == nil && !model.runtimeBusy)
+    #expect(!model.speechSetupHeaderPresented && model.speechRuntimeAvailable && model.runtimeTestResult == .success)
+    probe.markUnavailable()
+    model.installSpeechRuntime()
+    #expect(await awaitCondition { probe.calls == 2 && model.runtimeSetupProgress == nil })
+    probe.emit(0, .init(scope: .g2p, phase: .downloading, completedBytes: 9, totalBytes: 9))
+    try? await Task.sleep(for: .milliseconds(50))
+    #expect(model.runtimeSetupProgress == nil)
+    probe.emit(1, .init(scope: .primary, phase: .validating, completedBytes: 0, totalBytes: 0))
+    #expect(await awaitCondition { model.runtimeSetupProgress?.phase == .validating })
+    probe.finish(installed: false)
+    await model.waitForRuntimeSetup()
+    #expect(model.runtimeSetupProgress == nil)
+    model.preferences.modelSelection = .init(model: .orpheus, voice: "leah")
+    #expect(model.speechSetupHeaderPresented && model.runtimeTestResult == .untested)
+    await model.shutdown()
+}
+
+@Test @MainActor func setupProgressStaysNilOnFailureAndCancelAndNeverRevivesHeader() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("voicerelay-setup-failure-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let suite = "voicerelay-setup-failure-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let probe = SetupProgressProbe()
+    defer { probe.finish(installed: false) }
+    probe.setOutcome(RelayError.setup("Synthetic install failure"))
+    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
+        runtimeSetup: { install, root, settings, report in
+            try probe.run(install: install, root: root, settings: settings, report: report)
+        },
+        runtimeInstalled: { _ in probe.available })
+    defer { Task { await model.shutdown() } }
+    model.installSpeechRuntime()
+    #expect(await awaitCondition { probe.calls == 1 })
+    probe.emit(0, .init(scope: .primary, phase: .downloading, completedBytes: 7, totalBytes: 70))
+    #expect(await awaitCondition { model.runtimeSetupProgress?.phase == .downloading })
+    probe.finish(installed: false)
+    await model.waitForRuntimeSetup()
+    #expect(model.runtimeSetupProgress == nil && !model.speechRuntimeAvailable && model.speechSetupHeaderPresented)
+    #expect(model.speechSetupFailureDetail == "Synthetic install failure")
+    probe.setOutcome(CancellationError())
+    model.installSpeechRuntime()
+    #expect(await awaitCondition { probe.calls == 2 })
+    probe.finish(installed: false)
+    await model.waitForRuntimeSetup()
+    #expect(model.runtimeSetupProgress == nil && model.runtimeTestResult == .cancelled && model.speechSetupHeaderPresented)
+    #expect(model.speechSetupFailureDetail == nil && model.canManageSpeechRuntime)
+    await model.shutdown()
 }
 
 private func betaAppStorage(_ root: URL, _ tag: String) -> ManagedSpeechStorage {
@@ -253,7 +375,7 @@ private final class RuntimeInstallationProbe: @unchecked Sendable {
     defer { defaults.removePersistentDomain(forName: suite) }
     let probe = RuntimeInstallationProbe()
     let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
-        runtimeSetup: { install, _ in #expect(install); try probe.install() },
+        runtimeSetup: { install, _, _, _ in #expect(install); try probe.install() },
         runtimeInstalled: { _ in probe.available })
     model.runtimeProject = root.appendingPathComponent("custom-models")
     let selectedStorage = model.runtimeProject
@@ -277,7 +399,7 @@ private final class RuntimeInstallationProbe: @unchecked Sendable {
     #expect(model.runtimeProject == selectedStorage)
     #expect(defaults.string(forKey: "runtimeProject") == selectedStorage.path)
     let installed = AppModel(storage: betaAppStorage(root, "installed"), defaults: defaults,
-        runtimeSetup: { _, _ in Issue.record("Installed startup must not download") },
+        runtimeSetup: { _, _, _, _ in Issue.record("Installed startup must not download") },
         runtimeInstalled: { _ in probe.available })
     #expect(!installed.runtimeSetupNeededAtLaunch && installed.speechRuntimeAvailable)
     await model.shutdown(); await installed.shutdown()
@@ -314,7 +436,7 @@ private final class RuntimeInstallationProbe: @unchecked Sendable {
     let suite = "voicerelay-setup-guidance-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
-        runtimeSetup: { _, _ in throw CocoaError(.fileNoSuchFile) })
+        runtimeSetup: { _, _, _, _ in throw CocoaError(.fileNoSuchFile) })
     model.checkSpeechRuntime(); await model.waitForRuntimeSetup()
     guard case .failure(let offline) = model.runtimeTestResult else { Issue.record("Check should fail"); return }
     #expect(offline.contains("offline") && !offline.contains("connection"))
@@ -330,7 +452,7 @@ private final class RuntimeInstallationProbe: @unchecked Sendable {
     defer { defaults.removePersistentDomain(forName: suite) }
     let root = URL(fileURLWithPath: "/synthetic/cache-choice")
     let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
-        runtimeSetup: { _, _ in }, runtimeInstalled: { _ in true })
+        runtimeSetup: { _, _, _, _ in }, runtimeInstalled: { _ in true })
     model.runtimeProject = NativeSpeechSetup.managedRoot
     model.installSpeechRuntime(); await model.waitForRuntimeSetup()
     #expect(model.runtimeTestResult == .success)

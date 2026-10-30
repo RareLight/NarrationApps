@@ -2,6 +2,8 @@ import SwiftUI
 import AppPresentation
 import AppKit
 import Observation
+import NarrationUI
+import NarrationCore
 import VoiceRelayCore
 
 enum QueueSelectionID: Hashable {
@@ -86,11 +88,13 @@ struct WorkspaceReadinessView: View {
             notice("Review the restored library", detail: "Processing, publishing and cleanup wait until you finish the library review.",
                    symbol: "exclamationmark.triangle", action: "Review Library…", pane: .troubleshooting)
         } else {
-            if !model.preview && (!model.speechRuntimeAvailable || model.runtimeBusy) {
-                notice(model.runtimeBusy ? "Speech setup is in progress" : "Speech setup required",
-                    detail: model.runtimeBusy ? "Wait for setup, or cancel it in Voice Model." : "Download a model or check speech setup in Settings → Voice Model.",
-                    symbol: "gearshape", action: "Open Voice Model", pane: .voiceModel)
-            }
+            SpeechSetupRequiredHeader(model: model.preferences.modelSelection.model,
+                isPresented: model.speechSetupHeaderPresented,
+                activity: model.runtimeBusy ? (model.runtimeInstalling ? .installing : .checking) : nil,
+                progress: model.runtimeSetupProgress,
+                canDownload: model.canManageSpeechRuntime,
+                detail: model.speechSetupFailureDetail,
+                download: model.installSpeechRuntime, cancel: model.cancelRuntimeSetup)
             if model.publishingReadiness == .checking {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)

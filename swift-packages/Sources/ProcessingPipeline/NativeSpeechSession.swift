@@ -98,18 +98,7 @@ public actor NativeSpeechSession {
         try Task.checkCancellation()
         guard ready, !closed, !busy, !projection.chunks.isEmpty else { throw SpeechFailure(.invalidInput) }
         let acousticIdentity = SpeechAcousticIdentity.make(settings: settings, policy: policy)
-        if !policy.usesPreparedPhonemes && settings.planning == nil {
-            let values = try projection.chunks.map { chunk in
-                let utterance = PreparedUtterance(text: chunk.text, phonemes: nil, tokenCount: 0,
-                    source: .init(blockIndices: chunk.blockIndices, location: 0, length: chunk.text.utf16.count, origin: chunk.origin, sourceMappings: chunk.sourceMappings),
-                    boundaryAfter: chunk.boundaryAfter ?? .continuation, acousticIdentity: acousticIdentity)
-                try utterance.validate(identity: acousticIdentity, prepared: false)
-                return utterance
-            }
-            return captureReview(.init(policy: policy, settings: settings, semanticVersion: projection.version,
-                acousticIdentity: acousticIdentity, utterances: values, notices: projection.notices, provenance: SpeechAcousticIdentity.provenance(settings: settings, policy: policy), documentTitle: projection.documentTitle))
-        }
-        guard policy == .correctnessCandidate || projection.version.hasSuffix("/spoken-projection-1") else {
+        guard projection.version.hasSuffix("/spoken-projection-1") else {
             throw SpeechFailure(.invalidInput)
         }
         busy = true
@@ -288,8 +277,9 @@ public actor NativeSpeechSession {
         // Compatibility for Soprano and archived developer comparisons. There
         // is one rendering/assembly loop; Kokoro's shipping path requires its
         // final prepared plan and cannot bypass G2P or source validation here.
-        let projection = NarrationPlan(version: "legacy-direct-chunks-1",
-            chunks: chunks.enumerated().map { NarrationChunk(index: $0.offset, text: $0.element, blockIndices: [$0.offset]) }, notices: [])
+        let projection = try NarrationPlanner.prepareForSpeech(.init(blocks: chunks.map {
+            .init(kind: .paragraph, text: $0, origin: .authored)
+        }, extractorVersion: "direct-chunks-1"), settings: settings, policy: policy)
         let plan = try await prepareSpeech(projection)
         try await render(plan: plan, destination: destination, outputFormat: outputFormat, replaceExisting: replaceExisting, coverArtwork: coverArtwork,
             identity: progressIdentity, beforePublication: beforePublication) { value in

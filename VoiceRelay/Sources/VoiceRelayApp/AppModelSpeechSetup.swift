@@ -1,4 +1,5 @@
 import NarrationUI
+import NarrationCore
 import VoiceRelayCore
 import Foundation
 import NativeSpeech
@@ -26,6 +27,11 @@ extension AppModel {
         return storageOverride != nil || backendOverride != nil || NativeSpeechSetup.isInstalled(at: runtimeProject, settings: preferences.modelSelection)
     }
     var speechRuntimeAvailable: Bool { !runtimeVerificationFailed && speechRuntimeInstalled }
+    var speechSetupHeaderPresented: Bool { !preview && (runtimeBusy || !speechRuntimeAvailable) }
+    var speechSetupFailureDetail: String? {
+        guard !runtimeBusy, case .failure(let message) = runtimeTestResult else { return nil }
+        return message
+    }
     var canManageLibrary: Bool {
         !modelStorage.isBusy && !syncBusy && !sourcePruningBusy && !preview && !stopping && !running && !runtimeBusy && !libraryMaintenanceBusy && pendingAdds.isEmpty
             && !queueMutationBusy && !audioMutationBusy && !deliveryBusy && !deliveryTesting
@@ -53,17 +59,30 @@ extension AppModel {
         let root = runtimeProject
         pronunciationPreview.stop()
         runtimeBusy = true; runtimeInstalling = install; runtimeTestResult = .untested
+        runtimeSetupProgress = nil
+        let token = UUID(); runtimeSetupOperation = token
         let operation: DeliveryDebugLog.Event.RuntimeOperation = install ? .installation : .check
         deliveryDebugLog.record(.speechRuntime(operation, .started))
         let selected = preferences.modelSelection
         let perform = runtimeSetupOverride
         runtimeTask = Task { [weak self] in
             guard let self else { return }
-            defer { runtimeTask = nil; runtimeBusy = false; modelStorageRevision += 1; maybeAutoProcess() }
+            defer {
+                runtimeTask = nil; runtimeBusy = false
+                runtimeSetupProgress = nil; runtimeSetupOperation = UUID()
+                modelStorageRevision += 1; maybeAutoProcess()
+            }
             await pronunciationPreview.stopAndWait()
+            let report: @Sendable (ModelPreparationProgress) -> Void = { [weak self] value in
+                Task { @MainActor [weak self] in
+                    guard let self, self.runtimeBusy, self.runtimeInstalling,
+                          self.runtimeSetupOperation == token else { return }
+                    self.runtimeSetupProgress = value
+                }
+            }
             let worker = Task.detached {
-                if let perform { try perform(install, root) }
-                else if install { try NativeSpeechSetup.install(at: root, settings: selected) }
+                if let perform { try perform(install, root, selected, report) }
+                else if install { try NativeSpeechSetup.install(at: root, settings: selected, progress: report) }
                 else { try NativeSpeechSetup.check(at: root, settings: selected) }
             }
             do {

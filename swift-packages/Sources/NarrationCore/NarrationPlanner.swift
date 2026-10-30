@@ -35,7 +35,7 @@ public enum NarrationPlanner {
         // Mandatory Kokoro packing is versioned in the prepared acoustic policy,
         // not in source-only plans shared with non-native backends. Its former
         // optional setting no longer changes the preparation.
-        return spoken + (settings.model == .kokoro ? "" : settings.planning.map { "/" + $0.rawValue } ?? "") +
+        return spoken + (settings.model == .kokoro ? "" : settings.effectivePlanning.map { "/" + $0.rawValue } ?? "") +
             (settings.model != .kokoro && settings.expandSpokenForms == true && settings.effectiveLanguage == "English" ? "/experimental-" + SpokenFormNormalizer.version + "-" + SpokenFormNormalizer.locale(settings) : "")
     }
     // These upgrades omit separators and duplicate placeholders. Identical text, index,
@@ -107,7 +107,7 @@ public enum NarrationPlanner {
                 if hasLayoutChanges { throw OptionalLayoutBudget.exceeded }
                 throw NarrationError.invalidInput("Spoken-form mapping budget exceeded. No text was truncated.") }
             usedPronunciations = usedPronunciations || !application.applications.isEmpty
-            let parts = purpose == .speechPreparation && (!settings.model.isLarge || settings.planning != nil) ? [spoken] : try NarrationText.chunks(spoken, settings: settings, maximumScalars: min(limit, 480))
+            let parts = purpose == .speechPreparation ? [spoken] : try NarrationText.chunks(spoken, settings: settings, maximumScalars: min(limit, 480))
             var partOffset = 0
             for part in parts {
                 let value = part.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -117,7 +117,7 @@ public enum NarrationPlanner {
                 let offset = rawOffset + (trimmedOffset == NSNotFound ? 0 : trimmedOffset)
                 let mappings = ProjectionMapping.intersecting(normalized.mappings, location: offset, length: value.utf16.count)?.map { $0.shiftedSpoken(by: -offset) }
                 if !value.isEmpty { chunks.append(.init(index: chunks.count, text: value, blockIndices: indices,
-                    boundaryAfter: purpose == .speechPreparation ? (settings.model.isLarge && partOffset < spoken.utf16.count ? .continuation : boundary) : nil,
+                    boundaryAfter: purpose == .speechPreparation ? boundary : nil,
                     origin: purpose == .speechPreparation ? indices.first.map { article.blocks[$0].origin ?? .authored } : nil,
                     pronunciationApplications: purpose == .speechPreparation ? applications : nil, sourceMappings: mappings)) }
             }

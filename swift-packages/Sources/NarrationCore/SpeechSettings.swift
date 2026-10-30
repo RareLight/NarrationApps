@@ -85,7 +85,8 @@ public struct SpeechSettings: Codable, Equatable, Sendable {
     public var language: String?
     public var styleInstruction: String?
     public var savedChoices: [String: SpeechChoice]?
-    /// Optional experiment for non-Kokoro models. Kokoro always uses semantic planning.
+    /// Inert compatibility metadata decoded from saved settings; semantic
+    /// planning is mandatory for every model.
     public var planning: SpeechPlanning?
     public var expandSpokenForms: Bool?
     public var retainReview: Bool?
@@ -102,7 +103,7 @@ public struct SpeechSettings: Codable, Equatable, Sendable {
 }
 
 public extension SpeechSettings {
-    var effectivePlanning: SpeechPlanning? { model == .kokoro ? .semanticCandidate : planning }
+    var effectivePlanning: SpeechPlanning? { .semanticCandidate }
     var effectiveLanguage: String { language ?? "English" }
     var languageCode: String {
         if model == .kokoro { return voice.hasPrefix("b") ? "en-GB" : "en-US" }

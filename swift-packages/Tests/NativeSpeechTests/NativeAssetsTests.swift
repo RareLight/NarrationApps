@@ -77,4 +77,31 @@ extension NativeAssetsTests {
         XCTAssertEqual(identity, SpeechAcousticIdentity.make(settings: settings, policy: .current))
         XCTAssertEqual(SpeechAcousticIdentity.provenance(settings: settings, policy: .current)["packing"], "phoneme-semantic-compounds-2")
     }
+    func testMandatorySemanticGivesEveryModelOneEffectiveIdentityAndSemanticPacking() throws {
+        for model in SpeechModel.allCases {
+            let policy: SpeechPreparationPolicy = model == .kokoro ? .current : .nativeText
+            let legacy = try JSONDecoder().decode(SpeechSettings.self,
+                from: Data("{\"model\":\"\(model.rawValue)\",\"voice\":\"\(model.defaultVoice)\",\"speed\":1}".utf8))
+            var explicit = legacy; explicit.planning = .semanticCandidate
+            for requested in [SpeechPreparationPolicy.legacy, .longformPausesCandidate, .semanticCandidate, .nativeText, .current] {
+                XCTAssertEqual(SpeechPreparationPolicy.selected(settings: legacy, requested: requested), policy, "\(model.rawValue)/\(requested)")
+            }
+            XCTAssertEqual(SpeechAcousticIdentity.make(settings: legacy, policy: policy),
+                           SpeechAcousticIdentity.make(settings: explicit, policy: policy), model.rawValue)
+            XCTAssertEqual(SpeechAcousticIdentity.provenance(settings: legacy, policy: policy),
+                           SpeechAcousticIdentity.provenance(settings: explicit, policy: policy), model.rawValue)
+            if model.isLarge {
+                XCTAssertEqual(SpeechAcousticIdentity.provenance(settings: legacy, policy: policy)["packing"],
+                               SpeechPlanning.semanticCandidate.rawValue, model.rawValue)
+            }
+        }
+        let soprano = SpeechSettings(model: .soprano, voice: "soprano")
+        XCTAssertNotEqual(SpeechAcousticIdentity.make(settings: soprano, policy: .legacy),
+                          SpeechAcousticIdentity.make(settings: soprano, policy: .nativeText))
+        let current = SpeechAcousticIdentity.make(settings: soprano, policy: .nativeText)
+        let stale = PreparedUtterance(text: "Saved text.", phonemes: nil, tokenCount: 0,
+            source: .init(blockIndices: [0], location: 0, length: 11), boundaryAfter: .paragraph,
+            acousticIdentity: SpeechAcousticIdentity.make(settings: soprano, policy: .legacy))
+        XCTAssertThrowsError(try stale.validate(identity: current, prepared: false))
+    }
 }

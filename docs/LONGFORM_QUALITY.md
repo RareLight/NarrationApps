@@ -1,20 +1,17 @@
 # Long-form narration quality
 
-Updated October 30, 2026 after operator comparison. Kokoro always uses semantic
-phrasing; the other models retain an optional experiment. Existing source documents
-and recordings are retained.
+Updated after the operator comparison. Every product model now always uses semantic
+phrasing, including older saved settings; the former opt-in control is retired.
+Existing source documents and recordings are retained.
 The [implementation plan](LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md) records scope;
 B09 in the [operator checklist](OPERATOR_VALIDATION.md) owns listening acceptance.
 
-## Try different phrasing
+## Semantic phrasing
 
-Kokoro uses semantic phrasing automatically, including with older saved settings.
-It has no phrasing switch. In Libro's main-window voice controls, or VoiceRelay's
-**Voice Model** Settings, other models offer **Try semantic phrasing** for new narration.
-This experimental policy
+Every model uses semantic phrasing automatically, including with older saved
+settings. There is no phrasing switch. This policy
 prefers complete sentences and clauses rather than a numerical chunk size alone.
 Controls, shared preparation and captured settings are the same in both apps.
-For those models, turning it off selects their accepted policy again; it does not alter recordings.
 
 Kokoro retains its 200-phone soft target and 510-phone hard ceiling. Semantic packing
 can grow toward 300 phones to finish a phrase, keeps closing punctuation attached,
@@ -24,12 +21,12 @@ word separators in the phonemes rather than dash pauses, and the compound stays
 within one utterance. Ordinary dashes and numeric expressions retain their existing
 handling. The source text and mappings keep the original hyphens. An indivisible
 compound exceeding the hard limit fails explicitly instead of being cut or truncated.
-Actual word/phone alignment and vocabulary checks remain mandatory. Candidate
-native-text models plan using the loaded checkpoint tokenizer: Qwen/Orpheus target
+Actual word/phone alignment and vocabulary checks remain mandatory.
+Native-text models plan using the loaded checkpoint tokenizer: Qwen/Orpheus target
 96 input tokens, Chatterbox 80, with a 512-token ceiling. These are experimental
 engineering targets, not universal quality optima. Soprano's public interface does
-not expose token counts; its candidate uses a disclosed 180-scalar target and
-480-scalar ceiling. Independent 1,000-scalar source windows keep IPC bounded.
+not expose token counts; its semantic preparation uses a disclosed 180-scalar
+target and 480-scalar ceiling. Independent 1,000-scalar source windows keep IPC bounded.
 
 Preparation can load a large helper to measure its real tokenizer. Each helper is
 still reaped before releasing admission; no extra resident engine, hidden download,
@@ -133,13 +130,14 @@ the original incomplete take remains intact. It is never retried automatically.
 
 ## Compare the actual product pipeline
 
-The Swift developer command **tts-narration-quality** renders the accepted and
-candidate preparation for the same voice/document through NarrationPlanner,
-NativeSpeechSession, the complete private helper and structural assembly. It
-compares the four experimental engines, uses an original multi-paragraph corpus and
-installed assets only, and saves prepared plans/hashes/timing receipts privately.
-Kokoro is excluded from new A/B phrasing runs because it has one preparation path.
-Existing Kokoro comparison pages and choices remain readable. See
+The Swift developer command **tts-narration-quality** previously rendered the
+accepted and candidate preparation for the same voice/document through
+NarrationPlanner, NativeSpeechSession, the complete private helper and
+structural assembly. It compared the four experimental engines, used an original
+multi-paragraph corpus and installed assets only, and saved prepared
+plans/hashes/timing receipts privately. New A/B phrasing runs are now retired
+because every product model has one preparation path; existing comparison pages
+and choices remain readable. See
 [benchmark commands](../tools/TTSBenchmark/README.md#product-phrasing-comparisons).
 
 Open the generated `comparison.html` directly. Each numbered pair uses the same

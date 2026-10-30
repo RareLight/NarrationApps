@@ -115,8 +115,7 @@ use private aliases when reporting document problems.
 
 ## Experimental phrasing and passage review
 
-Both apps use semantic phrasing for Kokoro and offer it as an off-by-default
-experiment for other models. Both also provide scoped
+All models in both apps use semantic phrasing. Both also provide scoped
 pronunciation rules and optional private retention for checking/regenerating
 individual passages. Review never replaces published recordings or derives
 podcast word timings from recognition. Start with [long-form quality](LONGFORM_QUALITY.md)

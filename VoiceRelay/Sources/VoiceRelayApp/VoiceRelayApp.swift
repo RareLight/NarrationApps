@@ -6,6 +6,7 @@ import SwiftUI
 import AppKit
 import Observation
 import Darwin
+import NarrationCore
 import VoiceRelayCore
 
 enum SpeechRuntimeTestResult: Equatable {
@@ -256,6 +257,7 @@ final class AppModel {
     var runtimeTestResult: SpeechRuntimeTestResult = .untested
     var runtimeInstalling = false
     var runtimeVerificationFailed = false
+    var runtimeSetupProgress: ModelPreparationProgress?
     private var onboarding = SpeechSetupOnboarding()
     var runtimeSetupNeededAtLaunch: Bool { onboarding.needsSetup }
     let voiceSamplePlayer = AudioPreviewPlayer()
@@ -325,7 +327,8 @@ final class AppModel {
     @ObservationIgnored private let enqueueFetchOverride: (@Sendable (URL) async throws -> FetchedPage)?
     @ObservationIgnored private let archiveFetchOverride: ArticleSourceLoader.ArchiveFetch?
     @ObservationIgnored let runtimeInstalledOverride: (@Sendable (URL) -> Bool)?
-    @ObservationIgnored let runtimeSetupOverride: (@Sendable (Bool, URL) throws -> Void)?
+    @ObservationIgnored let runtimeSetupOverride: (@Sendable (Bool, URL, SpeechSettings, @escaping @Sendable (ModelPreparationProgress) -> Void) throws -> Void)?
+    @ObservationIgnored var runtimeSetupOperation = UUID()
     @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored private let inertDefaults: InertDefaultsDomain?
     /// Delivery seams: production gets Keychain + URLSession; injected models get nil unless a
@@ -340,7 +343,7 @@ final class AppModel {
          defaults: UserDefaults? = nil,
          deliveryTransport: (@Sendable () -> any DeliveryTransport)? = nil,
          credentialStore: (any DeliveryCredentialStore)? = nil,
-         runtimeSetup: (@Sendable (Bool, URL) throws -> Void)? = nil,
+         runtimeSetup: (@Sendable (Bool, URL, SpeechSettings, @escaping @Sendable (ModelPreparationProgress) -> Void) throws -> Void)? = nil,
          runtimeInstalled: (@Sendable (URL) -> Bool)? = nil,
          readingListReader: (@Sendable (URL) async throws -> ReadingListSnapshot)? = nil,
          loginItemService: (any LoginItemService)? = nil,

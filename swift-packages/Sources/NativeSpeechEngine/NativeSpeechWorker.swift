@@ -91,7 +91,7 @@ public enum NativeSpeechWorker {
                           settings.speed.isFinite, settings.speed > 0 else { throw SpeechFailure(.invalidInput) }
                     let engine = try await load(settings: settings, workspace: workspace, reference: staging.appendingPathComponent("reference.wav"))
                     context = WorkerContext(identity: command.identity, spool: staging, settings: settings, engine: engine,
-                        policy: settings.model == .kokoro ? .current : command.policy ?? .legacy)
+                        policy: settings.model == .kokoro ? .current : .nativeText)
                     try control.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .ready, identity: command.identity)))
                 case .generate:
                     guard let context, context.identity == command.identity, !context.policy.usesPreparedPhonemes,
@@ -107,7 +107,6 @@ public enum NativeSpeechWorker {
                     try control.write(contentsOf: SpeechIPC.encode(event))
                 case .prepareText:
                     guard let context, context.identity == command.identity,
-                          (context.policy.usesPreparedPhonemes || context.settings.planning != nil),
                           let window = command.textWindow, let index = command.chunk, index >= 0,
                           window.text.unicodeScalars.count <= 1_000, !window.text.isEmpty else {
                         throw SpeechFailure(.invalidInput)
@@ -500,7 +499,6 @@ private enum LoadedEngine {
             return try PhonemeUtterancePacker.pack(window: window, tokens: tokens,
                 vocabulary: model.supportedPhonemeVocabulary, identity: identity, semantic: true)
         }
-        guard settings.planning != nil else { throw SpeechFailure(.invalidInput) }
         let measure: (String) throws -> Int
         switch self {
         case .qwen3(let model):

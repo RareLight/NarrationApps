@@ -15,7 +15,7 @@ public enum SpeechAcousticIdentity {
                 "pcmPolicy": settings.model == .chatterbox ? "raw-vocoder-no-gain-or-fade-1" : "native-pcm-1",
                 "resources": NativePrimaryCatalog.dependencies(for: settings.model).map(\.revision).joined(separator: "/"),
                 "assembly": NarrationPausePolicy.candidateVersion]
-            if let planning = settings.planning { result["packing"] = planning.rawValue }
+            if let planning = settings.effectivePlanning { result["packing"] = planning.rawValue }
             if let seed = settings.seed { result["seed"] = String(seed) }
             return result
         }
@@ -36,6 +36,7 @@ public enum SpeechAcousticIdentity {
         if settings.model.isLarge {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
             var acoustic = settings; acoustic.savedChoices = nil; acoustic.retainReview = nil
+            acoustic.planning = settings.effectivePlanning
             let value = try! encoder.encode(acoustic) + encoder.encode(provenance(settings: settings, policy: policy))
             return SHA256.hash(data: value).map { String(format: "%02x", $0) }.joined()
         }

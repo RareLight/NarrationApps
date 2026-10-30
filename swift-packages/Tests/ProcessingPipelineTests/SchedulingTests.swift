@@ -76,9 +76,16 @@ private struct ProcessFixture {
     }
     func samples(_ destination: URL? = nil) throws -> [Float] {
         let file = try AVAudioFile(forReading: destination ?? self.destination, commonFormat: .pcmFormatFloat32, interleaved: true)
-        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)))
-        try file.read(into: buffer)
-        return Array(UnsafeBufferPointer(start: try XCTUnwrap(buffer.floatChannelData?[0]), count: Int(file.length)))
+        var samples: [Float] = []
+        while file.framePosition < file.length {
+            let capacity = AVAudioFrameCount(min(file.length - file.framePosition, 16_384))
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: capacity))
+            try file.read(into: buffer, frameCount: capacity)
+            guard buffer.frameLength > 0, let channel = buffer.floatChannelData?[0] else { break }
+            samples += Array(UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
+        }
+        XCTAssertEqual(Int64(samples.count), file.length)
+        return samples
     }
     func assertClean(file: StaticString = #filePath, line: UInt = #line) throws {
         let entries = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("models/.native/staging").path)
@@ -153,7 +160,7 @@ final class SchedulingTests: XCTestCase {
             XCTAssertEqual(values.map(\.sequence), Array(1...values.count))
             XCTAssertTrue(values.allSatisfy { $0.batch == request.id })
             XCTAssertEqual(values.first?.progress.stage, .readingFile)
-            XCTAssertEqual(values.last?.progress.stage, .planningNarration)
+            XCTAssertEqual(values.last?.progress.stage, .phonemizing)
             let firstSpeech = try XCTUnwrap(events.snapshot.firstIndex { event in
                 if case .speech(let value) = event { return value.identity.job == job.id }
                 return false
@@ -201,6 +208,14 @@ final class SchedulingTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: destination), prior)
         try fixture.assertClean()
     }
+    private func expectedSamples(_ count: Int) -> [Float] {
+        var samples: [Float] = []
+        for index in 0..<count {
+            if index > 0 { samples += [Float](repeating: 0, count: Int(NarrationPausePolicy.seconds(after: .paragraph) * 32_000)) }
+            samples += [Float](repeating: Float(index + 1) / 100, count: 4)
+        }
+        return samples
+    }
     private func render(_ fixture: ProcessFixture, count: Int, mode: String = "success",
                         log: ProgressLog = ProgressLog(), beforePublication: @escaping @Sendable () throws -> Void = {}) async throws {
         try await ChunkScheduler(configuration: fixture.configuration(mode)).render(
@@ -216,13 +231,13 @@ final class SchedulingTests: XCTestCase {
             try await render(fixture, count: count, log: log)
             XCTAssertEqual(try fixture.records().filter { $0["event"] as? String == "initialize" }.count, 1)
             XCTAssertEqual(log.snapshot.filter { $0.phase == .started }.count, 1)
-            XCTAssertEqual(try fixture.samples().count, count * 4)
+            XCTAssertEqual(try fixture.samples(), expectedSamples(count))
             try fixture.assertClean()
         }
         let fixture = try ProcessFixture(); defer { fixture.remove() }
         try await ChunkScheduler(configuration: fixture.configuration()).render(chunks: ["One.", "\u{a0}\n", "Two."],
             batchID: UUID(), jobID: UUID(), workspace: fixture.root, settings: ProcessFixture.transportSettings, destination: fixture.destination)
-        XCTAssertEqual(try fixture.samples().count, 8)
+        XCTAssertEqual(try fixture.samples(), expectedSamples(2))
         try fixture.assertClean()
     }
 
@@ -264,7 +279,7 @@ final class SchedulingTests: XCTestCase {
         let fixture = try ProcessFixture(); defer { fixture.remove() }
         let log = ProgressLog()
         try await render(fixture, count: 25, mode: "slowFirst", log: log)
-        XCTAssertEqual(try fixture.samples(), (0..<25).flatMap { Array(repeating: Float($0 + 1) / 100, count: 4) })
+        XCTAssertEqual(try fixture.samples(), expectedSamples(25))
         let records = try fixture.records()
         let starts = records.filter { $0["event"] as? String == "generate" }.sorted { ($0["time"] as! Double) < ($1["time"] as! Double) }
         let results = records.filter { $0["event"] as? String == "result" }.sorted { ($0["time"] as! Double) < ($1["time"] as! Double) }
@@ -337,7 +352,7 @@ final class SchedulingTests: XCTestCase {
         for mode in ["stale", "flood"] {
             let fixture = try ProcessFixture(); defer { fixture.remove() }
             try await render(fixture, count: 5, mode: mode)
-            XCTAssertEqual(try fixture.samples().count, 20)
+            XCTAssertEqual(try fixture.samples(), expectedSamples(5))
             try fixture.assertClean()
         }
     }
@@ -690,7 +705,7 @@ extension SchedulingTests {
         let released = try XCTUnwrap(records.first { $0["event"] as? String == "released" }?["time"] as? Double)
         let nextChunk = try XCTUnwrap(records.first { $0["event"] as? String == "generate" && $0["chunk"] as? Int == 1 }?["time"] as? Double)
         XCTAssertGreaterThan(nextChunk, released)
-        XCTAssertEqual(try fixture.samples(), [Float](repeating: 0.01, count: 4) + [Float](repeating: 0.02, count: 4) + [Float](repeating: 0.03, count: 4))
+        XCTAssertEqual(try fixture.samples(), expectedSamples(3))
         try fixture.assertClean()
     }
 }
@@ -997,7 +1012,9 @@ extension SchedulingTests {
         let records = try fixture.records()
         let generated = records.filter { $0["event"] as? String == "generate" }.count
         XCTAssertGreaterThan(generated, 1)
-        XCTAssertEqual(records.filter { $0["event"] as? String == "launch" }.count, generated + 1)
+        let prepared = records.filter { $0["event"] as? String == "prepareText" }.count
+        XCTAssertGreaterThan(prepared, 1)
+        XCTAssertEqual(records.filter { $0["event"] as? String == "launch" }.count, prepared + generated + 1)
         try fixture.assertClean()
     }
 }

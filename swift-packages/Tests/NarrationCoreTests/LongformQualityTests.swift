@@ -3,26 +3,38 @@ import Pronunciation
 @testable import NarrationCore
 
 final class LongformQualityTests: XCTestCase {
-    func testKokoroSemanticPlanningIsMandatoryIncludingSavedAndExplicitLegacySettings() throws {
-        let old = try JSONDecoder().decode(SpeechSettings.self, from: Data(#"{"model":"kokoro","voice":"af_heart","speed":1}"#.utf8))
-        XCTAssertNil(old.planning)
-        for planning in [nil, SpeechPlanning.semanticCandidate] {
-            var settings = old; settings.planning = planning
-            XCTAssertEqual(settings.effectivePlanning, .semanticCandidate)
-            for requested in [SpeechPreparationPolicy.legacy, .longformPausesCandidate, .semanticCandidate, .current] {
-                XCTAssertEqual(SpeechPreparationPolicy.selected(settings: settings, requested: requested), .semantic)
-                let projection = try NarrationPlanner.prepareForSpeech(.init(blocks: [.init(kind: .paragraph, text: "A behind-the-scenes look.")], extractorVersion: "test"), settings: settings, policy: requested)
-                XCTAssertEqual(NarrationPlanner.version(settings: settings), NarrationPlanner.version(settings: old))
-                XCTAssertTrue(projection.version.hasSuffix("/spoken-projection-1"))
+    func testSemanticPlanningIsMandatoryForEveryModelIncludingSavedAndExplicitLegacySettings() throws {
+        let requested: [SpeechPreparationPolicy] = [.legacy, .correctnessCandidate, .longformCandidate, .longformPausesCandidate, .semanticCandidate, .nativeText, .current]
+        for model in SpeechModel.allCases {
+            let expectedPolicy: SpeechPreparationPolicy = model == .kokoro ? .current : .nativeText
+            let old = try JSONDecoder().decode(SpeechSettings.self,
+                from: Data("{\"model\":\"\(model.rawValue)\",\"voice\":\"\(model.defaultVoice)\",\"speed\":1}".utf8))
+            XCTAssertNil(old.planning)
+            for planning in [nil, SpeechPlanning.semanticCandidate] {
+                var settings = old; settings.planning = planning
+                XCTAssertEqual(settings.effectivePlanning, .semanticCandidate)
+                for policy in requested {
+                    XCTAssertEqual(SpeechPreparationPolicy.selected(settings: settings, requested: policy), expectedPolicy, "\(model.rawValue)/\(policy)")
+                    let projection = try NarrationPlanner.prepareForSpeech(.init(blocks: [.init(kind: .paragraph, text: "A behind-the-scenes look.")], extractorVersion: "test"), settings: settings, policy: policy)
+                    XCTAssertEqual(NarrationPlanner.version(settings: settings), NarrationPlanner.version(settings: old))
+                    XCTAssertTrue(projection.version.hasSuffix("/spoken-projection-1"))
+                    XCTAssertEqual(projection.chunks.count, 1)
+                    let chunk = try XCTUnwrap(projection.chunks.first)
+                    XCTAssertEqual(chunk.text, "A behind-the-scenes look.")
+                    XCTAssertEqual(chunk.blockIndices, [0])
+                    XCTAssertEqual(chunk.boundaryAfter, .paragraph)
+                    XCTAssertEqual(chunk.origin, .authored)
+                    for mapping in chunk.sourceMappings ?? [] {
+                        XCTAssertGreaterThanOrEqual(mapping.spokenLocation, 0)
+                        XCTAssertLessThanOrEqual(mapping.spokenLocation + mapping.spokenLength, chunk.text.utf16.count)
+                    }
+                }
+                // Switching models must not change the mandatory semantic behavior.
+                for target in SpeechModel.allCases {
+                    XCTAssertEqual(settings.switching(to: target).effectivePlanning, .semanticCandidate)
+                }
             }
-            // Hiding Kokoro's control must not opt other models into the experiment.
-            XCTAssertEqual(settings.switching(to: .qwen3).effectivePlanning, planning)
-        }
-        for model in SpeechModel.allCases where model != .kokoro {
-            var settings = SpeechSettings(model: model, voice: model.defaultVoice)
-            XCTAssertNil(settings.effectivePlanning)
-            settings.planning = .semanticCandidate
-            XCTAssertEqual(settings.effectivePlanning, .semanticCandidate)
+            XCTAssertTrue(NarrationPlanner.version(settings: old).contains("semantic-boundaries-1") == (model != .kokoro), model.rawValue)
         }
     }
     func testCompoundHyphensDoNotBecomePausePhonesOrPackingBoundaries() throws {
@@ -113,16 +125,20 @@ final class LongformQualityTests: XCTestCase {
         XCTAssertTrue(slices.allSatisfy { text[$0.range].split(separator: " ").count <= 12 })
         XCTAssertFalse(slices.dropFirst().contains { text[$0.range].trimmingCharacters(in: .whitespaces).hasPrefix("”") })
     }
-    func testCandidateCapturesVersionAndRetainsFullParagraphForNativePacking() throws {
+    func testMandatorySemanticCapturesVersionAndRetainsFullParagraphForNativePacking() throws {
         var settings = SpeechSettings(model: .qwen3, voice: "Ryan")
         let text = Array(repeating: "A quiet reader waits beside the river.", count: 30).joined(separator: " ")
         let document = SemanticDocument(blocks: [.init(kind: .paragraph, text: text)], extractorVersion: "test")
         let baseline = try NarrationPlanner.prepareForSpeech(document, settings: settings)
         settings.planning = .semanticCandidate
         let candidate = try NarrationPlanner.prepareForSpeech(document, settings: settings)
-        XCTAssertGreaterThan(baseline.chunks.count, 1); XCTAssertEqual(candidate.chunks.count, 1)
+        XCTAssertEqual(baseline.chunks.count, 1); XCTAssertEqual(candidate.chunks.count, 1)
+        XCTAssertEqual(baseline.version, candidate.version)
         XCTAssertTrue(candidate.version.contains("semantic-boundaries-1"))
         XCTAssertEqual(candidate.chunks[0].text, text)
+        XCTAssertEqual(candidate.chunks[0].boundaryAfter, .paragraph)
+        XCTAssertEqual(candidate.chunks[0].blockIndices, [0])
+        XCTAssertEqual(candidate.chunks[0].sourceMappings, nil)
         XCTAssertEqual(SpeechPreparationPolicy.current, .semantic)
     }
     func testPhonemeOverridesRequireExactAlignedSpansAndPreserveSource() throws {

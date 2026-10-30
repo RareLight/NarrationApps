@@ -62,7 +62,15 @@ struct ConfigurationView: View {
 struct VoiceModelSettingsView: View {
     @Bindable var model: AppModel
     var body: some View {
-        Form {
+        VStack(spacing: 0) {
+            SpeechSetupRequiredHeader(model: model.preferences.modelSelection.model,
+                isPresented: model.speechSetupHeaderPresented,
+                activity: model.runtimeBusy ? (model.runtimeInstalling ? .installing : .checking) : nil,
+                progress: model.runtimeSetupProgress,
+                canDownload: model.canManageSpeechRuntime,
+                detail: model.speechSetupFailureDetail,
+                download: model.installSpeechRuntime, cancel: model.cancelRuntimeSetup)
+            Form {
             Section {
                 ScrollView(.horizontal) {
                     SpeechModelControls(settings: $model.preferences.modelSelection,
@@ -90,7 +98,8 @@ struct VoiceModelSettingsView: View {
                     maintenance: model.modelStorage)
             } header: { SectionHelpHeader(title: "Downloaded models", explanation: "Manage cached models and choose a storage location.") }
             speechSetup
-        }.formStyle(.grouped)
+            }.formStyle(.grouped)
+        }
     }
     private var speechSetup: some View {
         Section {

@@ -10,7 +10,8 @@ Kokoro, Soprano, Qwen3-TTS, Chatterbox Turbo or Orpheus. Your original documents
    existing compatible models or **Install Model**. **Check Model** verifies a
    chosen model offline. **Not Now** lets you explore without installing.
    Setup uses the same compact download flow as VoiceRelay, with progress and cancellation.
-   You can also use the **Download** arrow icon beside the main model picker when no files are cached.
+   When the selected model is missing, a **Speech Setup Required** banner above the
+   main voice controls offers **Download Model** with progress and cancellation.
    File sizes and confirmed deletion are only in **Settings → Models**. The trailing **ⓘ** opens
    the model description and speed/quality meters. Model and Voice menus keep
    their positions when switching models; extra options and **Play Sample** appear
@@ -123,8 +124,7 @@ external FFmpeg installation is needed.
 [Documentation index](docs/README.md) · [Automated validation](docs/VALIDATION.md) ·
 [Operator checks](../docs/OPERATOR_VALIDATION.md#libro)
 
-Kokoro always uses semantic phrasing. Other models offer **Try semantic phrasing**
-in the main voice controls to compare an experimental policy with their default.
+All models always use semantic phrasing; there is no phrasing switch.
 Model details can retain private
 chunks for review; Pronunciation Settings contains sentence previews, advanced
 scopes and retained-passage checks/repair. These features preserve existing

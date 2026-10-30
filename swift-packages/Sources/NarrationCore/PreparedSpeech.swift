@@ -17,9 +17,7 @@ public enum SpeechPreparationPolicy: String, Codable, Sendable {
     public var usesPreparedPhonemes: Bool { self != .legacy && self != .nativeText }
     public var usesStructuralPauses: Bool { self == .longformPausesCandidate || self == .nativeText || self == .semanticCandidate || self == .semantic }
     public static func selected(settings: SpeechSettings, requested: Self) -> Self {
-        if settings.model.isLarge { return .nativeText }
-        if settings.model == .soprano { return settings.planning == nil ? .legacy : .nativeText }
-        return .current
+        settings.model == .kokoro ? .current : .nativeText
     }
 }
 
@@ -282,8 +280,7 @@ public extension NarrationPlanner {
                                  profile: NarrationProfile = .document,
                                  pronunciations: PronunciationDictionary = .empty,
                                  policy: SpeechPreparationPolicy = .current, options: NarrationOptions = .init()) throws -> NarrationPlan {
-        let projection = settings.effectivePlanning != nil || (settings.model.isLarge && policy != .legacy && policy != .correctnessCandidate)
         return try prepare(document, settings: settings, profile: profile, pronunciations: pronunciations,
-                           purpose: projection ? .speechPreparation : .preview, options: options)
+                           purpose: .speechPreparation, options: options)
     }
 }

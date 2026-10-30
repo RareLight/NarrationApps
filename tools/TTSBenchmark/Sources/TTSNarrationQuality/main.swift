@@ -28,79 +28,11 @@ import Pronunciation
             guard args.count == 4 else { throw BenchError("--pronunciation-check WORKSPACE NEW_OUTPUT PRODUCT_WORKER") }
             try await checkPronunciation(workspace: URL(fileURLWithPath: args[1]), output: URL(fileURLWithPath: args[2]), worker: URL(fileURLWithPath: args[3])); return
         }
-        guard args.count >= 3, !args.contains("--help") else {
-            print("tts-narration-quality WORKSPACE NEW_OUTPUT PRODUCT_WORKER [soprano qwen3 chatterbox orpheus]\nKokoro always uses semantic phrasing and is excluded from experimental pairs. Uses installed product assets only; run under the documented offline wrapper. No model downloads or settings changes. Identities stay hidden in comparison.html.")
+        if args.isEmpty || args.contains("--help") {
+            print("All product models now always use semantic phrasing. New baseline-versus-semantic comparisons are retired; existing comparison pages and choices remain unchanged.\nPronunciation check: tts-narration-quality --pronunciation-check WORKSPACE NEW_OUTPUT PRODUCT_WORKER")
             return
         }
-        let workspace = URL(fileURLWithPath: args[0]).standardizedFileURL
-        let output = URL(fileURLWithPath: args[1]).standardizedFileURL
-        let worker = URL(fileURLWithPath: args[2]).standardizedFileURL
-        guard !FileManager.default.fileExists(atPath: output.path), FileManager.default.isExecutableFile(atPath: worker.path) else { throw BenchError("Use a new output directory and a complete validation helper") }
-        let models = args.count == 3 ? SpeechModel.allCases.filter { $0 != .kokoro } : try args.dropFirst(3).map { name in
-            guard let model = SpeechModel(rawValue: name) else { throw BenchError("Unknown product model") }; return model
-        }
-        guard !models.isEmpty, Set(models).count == models.count else { throw BenchError("Choose distinct models") }
-        guard !models.contains(.kokoro) else { throw BenchError("Kokoro always uses semantic phrasing; choose another model for experimental pairs. Existing Kokoro comparisons remain unchanged.") }
-        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let audio = output.appendingPathComponent("audio"), evidence = output.appendingPathComponent("private-evidence")
-        try FileManager.default.createDirectory(at: audio, withIntermediateDirectories: false)
-        try FileManager.default.createDirectory(at: evidence, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-        let runID = Files.hash(UUID().uuidString)
-        let document = SemanticDocument(title: "The field station", blocks: QualityComparison.paragraphs.enumerated().map {
-            .init(kind: $0.offset == 1 ? .quote : .paragraph, text: $0.element, origin: .authored)
-        }, extractorVersion: "quality-original-corpus-1")
-        let reviewStore = NarrationReviewStore(root: output.appendingPathComponent("reviews"))
-        var pairs: [QualityComparison.Pair] = [], identities: [[String: String]] = []
-        var failedTakes = 0
-        var rng = SplitMix(seed: 20261030)
-        for (modelIndex, model) in models.enumerated() {
-            try Task.checkCancellation()
-            let pairID = modelIndex + 1
-            let names = (0..<2).map { _ in UUID().uuidString.lowercased() + ".wav" }
-            let order = [false, true].shuffled(using: &rng)
-            var labels: [String] = []
-            for (position, candidate) in order.enumerated() {
-                var settings = SpeechSettings(model: model, voice: model.defaultVoice)
-                settings.seed = 20261030; settings.retainReview = true
-                settings.planning = candidate ? .semanticCandidate : nil
-                let configuration = WorkerConfiguration(executable: worker, debugLog: try DebugLog(workspace: evidence), inferencePriority: .background)
-                let session = try NativeSpeechSession(configuration: configuration, workspace: workspace, settings: settings, reviewStore: reviewStore)
-                let started = ContinuousClock.now
-                do {
-                    try await session.prepare()
-                    let projection = try NarrationPlanner.prepareForSpeech(document, settings: settings)
-                    let plan = try await session.prepareSpeech(projection)
-                    let receipt = evidence.appendingPathComponent("\(pairID)-\(position).json")
-                    try Files.write(plan, receipt)
-                    try await session.render(plan: plan, destination: audio.appendingPathComponent(names[position]), identity: .init(batch: UUID(), job: UUID()), progress: { _ in })
-                    await session.close()
-                    let info = try NativeAudio.inspect(audio.appendingPathComponent(names[position]))
-                    let data: [String: String] = ["helperSHA256": try Files.hash(worker), "hostSHA256": try Files.hash(URL(fileURLWithPath: CommandLine.arguments[0])), "planSHA256": try Files.hash(receipt),
-                        "audioSHA256": try Files.hash(audio.appendingPathComponent(names[position])), "frames": String(info.frames),
-                        "sampleRate": String(info.sampleRate), "elapsedSeconds": String(Runtime.seconds(since: started)),
-                        "audioPolicy": "raw-native; exact-zero structural gaps; no gain or fades", "seed": "20261030; reproducibility limited to pinned implementation/environment"]
-                    try Files.write(data, evidence.appendingPathComponent("\(pairID)-\(position)-receipt.json"))
-                    labels.append(model.label + " / " + model.defaultVoice + (candidate ? " / semantic phrasing" : " / accepted baseline"))
-                    print("Completed comparison \(pairID), take \(position + 1).")
-                } catch {
-                    await session.close(); failedTakes += 1
-                    if error is CancellationError || Task.isCancelled { throw CancellationError() }
-                    try Files.write(["model": model.rawValue, "candidate": String(candidate), "error": error.localizedDescription,
-                        "helperSHA256": try Files.hash(worker)], evidence.appendingPathComponent("\(pairID)-\(position)-failure.json"))
-                    print("Comparison \(pairID), take \(position + 1) failed; private diagnostics retained. No replay or incomplete audio published.")
-                }
-            }
-            guard labels.count == 2 else { continue }
-            pairs.append(.init(id: pairID, text: QualityComparison.paragraphs.joined(separator: "\n\n"), a: "audio/" + names[0], b: "audio/" + names[1]))
-            identities.append(["pair": String(pairID), "a": labels[0], "b": labels[1]])
-        }
-        struct IdentityFile: Encodable { let run: String; let identities: [[String: String]] }
-        try Files.write(IdentityFile(run: runID, identities: identities), output.appendingPathComponent("identities.json"))
-        try Files.write(["completedPairs": pairs.count, "failedTakes": failedTakes], output.appendingPathComponent("completion.json"))
-        guard !pairs.isEmpty else { throw BenchError("No complete listening pairs. Private failure receipts retained.") }
-        try Data(QualityComparison.page(pairs: pairs, identity: runID).utf8).write(to: output.appendingPathComponent("comparison.html"), options: .withoutOverwriting)
-        print("Comparison ready: \(output.appendingPathComponent("comparison.html").path). Avoid private-evidence and identities.json until you finish listening.")
-        if failedTakes > 0 { throw BenchError("Some takes failed; only complete pairs are included. Inspect private receipts before another explicit run.") }
+        throw BenchError("All product models now always use semantic phrasing; new baseline-versus-semantic comparisons are unavailable. Existing comparisons remain unchanged.")
     }
 
     static func checkPronunciation(workspace: URL, output: URL, worker: URL) async throws {

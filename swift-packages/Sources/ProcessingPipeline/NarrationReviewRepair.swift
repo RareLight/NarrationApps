@@ -20,7 +20,7 @@ public enum NarrationReviewRepair {
             for (index, passage) in original.plan.utterances.enumerated() {
                 if original.artifacts[index] != nil {
                     utterances.append(passage); reused.append(index)
-                } else if settings.model == .kokoro && passage.acousticIdentity != currentIdentity {
+                } else if passage.acousticIdentity != currentIdentity {
                     let replacements = try await reprepare(passage, session: session)
                     utterances += replacements; reused += Array(repeating: nil, count: replacements.count)
                 } else { utterances.append(passage); reused.append(nil) }
@@ -49,7 +49,6 @@ public enum NarrationReviewRepair {
         let original = try store.load(id)
         guard original.complete, original.plan.utterances.indices.contains(index) else { throw SpeechFailure(.invalidInput) }
         var settings = original.plan.settings; settings.retainReview = nil
-        if splitAtSentences { settings.planning = .semanticCandidate }
         let policy = SpeechPreparationPolicy.selected(settings: settings, requested: original.plan.policy)
         let session = try NativeSpeechSession(configuration: configuration, workspace: workspace, settings: settings,
             leaseFile: configuration.inferenceLeaseFile, policy: policy)
@@ -79,7 +78,7 @@ public enum NarrationReviewRepair {
                         boundaryAfter: index == replacementPlan.utterances.count - 1 ? selected.boundaryAfter : value.boundaryAfter,
                         acousticIdentity: value.acousticIdentity)
                 }
-            } else if splitAtSentences || (settings.model == .kokoro && selected.acousticIdentity != SpeechAcousticIdentity.make(settings: settings, policy: policy)) {
+            } else if splitAtSentences || selected.acousticIdentity != SpeechAcousticIdentity.make(settings: settings, policy: policy) {
                 replacements = try await reprepare(selected, session: session)
             } else { replacements = [selected] }
             try Task.checkCancellation()
@@ -106,7 +105,7 @@ public enum NarrationReviewRepair {
     }
 
     /// Reuse captured spoken text/rules, but apply the current mandatory packing
-    /// when generating a historical Kokoro passage. Unchanged PCM stays historical.
+    /// when generating a historical passage. Unchanged PCM stays historical.
     private static func reprepare(_ passage: PreparedUtterance, session: NativeSpeechSession) async throws -> [PreparedUtterance] {
         let offset = passage.source.location
         let projection = NarrationPlan(version: "explicit-repair-1/spoken-projection-1", chunks: [

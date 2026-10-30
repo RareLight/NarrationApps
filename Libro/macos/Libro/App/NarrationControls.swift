@@ -22,6 +22,13 @@ struct NarrationControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6 * scale) {
+            SpeechSetupRequiredHeader(model: model.settings.model,
+                isPresented: model.speechSetupHeaderPresented,
+                activity: model.isPreparingModel ? (model.preparationIsCheck ? .checking : .installing) : nil,
+                progress: model.isPreparingModel && !model.preparationIsCheck ? model.preparationProgress : nil,
+                canDownload: model.canManageSpeechSetup,
+                detail: model.speechSetupFailureDetail,
+                download: model.installSpeechRuntime, cancel: model.cancel)
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 4 * scale) {
                     speechOptions
@@ -37,9 +44,6 @@ struct NarrationControls: View {
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .disabled(model.isPreparingModel || model.modelStorage.isBusy)
-            if model.isPreparingModel {
-                HStack { PreparationProgressView(model: model); Button("Cancel", action: model.cancel) }
-            }
         }.fixedSize(horizontal: false, vertical: true)
     }
 
@@ -65,8 +69,7 @@ struct NarrationControls: View {
             Text("Format").frame(minHeight: 28 * scale).accessibilityHidden(true)
             Picker("Output format", selection: $model.outputFormat) {
                 ForEach(AudioOutputFormat.allCases, id: \.self) { format in Text(format.label).tag(format) }
-            }.labelsHidden().frame(width: 220 * scale, alignment: .leading)
-                .frame(minHeight: 28 * scale)
+            }.labelsHidden().fixedSize().frame(minHeight: 28 * scale)
             Button("About audio formats", systemImage: "info.circle") { showingFormatHelp.toggle() }
                 .labelStyle(.iconOnly).buttonStyle(.plain).frame(width: 22 * scale, height: 28 * scale)
                 .help("About audio formats")

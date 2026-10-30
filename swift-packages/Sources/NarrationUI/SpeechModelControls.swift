@@ -50,19 +50,16 @@ public struct SpeechModelControls: View {
             Grid(alignment: .leading, horizontalSpacing: columnSpacing, verticalSpacing: rowSpacing) {
                 GridRow {
                     controlLabel("Model")
-                    Picker("Model", selection: Binding(get: { settings.model }, set: { settings = settings.switching(to: $0) })) {
-                        ForEach(models, id: \.self) { Text(ModelGuidance.selectionLabel(for: $0)).tag($0) }
-                    }.labelsHidden().frame(width: fieldWidth, alignment: .leading)
                     HStack(spacing: columnSpacing) {
-                        storageAction
+                        Picker("Model", selection: Binding(get: { settings.model }, set: { settings = settings.switching(to: $0) })) {
+                            ForEach(models, id: \.self) { Text(ModelGuidance.selectionLabel(for: $0)).tag($0) }
+                        }.labelsHidden()
                         modelDetails
-                    }
+                    }.fixedSize()
                 }
                 GridRow {
                     controlLabel("Voice")
-                    voicePicker.labelsHidden().frame(width: fieldWidth, alignment: .leading)
-                    metadataPlaceholder
-                        .accessibilityHidden(true)
+                    voicePicker.labelsHidden().fixedSize()
                 }
             }.disabled(!controlsEnabled)
             parameterAndSampleRows($settings)
@@ -151,7 +148,6 @@ public struct SpeechModelControls: View {
                                 nativeLanguage: selected.model.nativeLanguage(for: selected.voice)).tag(language)
                         }
                     }.labelsHidden().frame(width: fieldWidth, alignment: .leading).disabled(!controlsEnabled)
-                    metadataPlaceholder
                 }
                 GridRow {
                     controlLabel("Delivery").help(NarrationSettingsHelp.qwenDeliveryInstruction)
@@ -173,7 +169,6 @@ public struct SpeechModelControls: View {
                     controlLabel("Speed")
                     SpeechSpeedControl(speed: Binding(get: { Double(selection.wrappedValue.speed) }, set: { selection.wrappedValue.speed = Float($0) }), showsLabel: false)
                         .frame(width: fieldWidth, alignment: .leading).disabled(!controlsEnabled)
-                    metadataPlaceholder
                 }
             }
             GridRow {
@@ -182,18 +177,7 @@ public struct SpeechModelControls: View {
                     .frame(maxWidth: .infinity, minHeight: 28 * scale, alignment: .leading)
                     .gridCellColumns(3)
             }
-            if selected.model != .kokoro {
-                GridRow {
-                    Toggle("Try semantic phrasing", isOn: Binding(get: { selection.wrappedValue.planning != nil }, set: { selection.wrappedValue.planning = $0 ? .semanticCandidate : nil }))
-                        .help("Experimental phrase boundaries for new narration.")
-                        .disabled(!controlsEnabled).gridCellColumns(3)
-                }
-            }
         }.frame(width: controlWidth, alignment: .topLeading)
-    }
-    private var metadataPlaceholder: some View {
-        Color.clear.frame(width: 48 * scale, height: 1).gridCellUnsizedAxes(.vertical)
-            .accessibilityHidden(true)
     }
     private var modelDetails: some View {
         Button { showingDetails.toggle() } label: { Image(systemName: "info.circle") }
@@ -239,23 +223,6 @@ public struct SpeechModelControls: View {
     }
     private var currentEntry: StoredSpeechModel? {
         localStorage.selection == selectedStorage ? localStorage.entry : nil
-    }
-    @ViewBuilder private var storageAction: some View {
-        let action = localStorage.action(for: selectedStorage)
-        if downloading || action == .checking {
-            ProgressView().controlSize(.small).frame(width: 22 * scale, height: 28 * scale)
-                .accessibilityLabel(downloading ? "Downloading model" : "Checking model storage")
-        } else if action == .download || action == .unavailable {
-            Button {
-                guard canDownload, !maintenance.isBusy, !downloading else { return }
-                download()
-            } label: {
-                Image(systemName: "arrow.down.circle")
-            }.buttonStyle(.plain).frame(width: 22 * scale, height: 28 * scale)
-                .disabled(!canDownload || maintenance.isBusy || action == .unavailable)
-                .accessibilityLabel("Download " + settings.model.label)
-                .help(action == .unavailable ? "Model storage unavailable" : "Download model")
-        }
     }
     private var modelDescription: String {
         let summary = ModelGuidance.guide(for: settings.model, language: settings.effectiveLanguage).summary

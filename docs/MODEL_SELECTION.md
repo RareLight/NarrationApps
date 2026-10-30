@@ -4,7 +4,7 @@ Libro and VoiceRelay use the same native model catalog and selection controls.
 Both start with **Kokoro**, the **Recommended** option in the model menu, using
 Heart at 1.0×. It balances narration quality, generation speed and low memory use.
 Existing saved choices stay unchanged. New models download only when you choose
-the **Download** arrow icon beside the model picker (or **Install Model** during onboarding); **Check Speech Setup** validates and initializes the
+the **Download Model** button in the **Speech Setup Required** banner (or **Install Model** during onboarding); **Check Speech Setup** validates and initializes the
 selected model offline. Queued VoiceRelay articles and an active Libro batch keep
 captured settings when you change your selection.
 
@@ -77,10 +77,15 @@ normal narration begins. See [sample provenance](VOICE_SAMPLES.md).
 
 ## Model storage
 
-Use the **Download** arrow icon next to the main model picker in Libro or in
-VoiceRelay’s **Settings → Voice Model** pane when no cached files are present.
-The arrow disappears for cached models; file sizes and deletion are shown only
-in **Downloaded models**. Imported read-only folders are managed in Finder.
+When the selected model has no usable cached files, both apps show a
+**Speech Setup Required** banner: above Libro's voice controls, at the top of
+VoiceRelay's **Settings → Voice Model**, and in VoiceRelay's workspace notice
+area. Its **Download Model** button installs the selected model with byte
+progress and cancellation; check/validation phases use their own indeterminate
+labels. The banner disappears once installation and its offline check finish,
+reappears for another missing selection, and never downloads on its own.
+File sizes and deletion are shown only in **Downloaded models**. Imported
+read-only folders are managed in Finder.
 
 The trailing **ⓘ** opens the description and speed/quality meters;
 there is no permanent stats panel. For cached models, **Download missing files**
@@ -159,13 +164,13 @@ Existing WAV/AAC/MP3 export and podcast encoding/transcript rules still apply.
 See [implementation and validation](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md),
 [architecture](ARCHITECTURE.md) and [operator checks](OPERATOR_VALIDATION.md).
 
-## Experimental narration preparation
+## Narration preparation
 
-Kokoro always uses semantic phrasing, with no switch. For the other models, the
-shared controls offer **Try semantic phrasing**, off by default pending listening
-comparison. Model details also contain optional English spoken-form
+Every model uses semantic phrasing; there is no phrasing switch. Saved planning
+choices from older versions remain readable but no longer change preparation.
+Model details also contain optional English spoken-form
 expansion for native-text models and private chunk retention for review. Qwen
 Delivery presets are optional shortcuts to its existing instruction. These choices
 are captured for new work; they never change published audio. See
 [long-form quality](LONGFORM_QUALITY.md) for scopes, verification, selective repair,
-privacy/storage limits and the separate blind product-pipeline comparison.
+privacy/storage limits and the retired product-pipeline comparison.

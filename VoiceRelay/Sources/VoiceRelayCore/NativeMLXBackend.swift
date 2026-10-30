@@ -52,7 +52,7 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
     private let speed: Double
     public let speechSettings: SpeechSettings
     private let policy: SpeechPreparationPolicy
-    public var preparationPurpose: NarrationPlanPurpose { policy == .legacy || policy == .correctnessCandidate ? .preview : .speechPreparation }
+    public var preparationPurpose: NarrationPlanPurpose { .speechPreparation }
     public let narrationVersion: String
     private let gapSeconds: Double?
 

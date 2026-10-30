@@ -9,6 +9,32 @@ The containing commit identifies all maintained source. See
 Private document reviews and their input-specific results are retained locally;
 they are excluded from the publication history. Synthetic fixtures remain maintained.
 
+## Mandatory semantic phrasing and shared setup banner — current
+
+Semantic phrasing is now the only production preparation path for all five
+product models, superseding the Kokoro-only activation below. Saved
+`SpeechSettings.planning` values decode as inert compatibility metadata and no
+longer change effective preparation: Kokoro selects its current policy, every
+other model selects native text, and every non-Kokoro narration version carries
+`semantic-boundaries-1`. Incompatible unfinished plans reprepare under the
+current identity; completed recordings and prior comparison pages are
+preserved. New baseline-versus-semantic comparisons are retired.
+
+Missing selected models now present one shared **Speech Setup Required**
+header: above Libro's main voice controls, at the top of VoiceRelay's Voice
+Model settings, and in VoiceRelay's workspace readiness area. It owns the
+Download/Cancel action, scope-aware byte progress, separate checking and
+validation states, retryable failures and reduce-motion-aware collapse; the
+former inline download arrow and phrasing toggle are removed. Model details
+stay beside the visible model menu and format pickers size to their content.
+
+Final full fixtures pass in `.local/validation/full-C42389FC-203E-446B-90E5-E04912A61DD7/`.
+Final Debug/Release workspace builds and all four bundle audits pass in
+`.local/validation/release-D426E790-AA69-4F2B-A720-1894B0508C7B/`; archives were
+skipped. The standalone benchmark's 27 fixtures passed; its output was not saved
+to a validation directory. GUI and listening acceptance were not performed; no
+models were downloaded, no live services used and no apps installed or replaced.
+
 ## Mandatory Kokoro semantic phrasing — October 30
 
 Following the operator's paired listening and explicit activation decision, new
@@ -51,10 +77,12 @@ decision above activates it for Kokoro. B09 remains partial because GUI,
 recognition and broader pronunciation acceptance were not reported.
 
 The authorized [implementation plan](LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md) is
-implemented across the shared packages and both apps. The accepted preparation
-remains available for the other models; their semantic phrasing, native-text English
-expansions and private review retention are opt-in. Kokoro's newer mandatory policy
-is described above. Scoped language/document/model rules, trusted aligned
+implemented across the shared packages and both apps. Semantic phrasing is now
+mandatory for every model, including saved legacy/nil planning values, previews,
+resume/review repair and direct native sessions; the former opt-in control and
+inline download action are retired in favour of the shared setup banner.
+Native-text English spoken-form expansions and private review retention remain
+opt-in. Scoped language/document/model rules, trusted aligned
 Kokoro phones, sentence-context previews, name-review drafts and optional Qwen
 delivery presets share one implementation. See [behavior and limits](LONGFORM_QUALITY.md).
 
