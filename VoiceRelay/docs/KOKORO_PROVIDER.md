@@ -8,8 +8,8 @@ reference voices and relative speed/quality guidance. New preferences use Heart 
 admitted job settings remain intact.
 
 NativeSpeechSetup performs explicit model/pronunciation installation and offline
-Check Speech Setup. Build/startup/generation never implicitly download. British
-voices require their pinned regional resources without a US fallback. The default is the standard Hugging Face cache, resolved by the pinned library. Explicit folder overrides and validated legacy workspaces remain usable. Select voices, use the download/delete icon, manage disk usage and check speech setup in Settings → Voice Model.
+automatic background validation. Build/startup/generation never implicitly download. British
+voices require their pinned regional resources without a US fallback. The default is the standard Hugging Face cache, resolved by the pinned library. Explicit folder overrides and validated legacy workspaces remain usable. Select voices, download or delete models and manage disk usage in Settings → Voice Model; setup validation runs automatically.
 
 NativeMLXBackend adapts PreparedTTSBackend to the shared NativeSpeechSession. It
 forwards captured dictionary settings, prepares the semantic projection once,

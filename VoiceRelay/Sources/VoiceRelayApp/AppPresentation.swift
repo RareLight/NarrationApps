@@ -95,6 +95,10 @@ struct WorkspaceReadinessView: View {
                 canDownload: model.canManageSpeechRuntime,
                 detail: model.speechSetupFailureDetail,
                 download: model.installSpeechRuntime, cancel: model.cancelRuntimeSetup)
+            if let detail = model.speechSetupFailureDetail {
+                notice("Speech model needs repair", detail: detail,
+                       symbol: "wrench.and.screwdriver", action: "Open Voice Model Settings", pane: .voiceModel)
+            }
             if model.publishingReadiness == .checking {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)

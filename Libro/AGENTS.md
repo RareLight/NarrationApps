@@ -22,6 +22,8 @@ WAV retains original Float32 values; AAC uses the operator-selected 64 kbps/24 k
 podcast profile. Source prose remains intact; semantic omissions/dedup are visible
 in narration previews and retain original blocks/provenance.
 
+Speech setup is validated automatically in the background; the Voice Model
+heading shows Validating, a green Ready, or Repair local model.
 Run `bash scripts/check.sh` for shared and app-specific fixtures. Prepare native
 sources with `bash macos/scripts/prepare-dependencies.sh`. Build/Archive with
 `macos/scripts/build.sh`; use LIBRO_CONFIGURATION=Release for release checks.

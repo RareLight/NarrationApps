@@ -160,9 +160,10 @@ previews never fetch. General owns Reading List selection and source diagnostics
 new production preferences default to ~/Library/Safari/Bookmarks.plist without
 overriding a selected source. Inert/injected models never default to protected
 Safari input. Troubleshooting contains library backup and debug tools, with no
-Reading List controls. Speech setup shows its session test result beside Check,
-independently of detected installation files. Background publishing/source updates
-do not disable Check/Install; active speech, quitting, setup or library maintenance
+Reading List controls. Speech setup is validated automatically in the background;
+the Voice Model heading shows Validating, a green Ready, or Repair local model.
+Background publishing/source updates
+do not disable Install/Repair; active speech, quitting, setup or library maintenance
 do, with an explanatory reason. Add to
 Queue is a background task with pending rows and collected
 per-entry issues rather than a synchronous stop. Prepared rows show Ready with a
@@ -420,5 +421,5 @@ October 15 shared Settings: use independent AppPresentation navigation, section 
 notices and Appearance controls, plus SwiftNarration.NarrationUI narration controls.
 Keep preference keys, source/automation, Publishing, backup and session log ownership
 here. Speech setup appears once; Install Model explicitly downloads and
-Check Speech Setup initializes offline with joined cleanup. Generic offline failures
+Setup initializes offline automatically with joined cleanup; Repair re-downloads on failure. Generic offline failures
 must not suggest a network requirement. See ../docs/SETTINGS_ALIGNMENT.md for current ownership.

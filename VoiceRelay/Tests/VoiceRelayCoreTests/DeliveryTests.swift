@@ -149,6 +149,70 @@ private struct DeliveryTestBackend: TTSBackend {
     }
 }
 
+
+@Test func feedItemsExposeOriginalSourceAsLinkAndDescription() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    var episode = result.episode
+    let source = URL(string: "https://articles.example/report?one=1&two=two%20words#section")!
+    episode.sourceURL = source
+    episode.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/\(episode.id).m4a",
+                                    uploadedByteLength: episode.info!.byteLength)
+    let channel = try RemoteChannel(settings: settings)
+    let expectedNote = "<p>Original source: <a href=\"https://articles.example/report?one=1&amp;two=two%20words#section\">https://articles.example/report?one=1&amp;two=two%20words#section</a></p>"
+    for feed in [try RSS.render([episode], settings: episode.settings), try RSS.renderRemote([episode], channel: channel)] {
+        let document = try XMLDocument(data: feed)
+        let items = try document.nodes(forXPath: "//item")
+        #expect(items.count == 1)
+        let links = try items[0].nodes(forXPath: "link")
+        #expect(links.count == 1 && links[0].stringValue == source.absoluteString)
+        let descriptions = try items[0].nodes(forXPath: "description")
+        #expect(descriptions.count == 1 && descriptions[0].stringValue == expectedNote)
+    }
+}
+
+@Test func feedItemsOmitSourceMetadataForMissingOrUnsafeSources() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    let channel = try RemoteChannel(settings: settings)
+    for unsafe in ["file:///private/var/secret.pdf", "javascript:alert(1)", "data:text/html,hi",
+                   "not-absolute", "https://user:password@articles.example/secret?token=abc"] {
+        var episode = result.episode
+        episode.sourceURL = URL(string: unsafe)
+        episode.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/\(episode.id).m4a",
+                                        uploadedByteLength: episode.info!.byteLength)
+        let document = try XMLDocument(data: try RSS.renderRemote([episode], channel: channel))
+        let items = try document.nodes(forXPath: "//item")
+        #expect(items.count == 1)
+        #expect(try items[0].nodes(forXPath: "link").isEmpty && items[0].nodes(forXPath: "description").isEmpty)
+        let feed = String(decoding: try RSS.renderRemote([episode], channel: channel), as: UTF8.self)
+        #expect(!feed.contains(unsafe) && !feed.contains("password"))
+    }
+    var missing = result.episode
+    missing.sourceURL = nil
+    missing.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/\(missing.id).m4a",
+                                    uploadedByteLength: missing.info!.byteLength)
+    let document = try XMLDocument(data: try RSS.renderRemote([missing], channel: channel))
+    #expect(try document.nodes(forXPath: "//item/link").isEmpty && document.nodes(forXPath: "//item/description").isEmpty)
+}
+
+@Test func serverFeedParserKeepsIdentityWithSourceDescriptionPresent() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    let result = try await publishReview(storage: storage, delivery: settings)
+    var episode = result.episode
+    episode.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/\(episode.id).m4a",
+                                    uploadedByteLength: episode.info!.byteLength)
+    let feed = try RSS.renderRemote([episode], channel: RemoteChannel(settings: settings))
+    let parsed = try #require(ServerFeedParser.parse(feed).first)
+    #expect(parsed.id == episode.id && parsed.source == episode.sourceURL)
+}
+
 private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage,
                            delivery: DeliverySettings? = nil) async throws -> FixtureResult {
     try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: deliveryReview(path),
@@ -772,6 +836,7 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     let feed = String(decoding: try RSS.renderRemote([uploaded], channel: channel), as: UTF8.self)
     #expect(feed.contains("xmlns:dc=\"http://purl.org/dc/elements/1.1/\""))
     #expect(feed.contains("<link>https://articles.example/private-canonical</link>"))
+    #expect(feed.contains("&lt;a href=&quot;https://articles.example/private-canonical&quot;&gt;https://articles.example/private-canonical&lt;/a&gt;"))
     #expect(feed.contains("<dc:creator>Private Author</dc:creator>"))
     #expect(feed.contains("<enclosure url=\"https://podcast.example/audio/\(uploaded.id).m4a\""))
     #expect(feed.contains("<itunes:block>yes</itunes:block>") && XMLParser(data: Data(feed.utf8)).parse())

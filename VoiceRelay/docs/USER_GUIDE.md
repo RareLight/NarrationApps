@@ -13,16 +13,16 @@ Requires Apple Silicon and macOS 27.0 or later. For building/signing, use
 
 On first launch without a speech model, **Model Setup** offers
 **Install Model**, **Choose Custom Model Folder…** or **Not Now**. Choosing an
-installed model folder offers **Check Model** to verify it offline.
+installed model folder is validated automatically offline.
 Installation starts only after your choice;
 you can cancel or retry without leaving setup. Installed models skip this window
 and are checked offline at startup. To install later, use
 the **Download Model** button in the **Speech Setup Required** banner at the top of
 **Settings → Voice Model** and above the workspace lists.
 Installation explicitly downloads verified native model and pronunciation assets;
-**Check Speech Setup** loads the installed model offline without generating audio. Models default to the shared Hugging Face cache. **Voice Model → Downloaded models** lists disk usage, deletion controls and a folder override. Existing custom locations remain supported. Cancel and Quit join owned setup work;
+The selected model is validated automatically offline in the background; a green **Ready** label appears beside the Voice Model heading, and a corrupt local model offers **Repair local model** in the same spot. Models default to the shared Hugging Face cache. **Voice Model → Downloaded models** lists disk usage, deletion controls and a folder override. Existing custom locations remain supported. Cancel and Quit join owned setup work;
 global environments are unchanged. See [model selection and setup](../../docs/MODEL_SELECTION.md); the [Kokoro provider notes](KOKORO_PROVIDER.md) describe the retained original backend.
-The result appears beside Check: Speech setup not checked, Speech setup ready or the failure.
+The result appears beside the Voice Model heading: Validating, a green Ready, or Repair local model on failure.
 Publishing and source refreshes do not disable speech setup controls; active audio
 work and library maintenance do, with a reason shown in Voice Model.
 
@@ -50,7 +50,7 @@ Click **ⓘ** for the
 model description and quality/speed meters. For cached models, **Download missing
 files** in that popover completes or repairs installation without deleting it first.
 Use **Downloaded models** for disk usage, deletion and storage location; use
-**Check Speech Setup** to verify the selected model offline. Changes apply to newly
+**Repair local model** if automatic validation reports the selected model unusable. Changes apply to newly
 queued articles; existing jobs keep their captured choices. The Articles window
 focuses on browsing and processing your queue.
 
@@ -206,6 +206,13 @@ In **Settings → Publishing**, supply complete HTTPS **Feed folder URL** and
 addresses need not be identical. VoiceRelay puts `feed.xml` and lowercase `audio/`
 under each folder. **Subscription URL** is read-only with **Copy** for Overcast
 or another podcatcher.
+
+Each published episode carries its recorded **Original source** link: the feed item's
+link and a clickable URL in the episode description/notes, including public PDF
+articles. It uses the recorded publisher URL, and already-published episodes pick
+it up at the next normal feed update without regenerating audio. Local filesystem
+paths are never published. Whether and how a podcast client shows episode notes
+is that client's own behavior.
 
 Turning Publishing off cancels the active publishing batch and prevents further
 requests. A request already accepted by the server may have completed; retained

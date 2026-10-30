@@ -80,6 +80,7 @@ func archivedPublicationKeepsOriginalPublisherLinkAndPrivateReplayProvenance(rew
     let feed = try RSS.renderRemote([uploaded], channel: .init(settings: settings))
     let xml = String(decoding: feed, as: UTF8.self)
     #expect(xml.contains("<link>\(original.absoluteString)</link>") && !xml.contains(replay.absoluteString))
+    #expect(xml.contains("&lt;a href=&quot;\(original.absoluteString)&quot;&gt;\(original.absoluteString)&lt;/a&gt;"))
     // Existing completed recordings retain their previously captured metadata.
     do {
         let store = try NativeStore(url: storage.profile.database)

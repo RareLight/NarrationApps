@@ -9,6 +9,21 @@ The containing commit identifies all maintained source. See
 Private document reviews and their input-specific results are retained locally;
 they are excluded from the publication history. Synthetic fixtures remain maintained.
 
+## Automatic speech-setup validation — current
+
+Speech setup checks are now automatic/background for both apps via a shared
+`SpeechSetupValidation` controller (ProcessingPipeline): one local inventory
+plus one offline initialization per selected model/voice/language/root/revision,
+cancelled-and-joined whenever selection or conflicting owned work supersedes it.
+Manual Check controls are removed; the Voice Model heading shows Validating, a
+green Ready, or Repair local model on failure. Validation evidence: focused
+suites plus frozen `.local/validation/full-2445BBB4-B18B-4FF9-A93E-8672EB7F1AE7`
+(full fixture gate, run before the follow-up review fixes) and
+`.local/validation/release-B5918E3A-A227-427A-B132-A0E60D397B3E` (Debug+Release
+workspace builds and all four bundle audits after those fixes); focused rework
+suites: SpeechSetupValidationTests 15/15, NarrationSettingsTests 16/16 and
+VoiceRelay app fixtures 20/20; operator GUI/listening acceptance unperformed.
+
 ## Mandatory semantic phrasing and shared setup banner — current
 
 Semantic phrasing is now the only production preparation path for all five

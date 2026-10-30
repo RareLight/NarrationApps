@@ -7,55 +7,15 @@ public enum SpeechSetupStatus: Equatable, Sendable {
     case notInstalled, notChecked, ready, cancelled, failure(String)
 }
 
-/// State and operations remain app-owned. No process, file or network work occurs during rendering.
-public struct SpeechSetupControls: View {
-    private let activity: SpeechSetupActivity?
-    private let status: SpeechSetupStatus
-    private let canManage: Bool
-    private let canCheck: Bool
-    private let disabledReason: String?
-    private let installMessage: String
-    private let install: () -> Void
-    private let check: () -> Void
-    private let cancel: () -> Void
-    @State private var confirmingInstallation = false
-    public init(activity: SpeechSetupActivity?, status: SpeechSetupStatus, canManage: Bool, canCheck: Bool = true, disabledReason: String? = nil,
-                installMessage: String, install: @escaping () -> Void, check: @escaping () -> Void, cancel: @escaping () -> Void) {
-        self.activity = activity; self.status = status; self.canManage = canManage; self.canCheck = canCheck; self.disabledReason = disabledReason
-        self.installMessage = installMessage; self.install = install; self.check = check; self.cancel = cancel
-    }
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Button(activity == .checking ? "Checking…" : "Check Speech Setup", action: check)
-                    .disabled(!canManage || !canCheck).help(disabledReason ?? "Check the installed model offline")
-                if let activity {
-                    ProgressView().controlSize(.small)
-                    Button(activity == .installing ? "Cancel Installation" : "Cancel Check", action: cancel)
-                }
-            }
-            if activity == nil {
-                SpeechSetupStatusView(status: status)
-                if let disabledReason { Text(disabledReason).appFont(.secondary).foregroundStyle(.secondary) }
-            }
-            Button(activity == .installing ? "Installing…" : "Install Speech Model…") { confirmingInstallation = true }
-                .disabled(!canManage).help(disabledReason ?? "Download the speech model and pronunciation assets")
-        }
-        .confirmationDialog("Install speech model?", isPresented: $confirmingInstallation) {
-            Button("Install Speech Model", action: install)
-        } message: { Text(installMessage) }
-    }
-}
-
 public struct SpeechSetupStatusView: View {
     private let status: SpeechSetupStatus
     public init(status: SpeechSetupStatus) { self.status = status }
     public var body: some View {
         switch status {
         case .notInstalled: Text("Speech model not installed").foregroundStyle(.secondary)
-        case .notChecked: Text("Speech setup not checked").foregroundStyle(.secondary)
-        case .ready: Label("Speech setup ready", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-        case .cancelled: Text("Cancelled. Check speech setup when ready.").foregroundStyle(.secondary)
+        case .notChecked: Text("Speech setup is validated automatically.").foregroundStyle(.secondary)
+        case .ready: Label("Ready", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+        case .cancelled: Text("Cancelled.").foregroundStyle(.secondary)
         case .failure(let message): SettingsNotice(message: message)
         }
     }
@@ -63,10 +23,10 @@ public struct SpeechSetupStatusView: View {
 
 public enum NarrationSettingsHelp {
     public static let qwenDeliveryInstruction = "Describe tone or pacing, e.g. ‘calm and measured’. Leave blank for default delivery. Up to 128 characters."
-    public static let speechSetup = "Download installs the selected model. Check verifies it offline."
+    public static let speechSetup = "Download installs the selected model. Setup is validated automatically."
     public static let imageDescriptions = "Add missing descriptions with on-device Apple Intelligence. Results may contain mistakes; existing descriptions and OCR stay active."
     public static let previewModelMissing = "Install the selected speech model to preview pronunciations."
-    public static let previewCheckNeeded = "Check speech setup before previewing pronunciations."
+    public static let previewCheckNeeded = "Repair the speech model or wait for automatic validation to preview pronunciations."
     public static let previewBusy = "Wait for processing or speech setup to finish to preview pronunciations."
 }
 

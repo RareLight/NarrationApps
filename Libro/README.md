@@ -7,8 +7,10 @@ Kokoro, Soprano, Qwen3-TTS, Chatterbox Turbo or Orpheus. Your original documents
 ## Get started
 
 1. Open Libro. If **Model Setup** appears, use **Choose Custom Model Folder…** for
-   existing compatible models or **Install Model**. **Check Model** verifies a
-   chosen model offline. **Not Now** lets you explore without installing.
+   existing compatible models or **Install Model**. The selected model is validated offline
+   automatically in the background; **Repair local model** retries its installation when
+   validation fails, preserving verified existing files.
+   **Not Now** lets you explore without installing.
    Setup uses the same compact download flow as VoiceRelay, with progress and cancellation.
    When the selected model is missing, a **Speech Setup Required** banner above the
    main voice controls offers **Download Model** with progress and cancellation.
@@ -20,7 +22,7 @@ Kokoro, Soprano, Qwen3-TTS, Chatterbox Turbo or Orpheus. Your original documents
    group moves below the voice controls in narrow layouts. Qwen's native language
    is emphasized in the Language menu rather than shown in a separate row.
    Qwen’s **Delivery** label and optional instruction field explain tone/pacing cues
-   on hover. Speed’s value and arrows stay beside its label. **Check Speech Setup** in **Settings → Models** checks
+   on hover. Speed’s value and arrows stay beside its label. **Settings → Models** validates
    installed models offline.
 2. Add files or folders through **Open** or Finder drag and drop. Select a row and
    choose **Preview Selected** to compare **Narration** with **Original Source**.

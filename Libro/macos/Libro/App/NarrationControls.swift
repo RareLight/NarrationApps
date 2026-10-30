@@ -22,6 +22,10 @@ struct NarrationControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6 * scale) {
+            SpeechModelSettingsHeader(status: model.speechSetupStatus,
+                validating: model.speechSetupValidating, canRepair: model.canManageSpeechSetup,
+                repair: model.installSpeechRuntime,
+                explanation: "Choose the voice for future batches.")
             SpeechSetupRequiredHeader(model: model.settings.model,
                 isPresented: model.speechSetupHeaderPresented,
                 activity: model.isPreparingModel ? (model.preparationIsCheck ? .checking : .installing) : nil,

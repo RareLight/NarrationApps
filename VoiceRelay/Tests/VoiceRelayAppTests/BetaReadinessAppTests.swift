@@ -52,7 +52,8 @@ private final class RuntimeCheckProbe: @unchecked Sendable {
     let suite = "voicerelay-runtime-controls-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let probe = RuntimeCheckProbe()
-    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults, runtimeSetup: { _, _, _, _ in _ = probe.next() })
+    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
+        runtimeSetup: { _, _, _, _ in _ = probe.next() }, runtimeInstalled: { _ in true })
     model.debugLoggingEnabled = true
     #expect(model.runtimeTestResult == .untested && model.canManageSpeechRuntime)
     model.deliveryBusy = true; model.deliveryTesting = true; model.deliveryCredentialBusy = true
@@ -60,13 +61,12 @@ private final class RuntimeCheckProbe: @unchecked Sendable {
     model.pendingAdds = ["one": "Preparing"]
     model.queueMutationBusy = true; model.audioMutationBusy = true
     #expect(!model.canManageLibrary && model.canManageSpeechRuntime)
-    model.checkSpeechRuntime()
-    #expect(model.runtimeBusy && !model.canManageSpeechRuntime)
-    model.checkSpeechRuntime() // A duplicate request must not start a second check.
+    model.startSpeechSetupValidation()
+    #expect(model.speechSetupValidation.hasOwnedWork && !model.canManageSpeechRuntime)
+    model.checkSpeechRuntime() // A repeat request revalidates through the same lifecycle.
     await model.waitForRuntimeSetup()
     #expect(probe.calls == 1 && model.runtimeTestResult == .success && !model.runtimeBusy)
     #expect(model.canManageSpeechRuntime)
-    #expect(model.deliveryDebugLog.text.contains("speech runtime check: verified"))
     #expect(!model.deliveryDebugLog.text.contains(root.path))
     model.running = true; model.processingSpeech = true
     #expect(!model.canManageSpeechRuntime && model.runtimeControlDisabledReason?.contains("Stop audio") == true)
@@ -93,18 +93,123 @@ private final class RuntimeCheckProbe: @unchecked Sendable {
     let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults, runtimeSetup: { _, _, _, _ in
         if probe.next() == 1 { throw RelayError.setup("Synthetic verification failure") }
     })
+    model.startSpeechSetupValidation()
     model.checkSpeechRuntime(); await model.waitForRuntimeSetup()
     #expect(model.runtimeTestResult == .failure("Synthetic verification failure"))
     #expect(!model.speechRuntimeAvailable && model.canManageSpeechRuntime)
-    _ = SpeechRuntimeTestIndicator(model: model).body
+    _ = SpeechModelSettingsHeader(status: model.speechSetupStatus, validating: model.speechSetupValidating,
+        canRepair: model.canManageSpeechRuntime, repair: model.installSpeechRuntime, explanation: "Synthetic.").body
     model.checkSpeechRuntime(); await model.waitForRuntimeSetup()
     #expect(model.runtimeTestResult == .success && model.speechRuntimeAvailable)
     let cancelled = AppModel(storage: betaAppStorage(root, "other"), defaults: defaults, runtimeSetup: { _, _, _, _ in throw CancellationError() })
+    cancelled.startSpeechSetupValidation()
     cancelled.checkSpeechRuntime(); await cancelled.waitForRuntimeSetup()
-    #expect(cancelled.runtimeTestResult == .cancelled && cancelled.speechRuntimeAvailable && cancelled.canManageSpeechRuntime)
-    _ = SpeechRuntimeTestIndicator(model: cancelled).body
+    #expect(cancelled.runtimeTestResult == .untested && !cancelled.speechRuntimeAvailable && cancelled.canManageSpeechRuntime)
+    _ = SpeechModelSettingsHeader(status: cancelled.speechSetupStatus, validating: false,
+        canRepair: true, repair: {}, explanation: "Synthetic.").body
     await model.shutdown(); await cancelled.shutdown()
     #expect(!FileManager.default.fileExists(atPath: root.path))
+}
+
+@Test @MainActor func automaticValidationFollowsSelectionAndDefersBehindSpeech() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("voicerelay-autoval-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let suite = "voicerelay-autoval-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let probe = SetupProgressProbe()
+    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
+        runtimeSetup: probe.run, runtimeInstalled: { _ in true })
+    model.startSpeechSetupValidation()
+    probe.finish()
+    #expect(await awaitCondition { model.speechSetupValidation.result == .ready })
+    #expect(probe.calls == 1 && model.runtimeTestResult == .success && model.speechRuntimeAvailable)
+    model.preferences.modelSelection.voice = "reference:synthetic"
+    probe.finish()
+    #expect(await awaitCondition { model.speechSetupValidation.result == .ready && probe.calls == 2 })
+    #expect(probe.captured.last?.settings.voice == "reference:synthetic")
+    model.running = true
+    model.preferences.modelSelection.language = "German"
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(probe.calls == 2)
+    model.running = false
+    probe.finish()
+    #expect(await awaitCondition { probe.calls == 3 && model.speechSetupValidation.result == .ready })
+    #expect(probe.captured.last?.settings.effectiveLanguage == "German")
+    await model.shutdown()
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(probe.calls == 3)
+}
+
+@Test @MainActor func speechSetupActivationRevalidatesReadyAndRepairFinishesOnce() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("voicerelay-activate-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let suite = "voicerelay-activate-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let probe = SetupProgressProbe()
+    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
+        runtimeSetup: probe.run, runtimeInstalled: { _ in true })
+    model.startSpeechSetupValidation()
+    probe.finish()
+    #expect(await awaitCondition { model.speechSetupValidation.result == .ready })
+    #expect(probe.calls == 1)
+    model.speechSetupDidBecomeActive()
+    probe.finish()
+    #expect(await awaitCondition { probe.calls == 2 && model.speechSetupValidation.result == .ready })
+    let calls = probe.calls
+    model.installSpeechRuntime()
+    probe.finish()
+    #expect(await awaitCondition { model.runtimeTestResult == .success })
+    #expect(await awaitCondition { probe.calls == calls + 1 })
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(probe.calls == calls + 1 && model.speechSetupValidation.result == .ready)
+    await model.shutdown()
+}
+
+@Test @MainActor func heldValidationBlocksGenerationPreviewAndStorageControl() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("voicerelay-heldval-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let suite = "voicerelay-heldval-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let probe = SetupProgressProbe()
+    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
+        runtimeSetup: probe.run, runtimeInstalled: { _ in true })
+    model.startSpeechSetupValidation()
+    #expect(await awaitCondition { model.speechSetupValidation.hasOwnedWork })
+    #expect(model.speechSetupValidating && !model.canGenerateAudio && model.pronunciationConfiguration == nil)
+    #expect(model.runtimeControlDisabledReason != nil)
+    probe.finish()
+    #expect(await awaitCondition { !model.speechSetupValidation.hasOwnedWork && model.speechSetupValidation.result == .ready })
+    #expect(!model.speechSetupValidating && model.canManageSpeechRuntime && model.speechRuntimeAvailable)
+    await model.shutdown()
+}
+
+@Test @MainActor func staleInstallOutcomeNeverStampsASwitchedSelection() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("voicerelay-staleinstall-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let suite = "voicerelay-staleinstall-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let probe = SetupProgressProbe()
+    let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
+        runtimeSetup: probe.run, runtimeInstalled: { _ in true })
+    model.startSpeechSetupValidation()
+    probe.finish()
+    #expect(await awaitCondition { model.speechSetupValidation.result == .ready })
+    let firstRoot = model.runtimeProject
+    model.installSpeechRuntime()
+    #expect(await awaitCondition { probe.calls == 2 })
+    let second = root.appendingPathComponent("other-root")
+    model.runtimeProject = second
+    model.preferences.modelSelection = .init(model: .chatterbox, voice: "reference:other")
+    probe.finish()
+    #expect(await awaitCondition { !model.runtimeBusy })
+    #expect(model.runtimeProject == second)
+    #expect(model.runtimeTestResult != .success || model.speechSetupValidation.target?.settings.model == .chatterbox)
+    probe.finish()
+    #expect(await awaitCondition { model.speechSetupValidation.result == .ready })
+    #expect(model.speechSetupValidation.target?.settings.model == .chatterbox)
+    #expect(probe.captured.contains { !$0.install && $0.settings.model == .chatterbox && $0.root == second })
+    await model.shutdown()
+    #expect(model.runtimeProject != firstRoot || probe.captured.count > 2)
 }
 
 private final class SetupProgressProbe: @unchecked Sendable {
@@ -437,6 +542,7 @@ private final class RuntimeInstallationProbe: @unchecked Sendable {
     defer { defaults.removePersistentDomain(forName: suite) }
     let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
         runtimeSetup: { _, _, _, _ in throw CocoaError(.fileNoSuchFile) })
+    model.startSpeechSetupValidation()
     model.checkSpeechRuntime(); await model.waitForRuntimeSetup()
     guard case .failure(let offline) = model.runtimeTestResult else { Issue.record("Check should fail"); return }
     #expect(offline.contains("offline") && !offline.contains("connection"))

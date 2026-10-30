@@ -137,9 +137,17 @@ final class IntakeModel {
     var preparationIsCheck = false
     var setupResult: SpeechSetupStatus = .notChecked
     var setupVerificationFailed = false
-    var speechSetupStatus: SpeechSetupStatus { setupResult == .notChecked && !assetsReady ? .notInstalled : setupResult }
+    var speechSetupStatus: SpeechSetupStatus {
+        switch speechSetupValidation.result {
+        case .ready: return .ready
+        case .failure(let message): return .failure(message)
+        case .notInstalled: return .notInstalled
+        case .idle, .checking: return .notChecked
+        }
+    }
+    var speechSetupValidating: Bool { speechSetupValidation.hasOwnedWork }
     var speechSetupHeaderPresented: Bool {
-        isPreparingModel || (workspace?.url != nil && !checkingAssets && (!assetsReady || setupVerificationFailed))
+        isPreparingModel || (workspace?.url != nil && speechSetupValidation.result == .notInstalled)
     }
     var speechSetupFailureDetail: String? {
         guard !isPreparingModel, case .failure(let message) = speechSetupStatus else { return nil }
@@ -157,10 +165,43 @@ final class IntakeModel {
     let voiceSamplePlayer = AudioPreviewPlayer()
     let pronunciationPreview = PronunciationPreview()
     var pronunciationConfiguration: PronunciationPreviewConfiguration? {
-        guard assetsReady, !modelStorage.isBusy, !setupVerificationFailed, !isGenerating, !isPreparingModel, !hasOwnedProbe, let root = workspace?.url else { return nil }
+        guard assetsReady, !modelStorage.isBusy, !setupVerificationFailed, !isGenerating, !isPreparingModel, !hasOwnedProbe, !speechSetupValidation.hasOwnedWork, let root = workspace?.url else { return nil }
         return .init(worker: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), workspace: root, settings: settings, priority: .interactive)
     }
     private var onboarding = SpeechSetupOnboarding()
+    @ObservationIgnored private(set) var stoppingValidation = false
+    @ObservationIgnored private var speechSetupEpoch = 0
+    @ObservationIgnored private var speechSetupObserverGeneration = 0
+    @ObservationIgnored private var speechSetupActivationObserver: NSObjectProtocol?
+    @ObservationIgnored lazy var speechSetupValidation = SpeechSetupValidation(inspect: inspectSpeechSetup, check: checkSpeechSetup)
+
+    private func inspectSpeechSetup(_ target: SpeechSetupValidation.Target) async throws -> Bool {
+        let access = DirectoryAccess(target.root)
+        defer { withExtendedLifetime(access) {} }
+        let scan = Task.detached(priority: .utility) {
+            let entries = try NativeModelStorage.entries(at: target.root, models: [target.settings.model])
+            var voices = [target.settings.voice]
+            if target.settings.model == .kokoro,
+               let workspace = try? NativeWorkspace(root: target.root),
+               let primary = try? workspace.primaryDirectory(for: target.settings.model, voice: target.settings.voice) {
+                voices = NativePrimaryCatalog.specification(for: .kokoro).voices.filter {
+                    FileManager.default.fileExists(atPath: primary.appendingPathComponent("voices/\($0).safetensors").path)
+                }.sorted()
+            }
+            return (entries.contains { $0.model == target.settings.model }, voices)
+        }
+        let (present, voices) = try await withTaskCancellationHandler { try await scan.value } onCancel: { scan.cancel() }
+        if speechSetupValidation.target == target { self.voices = voices }
+        return present
+    }
+
+    private func checkSpeechSetup(_ target: SpeechSetupValidation.Target) async throws {
+        let access = DirectoryAccess(target.root)
+        defer { withExtendedLifetime(access) {} }
+        let configuration = WorkerConfiguration(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"),
+            requestTimeout: .seconds(1_800), inferencePriority: .interactive)
+        try await SpeechSetupCheck.run(configuration: configuration, workspace: target.root, settings: target.settings)
+    }
     var needsSpeechSetup: Bool { onboarding.needsSetup }
     func claimSpeechSetup() -> Bool { onboarding.claimPresentation() }
     var describeImages = UserDefaults.standard.object(forKey: "LibroDescribeImages") as? Bool ?? true {
@@ -207,9 +248,9 @@ final class IntakeModel {
     var canGenerate: Bool { generationBlocker == nil }
     var speechSetupDisabledReason: String? {
         if modelStorage.isBusy { return "Deleting a model." }
-        if isGenerating { return "Wait for audio generation to finish before checking or installing a speech model." }
+        if isGenerating { return "Wait for audio generation to finish before installing a speech model." }
         if isPreparingModel { return "Speech setup is in progress." }
-        if checkingAssets { return "Checking local model files." }
+        if checkingAssets { return "Validating local model files." }
         if busy || hasOwnedProbe { return "Wait for the current document or diagnostic operation to finish." }
         if debugToolsBusy { return "Wait for the debug log action to finish." }
         return nil
@@ -255,15 +296,12 @@ final class IntakeModel {
     private let coordinator: QueueCoordinator
     private var generationTask: Task<Void, Never>?
     private var progressTask: Task<Void, Never>?
-    private var readinessTask: Task<(String, [String]), Error>?
     private var preparationTask: Task<Void, Never>?
     private var preparationOperation = UUID()
     private var preparationScopes: [DirectoryAccess] = []
-    private var readinessOperation = UUID()
     private var batchScopes: [DirectoryAccess] = []
     private var outputScopes: [UUID: DirectoryAccess] = [:]
     private var savedNames: [UUID: String] = [:]
-    private var readinessScopes: [DirectoryAccess] = []
     private var activity: NSObjectProtocol?
     private var completionLedger = CompletionNoticeLedger()
     private var notificationAuthorizationTask: Task<Void, Never>?
@@ -279,7 +317,10 @@ final class IntakeModel {
         let oldDefault = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Libro/SpeechRuntime")
         workspace = preferences.loadModelStorage(defaultRoot: NativeModelStorage.defaultRoot, previousDefault: oldDefault)
         if let root = workspace?.url { debugLogURL = DebugLog.existingURL(workspace: root) }
-        refreshReadiness()
+        speechSetupActivationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.speechSetupDidBecomeActive() }
+        }
+        applySpeechSetupObservation()
     }
 
     func openInputs(foldersOnly: Bool = false) {
@@ -650,7 +691,7 @@ final class IntakeModel {
     }
 
     func probe() {
-        guard !busy, !debugToolsBusy, !isGenerating, !isPreparingModel, probeProcess == nil else { return }
+        guard !busy, !debugToolsBusy, !isGenerating, !isPreparingModel, !speechSetupValidation.hasOwnedWork, probeProcess == nil else { return }
         let token = UUID(); operation = token
         busy = true; probeCancelled = false; status = "Checking embedded Metal runtime…"; probeStatus = status
         do {
@@ -667,44 +708,79 @@ final class IntakeModel {
         }
     }
 
-    func refreshReadiness(preserveSetupResult: Bool = false) {
+    func refreshReadiness() {
         guard !isPreparingModel else { return }
-        if !preserveSetupResult { setupResult = .notChecked; setupVerificationFailed = false }
-        readinessTask?.cancel(); readinessTask = nil
-        let token = UUID(); readinessOperation = token
-        assetsReady = false; checkingAssets = false; readinessScopes = []
-        guard let root = workspace?.url else {
-            readiness = workspace?.error ?? "Choose the Libro workspace containing models."
-            onboarding.assess(installed: false)
-            return
-        }
-        readinessScopes = [DirectoryAccess(root)]
-        let selected = settings
-        checkingAssets = true; readiness = "Checking \(selected.model.rawValue.capitalized) assets…"
-        let task = Task.detached(priority: .userInitiated) {
-            try Task.checkCancellation()
-            let store = try NativeWorkspace(root: root)
-            let primary = try store.primaryDirectory(for: selected.model, voice: selected.voice)
-            var voices = [selected.voice]
-            if selected.model == .kokoro {
-                try NativeG2P.validate(directory: store.g2pDirectory, workspace: store)
-                voices = NativePrimaryCatalog.specification(for: .kokoro).voices.filter {
-                    FileManager.default.fileExists(atPath: primary.appendingPathComponent("voices/\($0).safetensors").path)
-                }.sorted()
+        applySpeechSetupObservation()
+    }
+
+    func speechSetupDidBecomeActive() {
+        guard !stoppingValidation, workspace?.url != nil else { return }
+        if !speechSetupValidation.hasOwnedWork { speechSetupEpoch += 1 }
+        applySpeechSetupObservation()
+    }
+
+    private func speechSetupTarget() -> SpeechSetupValidation.Target? {
+        guard let root = workspace?.url else { return nil }
+        return .init(root: root, settings: settings, revision: modelStorageRevision + modelStorage.revision + speechSetupEpoch)
+    }
+
+    private func speechSetupPermitted() -> Bool {
+        workspace?.url != nil && !isGenerating && !isPreparingModel && !pronunciationPreview.hasOwnedWork
+            && !hasOwnedProbe && !modelStorage.isBusy && !stoppingValidation
+    }
+
+    func applySpeechSetupObservation() {
+        guard !stoppingValidation else { return }
+        speechSetupObserverGeneration += 1
+        let generation = speechSetupObserverGeneration
+        var target: SpeechSetupValidation.Target?
+        var permitted = false
+        withObservationTracking {
+            target = self.speechSetupTarget()
+            permitted = self.speechSetupPermitted()
+            _ = (self.speechSetupValidation.result, self.speechSetupValidation.target,
+                 self.speechSetupValidation.hasOwnedWork)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.speechSetupObserverGeneration == generation else { return }
+                self.applySpeechSetupObservation()
             }
-            try Task.checkCancellation()
-            return ("\(selected.model.rawValue.capitalized) model files available.", voices)
         }
-        readinessTask = task
-        Task {
-            do {
-                let (message, available) = try await task.value
-                guard readinessOperation == token else { return }
-                readiness = message; assetsReady = true; onboarding.assess(installed: true)
-                if selected.model == .kokoro { voices = available }
-            } catch is CancellationError {}
-            catch { if readinessOperation == token { readiness = error.localizedDescription; onboarding.assess(installed: false) } }
-            if readinessOperation == token { checkingAssets = false; readinessTask = nil; readinessScopes = [] }
+        speechSetupValidation.update(target: target, permitted: permitted)
+        propagateSpeechSetupResult()
+    }
+
+    private func propagateSpeechSetupResult() {
+        guard !isPreparingModel else { return }
+        let modelName = settings.model.rawValue.capitalized
+        switch speechSetupValidation.result {
+        case .ready:
+            assetsReady = true; checkingAssets = false
+            setupResult = .ready; setupVerificationFailed = false
+            readiness = "\(modelName) model files available."
+            onboarding.assess(installed: true)
+        case .failure(let message):
+            assetsReady = true; checkingAssets = false
+            setupResult = .failure(message); setupVerificationFailed = true
+            readiness = message
+            onboarding.assess(installed: true)
+        case .notInstalled:
+            assetsReady = false; checkingAssets = false
+            setupResult = .notInstalled; setupVerificationFailed = false
+            readiness = "\(modelName) is not installed."
+            onboarding.assess(installed: false)
+        case .checking:
+            checkingAssets = speechSetupValidation.hasOwnedWork; assetsReady = false
+            setupResult = .notChecked; setupVerificationFailed = false
+            readiness = "Checking \(modelName) assets…"
+        case .idle:
+            assetsReady = false; checkingAssets = speechSetupValidation.target != nil
+            setupResult = .notChecked; setupVerificationFailed = false
+            if workspace?.url == nil {
+                readiness = workspace?.error ?? "Choose the Libro workspace containing models."
+                checkingAssets = false
+                onboarding.assess(installed: false)
+            }
         }
     }
 
@@ -737,7 +813,7 @@ final class IntakeModel {
     func playVoiceSample() {
         if settings.voice.hasPrefix("reference:") || settings.effectiveLanguage != "English" {
             if pronunciationPreview.hasOwnedWork { pronunciationPreview.stop(); return }
-            guard let configuration = pronunciationConfiguration else { status = "Install and check the selected model before playing a live voice preview."; return }
+            guard let configuration = pronunciationConfiguration else { status = "Install or repair the selected model before playing a live voice preview."; return }
             stopPlayback()
             let text = NarrationSampleText.text(language: settings.effectiveLanguage)
             pronunciationPreview.play(entry: .init(word: text, spelling: text), dictionary: .empty, configuration: configuration)
@@ -749,14 +825,13 @@ final class IntakeModel {
         voiceSamplePlayer.toggle(url: sample.url, id: sample.id)
     }
 
-    func checkSpeechSetup() { prepareModel(checkOnly: true) }
-
-    func prepareModel(checkOnly: Bool = false) {
+    func prepareModel() {
         guard canPrepareModel, let root = workspace?.url else { return }
         let selected = settings
         let token = UUID(); preparationOperation = token
-        isPreparingModel = true; preparationIsCheck = checkOnly; setupResult = .notChecked
+        isPreparingModel = true; preparationIsCheck = false; setupResult = .notChecked
         assetsReady = false; preparationProgress = nil
+        speechSetupValidation.update(target: nil, permitted: false)
         preparationStatus = "Checking \(selected.model.rawValue.capitalized) assets in \(root.path)."
         preparationScopes = [DirectoryAccess(root)]
         let log = makeDebugLog(root)
@@ -766,43 +841,49 @@ final class IntakeModel {
         pronunciationPreview.stop()
         preparationTask = Task { [self] in
             await pronunciationPreview.stopAndWait()
+            await speechSetupValidation.waitForIdle()
+            var outcome: SpeechSetupValidation.Result?
             do {
-                if checkOnly {
-                    try await SpeechSetupCheck.run(configuration: configuration, workspace: root, settings: selected)
-                } else {
-                    try await ModelPreparation.run(configuration: configuration, workspace: root, settings: selected) { [weak self] value in
-                        Task<Void, Never> { @MainActor in
-                            guard let self, self.isPreparingModel, !self.preparationIsCheck, self.preparationOperation == token else { return }
-                            self.preparationProgress = value
-                            let scope = value.scope == .primary ? selected.model.rawValue.capitalized : "English pronunciation assets"
-                            self.preparationStatus = "\(value.phase.rawValue.capitalized) \(scope)…"
-                        }
+                try await ModelPreparation.run(configuration: configuration, workspace: root, settings: selected) { [weak self] value in
+                    Task<Void, Never> { @MainActor in
+                        guard let self, self.isPreparingModel, !self.preparationIsCheck, self.preparationOperation == token else { return }
+                        self.preparationProgress = value
+                        let scope = value.scope == .primary ? selected.model.rawValue.capitalized : "English pronunciation assets"
+                        self.preparationStatus = "\(value.phase.rawValue.capitalized) \(scope)…"
                     }
                 }
                 // Installation validates/downloads assets; verify actual offline initialization too.
-                if !checkOnly {
-                    preparationIsCheck = true; preparationProgress = nil
-                    preparationStatus = "Checking installed speech model offline…"
-                    try await SpeechSetupCheck.run(configuration: configuration, workspace: root, settings: selected)
-                }
+                preparationIsCheck = true; preparationProgress = nil
+                preparationStatus = "Checking installed speech model offline…"
+                try await SpeechSetupCheck.run(configuration: configuration, workspace: root, settings: selected)
                 setupResult = .ready; setupVerificationFailed = false
                 preparationStatus = "Speech setup ready. Generation uses local assets."
+                outcome = .ready
             } catch is CancellationError {
                 setupResult = .cancelled
-                preparationStatus = checkOnly ? "Speech setup check cancelled." : "Installation cancelled. Completed asset files remain available for reuse."
+                preparationStatus = "Installation cancelled. Completed asset files remain available for reuse."
             } catch {
                 preparationStatus = error.localizedDescription
                 setupResult = .failure(preparationStatus); setupVerificationFailed = true
+                outcome = .failure(preparationStatus)
             }
             log?.record("preparation settled: \(preparationStatus)")
             if log?.writeFailed == true { debugLogStatus = "Debug logging stopped because its file could not be written. Processing was unaffected." }
             ProcessInfo.processInfo.endActivity(activity)
+            let stillSelected = settings.model == selected.model && settings.voice == selected.voice
+                && settings.effectiveLanguage == selected.effectiveLanguage && workspace?.url == root
+            if !stillSelected { setupResult = .notChecked; setupVerificationFailed = false }
             preparationOperation = UUID(); isPreparingModel = false; preparationTask = nil; preparationScopes = []
             modelStorageRevision += 1
             preparationProgress = nil
             status = preparationStatus
             announce(preparationStatus)
-            refreshReadiness(preserveSetupResult: true)
+            if stillSelected, let outcome, let target = speechSetupTarget(),
+               target.settings.model == selected.model && target.settings.voice == selected.voice {
+                speechSetupValidation.update(target: target, permitted: false)
+                speechSetupValidation.record(outcome, for: target)
+            }
+            applySpeechSetupObservation()
         }
     }
 
@@ -831,14 +912,13 @@ final class IntakeModel {
     }
 
     func stopPreparation() async {
-        if let task = readinessTask {
-            let token = readinessOperation
-            task.cancel()
-            _ = try? await task.value
-            if readinessOperation == token { setupResult = .cancelled }
+        stoppingValidation = true
+        if let observer = speechSetupActivationObserver {
+            NotificationCenter.default.removeObserver(observer); speechSetupActivationObserver = nil
         }
         preparationTask?.cancel()
         await preparationTask?.value
+        await speechSetupValidation.stopAndWait()
     }
 
     func generate() {
@@ -855,6 +935,7 @@ final class IntakeModel {
                     defer { withExtendedLifetime(scope) {} }
                     return try BatchPlanner.plan(inputs, output: destination, names: overrides, format: format)
                 }
+                await speechSetupValidation.waitForIdle()
                 let plans = try await withTaskCancellationHandler { try await planningWork.value } onCancel: { planningWork.cancel() }
                 try Task.checkCancellation()
                 let replacements = plans.filter(\.replacesExisting)

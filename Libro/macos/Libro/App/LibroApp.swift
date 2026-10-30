@@ -96,7 +96,7 @@ private final class LibroDelegate: NSObject, NSApplicationDelegate, UNUserNotifi
         }
         model.cancel()
         model.stopPlayback()
-        guard model.hasIntakeWork || model.hasCoverWork || model.pronunciationPreview.hasOwnedWork || model.hasOwnedProbe || model.isGenerating || model.isPreparingModel || model.modelStorage.isBusy else { return .terminateNow }
+        guard model.hasIntakeWork || model.hasCoverWork || model.pronunciationPreview.hasOwnedWork || model.hasOwnedProbe || model.isGenerating || model.isPreparingModel || model.modelStorage.isBusy || model.speechSetupValidation.hasOwnedWork else { return .terminateNow }
         Task {
             await model.stopIntake()
             await model.stopCoverWork()

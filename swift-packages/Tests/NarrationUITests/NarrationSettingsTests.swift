@@ -13,8 +13,9 @@ import Foundation
     for status in statuses {
         let activities: [SpeechSetupActivity?] = [nil, .installing, .checking]
         for activity in activities {
-            _ = SpeechSetupControls(activity: activity, status: status, canManage: activity == nil,
-                installMessage: "Synthetic model download", install: { calls += 1 }, check: { calls += 1 }, cancel: { calls += 1 }).body
+            _ = SpeechModelSettingsHeader(status: status, validating: activity == .checking,
+                canRepair: true, repair: { calls += 1 },
+                explanation: "Synthetic explanation.").body
         }
         _ = SpeechSetupStatusView(status: status).body
     }
@@ -76,7 +77,7 @@ import Foundation
             for status in statuses {
                 _ = SpeechSetupOnboardingView(status: status,
                     activity: activity, canInstall: canInstall,
-                    install: { calls += 1 }, check: { calls += 1 }, chooseFolder: { calls += 1 },
+                    install: { calls += 1 }, repair: { calls += 1 }, chooseFolder: { calls += 1 },
                     cancel: { calls += 1 }, notNow: { calls += 1 }).body
             }
         }
@@ -93,7 +94,7 @@ import Foundation
         func measure(_ status: SpeechSetupStatus) -> CGSize {
             NSHostingView(rootView: SpeechSetupOnboardingView(status: status,
                 activity: nil, canInstall: true,
-                install: { calls += 1 }, check: { calls += 1 }, chooseFolder: { calls += 1 },
+                install: { calls += 1 }, repair: { calls += 1 }, chooseFolder: { calls += 1 },
                 cancel: { calls += 1 }, notNow: { calls += 1 })
                 .appTextSizing(size).dynamicTypeSize(.large)).fittingSize
         }
@@ -374,6 +375,26 @@ private func seedSelectedModel(_ model: SpeechModel, root: URL) throws -> URL {
     #expect(SpeechLanguageOption(language: "English", nativeLanguage: SpeechModel.qwen3.nativeLanguage(for: "Ryan")).isNative)
     #expect(SpeechLanguageOption(language: "Japanese", nativeLanguage: SpeechModel.qwen3.nativeLanguage(for: "Ono_Anna")).isNative)
     #expect(SpeechLanguageOption(language: "Korean", nativeLanguage: SpeechModel.qwen3.nativeLanguage(for: "Sohee")).isNative)
+}
+
+@Test @MainActor func modelSettingsHeaderFitsStatusesWidthsAndTextSizesWithoutActions() {
+    _ = NSApplication.shared
+    var calls = 0
+    for percent in [80, 100, 200] {
+        let size = AppTextSize(percent: percent)
+        for width in [180.0, 360.0] {
+            for status in [SpeechSetupStatus.ready, .notInstalled, .failure(String(repeating: "Synthetic failure. ", count: 8))] {
+                for validating in [false, true] {
+                    let view = SpeechModelSettingsHeader(status: status, validating: validating,
+                        canRepair: true, repair: { calls += 1 }, explanation: "Synthetic explanation.")
+                        .appTextSizing(size).dynamicTypeSize(.large).frame(width: width)
+                    let fitting = NSHostingView(rootView: view).fittingSize
+                    #expect(fitting.width.isFinite && fitting.height > 0 && fitting.height < 400)
+                }
+            }
+        }
+    }
+    #expect(calls == 0)
 }
 
 @Test @MainActor func setupRequiredHeaderFitsStatesAcrossModelsAndTextSizes() throws {

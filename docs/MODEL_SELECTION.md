@@ -4,8 +4,7 @@ Libro and VoiceRelay use the same native model catalog and selection controls.
 Both start with **Kokoro**, the **Recommended** option in the model menu, using
 Heart at 1.0×. It balances narration quality, generation speed and low memory use.
 Existing saved choices stay unchanged. New models download only when you choose
-the **Download Model** button in the **Speech Setup Required** banner (or **Install Model** during onboarding); **Check Speech Setup** validates and initializes the
-selected model offline. Queued VoiceRelay articles and an active Libro batch keep
+the **Download Model** button in the **Speech Setup Required** banner (or **Install Model** during onboarding). The app validates and initializes the selected model offline in the background; a green **Ready** label appears beside the Voice Model heading, and **Repair local model** retries the selected model installation when validation fails. Queued VoiceRelay articles and an active Libro batch keep
 captured settings when you change your selection.
 
 | Model | Voices and languages | General tradeoff |

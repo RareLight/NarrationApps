@@ -119,22 +119,28 @@ struct LibroSettingsView: View {
     }
 
     private var models: some View {
-        Form {
-            Section {
-                ModelStorageSettings(root: model.workspace?.url ?? NativeModelStorage.defaultRoot,
-                    canManage: model.canManageSpeechSetup, revision: model.modelStorageRevision,
-                    choose: { model.browse(.workspace) }, useDefault: model.useDefaultModelStorage,
-                    changed: { model.refreshReadiness() }, maintenance: model.modelStorage)
-            } header: { SettingsSectionHeader(title: "Downloaded models", explanation: "Manage cached models and choose a storage location.") }
-            Section {
-                Text(model.readiness).appFont(.secondary).textSelection(.enabled)
-                Button("Check Speech Setup", action: model.checkSpeechSetup).disabled(!model.canPrepareModel)
-                if model.isPreparingModel {
-                    PreparationProgressView(model: model)
-                    Button("Cancel", action: model.cancel)
-                }
-            } header: { SettingsSectionHeader(title: "Speech setup", explanation: "Check the selected model offline.") }
-        }.formStyle(.grouped)
+        VStack(spacing: 0) {
+            SpeechModelSettingsHeader(status: model.speechSetupStatus,
+                validating: model.speechSetupValidating, canRepair: model.canManageSpeechSetup,
+                repair: model.installSpeechRuntime,
+                explanation: "Manage the selected voice model and its local storage.")
+                .padding(.horizontal, 16).padding(.top, 12)
+            SpeechSetupRequiredHeader(model: model.settings.model,
+                isPresented: model.speechSetupHeaderPresented,
+                activity: model.isPreparingModel ? .installing : nil,
+                progress: model.isPreparingModel && !model.preparationIsCheck ? model.preparationProgress : nil,
+                canDownload: model.canManageSpeechSetup,
+                detail: model.speechSetupFailureDetail,
+                download: model.installSpeechRuntime, cancel: model.cancel)
+            Form {
+                Section {
+                    ModelStorageSettings(root: model.workspace?.url ?? NativeModelStorage.defaultRoot,
+                        canManage: model.canManageSpeechSetup, revision: model.modelStorageRevision,
+                        choose: { model.browse(.workspace) }, useDefault: model.useDefaultModelStorage,
+                        changed: { model.modelStorageRevision += 1 }, maintenance: model.modelStorage)
+                } header: { SettingsSectionHeader(title: "Downloaded models", explanation: "Manage cached models and choose a storage location.") }
+            }.formStyle(.grouped)
+        }
     }
 
     private var troubleshooting: some View {
@@ -161,7 +167,7 @@ struct LibroSettingsView: View {
                 }
                 if !model.probeStatus.isEmpty { Text(model.probeStatus).textSelection(.enabled) }
             } header: {
-                SettingsSectionHeader(title: "Diagnostics", explanation: "Check the bundled speech engine. To verify a model, use Check Speech Setup.")
+                SettingsSectionHeader(title: "Diagnostics", explanation: "Check the bundled speech engine. Model setup is validated automatically.")
             }
         }.formStyle(.grouped)
     }

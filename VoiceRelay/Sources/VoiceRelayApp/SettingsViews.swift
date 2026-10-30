@@ -63,6 +63,11 @@ struct VoiceModelSettingsView: View {
     @Bindable var model: AppModel
     var body: some View {
         VStack(spacing: 0) {
+            SpeechModelSettingsHeader(status: model.speechSetupStatus,
+                validating: model.speechSetupValidating, canRepair: model.canManageSpeechRuntime,
+                repair: model.installSpeechRuntime,
+                explanation: "Choose the voice for newly queued articles. Existing jobs keep their settings.")
+                .padding(.horizontal, 16).padding(.top, 12)
             SpeechSetupRequiredHeader(model: model.preferences.modelSelection.model,
                 isPresented: model.speechSetupHeaderPresented,
                 activity: model.runtimeBusy ? (model.runtimeInstalling ? .installing : .checking) : nil,
@@ -87,8 +92,6 @@ struct VoiceModelSettingsView: View {
                 if let error = model.voiceSamplePlayer.error ?? model.pronunciationPreview.error {
                     InlineNotice(message: error)
                 }
-            } header: {
-                SectionHelpHeader(title: "Voice Model", explanation: "Choose the voice for newly queued articles. Existing jobs keep their settings.")
             }
             Section {
                 ModelStorageSettings(root: model.runtimeProject, canManage: model.canManageSpeechRuntime,
@@ -97,20 +100,8 @@ struct VoiceModelSettingsView: View {
                     changed: { model.runtimeVerificationFailed = false; model.runtimeTestResult = .untested; model.maybeAutoProcess() },
                     maintenance: model.modelStorage)
             } header: { SectionHelpHeader(title: "Downloaded models", explanation: "Manage cached models and choose a storage location.") }
-            speechSetup
             }.formStyle(.grouped)
         }
-    }
-    private var speechSetup: some View {
-        Section {
-            SpeechRuntimeTestIndicator(model: model)
-            if model.runtimeBusy {
-                ProgressView().controlSize(.small)
-                Button("Cancel", action: model.cancelRuntimeSetup)
-            } else {
-                Button("Check Speech Setup", action: model.checkSpeechRuntime).disabled(!model.canManageSpeechRuntime)
-            }
-        } header: { SectionHelpHeader(title: "Speech setup", explanation: NarrationSettingsHelp.speechSetup) }
     }
 }
 
@@ -122,7 +113,7 @@ struct SpeechRuntimeOnboardingView: View {
         SpeechSetupOnboardingView(status: model.speechSetupStatus,
             activity: model.runtimeBusy ? (model.runtimeInstalling ? .installing : .checking) : nil,
             canInstall: model.canManageSpeechRuntime, install: model.installSpeechRuntime,
-            check: model.checkSpeechRuntime, chooseFolder: model.chooseModelStorage,
+            repair: model.installSpeechRuntime, chooseFolder: model.chooseModelStorage,
             cancel: model.cancelRuntimeSetup, notNow: { dismissWindow() })
     }
 }
@@ -151,13 +142,6 @@ struct StartupControls: View {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { model.refreshLoginItemStatus() }
             }
-    }
-}
-
-struct SpeechRuntimeTestIndicator: View {
-    @Bindable var model: AppModel
-    var body: some View {
-        if !model.runtimeBusy { SpeechSetupStatusView(status: model.speechSetupStatus) }
     }
 }
 

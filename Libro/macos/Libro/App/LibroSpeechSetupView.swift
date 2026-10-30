@@ -35,8 +35,8 @@ struct LibroSpeechSetupView: View {
         SpeechSetupOnboardingView(status: model.speechSetupStatus,
             activity: activity,
             canInstall: model.canManageSpeechSetup,
-            install: model.installSpeechRuntime, check: { model.prepareModel(checkOnly: true) },
-            chooseFolder: { model.browse(.workspace) }, cancel: { Task { await model.stopPreparation() } },
+            install: model.installSpeechRuntime, repair: model.installSpeechRuntime,
+            chooseFolder: { model.browse(.workspace) }, cancel: model.cancel,
             notNow: { dismissWindow() })
     }
 }

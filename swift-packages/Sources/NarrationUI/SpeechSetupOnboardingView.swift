@@ -11,18 +11,18 @@ public struct SpeechSetupOnboardingView: View {
     private let cancel: () -> Void
     private let notNow: () -> Void
     private let chooseFolder: () -> Void
-    private let check: () -> Void
+    private let repair: () -> Void
     private let status: SpeechSetupStatus
     @Environment(\.appTextSize) private var textSize
     @Environment(\.dynamicTypeSize) private var dynamicType
 
     public init(status: SpeechSetupStatus, activity: SpeechSetupActivity?,
                 canInstall: Bool,
-                install: @escaping () -> Void, check: @escaping () -> Void,
+                install: @escaping () -> Void, repair: @escaping () -> Void,
                 chooseFolder: @escaping () -> Void, cancel: @escaping () -> Void, notNow: @escaping () -> Void) {
         self.activity = activity; self.canInstall = canInstall
         self.install = install; self.cancel = cancel; self.notNow = notNow
-        self.status = status; self.chooseFolder = chooseFolder; self.check = check
+        self.status = status; self.chooseFolder = chooseFolder; self.repair = repair
     }
 
     public var body: some View {
@@ -33,7 +33,7 @@ public struct SpeechSetupOnboardingView: View {
             if let activity {
                 HStack {
                     ProgressView().controlSize(.small)
-                    Text(activity == .installing ? "Installing model…" : "Checking model…")
+                    Text(activity == .installing ? "Installing model…" : "Validating model…")
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -44,14 +44,26 @@ public struct SpeechSetupOnboardingView: View {
                 Button("Choose Custom Model Folder…", action: chooseFolder)
                     .disabled(!canInstall || activity != nil)
                 Spacer()
-                if activity != nil {
+                if activity == .installing {
                     Button("Cancel", action: cancel)
+                } else if activity != nil {
+                    Button("Not Now", action: notNow).keyboardShortcut(.cancelAction)
                 } else {
                     Button("Not Now", action: notNow).keyboardShortcut(.cancelAction)
-                    Button(status == .notChecked ? "Check Model" : "Install Model", action: status == .notChecked ? check : install)
-                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                        .disabled(!canInstall)
-                        .help(status == .notChecked ? "Verify the installed model offline" : "Download the selected model; internet required")
+                    switch status {
+                    case .failure:
+                        Button("Repair local model", action: repair)
+                            .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                            .disabled(!canInstall)
+                            .help("Reinstall the selected model; internet required")
+                    case .notInstalled, .cancelled:
+                        Button("Install Model", action: install)
+                            .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                            .disabled(!canInstall)
+                            .help("Download the selected model; internet required")
+                    case .notChecked, .ready:
+                        EmptyView()
+                    }
                 }
             }
         }
@@ -64,11 +76,11 @@ public struct SpeechSetupOnboardingView: View {
 #if DEBUG
 #Preview("Speech setup — missing model") {
     SpeechSetupOnboardingView(status: .notInstalled,
-        activity: nil, canInstall: true, install: {}, check: {}, chooseFolder: {}, cancel: {}, notNow: {})
+        activity: nil, canInstall: true, install: {}, repair: {}, chooseFolder: {}, cancel: {}, notNow: {})
 }
 #Preview("Speech setup — installation, large text") {
     SpeechSetupOnboardingView(status: .notInstalled,
-        activity: .installing, canInstall: false, install: {}, check: {}, chooseFolder: {}, cancel: {}, notNow: {})
+        activity: .installing, canInstall: false, install: {}, repair: {}, chooseFolder: {}, cancel: {}, notNow: {})
     .appTextSizing(AppTextSize(percent: 200))
 }
 #endif

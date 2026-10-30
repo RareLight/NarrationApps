@@ -44,7 +44,9 @@ extension AppModel {
         if case .failure = deliveryTestResult, !deliveryTesting { return .failure("Publishing check failed", .delivery) }
         if deliveryPasswordChecked && !deliveryPasswordStored && !deliveryCredentialBusy { return .failure("Publishing password missing", .delivery) }
         if sourceReview.synchronizing { return .checking("Checking Reading List…") }
-        if runtimeBusy { return .checking(runtimeInstalling ? "Installing speech model…" : "Checking speech setup…") }
+        if runtimeBusy { return .checking("Installing speech model…") }
+        if speechValidationStarted && speechSetupValidation.result != .ready && !runtimeVerificationFailed
+            && speechSetupValidation.result != .notInstalled { return .checking("Checking speech setup…") }
         if deliveryPreflightBusy || deliveryTesting { return .checking("Checking Publishing…") }
         if sourceReview.lastSyncedAt == nil { return .failure("Reading List not checked", .general) }
         if runtimeTestResult != .success { return .failure("Speech setup not checked", .voiceModel) }

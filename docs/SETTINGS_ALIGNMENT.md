@@ -50,9 +50,9 @@ is separate from sample gating, preserving VoiceRelay's bundled playback while
 other model controls are busy.
 
 VoiceRelay model/voice/preview controls live in Settings → Voice Model. Both apps
-share a compact model row: an icon-only Download action appears when no files are
+share a compact model row: the Download banner appears when no files are
 cached, and the adjacent ⓘ opens model details and
-the speed/quality meters; onboarding uses Install Model. Other common actions use Check Speech Setup and Play Sample/Stop
+the speed/quality meters; onboarding uses Install Model. Other common actions use Repair local model and Play Sample/Stop
 Sample. Installation is explicit; checks initialize offline without playback or
 model downloads. A busy/failed/missing state gives a direct reason or recovery action.
 Samples play recorded audio and do not preview selected speed or spelling rules.
@@ -66,7 +66,7 @@ targets, and returning to the app refreshes the inventory.
 
 Both apps also use NarrationUI's `SpeechSetupOnboardingView` for fresh-start model
 setup. The shared component owns the Model Setup title, concise explanation,
-progress/status, Choose Custom Model Folder, Install Model/Check Model, Not Now and
+progress/status, Choose Custom Model Folder, Install Model/Repair local model, Not Now and
 Cancel actions, semantic sizing and dismissal when ready. Apps supply only typed
 state and operation/dismiss callbacks; there are no app-specific content slots.
 Folder paths remain in model Settings. Login startup belongs only in VoiceRelay's

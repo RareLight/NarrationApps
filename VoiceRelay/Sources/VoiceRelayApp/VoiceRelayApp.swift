@@ -7,6 +7,7 @@ import AppKit
 import Observation
 import Darwin
 import NarrationCore
+import ProcessingPipeline
 import VoiceRelayCore
 
 enum SpeechRuntimeTestResult: Equatable {
@@ -79,7 +80,7 @@ final class AppModel {
     let pronunciationPreview = PronunciationPreview()
     var pronunciationIsInert: Bool { preview || storageOverride != nil }
     var pronunciationConfiguration: PronunciationPreviewConfiguration? {
-        guard !pronunciationIsInert, !stopping, !running, !runtimeBusy, !modelStorage.isBusy, speechRuntimeAvailable else { return nil }
+        guard !pronunciationIsInert, !stopping, !running, !runtimeBusy, !modelStorage.isBusy, !speechSetupValidation.hasOwnedWork, speechRuntimeAvailable else { return nil }
         return .init(worker: NativeSpeechSetup.workerExecutable, workspace: runtimeProject,
             settings: preferences.modelSelection, priority: .background)
     }
@@ -258,6 +259,11 @@ final class AppModel {
     var runtimeInstalling = false
     var runtimeVerificationFailed = false
     var runtimeSetupProgress: ModelPreparationProgress?
+    @ObservationIgnored var speechSetupValidationStorage: SpeechSetupValidation?
+    @ObservationIgnored var speechSetupActivationObserver: NSObjectProtocol?
+    @ObservationIgnored var speechSetupObserverGeneration = 0
+    @ObservationIgnored var speechValidationStarted = false
+    var speechCheckEpoch = 0
     private var onboarding = SpeechSetupOnboarding()
     var runtimeSetupNeededAtLaunch: Bool { onboarding.needsSetup }
     let voiceSamplePlayer = AudioPreviewPlayer()
@@ -266,7 +272,7 @@ final class AppModel {
         guard canPlayVoiceSample else { return }
         if preferences.modelSelection.voice.hasPrefix("reference:") || preferences.modelSelection.effectiveLanguage != "English" {
             if pronunciationPreview.hasOwnedWork { pronunciationPreview.stop(); return }
-            guard let configuration = pronunciationConfiguration else { error = "Install and check the selected model before playing a live preview."; return }
+            guard let configuration = pronunciationConfiguration else { error = "Install or repair the selected model before playing a live preview."; return }
             voiceSamplePlayer.stop()
             let text = NarrationSampleText.text(language: preferences.modelSelection.effectiveLanguage)
             pronunciationPreview.play(entry: .init(word: text, spelling: text), dictionary: .empty, configuration: configuration)
@@ -402,7 +408,7 @@ final class AppModel {
         useArchivedArticles = defaults.bool(forKey: "useArchivedArticles")
         refreshLibrary()
         onboarding.assess(installed: speechRuntimeInstalled)
-        if speechRuntimeAvailable { checkSpeechRuntime() }
+        startSpeechSetupValidation()
         startAutomationLoop()
         sourceReview.startAutomaticSynchronization()
         triggerDelivery()
@@ -721,7 +727,7 @@ final class AppModel {
         defaults.set(bytes, forKey: "speechPreferences")
     }
     var readyQueueCount: Int { queueItems.filter { $0.state.isReady }.count }
-    var canGenerateAudio: Bool { !sourcePruningBusy && !deliveryPreflightBusy && !preview && !stopping && !runtimeBusy && !modelStorage.isBusy && !libraryMaintenanceBusy && !libraryReviewRequired && (speechRuntimeAvailable || (readyQueueCount > 0 && FileManager.default.isExecutableFile(atPath: NativeSpeechSetup.workerExecutable.path))) && !running && !audioMutationBusy
+    var canGenerateAudio: Bool { !sourcePruningBusy && !deliveryPreflightBusy && !preview && !stopping && !runtimeBusy && !modelStorage.isBusy && !libraryMaintenanceBusy && !libraryReviewRequired && !speechSetupValidation.hasOwnedWork && (speechRuntimeAvailable || (readyQueueCount > 0 && FileManager.default.isExecutableFile(atPath: NativeSpeechSetup.workerExecutable.path))) && !running && !audioMutationBusy
                                  && !sourceReview.maintenanceSuspended && (readyQueueCount > 0 || !pendingAdds.isEmpty) }
     var canStopProcessing: Bool { !preview && !stopping && processingSpeech && !cancelling }
     var canResetQueue: Bool { !preview && !stopping && !libraryMaintenanceBusy && !libraryReviewRequired && !running && !cancelling && !isQueueResetPending
@@ -1309,6 +1315,7 @@ final class AppModel {
         task = Task {
             defer { finishProcessing() }
             await pronunciationPreview.stopAndWait()
+            await speechSetupValidation.waitForIdle()
             while enqueueTask != nil && !Task.isCancelled {
                 do { try await Task.sleep(for: .milliseconds(20)) } catch { break }
             }
@@ -1584,13 +1591,20 @@ final class AppModel {
     func waitForCredentialMutation() async { if let deliveryCredentialTask { await deliveryCredentialTask.value } }
     func waitForPodcastCoverImport() async { if let coverImportTask { await coverImportTask.value } }
     func waitForLibraryMaintenance() async { if let libraryMaintenanceTask { await libraryMaintenanceTask.value } }
-    func waitForRuntimeSetup() async { if let runtimeTask { await runtimeTask.value } }
+    func waitForRuntimeSetup() async {
+        if let runtimeTask { await runtimeTask.value }
+        await speechSetupValidation.waitForIdle()
+    }
     func waitForSourcePruning() async { if let sourcePruneTask { await sourcePruneTask.value } }
     func waitForSettingsBookkeeping() async { while let settingsBookkeepingTask { await settingsBookkeepingTask.value } }
     func waitForSync() async { if let syncTask { await syncTask.value } }
     func shutdown() async {
         stopping = true
+        if let observer = speechSetupActivationObserver {
+            NotificationCenter.default.removeObserver(observer); speechSetupActivationObserver = nil
+        }
         await modelStorage.waitForIdle()
+        await speechSetupValidation.stopAndWait()
         await pronunciationPreview.stopAndWait()
         voiceSamplePlayer.stop()
         // Stop owned work before terminating the UI.

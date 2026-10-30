@@ -2092,7 +2092,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
         if url.lastPathComponent == "unreadable" { throw SourceFetchError.network }
         return try fetchFixture(url: url)
     }, defaults: defaults, deliveryTransport: { transport }, credentialStore: credentials,
-        runtimeSetup: { _, _, _, _ in checks.increment() }, readingListReader: { _ in
+        runtimeSetup: { _, _, _, _ in checks.increment() }, runtimeInstalled: { _ in true }, readingListReader: { _ in
             sourceReads.increment(); return ReadingListSnapshot(entries: entries, skippedEntries: 0)
         })
     model.sourceReview.plist = root.appendingPathComponent("Bookmarks.plist") // Only the injected reader sees this URL.

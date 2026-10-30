@@ -39,6 +39,12 @@ enum RSS {
             return tag + "/>"
         }.joined()
     }
+    private static func sourceMetadata(_ episode: Episode) -> String {
+        guard let source = episode.sourceURL, (try? ArticleURL.validate(source)) != nil else { return "" }
+        let url = escaped(source.absoluteString)
+        let note = "<p>Original source: <a href=\"\(url)\">\(url)</a></p>"
+        return "<link>\(url)</link><description>\(escaped(note))</description>"
+    }
     static func render(_ episodes: [Episode], settings: PrototypeProfile) throws -> Data {
         try settings.validate()
         var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:podcast=\"\(PodcastTranscriptReference.namespace)\" xmlns:atom=\"http://www.w3.org/2005/Atom\"><channel>"
@@ -61,7 +67,7 @@ enum RSS {
                 }
             }
             let enclosure = e.settings.audioBaseURL.appendingPathComponent(e.id + ".m4a").absoluteString
-            xml += "<item><title>\(escaped(e.title))</title><guid isPermaLink=\"false\">\(e.guid)</guid><pubDate>\(date.string(from: when))</pubDate><enclosure url=\"\(escaped(enclosure))\" length=\"\(info.byteLength)\" type=\"audio/mp4\"/><itunes:duration>\(Int(info.duration.rounded()))</itunes:duration>\(artwork(e.artworkURL))\(try transcripts(e))</item>"
+            xml += "<item><title>\(escaped(e.title))</title><guid isPermaLink=\"false\">\(e.guid)</guid><pubDate>\(date.string(from: when))</pubDate><enclosure url=\"\(escaped(enclosure))\" length=\"\(info.byteLength)\" type=\"audio/mp4\"/><itunes:duration>\(Int(info.duration.rounded()))</itunes:duration>\(artwork(e.artworkURL))\(try transcripts(e))\(sourceMetadata(e))</item>"
         }
         xml += "</channel></rss>\n"
         let data = Data(xml.utf8)
@@ -91,7 +97,7 @@ enum RSS {
             }
             let enclosure = channel.audioBaseURL.appendingPathComponent(e.id + ".m4a").absoluteString
             var item = "<item><title>\(escaped(e.title))</title><guid isPermaLink=\"false\">\(e.guid)</guid>"
-            if let source = e.sourceURL { item += "<link>\(escaped(source.absoluteString))</link>" }
+            item += sourceMetadata(e)
             if let creator = e.author ?? e.sourceHost { item += "<dc:creator>\(escaped(creator))</dc:creator>" }
             item += "<pubDate>\(date.string(from: when))</pubDate><enclosure url=\"\(escaped(enclosure))\" length=\"\(info.byteLength)\" type=\"audio/mp4\"/><itunes:duration>\(Int(info.duration.rounded()))</itunes:duration>\(artwork(e.artworkURL))\(try transcripts(e))</item>"
             if let hash = e.audioHash, ServerRecoveryIdentity.validHash(hash) {

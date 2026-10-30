@@ -85,7 +85,7 @@ separate from automated fixture tests.
 - [ ] **L01 — Launch and setup.** Existing models are recognized. In a fresh test
   user, try Not Now, installation, cancellation/retry and successful dismissal of
   setup. Compare the identical Model Setup layout/actions with VoiceRelay at normal and 200% text size;
-  also try Choose Custom Model Folder. Download beside the main picker uses the shared Hugging Face cache by default. In Models, verify the disk-size list, folder override/reset, and confirmed deletion while idle; an active session in either app blocks deletion. Check Speech Setup works offline after
+  also try Choose Custom Model Folder. Download beside the main picker uses the shared Hugging Face cache by default. In Models, verify the disk-size list, folder override/reset, and confirmed deletion while idle; an active session in either app blocks deletion. Automatic speech-setup validation works offline after
   installation. Select a British voice and install its regional resources if asked.
 - [ ] **L02 — Settings and appearance.** Visit General, Document, Models, Pronunciation and
   Troubleshooting. Test text size at 80%, 100% and 200%, ⌘+/⌘−/⌘0, minimum window
@@ -268,8 +268,8 @@ separate from automated fixture tests.
 ## VoiceRelay
 
 - [ ] **V01 — Launch and setup.** Existing speech assets are recognized. In a
-  fresh test user, check Not Now, explicit Install Model, custom-folder selection and Check Model, cancellation/retry
-  and successful dismissal. Check Speech Setup works offline; startup/checking must
+  fresh test user, check Not Now, explicit Install Model, custom-folder selection with automatic validation, cancellation/retry
+  and successful dismissal. Automatic validation works offline; startup/checking must
   not silently download. Check the British voice resource-install path when needed.
 - [ ] **V02 — Settings and presentation.** Visit General, Voice Model, Pronunciation,
   Publishing and Troubleshooting. Confirm model/voice selectors, download/delete, size, details/meters,
