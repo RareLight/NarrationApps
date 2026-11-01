@@ -122,8 +122,7 @@ struct LibroSettingsView: View {
         VStack(spacing: 0) {
             SpeechModelSettingsHeader(status: model.speechSetupStatus,
                 validating: model.speechSetupValidating, canRepair: model.canManageSpeechSetup,
-                repair: model.installSpeechRuntime,
-                explanation: "Manage the selected voice model and its local storage.")
+                repair: model.installSpeechRuntime)
                 .padding(.horizontal, 16).padding(.top, 12)
             SpeechSetupRequiredHeader(model: model.settings.model,
                 isPresented: model.speechSetupHeaderPresented,

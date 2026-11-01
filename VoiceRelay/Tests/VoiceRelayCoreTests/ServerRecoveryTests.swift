@@ -171,6 +171,27 @@ private func recoveryFeed(_ episode: Episode, settings: DeliverySettings, legacy
     #expect(transport.methods.allSatisfy { ["GET", "HEAD"].contains($0) })
 }
 
+@Test func serverRecoveryDestinationChangeClearsPublishHistory() async throws {
+    let (root, storage) = try recoveryStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let settings = recoverySettings(), coordinator = FixtureCoordinator(), episode = try recoverySeed(storage: storage)
+    var ledger = DeliveryLedger()
+    ledger.destinationURL = settings.feedFolderURL
+    ledger.lastPublishedAt = Date(timeIntervalSince1970: 1_761_900_000)
+    try ledger.save(stateRoot: storage.stateRoot)
+    var changed = settings
+    changed.feedFolderURL = URL(string: "https://other.example/other-podcast/")
+    let transport = RecoveryTransport([
+        "/other-podcast/feed.xml": try recoveryFeed(episode, settings: changed),
+        "/other-podcast/audio/\(episode.id).m4a": Data("test-audio".utf8)])
+    let report = try await coordinator.inspectServerAudio(storage: storage, settings: changed,
+        credential: RecoveryCredentials(), transport: transport)
+    try await coordinator.applyServerAudioRecovery(report, storage: storage, settings: changed)
+    ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(ledger.destinationURL == changed.feedFolderURL && ledger.lastPublishedAt == nil)
+    let summary = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: changed)
+    #expect(summary.lastPublishedAt == nil)
+}
+
 @Test func serverRecoveryRejectsStalePlansAndChangedDestinations() async throws {
     let (root, storage) = try recoveryStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let settings = recoverySettings(), coordinator = FixtureCoordinator(), episode = try recoverySeed(storage: storage)

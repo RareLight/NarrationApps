@@ -56,6 +56,11 @@ or SwiftPM workspace state between checkouts.
 script. [VoiceRelay contributing](VoiceRelay/CONTRIBUTING.md#signed-builds) covers
 its ignored local signing configuration and verified packaging script.
 
+Development versioning lives in
+[docs/DEVELOPMENT.md#development-versioning](docs/DEVELOPMENT.md#development-versioning):
+milestones in `Version.xcconfig` + `CHANGELOG.md`, commit-count builds stamped
+at build time.
+
 For routine local checks, `bash scripts/check.sh --tier release --adhoc --skip-archives`
 builds both workspace configurations and audits their bundles. Omit
 `--skip-archives` only when archive packaging checks are needed; release archives

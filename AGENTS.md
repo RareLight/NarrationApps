@@ -18,7 +18,9 @@ apply gain to audio. Preserve original text/mappings, private data, model assets
 user settings, completed recordings and unrelated changes. Keep pinned dependencies
 reproducible; never copy build caches between checkouts.
 
-CONTRIBUTING.md and docs/DEVELOPMENT.md own setup, test tiers and evidence. Testing
+CONTRIBUTING.md and docs/DEVELOPMENT.md own setup, test tiers and evidence;
+docs/DEVELOPMENT.md#development-versioning owns Version.xcconfig milestones,
+CHANGELOG.md entries and the commit-count build-number script. Testing
 is **autonomous** for relevant synthetic isolated checks (confirmed October 17,
 2026). Run the narrowest adequate checks; bash scripts/check.sh is the full fixture
 gate. Layout/dependency changes also need Debug and Release workspace builds. Routine

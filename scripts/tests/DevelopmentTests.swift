@@ -142,7 +142,7 @@ enum DevelopmentTests {
         let evidence = fixture.appendingPathComponent("evidence")
         let quick = try Options(["check", "--tier", "quick", "--scope", "shared", "--filter", "SpokenFormTests"])
         let plan = validationPlan(quick, evidence: evidence)
-        try expect(plan.map(\.name) == ["static", "tooling", "fixture-worker", "shared-tests"], "quick selects only named scope")
+        try expect(plan.map(\.name) == ["static", "tooling", "app-versioning", "fixture-worker", "shared-tests"], "quick selects only named scope")
         try expect(plan.last!.command.arguments.suffix(2) == ["--filter", "SpokenFormTests"], "filter passed without shell interpretation")
         try expect(plan.allSatisfy { !$0.command.arguments.contains("--resolve") }, "fixture gates do not acquire sources")
         let full = validationPlan(try Options(["check"]), evidence: evidence)
@@ -164,7 +164,7 @@ enum DevelopmentTests {
             return Result(status: executions == 2 ? 9 : 0, output: "synthetic output")
         }, record: { records.append($0) })
         try expect(failure == "failed" && executions == 2, "failure propagates and stops dependent work")
-        try expect(records.map(\.outcome) == ["passed", "failed", "not-run", "not-run"], "accurate skipped dependency records")
+        try expect(records.map(\.outcome) == ["passed", "failed", "not-run", "not-run", "not-run"], "accurate skipped dependency records")
         try expect(records[1].exitCode == 9, "actual exit preserved")
         records = []
         let noTests = try executePlan([plan.last!], runner: { _ in Result(status: 0, output: "warning: No matching test cases were run") },
@@ -184,6 +184,9 @@ enum DevelopmentTests {
         try expect((report["source"] as? [[String: Any]])?.count == 1, "evidence records one monorepo revision")
         let reportSteps = report["steps"] as! [[String: Any]]
         try expect(reportSteps[1]["outcome"] as? String == "not-run", "summary never greens unrun steps")
+        let quickPlan = validationPlan(try Options(["check", "--tier", "quick"]), evidence: fixture)
+        try expect(quickPlan.contains { $0.name == "app-versioning" && $0.command.arguments == ["scripts/test-app-versioning.sh"] },
+                   "quick plan runs app-versioning script")
         try expect(report["operatorAcceptance"] as? String == "not-performed", "operator acceptance remains separate")
         try expect(report["distributionAcceptance"] as? String == "not-performed", "distribution acceptance remains separate")
         try expect((report["unrequestedGates"] as? [String])?.contains("native") == true, "unrequested native acceptance explicit")
@@ -208,6 +211,7 @@ enum DevelopmentTests {
             ("Libro/macos/LibroCore/Tests/Synthetic.swift", "full"),
             ("VoiceRelay/Sources/VoiceRelayApp/Window.swift", "full"),
             ("VoiceRelay/scripts/check-packaging.sh", "full"),
+            ("scripts/test-app-versioning.sh", "release"),
             ("VoiceRelay/Packaging/NativeSpeech.xcconfig", "release"),
         ] {
             let file = seed.appendingPathComponent(path)

@@ -356,7 +356,7 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
 
 @Test @MainActor func workspaceSectionsAndNativeViewsConstructInertly() async throws {
     #expect(WorkspaceSection.allCases == [.articles, .uploads, .savedAudio])
-    #expect(Set(WorkspaceSection.allCases.map(\.rawValue)) == ["Articles", "Uploads", "Server Audio"])
+    #expect(Set(WorkspaceSection.allCases.map(\.rawValue)) == ["Articles", "Upload Queue", "Server Audio"])
     let model = AppModel(preview: true)
     for section in WorkspaceSection.allCases {
         model.workspaceSection = section
@@ -415,6 +415,21 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     #expect(!delegate.applicationShouldTerminateAfterLastWindowClosed(NSApplication.shared))
 }
 
+@Test func menuSourceOrderingKeepsPublishHistoryAndCommands() throws {
+    let source = try String(contentsOfFile: URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Sources/VoiceRelayApp/MenuBarViews.swift").path,
+        encoding: .utf8)
+    #expect(!source.contains(#"item("Articles")"#))
+    #expect(source.contains(#"item("Open VoiceRelay")"#))
+    let lastPub = try #require(source.range(of: "Last published:")).lowerBound
+    let syncNow = try #require(source.range(of: #"item("Sync Now")"#)).lowerBound
+    let settings = try #require(source.range(of: #"item("Settings")"#)).lowerBound
+    let copyURL = try #require(source.range(of: #"item("Copy Podcast URL")"#)).lowerBound
+    let quit = try #require(source.range(of: #"item("Quit VoiceRelay")"#)).lowerBound
+    #expect(lastPub < syncNow && settings < copyURL && copyURL < quit)
+}
+
 @Test(arguments: [80, 100, 200]) @MainActor
 func statusItemMenuFitsCommandsAndKeepsWidthDuringSync(percent: Int) async {
     let model = AppModel(preview: true)
@@ -426,6 +441,11 @@ func statusItemMenuFitsCommandsAndKeepsWidthDuringSync(percent: Int) async {
         return controller.sizeThatFits(in: CGSize(width: 1000, height: 2000))
     }
     let idle = measure()
+    model.deliveryLastPublishedAt = Date(timeIntervalSince1970: 1_761_900_000)
+    let withHistory = measure()
+    model.deliveryLastPublishedAt = nil
+    #expect(withHistory.width == idle.width)
+    #expect(withHistory.height.isFinite && idle.height.isFinite)
     let initialHealth = model.appHealth.title
     let fontSize = AppTypography.pointSize(base: NSFont.preferredFont(forTextStyle: .body).pointSize,
                                            size: textSize, dynamic: .large)
@@ -1469,6 +1489,28 @@ private func appDeliverySettings(enabled: Bool = true) -> DeliverySettings {
     settings.username = "user@example.com"
     settings.publicFolderURL = URL(string: "https://podcast.example/")
     return settings
+}
+
+@Test @MainActor func deliveryPublishHistoryProjectsOnlyTheCurrentDestination() throws {
+    let model = AppModel(preview: true, credentialStore: RecordingCredentials(password: nil))
+    let settings = appDeliverySettings()
+    let published = Date(timeIntervalSince1970: 1_761_900_000)
+    model.deliverySettings = settings
+    var summary = DeliverySummary()
+    summary.destinationURL = settings.feedFolderURL
+    summary.lastPublishedAt = published
+    model.recordDeliveryPublication(summary)
+    #expect(model.deliveryLastPublishedAt == published)
+    var oldDestination = summary
+    oldDestination.destinationURL = URL(string: "https://webdav.example/old-feed/")!
+    model.recordDeliveryPublication(oldDestination)
+    #expect(model.deliveryLastPublishedAt == nil)
+    model.recordDeliveryPublication(summary)
+    #expect(model.deliveryLastPublishedAt == published)
+    model.deliverySettings.feedFolderURL = URL(string: "https://webdav.example/remote.php/dav/files/user/Other%20Feed/")
+    #expect(model.deliveryLastPublishedAt == nil)
+    model.recordDeliveryPublication(summary)
+    #expect(model.deliveryLastPublishedAt == nil)
 }
 
 /// Records credential writes/deletes; serves a fixed password on read.

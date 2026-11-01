@@ -11,7 +11,7 @@ audio proofs, conditional feed requests and upload retry delays remain effective
 Cancelled/unavailable Keychain access is remembered for the session. Background
 reads never prompt; explicit Save Password may request authorization to update an
 older credential. Failed access remains actionable in Publishing. Startup shows Checking Publishing; failures offer Review
-Publishing directly, independently of Uploads warnings.
+Publishing directly, independently of Upload Queue warnings.
 
 ## Identity and conflict policy
 
@@ -111,7 +111,7 @@ tag is supported and remains intentional.
 New enabled episodes retain WebVTT text with the exact audio hash. Publishing
 uploads an immutable `audio/<episode-id>-<transcript-hash>.vtt`, verifies its bytes
 through authenticated readback and only then adds `podcast:transcript` to the RSS
-item. A failed sidecar does not block audio or unrelated entries; review Uploads
+item. A failed sidecar does not block audio or unrelated entries; review Upload Queue
 and use Sync Now to retry. Recovered feed references survive reconciliation without
 downloading arbitrary transcript URLs. Old audio is not automatically backfilled.
 
@@ -142,7 +142,7 @@ reconciliation cannot recover source text that was never retained locally.
 
 ## Monitoring pending and conflicting copies
 
-Uploads is the publishing outbox. Needs Attention and Failed Verification filters
+Upload Queue is the publishing outbox. Needs Attention and Failed Verification filters
 expose per-item failures, including local cleanup conflicts after a server copy was
 confirmed. The same filters are available in Server Audio history. A local cleanup
 identity/hash/size refusal is not evidence of a network failure or partial TTS: the

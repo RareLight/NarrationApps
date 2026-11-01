@@ -34,6 +34,7 @@ struct LibroApp: App {
         .defaultSize(width: 1000, height: 680)
         .commands {
             AppTextSizeCommands(size: textSize)
+            AppVersionCommands()
             CommandGroup(replacing: .newItem) {
                 Button("Add Files and Folders…") { model.openInputs() }.keyboardShortcut("o")
                 Button("Add Folder…") { model.openInputs(foldersOnly: true) }

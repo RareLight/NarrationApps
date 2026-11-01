@@ -1,3 +1,5 @@
+#include "../../../../Version.xcconfig"
+
 // Local development only. Developer ID / notarization is a separate delivery gate.
 MACOSX_DEPLOYMENT_TARGET = 27.0
 SDKROOT = macosx
@@ -15,5 +17,4 @@ CODE_SIGN_IDENTITY = -
 ENABLE_HARDENED_RUNTIME = YES
 ENABLE_APP_SANDBOX = NO
 DEAD_CODE_STRIPPING = YES
-CURRENT_PROJECT_VERSION = 1
-MARKETING_VERSION = 0.1.0
+MARKETING_VERSION = $(LIBRO_MARKETING_VERSION)

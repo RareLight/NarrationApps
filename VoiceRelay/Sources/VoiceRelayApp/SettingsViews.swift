@@ -183,7 +183,7 @@ struct DeliveryPaneView: View {
                     set: { enabled in if !enabled || commitURLs() { model.deliverySettings.enabled = enabled } }))
             } header: {
                 SectionHelpHeader(title: "Publishing",
-                    explanation: "Uploads finished audio and updates your podcast feed while publishing is enabled and the app runs.")
+                    explanation: "Upload Queue holds finished audio until it is published to your podcast feed while publishing is enabled and the app runs.")
             }
             Section {
                 TextField("Feed folder URL", text: $feedFolderText)
@@ -243,7 +243,7 @@ struct DeliveryPaneView: View {
                 }
             } header: {
                 SectionHelpHeader(title: "Status",
-                    explanation: "Test Connection checks upload folders, not write access or public playback. Uploads shows pending work and verification issues.", helpTopic: .publishing)
+                    explanation: "Test Connection checks upload folders, not write access or public playback. Upload Queue shows pending work and verification issues.", helpTopic: .publishing)
             }
         }
         .formStyle(.grouped)

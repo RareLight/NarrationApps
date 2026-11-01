@@ -1,6 +1,6 @@
 # Current implementation status
 
-Current-state documentation updated October 30, 2026. Feature-specific engineering
+Current-state documentation updated October 31, 2026. Feature-specific engineering
 evidence is dated below. NarrationApps is one repository containing Libro,
 VoiceRelay, SwiftNarration, AppPresentation and the combined Xcode workspace.
 The containing commit identifies all maintained source. See
@@ -23,6 +23,25 @@ suites plus frozen `.local/validation/full-2445BBB4-B18B-4FF9-A93E-8672EB7F1AE7`
 workspace builds and all four bundle audits after those fixes); focused rework
 suites: SpeechSetupValidationTests 15/15, NarrationSettingsTests 16/16 and
 VoiceRelay app fixtures 20/20; operator GUI/listening acceptance unperformed.
+
+## VoiceRelay menu and publishing history — current
+
+The menu popover keeps its overall status first, then shows **Last published**
+with the local date and time of the most recent confirmed feed update at the
+current destination, or **Not recorded** for older/new destinations. The durable
+delivery ledger records that timestamp only after the uploaded feed's exact
+readback; checks, reconciliation, media-only work and failed attempts do not
+count as publication. The dropdown now uses **Open VoiceRelay** for the Articles
+workspace and orders **Settings**, **Copy Podcast URL**, then **Quit VoiceRelay**.
+The library outbox is labelled **Upload Queue**. Libro's Voice Model heading no
+longer duplicates section help; model details remain beside the model picker.
+
+Focused publication-history, recovery, projection and menu tests pass, including
+the complete affected 121 VoiceRelay core and 146 app-test selection. The shared
+header-sizing regression, documentation checks and a Debug `Build Both Apps`
+workspace build pass in `.local/validation/menu-polish-review-20261031/`. GUI,
+clipboard, server and publishing acceptance remain operator-owned; no live server
+was contacted.
 
 ## Mandatory semantic phrasing and shared setup banner — current
 

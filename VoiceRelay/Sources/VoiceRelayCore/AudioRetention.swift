@@ -132,7 +132,7 @@ extension FixtureCoordinator {
             } catch is CancellationError { throw CancellationError() }
             catch {
                 if !continueOnFailure { throw error }
-                episode.localCleanupNotice = "The server copy is confirmed, but the local file could not be safely verified for cleanup. Nothing was deleted; review this item in Uploads."
+                episode.localCleanupNotice = "The server copy is confirmed, but the local file could not be safely verified for cleanup. Nothing was deleted; review this item in Upload Queue."
                 try store.save(episode)
                 debugLog?.record(.localCleanupFailed)
             }
@@ -267,12 +267,12 @@ extension FixtureCoordinator {
         guard var episode = try library(storage: storage).first(where: { $0.id == id }),
               episode.stage == .published, episode.manualAudioDeletionRequested != true,
               episode.info != nil, episode.audioHash != nil else {
-            throw RelayError.setup("This local upload is no longer available. Reopen Uploads and try again.")
+            throw RelayError.setup("This local upload is no longer available. Reopen Upload Queue and try again.")
         }
         let store = try NativeStore(url: storage.profile.database)
         let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
         episode.localAudioDiscarded = true
-        episode.localCleanupNotice = "Local removal could not finish safely. Nothing else was removed; retry this item's × in Uploads."
+        episode.localCleanupNotice = "Local removal could not finish safely. Nothing else was removed; retry this item's × in Upload Queue."
         try store.execute("BEGIN IMMEDIATE")
         do {
             try store.execute("UPDATE episodes SET record=? WHERE id=?",
@@ -285,7 +285,7 @@ extension FixtureCoordinator {
             if !temporaryAudioIsMissing(episode) {
                 guard !Files.hasSymlink(file, below: episode.settings.audio.deletingLastPathComponent()),
                       audioAvailability(episode) != .unavailable else {
-                    throw RelayError.artifact("Local storage changed or is unavailable. The file was left in place; retry its × in Uploads.")
+                    throw RelayError.artifact("Local storage changed or is unavailable. The file was left in place; retry its × in Upload Queue.")
                 }
                 if audioAvailability(episode) == .available {
                     var removal = episode

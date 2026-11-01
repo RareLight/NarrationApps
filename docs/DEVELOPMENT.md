@@ -125,6 +125,25 @@ codec and deep/strict signatures. Full fixtures cover encoding behavior; packagi
 does not by itself verify acoustics. Human signing, notarization, clean-Mac,
 installer/player and services remain in [operator validation](OPERATOR_VALIDATION.md).
 
+## Development versioning
+
+`Version.xcconfig` owns each app's marketing milestone (`LIBRO_MARKETING_VERSION`,
+`VOICERELAY_MARKETING_VERSION`); milestone entries are recorded in the root
+`CHANGELOG.md`. The build number is never authored: the first build phase runs
+`scripts/generate-app-info.sh`, which requires a full-history Git work tree
+(non-shallow, committed HEAD) and stamps `CFBundleVersion` with
+`git rev-list --count HEAD`, `NarrationAppsGitRevision` with the full revision
+and `NarrationAppsSourceModified` with the worktree flag into a generated
+Info.plist under `DERIVED_FILE_DIR`. The build number advances per commit on
+normal history; branch counts are not globally unique, so the full revision is
+the identity. Bump the marketing minor for meaningful features and the patch
+for fixes; record milestones in the changelog; create tags only when explicitly
+requested. `bash scripts/test-app-versioning.sh` exercises the generator
+against a synthetic repository. Each GUI target's phase declares recursive
+sandbox inputs for `.git` plus every tracked immediate child of its SRCROOT;
+adding a new top-level maintained file or folder under an app SRCROOT requires
+a matching phase input, enforced by `scripts/check-layout.swift`.
+
 ## Tooling regressions
 
 `bash scripts/test-development.sh` uses native Swift, fake runners and tiny

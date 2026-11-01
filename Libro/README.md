@@ -131,3 +131,6 @@ Model details can retain private
 chunks for review; Pronunciation Settings contains sentence previews, advanced
 scopes and retained-passage checks/repair. These features preserve existing
 exports. See [long-form quality](../docs/LONGFORM_QUALITY.md).
+
+Check **Libro → About Libro** for the version, commit-based build number and revision
+of the installed build.

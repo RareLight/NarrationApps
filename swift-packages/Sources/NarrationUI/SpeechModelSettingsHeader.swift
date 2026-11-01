@@ -7,9 +7,9 @@ public struct SpeechModelSettingsHeader: View {
     private let validating: Bool
     private let canRepair: Bool
     private let repair: () -> Void
-    private let explanation: String
+    private let explanation: String?
     public init(status: SpeechSetupStatus, validating: Bool, canRepair: Bool,
-                repair: @escaping () -> Void, explanation: String) {
+                repair: @escaping () -> Void, explanation: String? = nil) {
         self.status = status; self.validating = validating; self.canRepair = canRepair
         self.repair = repair; self.explanation = explanation
     }

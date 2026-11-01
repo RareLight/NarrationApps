@@ -932,6 +932,7 @@ public struct DeliveryLedger: Codable, Sendable, Equatable {
     public var lastError: String?
     public var feedAttempts = 0
     public var lastAttemptAt: Date?
+    public var lastPublishedAt: Date?
     public var settingsHash: String?
     public var destinationURL: URL?
     var serverAudioProofs: [String: ServerAudioProof]?
@@ -998,6 +999,8 @@ public enum DeliveryPublicationStatus: Sendable, Equatable {
 /// Cheap read-only delivery snapshot for status display and pending-work detection.
 public struct DeliverySummary: Sendable, Equatable {
     public var reconciledAt: Date?
+    public var lastPublishedAt: Date?
+    public var destinationURL: URL?
     public var pendingMedia = 0
     public var pendingTranscripts = 0
     public var failedTranscripts = 0
@@ -1041,6 +1044,10 @@ extension FixtureCoordinator {
         let database = PrototypeProfile.fixture(at: stateRoot).database
         let ledger = try DeliveryLedger.load(stateRoot: stateRoot)
         summary.reconciledAt = ledger.reconciledAt
+        let requestedDestination = (try? settings?.normalized())?.feedFolderURL
+        summary.lastPublishedAt = requestedDestination == nil || ledger.destinationURL == requestedDestination
+            ? ledger.lastPublishedAt : nil
+        summary.destinationURL = ledger.destinationURL
         summary.remoteFeedPending = ledger.remoteFeedPending
         summary.pendingRemoteDeletes = ledger.pendingRemoteDeletes.count
         summary.feedUploaded = ledger.lastUploadedFeedHash != nil
@@ -1200,6 +1207,7 @@ extension FixtureCoordinator {
             // Preserve copies at the old destination; never delete them on a new host.
             ledger.pendingRemoteDeletes = []
             ledger.destinationURL = settings.feedFolderURL
+            ledger.lastPublishedAt = nil
             ledger.remoteFeedPending = true
         }
         if ledger.settingsHash != settingsHash { ledger.remoteFeedPending = true }
@@ -1454,6 +1462,7 @@ extension FixtureCoordinator {
                             guard current == ledger.reconciledFeed else { throw DeliveryError.retryable("The server feed changed; reconciliation will retry before publishing it.") }
                         }
                         try await client.publishFeed(feed, ifMatch: etag, onlyIfMissing: ledger.reconciledFeed == nil)
+                        ledger.lastPublishedAt = Date()
                         ledger.lastUploadedFeedHash = Files.hash(feed)
                         ledger.lastPublishedAudioHashes = Dictionary(uniqueKeysWithValues: published.compactMap { episode in
                             guard episode.delivery?.status == .uploaded, let hash = episode.audioHash else { return nil }

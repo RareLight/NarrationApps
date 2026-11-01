@@ -61,8 +61,10 @@ Settings, previews, Help and menu popover. Use **⌘+**, **⌘−** and **⌘0**
 reduce or reset it. The preference persists; small text stays at least 12 points.
 
 Left-click or right-click the circular waveform menu-bar icon to open the same
-compact popover immediately, without an opening animation, with overall status, **Sync Now**,
-**Articles**, **Server Audio**, **Copy Podcast URL**, **Settings** and **Quit VoiceRelay**.
+compact popover immediately, without an opening animation, with overall status, **Last published**,
+**Sync Now**, **Open VoiceRelay**, **Server Audio**, **Settings**, **Copy Podcast URL** and **Quit VoiceRelay**.
+**Last published** shows the local date and time of the most recent confirmed feed update at the
+current destination, or **Not recorded** for an older or new destination.
 **Copy Podcast URL** copies the configured subscription address to the clipboard;
 it is unavailable until a Public folder URL is configured. Green **Ready**
 requires a successful Reading List read, verified speech runtime and verified
@@ -78,7 +80,7 @@ articles, generates Ready work and publishes it, even when automatic admission a
 processing are off. It does not change those preferences or retry failed speech
 rows. During this one-shot task, its button becomes a compact phase progress bar:
 measured generation/current-file transfer progress, animated checks, then the button returns.
-Articles and Queue are scopes in one library window alongside Uploads and Server
+Articles and Queue are scopes in one library window alongside Upload Queue and Server
 Audio. Opening a standalone window enables the Dock/⌘-Tab entry; closing the last
 returns to menu-bar-only operation. Closing windows does not stop work.
 
@@ -134,7 +136,7 @@ removing their audio does **not** automatically create more recordings. A genuin
 new save is eligible again. You can explicitly Add to Queue for the active copy
 when you want another recording; queued retries retain their captured settings.
 
-Search in Articles (All Articles/Queue), Uploads and Server Audio matches visible
+Search in Articles (All Articles/Queue), Upload Queue and Server Audio matches visible
 titles, source, saved dates, status and errors. Searches are local, combine with
 the Website/state filters and do not restrict automatic processing or publishing.
 
@@ -188,7 +190,7 @@ as your audio. Player support determines whether live scrolling and seeking are
 available. Overcast support for supplied transcripts remains unverified, including
 the reported App Store version 2026.10.1 (1182).
 
-A transcript failure leaves audio publishing available and appears in Uploads as
+A transcript failure leaves audio publishing available and appears in Upload Queue as
 **Transcript needs retry**. Sync Now retries it without regenerating the recording.
 Transcript text is retained with private episode metadata and included in library
 backups, even after temporary audio/article caches are released. Removing a server
@@ -264,7 +266,7 @@ separately affect Keychain authorization even in Release builds.
 **Test Connection** probes folders read-only; it proves neither write permission
 nor the public website mapping. A readable ancestor permits a missing-folder
 result; uploading creates folders if authorized. Use the popover's **Sync Now**
-for a complete manual sync, or **Uploads** for targeted upload retries. Publishing
+for a complete manual sync, or **Upload Queue** for targeted upload retries. Publishing
 settings has no upload action. Enabled publishing drains after publication/removal, launch and
 periodically while the app runs. Media size and hash are confirmed before feed publication; the uploaded feed is
 read back through authenticated WebDAV and its exact contents confirmed.
@@ -296,7 +298,7 @@ no audio-folder preference or scheduled retention policy.
 | Action | Removes | Preserves |
 | --- | --- | --- |
 | Remove from Queue | Queue membership | Safari entries, saved article text and server audio |
-| Uploads × | The tracked local audio copy and matching pending queue work | Server audio and saved text; the discarded copy is not automatically regenerated |
+| Upload Queue × | The tracked local audio copy and matching pending queue work | Server audio and saved text; the discarded copy is not automatically regenerated |
 | Remove an article in Safari, then refresh | Article/queue entries, cached source text and unfinished generation files | Server history/copies, unconfirmed finished audio and already exported backups |
 | Remove in Server Audio | Feed membership first, then verified server audio and a safely removable matching local copy | Safari entries and saved article text |
 
@@ -323,14 +325,14 @@ and orphan filenames are insufficient. See [automatic reconciliation and operato
 tests](SERVER_RECOVERY.md) for conflict rules, caching and matching limits.
 
 
-**Uploads** is the publishing outbox, between Articles and Server Audio. It shows
+**Upload Queue** is the publishing outbox, between Articles and Server Audio. It shows
 per-item transfer progress, pending feed publication and verification failures.
 Confirmed published items leave the outbox; unresolved local cleanup conflicts
 remain with their diagnostics. Both screens have independent **Filter** menus,
 including **Needs Attention** and **Failed Verification**. Filter changes do not
 contact the server. Partially generated speech remains in Articles → Queue.
 
-Uploads rows offer **×** to discard only their tracked local copy, keeping server
+Upload Queue rows offer **×** to discard only their tracked local copy, keeping server
 audio and saved article text. Explicitly discarded copies are not automatically
 regenerated. Failed removals remain listed for retry. Server Audio records an
 unpublished discarded copy as **Local Upload Removed**.
@@ -344,7 +346,7 @@ actions apply only to visible rows.
 Discarding local audio also removes its matching Queue work; you can add the
 article again manually.
 
-For publishing or backup guidance, open **Help → Publishing and Uploads** or
+For publishing or backup guidance, open **Help → Publishing and Upload Queue** or
 **Help → Library Backup and Restore**. Section ⓘ controls give brief summaries;
 **More Help…** opens the corresponding guide. Help content is bundled and offline.
 
@@ -418,3 +420,6 @@ sentence-context previews, scoped rules and explicit retained-passage checks or
 regeneration. Reviewing/exporting a new WAV does not replace podcast episodes,
 RSS or transcripts. See [long-form quality](../../docs/LONGFORM_QUALITY.md) for
 local recognition availability, storage limits and the blind comparison.
+
+Check **VoiceRelay → About VoiceRelay** for the version, commit-based build
+number and revision of the installed build.

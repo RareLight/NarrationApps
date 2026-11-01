@@ -385,11 +385,13 @@ private func seedSelectedModel(_ model: SpeechModel, root: URL) throws -> URL {
         for width in [180.0, 360.0] {
             for status in [SpeechSetupStatus.ready, .notInstalled, .failure(String(repeating: "Synthetic failure. ", count: 8))] {
                 for validating in [false, true] {
-                    let view = SpeechModelSettingsHeader(status: status, validating: validating,
-                        canRepair: true, repair: { calls += 1 }, explanation: "Synthetic explanation.")
-                        .appTextSizing(size).dynamicTypeSize(.large).frame(width: width)
-                    let fitting = NSHostingView(rootView: view).fittingSize
-                    #expect(fitting.width.isFinite && fitting.height > 0 && fitting.height < 400)
+                    for explanation in [String?.none, .some("Synthetic explanation.")] {
+                        let view = SpeechModelSettingsHeader(status: status, validating: validating,
+                            canRepair: true, repair: { calls += 1 }, explanation: explanation)
+                            .appTextSizing(size).dynamicTypeSize(.large).frame(width: width)
+                        let fitting = NSHostingView(rootView: view).fittingSize
+                        #expect(fitting.width.isFinite && fitting.height > 0 && fitting.height < 400)
+                    }
                 }
             }
         }

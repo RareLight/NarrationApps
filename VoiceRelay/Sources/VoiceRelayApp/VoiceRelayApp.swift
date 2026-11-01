@@ -93,6 +93,7 @@ final class AppModel {
     var autoHalted = false
     /// Delivery configuration; the password lives only in the credential store, never here.
     var deliverySettings = DeliverySettings() { didSet {
+        if oldValue.feedFolderURL != deliverySettings.feedFolderURL { deliveryLastPublishedAt = nil }
         if oldValue.enabled && !deliverySettings.enabled {
             // A drain captures its settings. Stop that owned work as well as future
             // drains when the user turns publishing off; durable intent stays pending.
@@ -166,6 +167,7 @@ final class AppModel {
     var deliveryBusy = false
     var deliveryStatus: String?
     var deliveryError: String?
+    var deliveryLastPublishedAt: Date?
     var deliveryPendingCount = 0
     var deliveryPublicationStates: [String: DeliveryPublicationStatus] = [:]
     var deliveryPublicationAudioHashes: [String: String] = [:]

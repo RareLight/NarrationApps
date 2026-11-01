@@ -32,6 +32,7 @@ func validationPlan(_ options: Options, evidence: URL) -> [Step] {
         var steps = [
             shell("static", "static", "scripts/check-static.sh"),
             shell("tooling", "tests", "scripts/test-development.sh"),
+            shell("app-versioning", "tests", "scripts/test-app-versioning.sh"),
         ]
         if let scope = options.scope {
             let path = [

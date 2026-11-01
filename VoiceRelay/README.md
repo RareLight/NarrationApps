@@ -29,7 +29,7 @@ existing startup choices are preserved.
 | Destination | What it shows |
 | --- | --- |
 | Articles | Reading List entries and a Queue scope for preparation/speech |
-| Uploads | Finished local audio awaiting publication or verification/cleanup attention |
+| Upload Queue | Finished local audio awaiting publication or verification/cleanup attention |
 | Server Audio | Durable episode history and pending server removals |
 
 Queue removal, local-audio discard, Safari source removal and server removal have

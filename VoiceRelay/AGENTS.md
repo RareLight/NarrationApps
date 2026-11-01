@@ -109,7 +109,7 @@ old-host deletes to a new destination. Failures use sanitized status text.
 
 Current UX direction: a compact SwiftUI menu in a native NSStatusItem/NSPopover host
 (the same popover opens on left- and right-click) and one sidebar library window
-(Articles with All Articles/Queue scopes, Uploads, Server Audio). Settings uses native pane navigation for
+(Articles with All Articles/Queue scopes, Upload Queue, Server Audio). Settings uses native pane navigation for
 General, Voice Model, Pronunciation, Publishing and Troubleshooting, with no global Cancel. Generate/Stop
 live with audio work.
 Voice Model owns model/voice selection, download when missing,
@@ -148,7 +148,7 @@ rechecks internally. Older diagnostics that mention "refresh Saved Audio" refer
 to that automatic recheck / reopening the pane. Inline errors carry a
 hover-revealed ⓧ dismiss that is presentation-only: it never mutates stored
 errors, snapshots, queue records or history, and suppression is keyed per
-notice until the condition resolves or a context reset. Articles (All Articles/Queue scopes) and Server Audio live in the sidebar workspace;
+notice until the condition resolves or a context reset. Articles (All Articles/Queue scopes), Upload Queue and Server Audio live in the sidebar workspace;
 Generate/Stop live in the Articles toolbar (both scopes) and application commands. Progress is shown only
 while owned work runs or stops; terminal results clear transient progress.
 Generate and Reset stay enabled during ordinary row removals; a Generate
@@ -353,7 +353,7 @@ belongs in the shared native Help menu's static topic windows. Keep deletion
 consequences and archive/backup privacy visible; do not expose implementation
 details unless needed for a user's decision. Help never probes library/server state.
 
-Articles (independent All Articles/Queue scopes), Uploads and Server Audio have
+Articles (independent All Articles/Queue scopes), Upload Queue and Server Audio have
 native local search across visible titles, origin, saved date, status and errors.
 Search combines with existing filters, preserves row order, scopes bulk actions to
 shown selections and never changes automatic processing/publishing membership.
@@ -364,7 +364,7 @@ selections; Remove Selections remains a toolbar action at two or more selections
 Server Audio orders captured Reading List saved dates descending, undated last,
 with stable episode-ID ties across reload/event order. Persist original host,
 source identity and saved date on episodes; missing fields in stale worker saves
-or progress snapshots must not erase known values. Server Audio and Uploads
+or progress snapshots must not erase known values. Server Audio and Upload Queue
 filters/search derive from current episode/status records, not source inventory
 indices. Cover source removal, reload, additions/removals and metadata/status
 updates with isolated regressions; never fabricate missing saved dates.
@@ -383,8 +383,8 @@ local Calendar saved-date periods; missing dates do not match. Website sorting,
 scope independence and global processing remain unchanged.
 
 October 23 menu content: compact menu-bar popover contains overall
-status, Sync Now, separator, Articles, Server Audio, Copy Podcast URL, separator, Settings and Quit
-VoiceRelay. Ready requires current-session verified Reading List, speech runtime
+status, Last published, Sync Now, separator, Open VoiceRelay, Server Audio, separator, Settings,
+Copy Podcast URL and Quit VoiceRelay. Ready requires current-session verified Reading List, speech runtime
 and WebDAV health; failures link to the affected Settings pane. Pure rendering
 never probes services. Check an installed speech runtime offline at startup.
 Sync Now explicitly refreshes, admits, processes and publishes eligible work regardless
@@ -396,8 +396,8 @@ Never invent an overall percentage. Duplicate clicks coalesce; Stop/Quit cancel
 and join owned work. Restore review gates Sync; backups/restores wait for it.
 
 Popover actions highlight on hover/press using semantic system selection colors,
-without highlighting disabled actions or status/progress labels. Articles/Server
-Audio and Settings/Quit have half the original inter-label gap. Window-opening
+without highlighting disabled actions or status/progress labels. Open VoiceRelay/Server
+Audio and Settings/Copy Podcast URL/Quit have half the original inter-label gap. Window-opening
 items, including failure status, dismiss only their captured popover host before
 activation/opening; Sync stays open. Host capture is weak, inert in previews and
 must not mutate SwiftUI state or activate windows during layout.

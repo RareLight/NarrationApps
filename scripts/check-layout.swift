@@ -42,6 +42,50 @@ for project in projects {
     }
     require(sharedCount == 2, "Both shared package references must resolve under swift-packages")
 }
+// Generate App Info sandbox input manifest: recursive inputs must be enabled,
+// the whole repository root must not be a phase input, and every tracked
+// immediate child of each GUI SRCROOT must be declared so git status can read
+// the maintained worktree without build outputs entering the grant.
+let phaseAppRoots: [String: String] = [
+    "Libro/macos/Libro/Libro.xcodeproj": "Libro/macos/Libro",
+    "VoiceRelay/VoiceRelay.xcodeproj": "VoiceRelay",
+]
+for (project, appRoot) in phaseAppRoots {
+    let url = root.appendingPathComponent(project)
+    let plist = try PropertyListSerialization.propertyList(
+        from: Data(contentsOf: url.appendingPathComponent("project.pbxproj")), format: nil) as! [String: Any]
+    let objects = plist["objects"] as! [String: [String: Any]]
+    let phases = objects.values.filter {
+        $0["isa"] as? String == "PBXShellScriptBuildPhase" && ($0["name"] as? String) == "Generate App Info" }
+    require(phases.count == 1, "expected one Generate App Info phase in \(project)")
+    let inputs = (phases[0]["inputPaths"] as? [String] ?? [])
+    require(!inputs.contains("$(NARRATION_REPOSITORY_ROOT)"), "repository root must not be a phase input")
+    require(inputs.contains("$(NARRATION_REPOSITORY_ROOT)/.git"), "Git metadata input missing")
+    let ls = Process()
+    ls.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    ls.arguments = ["-C", root.path, "ls-files", "--", appRoot + "/"]
+    let out = Pipe(); ls.standardOutput = out; ls.standardError = FileHandle.nullDevice
+    try ls.run()
+    let listing = out.fileHandleForReading.readDataToEndOfFile()
+    ls.waitUntilExit()
+    require(ls.terminationStatus == 0, "git ls-files failed for \(appRoot)")
+    let children = Set(String(decoding: listing, as: UTF8.self)
+        .split(separator: "\n").compactMap { line in
+            let rest = line.dropFirst(appRoot.count + 1)
+            return rest.contains("/") ? String(rest.prefix(while: { $0 != "/" })) : String(rest) })
+    for child in children { require(inputs.contains("$(SRCROOT)/\(child)"), "undeclared source input \(appRoot)/\(child)") }
+    let configs = objects.values.filter { $0["isa"] as? String == "XCBuildConfiguration" }
+        .compactMap { $0["buildSettings"] as? [String: Any] }
+        .filter { $0["MARKETING_VERSION"] != nil && $0["NARRATION_REPOSITORY_ROOT"] != nil }
+    require(configs.count == 2, "expected Debug+Release versioned GUI configs in \(project)")
+    for settings in configs {
+        require(settings["USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES"] as? String == "YES",
+                "recursive script inputs must be enabled")
+        if let override = settings["ENABLE_USER_SCRIPT_SANDBOXING"] as? String {
+            require(override == "YES", "script sandboxing must remain enabled")
+        }
+    }
+}
 for app in ["Libro", "VoiceRelay"] {
     require(!manager.fileExists(atPath: root.appendingPathComponent("\(app)/.git").path), "\(app) must use root Git history")
     let process = Process()

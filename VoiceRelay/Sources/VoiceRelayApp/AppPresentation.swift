@@ -21,7 +21,7 @@ enum DeliveryTestResult: Equatable {
 
 enum WorkspaceSection: String, CaseIterable, Identifiable {
     case articles = "Articles"
-    case uploads = "Uploads"
+    case uploads = "Upload Queue"
     case savedAudio = "Server Audio"
     var id: Self { self }
     var systemImage: String {
@@ -50,7 +50,7 @@ enum PublishingReadiness: Equatable {
         case .needsSetup: "Configure your podcast connection to listen in your podcast app. You can still generate audio."
         case .configured: "Configuration is present; write permission and public access are verified separately."
         case .turnedOff: "Enable Publishing when you want new episodes in your podcast app."
-        case .needsAttention: "Review pending transfers and verification issues in Uploads, or check Publishing settings."
+        case .needsAttention: "Review pending transfers and verification issues in Upload Queue, or check Publishing settings."
         case .notChecked: "The password has not been checked this session. Review Publishing to verify the connection."
         case .checking: "Checking your password and existing server audio."
         }
@@ -112,10 +112,10 @@ struct WorkspaceReadinessView: View {
             }
             if model.uploadsNeedAttention {
                 VStack(alignment: .leading, spacing: 8) {
-                    Label("Uploads need attention", systemImage: "exclamationmark.triangle").appFont(.headline)
-                    Text("Review the affected files and their verification details in Uploads.").appFont(.secondary).foregroundStyle(.secondary)
+                    Label("Upload Queue needs attention", systemImage: "exclamationmark.triangle").appFont(.headline)
+                    Text("Review the affected files and their verification details in Upload Queue.").appFont(.secondary).foregroundStyle(.secondary)
                     if model.workspaceSection != .uploads {
-                        Button("Review Uploads") { model.workspaceSection = .uploads }.disabled(model.preview || model.stopping)
+                        Button("Review Upload Queue") { model.workspaceSection = .uploads }.disabled(model.preview || model.stopping)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                     .background(alignment: .bottom) { Divider() }
@@ -216,7 +216,7 @@ enum AppHelpTopic: String, Codable, CaseIterable, Identifiable {
     var id: Self { self }
     var title: String {
         switch self {
-        case .publishing: "Publishing and Uploads"
+        case .publishing: "Publishing and Upload Queue"
         case .libraryBackup: "Library Backup and Restore"
         }
     }
@@ -225,14 +225,14 @@ enum AppHelpTopic: String, Codable, CaseIterable, Identifiable {
         case .publishing: [
             AppHelpSection(title: "Connect your podcast", text: "In Publishing settings, enter the WebDAV Feed folder and the Public folder that serves the same files. VoiceRelay creates feed.xml and audio/ under that folder. Choose a square Podcast Cover for the show; episode pictures still come from their articles. Copy the Subscription URL into your podcast app. Test Connection checks folder access; confirm public playback in your podcast app separately."),
             AppHelpSection(title: "Save your password", text: "Use your provider’s upload username and password or app password. Click Save Password after editing. The password stays in device-local Keychain and background publishing can use it after your first login following a reboot, including while the screen is locked. Re-save a password from an older build once to update its access policy; macOS may request authorization for that Save. Opening Settings never reads the password. Replacing or clearing a password may need separate approval."),
-            AppHelpSection(title: "Watch pending uploads", text: "Publishing runs automatically while enabled and VoiceRelay is running. Uploads shows pending transfers and verification issues. An item clears after its audio and feed entry are confirmed, unless local cleanup needs attention. Fully sent bytes alone do not confirm publication. Use Retry Uploads after resolving an error; other items can continue."),
-            AppHelpSection(title: "Remove a copy", text: "Uploads × discards the local copy and cancels its pending generation job, keeping server audio and saved article text. It will not automatically regenerate. Add the article to Queue to request it again. Server Audio × hides the row immediately, then removes the episode from the feed and deletes its audio in the background. Saved article text is kept. Failed cleanup returns the item for retry; progress appears below the list."),
+            AppHelpSection(title: "Watch pending uploads", text: "Publishing runs automatically while enabled and VoiceRelay is running. Upload Queue shows pending transfers and verification issues. An item clears after its audio and feed entry are confirmed, unless local cleanup needs attention. Fully sent bytes alone do not confirm publication. Use Retry Uploads after resolving an error; other items can continue."),
+            AppHelpSection(title: "Remove a copy", text: "Upload Queue × discards the local copy and cancels its pending generation job, keeping server audio and saved article text. It will not automatically regenerate. Add the article to Queue to request it again. Server Audio × hides the row immediately, then removes the episode from the feed and deletes its audio in the background. Saved article text is kept. Failed cleanup returns the item for retry; progress appears below the list."),
             AppHelpSection(title: "Existing server episodes", text: "VoiceRelay checks for matching server audio before generating or uploading again. It verifies complete copies and prefers longer valid audio at comparable voice and speed; ties and uncertain variants keep the server copy. For persistent errors, enable debug logging in Troubleshooting and copy the log.")
         ]
         case .libraryBackup: [
             AppHelpSection(title: "What a backup contains", text: "A library backup contains saved article text, Reading List inventory, Queue, episode history and publishing records. It includes private article URLs and server paths; keep it private. Passwords, preferences, audio, speech models and temporary chunks are excluded."),
             AppHelpSection(title: "Restore safely", text: "Stop processing and wait for uploads and additions to finish. Choose Restore Library in Troubleshooting. VoiceRelay validates the backup, keeps the previous library for recovery and turns off automatic processing and publishing. Restoring does not change Safari or contact the server."),
-            AppHelpSection(title: "Finish your review", text: "Review Articles, Uploads, Server Audio and Publishing settings, then choose Finish Library Review. Until then, local cleanup and server changes are blocked, including after relaunch. Finishing review does not turn automation back on; enable it when ready. Missing pending audio can be regenerated from saved text.")
+            AppHelpSection(title: "Finish your review", text: "Review Articles, Upload Queue, Server Audio and Publishing settings, then choose Finish Library Review. Until then, local cleanup and server changes are blocked, including after relaunch. Finishing review does not turn automation back on; enable it when ready. Missing pending audio can be regenerated from saved text.")
         ]
         }
     }
@@ -562,7 +562,7 @@ struct UploadsView: View {
                 }
             }
         }
-        .searchable(text: $model.uploadsSearchText, placement: .toolbar, prompt: "Search Uploads")
+        .searchable(text: $model.uploadsSearchText, placement: .toolbar, prompt: "Search Upload Queue")
         .task {
             guard !model.preview else { return }
             while !Task.isCancelled, !model.stopping {

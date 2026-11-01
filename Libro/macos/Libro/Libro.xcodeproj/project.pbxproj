@@ -208,6 +208,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 671B466153DB183FE9E409BE /* Build configuration list for PBXNativeTarget "Libro" */;
 			buildPhases = (
+				BB00000000000000000000A1 /* Generate App Info */,
 				D8AFF257B45D0C513672EC45 /* Sources */,
 				91024282FFD499F5807DB5BC /* Frameworks */,
 				DC549ACCB7C726C62ECFD4E2 /* Resources */,
@@ -300,6 +301,34 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		BB00000000000000000000A1 /* Generate App Info */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = YES;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(NARRATION_REPOSITORY_ROOT)/scripts/generate-app-info.sh",
+				"$(NARRATION_INFO_PLIST_TEMPLATE)",
+				"$(NARRATION_REPOSITORY_ROOT)/Version.xcconfig",
+				"$(NARRATION_REPOSITORY_ROOT)/.git",
+				"$(SRCROOT)/App",
+				"$(SRCROOT)/AppIcon.icon",
+				"$(SRCROOT)/Configuration",
+				"$(SRCROOT)/Libro.xcodeproj",
+				"$(SRCROOT)/Resources",
+				"$(SRCROOT)/Worker",
+			);
+			name = "Generate App Info";
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/NarrationApps-Info.plist",
+				"$(DERIVED_FILE_DIR)/NarrationApps-Info.plist.tmp",
+				"$(DERIVED_FILE_DIR)/NarrationApps-Info.plist.status.tmp",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "bash \"$NARRATION_REPOSITORY_ROOT/scripts/generate-app-info.sh\" \"$NARRATION_REPOSITORY_ROOT\" \"$NARRATION_INFO_PLIST_TEMPLATE\" \"$DERIVED_FILE_DIR/NarrationApps-Info.plist\" \"$MARKETING_VERSION\"\n";
+		};
 		76C97A059D0F523A8095539D /* Embed MLX Metal Library */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -407,11 +436,14 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 49Q8Z24JCT;
 				ENABLE_TESTABILITY = NO;
-				INFOPLIST_FILE = App/Info.plist;
+				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/NarrationApps-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Libro Text-to-Speech";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = "$(LIBRO_MARKETING_VERSION)";
+				USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES;
+				NARRATION_INFO_PLIST_TEMPLATE = "$(SRCROOT)/App/Info.plist";
+				NARRATION_REPOSITORY_ROOT = "$(SRCROOT)/../../..";
 				PRODUCT_BUNDLE_IDENTIFIER = org.librotts.Libro;
 				PRODUCT_NAME = Libro;
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -503,11 +535,14 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 49Q8Z24JCT;
 				ENABLE_TESTABILITY = YES;
-				INFOPLIST_FILE = App/Info.plist;
+				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/NarrationApps-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Libro Text-to-Speech";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = "$(LIBRO_MARKETING_VERSION)";
+				USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES;
+				NARRATION_INFO_PLIST_TEMPLATE = "$(SRCROOT)/App/Info.plist";
+				NARRATION_REPOSITORY_ROOT = "$(SRCROOT)/../../..";
 				PRODUCT_BUNDLE_IDENTIFIER = org.librotts.Libro;
 				PRODUCT_NAME = Libro;
 				PROVISIONING_PROFILE_SPECIFIER = "";

@@ -327,6 +327,64 @@ private func publishReview(_ path: String = "one", storage: ManagedSpeechStorage
     #expect(String(decoding: try RSS.renderRemote([confirmed], channel: RemoteChannel(settings: settings)), as: UTF8.self).contains(fallbackDate))
 }
 
+@Test func confirmedFeedPublishRecordsAndPreservesLastPublishedAt() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let settings = deliverySettings()
+    _ = try await publishReview(storage: storage, delivery: settings)
+    let before = Date()
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: FakeWebDAVTransport())
+    let after = Date()
+    var ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    let published = try #require(ledger.lastPublishedAt)
+    #expect(published >= before && published <= after)
+    var summary = try await FixtureCoordinator().deliverySummary(stateRoot: storage.stateRoot, settings: settings)
+    #expect(summary.lastPublishedAt == published && summary.destinationURL == settings.feedFolderURL)
+    // Idle drain and same-destination reconciliation preserve the date.
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: FakeWebDAVTransport())
+    ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(ledger.lastPublishedAt == published)
+    // PUT failure does not advance a previous timestamp.
+    let failing = FakeWebDAVTransport()
+    failing.throwFor = { method, path in (method == "PUT" && path.hasSuffix("feed.xml")) ? DeliveryError.retryable("synthetic PUT failure") : nil }
+    _ = try? await FixtureCoordinator().deliverPending(storage: storage, settings: settings, credential: FakeCredentials(password: "x"), transport: failing)
+    ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    #expect(ledger.lastPublishedAt == published)
+    // Destination switch clears history, then this successful publish records a fresh date.
+    var newSettings = settings; newSettings.feedFolderURL = URL(string: "https://other.example/podcast/")!
+    let switchedBefore = Date()
+    _ = try await FixtureCoordinator().deliverPending(storage: storage, settings: newSettings, credential: FakeCredentials(password: "x"), transport: FakeWebDAVTransport(), force: true)
+    let switchedAfter = Date()
+    ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    let switchedPublished = try #require(ledger.lastPublishedAt)
+    #expect(ledger.destinationURL == newSettings.feedFolderURL)
+    #expect(switchedPublished >= switchedBefore && switchedPublished <= switchedAfter)
+    summary = try await FixtureCoordinator().deliverySummary(stateRoot: storage.stateRoot, settings: newSettings)
+    #expect(summary.destinationURL == newSettings.feedFolderURL && summary.lastPublishedAt == switchedPublished)
+}
+
+@Test func deliverySummarySuppressesMismatchedPublishHistoryWithoutDatabase() async throws {
+    let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = try deliveryStorage(root: root)
+    let published = Date(timeIntervalSince1970: 1_761_900_000)
+    var ledger = DeliveryLedger()
+    ledger.destinationURL = deliverySettings().feedFolderURL
+    ledger.lastPublishedAt = published
+    try ledger.save(stateRoot: storage.stateRoot)
+    var other = deliverySettings()
+    other.feedFolderURL = URL(string: "https://other.example/podcast/")
+    var summary = try await FixtureCoordinator().deliverySummary(stateRoot: storage.stateRoot, settings: other)
+    #expect(summary.destinationURL == ledger.destinationURL && summary.lastPublishedAt == nil)
+    summary = try await FixtureCoordinator().deliverySummary(stateRoot: storage.stateRoot)
+    #expect(summary.destinationURL == ledger.destinationURL && summary.lastPublishedAt == published)
+}
+
+@Test func ledgerMissingLastPublishedAtDecodesNil() throws {
+    let json = #"{"remoteFeedPending":false,"pendingRemoteDeletes":[],"feedAttempts":0,"lastAttemptAt":761233000,"reconciledAt":761234000}"#
+    let decoded = try JSONDecoder().decode(DeliveryLedger.self, from: Data(json.utf8))
+    #expect(decoded.lastPublishedAt == nil && decoded.lastAttemptAt != nil)
+}
+
 @Test func readingListEpisodeDatesRecoverExistingPublishedMetadataWithoutAudioUpload() async throws {
     let root = try deliveryTemporary(); defer { try? FileManager.default.removeItem(at: root) }
     let storage = try deliveryStorage(root: root), settings = deliverySettings(), coordinator = FixtureCoordinator()

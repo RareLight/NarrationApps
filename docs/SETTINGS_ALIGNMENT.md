@@ -39,7 +39,7 @@ the common menus. Speed's numeric value and Stepper hug their intrinsic width in
 value column. Qwen's Language/Delivery rows share the field alignment; native
 language is bold and star-marked in the language menu instead of occupying its own
 row. Regional detail remains in hover/accessibility help.
-The download symbol (when needed) and info sit close to the picker. Warnings may expand below
+The model-details ⓘ sits beside the picker. Warnings may expand below
 the controls. Libro uses an inline Format label to align the output dropdown with
 Model and anchors the group to the leading edge, with 4pt horizontal spacing. The main-window wrapper
 and horizontal scrollers use intrinsic content height; narrow windows put Output

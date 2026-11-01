@@ -47,5 +47,7 @@ extension AppModel {
         deliveryPublicationSettingsHash = summary.publicationSettingsHash
         deliveryVerificationFailedIDs = summary.verificationFailedIDs
         deliveryFeedError = summary.feedError
+        deliveryLastPublishedAt = summary.destinationURL == (try? deliverySettings.normalized())?.feedFolderURL
+            ? summary.lastPublishedAt : nil
     }
 }

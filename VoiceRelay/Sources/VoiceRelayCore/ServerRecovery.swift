@@ -630,7 +630,9 @@ extension FixtureCoordinator {
             try store.execute("COMMIT")
         } catch { try? store.execute("ROLLBACK"); throw error }
         var ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
-        if ledger.destinationURL != report.destination.feedFolderURL { ledger.pendingRemoteDeletes = [] }
+        if ledger.destinationURL != report.destination.feedFolderURL {
+            ledger.pendingRemoteDeletes = []; ledger.lastPublishedAt = nil
+        }
         ledger.destinationURL = report.destination.feedFolderURL
         ledger.settingsHash = try report.destination.settingsHash()
         ledger.lastUploadedFeedHash = report.feed.map(Files.hash)

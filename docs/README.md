@@ -22,6 +22,7 @@ implementation records are background, not additional setup instructions.
 | --- | --- |
 | Fresh clone, prerequisites, preparation and signing | [Contributing](../CONTRIBUTING.md) |
 | Select quick/full/native/release checks and interpret evidence | [Development gates](DEVELOPMENT.md) |
+| Track development milestones and commit-count builds | [Development versioning](DEVELOPMENT.md#development-versioning), [CHANGELOG.md](../CHANGELOG.md) |
 | Compare TTS models/voices and run a preference bracket | [Swift benchmark utility](../tools/TTSBenchmark/README.md), [design and evidence](TTS_MODEL_BENCHMARK_PLAN.md) |
 | Review Qwen3-TTS, Chatterbox Turbo and Orpheus integration and validation | [Shared model integration plan](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md) |
 | Understand implemented features and current evidence | [Current status](IMPLEMENTATION_STATUS.md) |

@@ -38,8 +38,11 @@ SwiftUI `RelayMenu`. The application supplies its window/Settings scene actions
 explicitly to the hosted content; menu navigation dismisses the popover first.
 An intrinsic-width SwiftUI Layout measures command rows first, expands the total
 horizontal width by 25%, then fits status, progress and separators into that width.
-Copy Podcast URL reuses the configured public-feed clipboard action without
-starting synchronization. The status-item slot uses the standard square length.
+Open VoiceRelay opens the Articles workspace; Copy Podcast URL sits between
+Settings and Quit and reuses the configured public-feed clipboard action without
+starting synchronization. Last published renders the cached current-destination
+feed-update timestamp without a server lookup. The status-item slot uses the
+standard square length.
 The symbol uses an explicit point-size configuration at twice the system font
 size, rather than enlarging only the image canvas; native image fitting keeps it
 within the button's bounds.
@@ -165,8 +168,8 @@ No inferred word timing or speech recognition is performed.
 SHA-256 in the episode record. Its independent DeliveryState survives cleanup,
 encoding recovery and metadata-only backup/restore. Transcript failures never
 block unrelated media or feed entries. Authenticated bounded GET/readback confirms
-exact bytes before the episode gains a standard Podcasting 2.0 reference. Uploads
-surface transcript retry/pending publication separately from audio completion.
+exact bytes before the episode gains a standard Podcasting 2.0 reference. Upload Queue
+surfaces transcript retry/pending publication separately from audio completion.
 An immutable `<episode-id>-<transcript-hash>.vtt` object shares the existing audio
 collection. Existing different contents are never overwritten. Backoff, explicit
 retry, destination identity and cancellation-before/after-PUT remain durable.

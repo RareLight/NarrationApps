@@ -1,3 +1,4 @@
+#include "../../Version.xcconfig"
 #include "NativeSpeech.xcconfig"
 // Developer signing stays private. The optional local file is absent until setup.
 #include? "../Signing.local.xcconfig"

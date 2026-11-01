@@ -43,8 +43,9 @@ Operator results are separate from fixture/build/signature evidence.
 
 ## Candidate packaging
 
-- [ ] Assign an approved marketing version/build number in Packaging/Info.plist.
-      Keep build numbers increasing; verify the packaged Info.plist, not only project UI.
+- [ ] Assign the approved marketing version in the root `Version.xcconfig`
+      (`VOICERELAY_MARKETING_VERSION`); the build number is stamped automatically
+      from the commit count. Verify the packaged Info.plist, not only project UI.
 - [ ] Package with `bash scripts/build-app.sh release`. It stages the new bundle,
       verifies nested signatures and exchanges the existing package atomically.
       Copy/verification failures must leave the previous package intact.

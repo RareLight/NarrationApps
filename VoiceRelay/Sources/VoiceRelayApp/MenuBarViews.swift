@@ -31,6 +31,10 @@ struct RelayMenu: View {
                         .padding(8)
                 }
             }
+            Text(model.deliveryLastPublishedAt.map {
+                    "Last published: \($0.formatted(date: .abbreviated, time: .shortened))"
+                } ?? "Last published: Not recorded")
+                .appFont(.secondary).foregroundStyle(.secondary).padding(.horizontal, 8).padding(.vertical, 2)
             if model.syncBusy {
                 SyncMenuProgress(model: model)
             } else {
@@ -39,16 +43,16 @@ struct RelayMenu: View {
             }
             Divider()
             VStack(spacing: 1) {
-                item("Articles") { model.articleScope = .all; openWorkspace(.articles) }.disabled(model.preview)
+                item("Open VoiceRelay") { model.articleScope = .all; openWorkspace(.articles) }.disabled(model.preview)
                 item("Server Audio") { openWorkspace(.savedAudio) }.disabled(model.preview)
-                item("Copy Podcast URL") { model.copyDeliverySubscriptionURL(); dismissPopover() }
-                    .disabled(model.preview || model.deliverySubscriptionURL == nil)
             }
             .buttonStyle(PopoverMenuButtonStyle(verticalPadding: 4))
             .layoutValue(key: PopoverMenuLayout.WidthSource.self, value: true)
             Divider()
             VStack(spacing: 1) {
                 item("Settings") { showSettings(.general) }.disabled(model.preview)
+                item("Copy Podcast URL") { model.copyDeliverySubscriptionURL(); dismissPopover() }
+                    .disabled(model.preview || model.deliverySubscriptionURL == nil)
                 item("Quit VoiceRelay") { model.quit() }.disabled(model.preview)
             }
             .buttonStyle(PopoverMenuButtonStyle(verticalPadding: 4))
@@ -274,7 +278,7 @@ struct VoiceRelayApp: App {
                 }
             }.defaultSize(width: 560, height: 500)
                 .restorationBehavior(model.launchedAtLogin ? .disabled : .automatic)
-        }.commands { AppHelpCommands(model: model); TextSizeCommands(model: model) }
+        }.commands { AppHelpCommands(model: model); TextSizeCommands(model: model); AppVersionCommands() }
             .onChange(of: model.preview, initial: true) {
                 let menuModel = model, windowAction = openWindow, settingsAction = openSettings
                 delegate.installMenu { [weak delegate = delegate] in

@@ -247,6 +247,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = C20000000000000000000001 /* Build configuration list for PBXNativeTarget "VoiceRelay" */;
 			buildPhases = (
+				C50000000000000000000001 /* Generate App Info */,
 				E20000000000000000000001 /* Sources */,
 				E10000000000000000000001 /* Frameworks */,
 				E30000000000000000000001 /* Resources */,
@@ -350,6 +351,44 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C50000000000000000000001 /* Generate App Info */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = YES;
+			inputPaths = (
+				"$(NARRATION_REPOSITORY_ROOT)/scripts/generate-app-info.sh",
+				"$(NARRATION_INFO_PLIST_TEMPLATE)",
+				"$(NARRATION_REPOSITORY_ROOT)/Version.xcconfig",
+				"$(NARRATION_REPOSITORY_ROOT)/.git",
+				"$(SRCROOT)/.devin",
+				"$(SRCROOT)/.gitignore",
+				"$(SRCROOT)/AGENTS.md",
+				"$(SRCROOT)/Acknowledgements",
+				"$(SRCROOT)/CONTRIBUTING.md",
+				"$(SRCROOT)/Fixtures",
+				"$(SRCROOT)/LICENSE",
+				"$(SRCROOT)/Package.resolved",
+				"$(SRCROOT)/Package.swift",
+				"$(SRCROOT)/Packaging",
+				"$(SRCROOT)/README.md",
+				"$(SRCROOT)/Sources",
+				"$(SRCROOT)/Tests",
+				"$(SRCROOT)/VoiceRelay.xcodeproj",
+				"$(SRCROOT)/docs",
+				"$(SRCROOT)/icon",
+				"$(SRCROOT)/scripts",
+			);
+			name = "Generate App Info";
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/NarrationApps-Info.plist",
+				"$(DERIVED_FILE_DIR)/NarrationApps-Info.plist.tmp",
+				"$(DERIVED_FILE_DIR)/NarrationApps-Info.plist.status.tmp",
+			);
+			shellPath = /bin/bash;
+			shellScript = (
+				"bash \"$NARRATION_REPOSITORY_ROOT/scripts/generate-app-info.sh\" \"$NARRATION_REPOSITORY_ROOT\" \"$NARRATION_INFO_PLIST_TEMPLATE\" \"$DERIVED_FILE_DIR/NarrationApps-Info.plist\" \"$MARKETING_VERSION\"",
+				"",
+			);
+		};
 		E40000000000000000000002 /* Embed MLX Metal Library */ = {
 			isa = PBXShellScriptBuildPhase;
 			inputPaths = (
@@ -424,7 +463,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				EXECUTABLE_NAME = VoiceRelayApp;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Packaging/Info.plist;
+				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/NarrationApps-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = VoiceRelay;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -432,7 +471,10 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = "$(VOICERELAY_MARKETING_VERSION)";
+				USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES;
+				NARRATION_INFO_PLIST_TEMPLATE = "$(SRCROOT)/Packaging/Info.plist";
+				NARRATION_REPOSITORY_ROOT = "$(SRCROOT)/..";
 				PRODUCT_BUNDLE_IDENTIFIER = org.voicerelay.tts;
 				PRODUCT_NAME = VoiceRelay;
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -454,7 +496,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				EXECUTABLE_NAME = VoiceRelayApp;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Packaging/Info.plist;
+				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/NarrationApps-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = VoiceRelay;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -462,7 +504,10 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = "$(VOICERELAY_MARKETING_VERSION)";
+				USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES;
+				NARRATION_INFO_PLIST_TEMPLATE = "$(SRCROOT)/Packaging/Info.plist";
+				NARRATION_REPOSITORY_ROOT = "$(SRCROOT)/..";
 				PRODUCT_BUNDLE_IDENTIFIER = org.voicerelay.tts;
 				PRODUCT_NAME = VoiceRelay;
 				PROVISIONING_PROFILE_SPECIFIER = "";
