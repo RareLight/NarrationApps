@@ -1,0 +1,14 @@
+--- a/libmp3lame/presets.c
++++ b/libmp3lame/presets.c
+@@ -289,9 +289,8 @@ apply_abr_preset(lame_global_flags * gfp, int preset, int enforce)
+     SET_OPTION(short_threshold_lrm, abr_switch_map[r].st_lrm, -1);
+     SET_OPTION(short_threshold_s, abr_switch_map[r].st_s, -1);
+ 
+-    /* ABR seems to have big problems with clipping, especially at low bitrates */
+-    /* so we compensate for that here by using a scale value depending on bitrate */
+-    lame_set_scale(gfp, lame_get_scale(gfp) * abr_switch_map[r].scale);
++    /* NarrationApps preserves the caller's input scale. Preset initialization
++     * must not introduce bitrate-dependent attenuation, including in CBR mode. */
+ 
+     SET_OPTION(maskingadjust, abr_switch_map[r].masking_adj, 0);
+     if (abr_switch_map[r].masking_adj > 0) {

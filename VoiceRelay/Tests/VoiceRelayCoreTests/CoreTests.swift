@@ -414,7 +414,13 @@ func unsafeDeliveryURLsRejected(_ value: String) {
     let xml = String(decoding: feed, as: UTF8.self)
     #expect(xml.contains("<itunes:block>yes</itunes:block>") && xml.contains("isPermaLink=\"false\""))
     #expect(xml.contains("audio/mp4") && xml.contains("length=\"\(first.episode.info!.byteLength)\""))
-    #expect(!xml.contains("articles.example") && !xml.contains("Private Author") && !xml.contains("first paragraph"))
+    // Recorded publisher links are intentional episode metadata; source bodies,
+    // private extraction metadata and local paths are not part of this feed.
+    let source = try #require(first.episode.sourceURL)
+    #expect(xml.contains("<link>\(RSS.escaped(source.absoluteString))</link>"))
+    #expect(xml.contains("&lt;a href=&quot;\(RSS.escaped(source.absoluteString))&quot;&gt;"))
+    #expect(!xml.contains("Private Author") && !xml.contains("first paragraph"))
+    #expect(!xml.contains(root.path) && !xml.contains("file://"))
     #expect(!FileManager.default.fileExists(atPath: p.database.path))
 }
 
@@ -1004,7 +1010,12 @@ private func reviewedArticle(_ path: String = "one", changed: Bool = false, host
     #expect(resumed.episode.settings.backendSettings["speed"]?.numericValue == 1.25)
     #expect(try [first.audioURL, second.audioURL, second.feedURL].map(Files.hash) == hashes)
     let feed = try String(contentsOf: resumed.feedURL, encoding: .utf8)
-    #expect(!feed.contains("articles.example") && !feed.contains("first paragraph"))
+    for result in [first, second] {
+        let source = try #require(result.episode.sourceURL)
+        #expect(feed.contains("<link>\(RSS.escaped(source.absoluteString))</link>"))
+    }
+    #expect(!feed.contains("Private Author") && !feed.contains("first paragraph"))
+    #expect(!feed.contains(root.path) && !feed.contains("file://"))
 }
 
 @Test func reviewedSpeechKeepsCapturedOptionsAndCompletedChunkAfterInterruption() async throws {
@@ -1958,7 +1969,7 @@ func queueCancellationBeforeSuccessAcknowledgementRetainsItem(_ stage: Stage) as
     }
     #expect(names == ["Debug", "Release"])
     let signing = try String(contentsOf: root.appendingPathComponent("Packaging/Signing.xcconfig"), encoding: .utf8)
-    #expect(signing.split(separator: "\n").filter { !$0.hasPrefix("//") } == ["#include \"NativeSpeech.xcconfig\"", "#include? \"../Signing.local.xcconfig\""])
+    #expect(signing.split(separator: "\n").filter { !$0.hasPrefix("//") } == ["#include \"../../Version.xcconfig\"", "#include \"NativeSpeech.xcconfig\"", "#include? \"../Signing.local.xcconfig\""])
     // Shared build settings must not acquire a developer's private team identifier.
     for object in objects.values {
         if let settings = object["buildSettings"] as? [String: Any] {

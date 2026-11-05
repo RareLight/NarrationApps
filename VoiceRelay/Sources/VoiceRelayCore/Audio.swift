@@ -22,6 +22,7 @@ struct AudioProcessor: Sendable {
             try observer?(.validation, url)
             do { native = try NativeAudio.inspect(url) }
             catch is CancellationError { throw CancellationError() }
+            catch let error as any AudioWorkInterruption { throw error }
             catch { throw RelayError.artifact("Audio inspection rejected an empty or invalid artifact.") }
         }
         if final, native.container != "m4a" { throw RelayError.artifact("Final audio is not an M4A container.") }
@@ -49,6 +50,7 @@ struct AudioProcessor: Sendable {
         if inspection.isDecoded(hash) { return }
         do { try NativeAudio.decode(url) }
         catch is CancellationError { throw CancellationError() }
+        catch let error as any AudioWorkInterruption { throw error }
         catch { throw RelayError.artifact("Audio decoding rejected an incomplete or invalid artifact.") }
         inspection.markDecoded(hash)
     }
@@ -92,6 +94,7 @@ struct AudioProcessor: Sendable {
             }
             try timeline(positions)
         } catch is CancellationError { throw CancellationError() }
+        catch let error as any AudioWorkInterruption { throw error }
         catch { throw RelayError.artifact("Native AAC encoding could not finish this recording.") }
         let elapsed = ProcessInfo.processInfo.systemUptime - start
         let info = try diagnostics.measure(.validation) {

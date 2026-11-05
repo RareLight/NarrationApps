@@ -12,8 +12,10 @@ notices and preparation tools with their owner. Both apps inherit root Git histo
 commit coordinated changes once, without restoring obsolete app SHA pins.
 
 Use native Swift/Apple APIs; maintain no Python runtime or product CLI. Keep MLX
-helper-only, one speech worker per app, Libro interactive priority and VoiceRelay
-background priority through the shared lease. Never normalize, level, limit or
+helper-only and one speech worker per app. Production coordination ranks API >
+Libro > podcasts; streaming cancels and joins unfinished lower-priority units,
+while file/Libro handoffs yield safely. Keep legacy exclusion for older builds.
+Never normalize, level, limit or
 apply gain to audio. Preserve original text/mappings, private data, model assets,
 user settings, completed recordings and unrelated changes. Keep pinned dependencies
 reproducible; never copy build caches between checkouts.

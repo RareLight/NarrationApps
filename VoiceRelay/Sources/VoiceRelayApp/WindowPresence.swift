@@ -46,9 +46,23 @@ final class StatusItemPopoverHost: NSObject, NSPopoverDelegate {
         controller.sizingOptions = [.preferredContentSize]
         popover.contentViewController = controller
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // Status-item clicks do not activate an accessory app; the panel cannot
+        // become key until the app is active.
+        NSApp.activate(ignoringOtherApps: true)
     }
     func dismiss() { popover.performClose(nil) }
-    func popoverDidClose(_ notification: Notification) { popover.contentViewController = nil }
+    func popoverDidClose(_ notification: Notification) {
+        popover.contentViewController = nil
+        // Activation belongs to the transient panel: release it unless a scene
+        // window took over. prepareToOpen runs before the deferred check, so a
+        // menu action that opens a window keeps its activation either way.
+        let opens = WindowPresence.shared.openRequests
+        DispatchQueue.main.async {
+            guard WindowPresence.shared.openRequests == opens,
+                  !NSApp.windows.contains(where: { $0.isVisible }) else { return }
+            NSApp.deactivate()
+        }
+    }
     func stop() {
         dismiss()
         if let item { NSStatusBar.system.removeStatusItem(item) }
@@ -103,6 +117,9 @@ final class WindowPresence {
     private var closed: Set<ObjectIdentifier> = []
     private var refreshScheduled = false
     private var observers: [NSObjectProtocol] = []
+    /// Serial of scene-window open requests; the menu host compares it when the
+    /// popover closes so its activation release never steals a window's focus.
+    private(set) var openRequests = 0
 
     private init() {
         let center = NotificationCenter.default
@@ -125,6 +142,7 @@ final class WindowPresence {
         windows.add(window); closed.remove(ObjectIdentifier(window)); scheduleRefresh()
     }
     func prepareToOpen() {
+        openRequests += 1
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }

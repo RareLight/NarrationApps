@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import NarrationCore
 import NarrationUI
+import ProcessingPipeline
 @testable import VoiceRelayCore
 @testable import VoiceRelayApp
 
@@ -10,6 +11,59 @@ private final class RuntimeCheckProbe: @unchecked Sendable {
     private var count = 0
     var calls: Int { lock.withLock { count } }
     func next() -> Int { lock.withLock { count += 1; return count } }
+}
+
+@Test @MainActor func automaticWaitingPreservesProgressAndRejectsLateScopeAndRunEvents() async throws {
+    let model = AppModel(preview: true)
+    model.running = true
+    model.progress = PipelineProgress(stage: .synthesizing, completedChunks: 2, totalChunks: 5)
+    model.batchProgress = QueueBatchProgress(stage: .synthesizing, completedChunks: 2, totalChunks: 5,
+        completedArticles: 0, totalArticles: 1, currentArticleIndex: 1)
+    let originalProgress = model.batchProgress, fraction = model.processingFraction
+    let source = UUID(), other = UUID(), token = model.progressID
+    model.recordWorkStatus(article: "article", event: .init(source: source, sequence: 1, reason: .api), token: token)
+    #expect(model.speechWaitingLabel == "Waiting for VoiceServer" && model.processingStatusLine == "Waiting for VoiceServer")
+    #expect(model.batchProgress == originalProgress && model.processingFraction == fraction)
+    #expect(model.error == nil && !model.cancelling)
+    model.recordWorkStatus(article: "article", event: .init(source: other, sequence: 1, reason: nil), token: token)
+    #expect(model.speechWaitingLabel == "Waiting for VoiceServer")
+    model.recordWorkStatus(article: "article", event: .init(source: source, sequence: 3, reason: nil), token: token)
+    model.recordWorkStatus(article: "article", event: .init(source: source, sequence: 2, reason: .api), token: token)
+    #expect(model.speechWaitingLabel == nil && model.batchProgress == originalProgress)
+    model.recordWorkStatus(article: "article", event: .init(source: source, sequence: 4, reason: .api), token: UUID())
+    #expect(model.speechWaitingLabel == nil)
+    let complete = model.queueHandler
+    complete(.init(id: "article", title: "Synthetic", state: .completed, attempts: 1))
+    #expect(await awaitCondition { model.completedQueueIDs.contains("article") })
+    model.recordWorkStatus(article: "article", event: .init(source: source, sequence: 5, reason: .api), token: token)
+    #expect(model.workStatusStates["article"] == nil && model.speechWaitingLabel == nil)
+    await model.shutdown()
+}
+
+@Test @MainActor func coordinatedAppQuitJoinsPlatformLeaseAndClosesWorkerOwner() async throws {
+    let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("relay-host-quit-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let owner = try SpeechWorkCoordinator(owner: .voiceRelay,
+        configuration: .init(executable: URL(fileURLWithPath: "/synthetic/unused-worker"), inferenceLeaseFile: root.appendingPathComponent("inference.lock")),
+        root: root.appendingPathComponent("admission"))
+    let model = AppModel(preview: true, speechWorkCoordinator: owner)
+    #expect(model.speechWorkCoordinator === owner)
+    var lease: InferenceLease? = try await owner.hostAdmission.withContext { try await InferenceLease.acquire() }
+    var finished = false
+    let quit = Task { await model.shutdown(); finished = true }
+    #expect(await awaitCondition { model.stopping })
+    #expect(!finished)
+    lease = nil; withExtendedLifetime(lease) {}
+    await quit.value
+    #expect(finished)
+    do {
+        _ = try await owner.hostAdmission.withContext { try await InferenceLease.acquire() }
+        Issue.record("Quit accepted new host work")
+    } catch is CancellationError {}
+    do {
+        _ = try await owner.openJob(identity: .init(batch: UUID(), job: UUID()), settings: .init(), workspace: root, rank: .api)
+        Issue.record("Quit accepted new speech work")
+    } catch {}
 }
 
 @Test @MainActor func safariSourceDefaultsWithoutOverridingChosenOrIsolatedSources() async throws {
@@ -92,19 +146,25 @@ private final class RuntimeCheckProbe: @unchecked Sendable {
     let probe = RuntimeCheckProbe()
     let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults, runtimeSetup: { _, _, _, _ in
         if probe.next() == 1 { throw RelayError.setup("Synthetic verification failure") }
-    })
+    }, runtimeInstalled: { _ in true })
     model.startSpeechSetupValidation()
     model.checkSpeechRuntime(); await model.waitForRuntimeSetup()
     #expect(model.runtimeTestResult == .failure("Synthetic verification failure"))
+    #expect(probe.calls == 1)
     #expect(!model.speechRuntimeAvailable && model.canManageSpeechRuntime)
     _ = SpeechModelSettingsHeader(status: model.speechSetupStatus, validating: model.speechSetupValidating,
         canRepair: model.canManageSpeechRuntime, repair: model.installSpeechRuntime, explanation: "Synthetic.").body
     model.checkSpeechRuntime(); await model.waitForRuntimeSetup()
     #expect(model.runtimeTestResult == .success && model.speechRuntimeAvailable)
-    let cancelled = AppModel(storage: betaAppStorage(root, "other"), defaults: defaults, runtimeSetup: { _, _, _, _ in throw CancellationError() })
+    #expect(probe.calls == 2) // An explicit retry performs exactly one new verification.
+    let cancelledProbe = RuntimeCheckProbe()
+    let cancelled = AppModel(storage: betaAppStorage(root, "other"), defaults: defaults, runtimeSetup: { _, _, _, _ in
+        _ = cancelledProbe.next(); throw CancellationError()
+    }, runtimeInstalled: { _ in true })
     cancelled.startSpeechSetupValidation()
     cancelled.checkSpeechRuntime(); await cancelled.waitForRuntimeSetup()
     #expect(cancelled.runtimeTestResult == .untested && !cancelled.speechRuntimeAvailable && cancelled.canManageSpeechRuntime)
+    #expect(cancelledProbe.calls == 1)
     _ = SpeechModelSettingsHeader(status: cancelled.speechSetupStatus, validating: false,
         canRepair: true, repair: {}, explanation: "Synthetic.").body
     await model.shutdown(); await cancelled.shutdown()
@@ -541,7 +601,7 @@ private final class RuntimeInstallationProbe: @unchecked Sendable {
     let suite = "voicerelay-setup-guidance-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let model = AppModel(storage: betaAppStorage(root, "state"), defaults: defaults,
-        runtimeSetup: { _, _, _, _ in throw CocoaError(.fileNoSuchFile) })
+        runtimeSetup: { _, _, _, _ in throw CocoaError(.fileNoSuchFile) }, runtimeInstalled: { _ in true })
     model.startSpeechSetupValidation()
     model.checkSpeechRuntime(); await model.waitForRuntimeSetup()
     guard case .failure(let offline) = model.runtimeTestResult else { Issue.record("Check should fail"); return }

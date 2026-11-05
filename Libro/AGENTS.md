@@ -9,9 +9,10 @@ repository, indexed by ../docs/README.md. It supersedes previous CLI/Python work
 the shared packages; keep Libro-specific GUI/workflow in this monorepo directory.
 Target macOS 27.0 and native Swift/Apple APIs. Native engines are Kokoro,
 Soprano, Qwen3-TTS CustomVoice, Chatterbox Turbo and Orpheus. Keep MLX linked only into the private native helper, never the GUI. Speech has one
-worker only and no serial/parallel UI mode. Libro requests interactive priority
-over background VoiceRelay through the shared lease; do not interrupt in-flight
-GPU work or change audio levels.
+worker only and no serial/parallel UI mode. Shared priority is API > Libro >
+podcasts. Streaming cancellation joins the owned producer and GPU drain before
+handoff; complete-file/Libro handoffs yield at safe boundaries. Preserve verified
+checkpoints, explicit recovery consent and audio levels.
 
 Inspect relevant source/config/docs/tests before changes. Preserve unrelated work,
 private data, model caches, finished/published audio and existing user settings.

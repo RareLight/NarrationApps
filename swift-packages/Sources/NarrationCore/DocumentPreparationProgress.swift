@@ -1,6 +1,6 @@
 /// Measured work within a preparation phase, never an estimate of overall job time.
 public struct DocumentPreparationProgress: Sendable, Equatable {
-    public enum Stage: Sendable { case readingFile, readingEPUBStructure, extractingEPUBChapter, readingPDFStructure, reviewingPDFLayout, extractingText, renderingOCR, waitingForOCR, recognizingText, reviewingImages, waitingForImageDescription, describingImage, planningNarration, phonemizing }
+    public enum Stage: Sendable { case readingFile, readingEPUBStructure, extractingEPUBChapter, readingPDFStructure, reviewingPDFLayout, extractingText, renderingOCR, waitingForOCR, recognizingText, reviewingImages, waitingForImageDescription, describingImage, planningNarration, phonemizing, tokenizing }
     public enum Unit: Sendable { case pages, images, passages, chapters }
     public let stage: Stage
     public let completed: Int
@@ -33,6 +33,7 @@ public struct DocumentPreparationProgress: Sendable, Equatable {
         case .reviewingImages: return currentPage == nil ? "Reviewing image descriptions…" : "Reviewing imagery on \(page)…"
         case .waitingForImageDescription: return "Waiting for on-device image description · \(page)…"
         case .describingImage: return currentPage == nil ? "Describing image…" : "Describing imagery on \(page)…"
+        case .tokenizing: return "Preparing text tokens and model utterances…"
         case .phonemizing: return "Preparing pronunciation and model utterances…"
         case .planningNarration: return "Preparing narration and speech chunks…"
         }

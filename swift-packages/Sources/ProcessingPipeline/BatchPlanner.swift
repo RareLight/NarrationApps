@@ -26,15 +26,17 @@ public struct BatchRequest: Sendable {
     public let narrationOptions: NarrationOptions
     public let coverArtwork: [UUID: CoverArtwork]
     public let approvedReplacements: Set<UUID>
+    public let textPreparationWorkers: Int
 
     public init(documents: [PlannedDocument], outputDirectory: URL, workspace: URL, settings: SpeechSettings,
-                describeImages: Bool = false, replaceExisting: Bool = false, outputFormat: AudioOutputFormat = .wav, pronunciations: PronunciationDictionary = .empty, coverArtwork: [UUID: CoverArtwork] = [:], narrationOptions: NarrationOptions = .init()) {
+                describeImages: Bool = false, replaceExisting: Bool = false, outputFormat: AudioOutputFormat = .wav, pronunciations: PronunciationDictionary = .empty, coverArtwork: [UUID: CoverArtwork] = [:], narrationOptions: NarrationOptions = .init(), id: UUID = UUID(), approvedReplacements: Set<UUID>? = nil, textPreparationWorkers: Int = 1) {
+        self.textPreparationWorkers = textPreparationWorkers
         self.narrationOptions = narrationOptions
         self.coverArtwork = coverArtwork
-        self.pronunciations = pronunciations; id = UUID(); self.documents = documents; self.outputDirectory = outputDirectory
+        self.pronunciations = pronunciations; self.id = id; self.documents = documents; self.outputDirectory = outputDirectory
         self.workspace = workspace; self.settings = settings; self.describeImages = describeImages
         self.outputFormat = outputFormat
-        approvedReplacements = replaceExisting ? Set(documents.filter(\.replacesExisting).map(\.id)) : []
+        self.approvedReplacements = approvedReplacements ?? (replaceExisting ? Set(documents.filter(\.replacesExisting).map(\.id)) : [])
     }
 }
 
@@ -146,6 +148,7 @@ public enum BatchPlanner {
         private let bindings: [UUID: URL]
 
         init(_ request: BatchRequest) throws {
+            guard CPUTextPreparation.validates(request.textPreparationWorkers) else { throw SpeechFailure(.invalidInput) }
             self.request = request
             root = try OutputPaths.resolved(request.outputDirectory)
             protection = try Protection(request.documents.map(\.input))

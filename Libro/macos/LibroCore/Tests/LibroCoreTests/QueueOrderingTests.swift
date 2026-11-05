@@ -34,5 +34,7 @@ final class QueueOrderingTests: XCTestCase {
         XCTAssertEqual(QueueStatusPresentation.preparation(.init(stage: .extractingText, completed: 2, total: 10)), "Analyzing text 2/10")
         XCTAssertEqual(QueueStatusPresentation.preparation(.init(stage: .waitingForOCR)), "Waiting for analysis…")
         XCTAssertEqual(QueueStatusPresentation.preparation(.init(stage: .phonemizing)), "Preparing pronunciation…")
+        XCTAssertEqual(QueueStatusPresentation.preparation(.init(stage: .tokenizing)), "Preparing text tokens…")
+        XCTAssertEqual(QueueStatusPresentation.preparation(.init(stage: .tokenizing, completed: 2, total: 5, unit: .passages)), "Preparing text tokens 2/5")
     }
 }

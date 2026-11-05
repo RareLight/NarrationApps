@@ -30,7 +30,7 @@ public enum NarrationText {
         var start = text.startIndex
         var units: [String] = []
         for end in ends {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             if start < end { units += try split(String(text[start..<end]), maximum: maximum) }
             start = end
         }
@@ -53,7 +53,7 @@ public enum NarrationText {
         var rest = text[...]
         var result: [String] = []
         while rest.unicodeScalars.count > maximum {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             var cut = rest.startIndex
             var count = 0
             for character in rest {

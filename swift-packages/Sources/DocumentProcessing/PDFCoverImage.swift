@@ -6,7 +6,7 @@ import NarrationCore
 
 enum PDFCoverImage {
     static func read(_ url: URL) throws -> Data? {
-        try Task.checkCancellation()
+        try NarrationWorkCheckpoint.check()
         guard let document = PDFDocument(url: url), !document.isLocked,
               let page = document.page(at: 0), let reference = page.pageRef else { return nil }
         let bounds = page.bounds(for: .cropBox)
@@ -26,8 +26,9 @@ enum PDFCoverImage {
         context.setFillColor(CGColor(gray: 1, alpha: 1))
         context.fill(destination)
         context.concatenate(reference.getDrawingTransform(.cropBox, rect: destination, rotate: 0, preserveAspectRatio: true))
+        try NarrationWorkCheckpoint.check()
         context.drawPDFPage(reference)
-        try Task.checkCancellation()
+        try NarrationWorkCheckpoint.check()
         guard let image = context.makeImage(), try hasVisibleContent(image) else { return nil }
         let data = NSMutableData()
         guard let output = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
@@ -35,6 +36,7 @@ enum PDFCoverImage {
         }
         CGImageDestinationAddImage(output, image, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
         guard CGImageDestinationFinalize(output) else { throw DocumentReadError.malformed }
+        try NarrationWorkCheckpoint.check()
         return data as Data
     }
 

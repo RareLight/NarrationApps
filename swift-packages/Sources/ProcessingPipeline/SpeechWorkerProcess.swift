@@ -19,7 +19,11 @@ public struct WorkerConfiguration: Sendable {
     public var inferencePriority: InferencePriority
     public var inferenceLeaseFile: URL
     public var preparationPolicy: SpeechPreparationPolicy = .current
+    public var textPreparationWorkers: Int = 1
     public var maximumFootprintBytes: UInt64
+    /// Explicit opt-in while both app persistence adapters are integrated.
+    /// The app creates one coordinator and shares it with all native sessions.
+    public var workCoordinator: SpeechWorkCoordinator?
 
     public init(executable: URL, arguments: [String] = ["--serve"],
                 environment: [String: String] = [:], requestTimeout: Duration = .seconds(180),
@@ -204,7 +208,7 @@ final class SpeechWorkerProcess: @unchecked Sendable {
             let result: Result<WorkerEvent, Error>
             if event.kind == .failure, let code = event.failure {
                 result = .failure(SpeechFailure(code, operation: active.command.kind, chunk: active.command.chunk, source: event.source))
-            } else if (active.command.kind == .initialize && event.kind == .ready) ||
+            } else if ([.initialize, .loadPreparation, .releasePreparation, .loadSpeech].contains(active.command.kind) && event.kind == .ready) ||
                         ([.generate, .generatePrepared].contains(active.command.kind) && event.kind == .chunk) ||
                         (active.command.kind == .prepareText && event.kind == .textPrepared) ||
                         (active.command.kind == .prepare && event.kind == .prepared) {

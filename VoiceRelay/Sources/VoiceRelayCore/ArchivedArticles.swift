@@ -51,10 +51,14 @@ public struct ArticleSourceLoader: Sendable {
     private let narrationOptions: NarrationOptions
     private let speechSettings: SpeechSettings
     private let pronunciations: PronunciationDictionary
+    private let hostAdmission: SpeechHostAdmission?
+    private let cpuExecutor: (any NarrationCPUExecutor)?
     public init(limits: FetchLimits, useArchives: Bool = false, fetch: Fetch? = nil, archiveFetch: ArchiveFetch? = nil,
                 debugLog: DeliveryDebugLog? = nil, imageFetch: ImageFetch? = nil, imageCaption: ImageCaption? = nil,
                 describeImages: Bool = true, speechSettings: SpeechSettings = .init(), pronunciations: PronunciationDictionary = .empty, narrationOptions: NarrationOptions = .init(),
-                sourceTitle: String? = nil, generateMissingTitles: Bool = false, titleGenerator: DocumentTitles.Generate? = nil) {
+                sourceTitle: String? = nil, generateMissingTitles: Bool = false, titleGenerator: DocumentTitles.Generate? = nil,
+                hostAdmission: SpeechHostAdmission? = nil, cpuExecutor: (any NarrationCPUExecutor)? = nil) {
+        self.hostAdmission = hostAdmission; self.cpuExecutor = cpuExecutor
         self.limits = limits; self.useArchives = useArchives; self.fetch = fetch; self.archiveFetch = archiveFetch
         self.debugLog = debugLog
         self.imageFetch = imageFetch; self.imageCaption = imageCaption
@@ -63,6 +67,13 @@ public struct ArticleSourceLoader: Sendable {
         self.sourceTitle = sourceTitle; self.generateMissingTitles = generateMissingTitles; self.titleGenerator = titleGenerator
     }
     public func load(_ url: URL, savedAt: Date? = nil, chunkLimit: Int) async throws -> ReviewedSource {
+        try await NarrationPreparationWork.$executor.withValue(cpuExecutor ?? NarrationPreparationWork.executor) {
+            try await InferenceLease.$hostAdmission.withValue(hostAdmission ?? InferenceLease.hostAdmission) {
+                try await loadSource(url, savedAt: savedAt, chunkLimit: chunkLimit)
+            }
+        }
+    }
+    private func loadSource(_ url: URL, savedAt: Date?, chunkLimit: Int) async throws -> ReviewedSource {
         try ArticleURL.validate(url); try Task.checkCancellation()
         var original: ReviewedSource?
         var failure: SourceFetchError?
@@ -121,9 +132,18 @@ public struct ArticleSourceLoader: Sendable {
     }
     private func review(_ page: FetchedPage, chunkLimit: Int) async throws -> ReviewedSource {
         // Injected transports are inert: only an explicit fake generator may run with them.
-        let generator: DocumentTitles.Generate? = generateMissingTitles
-            ? (titleGenerator ?? (fetch == nil && archiveFetch == nil ? DocumentTitles.generateOnDevice : nil)) : nil
-        let work = Task.detached { try Task.checkCancellation(); return try await ReviewedSource.prepareAsync(page, chunkLimit: chunkLimit, settings: speechSettings, pronunciations: pronunciations, options: narrationOptions, sourceTitle: sourceTitle, titleGenerator: generator) }
+        let generator: DocumentTitles.Generate? = generateMissingTitles ? titleGenerator : nil
+        let admittedGenerator: DocumentTitles.AdmittedGenerate? = generateMissingTitles && titleGenerator == nil && fetch == nil && archiveFetch == nil
+            ? DocumentTitles.generateOnDevice : nil
+        let hostAdmission = InferenceLease.hostAdmission, cpuExecutor = NarrationPreparationWork.executor
+        let work = Task.detached {
+            try await NarrationPreparationWork.$executor.withValue(cpuExecutor) {
+                try await InferenceLease.$hostAdmission.withValue(hostAdmission) {
+                    try Task.checkCancellation()
+                    return try await ReviewedSource.prepareAsync(page, chunkLimit: chunkLimit, settings: speechSettings, pronunciations: pronunciations, options: narrationOptions, sourceTitle: sourceTitle, titleGenerator: generator, admittedTitleGenerator: admittedGenerator)
+                }
+            }
+        }
         let result = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
         try Task.checkCancellation()
         return try await ImageNarration.enrich(result, chunkLimit: chunkLimit,

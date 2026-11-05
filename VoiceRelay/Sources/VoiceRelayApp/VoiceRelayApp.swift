@@ -36,6 +36,12 @@ final class AppModel {
     var status = "Select articles to add to the queue"
     var error: String?
     var progress: PipelineProgress?
+    var workStatusStates: [String: SpeechWorkStatusProjection] = [:]
+    var speechWaitingLabel: String? {
+        guard running, !cancelling, !stopping else { return nil }
+        let reasons = workStatusStates.values.compactMap(\.reason)
+        return [SpeechWorkWait.api, .maintenance, .libro, .manualPause].first { reasons.contains($0) }?.statusLabel
+    }
     var batchProgress: QueueBatchProgress?
     @ObservationIgnored private(set) var progressID = UUID()
     @ObservationIgnored var completedQueueIDs: Set<String> = []
@@ -82,7 +88,12 @@ final class AppModel {
     var pronunciationConfiguration: PronunciationPreviewConfiguration? {
         guard !pronunciationIsInert, !stopping, !running, !runtimeBusy, !modelStorage.isBusy, !speechSetupValidation.hasOwnedWork, speechRuntimeAvailable else { return nil }
         return .init(worker: NativeSpeechSetup.workerExecutable, workspace: runtimeProject,
-            settings: preferences.modelSelection, priority: .background)
+            settings: preferences.modelSelection, priority: .background, workCoordinator: speechWorkCoordinator)
+    }
+    var sourceCPUWork: SpeechCPUContext? {
+        guard !pronunciationIsInert, !stopping, let speechWorkCoordinator else { return nil }
+        return .init(coordinator: speechWorkCoordinator, settings: preferences.modelSelection,
+            workspace: runtimeProject, rank: .podcast)
     }
     var preferences = SpeechPreferences() { didSet { if oldValue.modelSelection != preferences.modelSelection { voiceSamplePlayer.stop(); pronunciationPreview.stop(); runtimeTestResult = .untested; runtimeVerificationFailed = false }; savePreferences() } }
     var audioCleanupError: String?
@@ -175,6 +186,9 @@ final class AppModel {
     var deliveryTesting = false
     var deliveryTestResult: DeliveryTestResult = .untested
     var deliveryConnectionVerified = false
+    /// The feed folder whose server inventory was last reconciled, as reported by
+    /// delivery summaries; check evidence belongs to that destination only.
+    var reconciledDeliveryDestination: URL?
     @ObservationIgnored private var deliveryVerificationID = UUID()
     var syncBusy = false
     var syncPhase: SyncPhase?
@@ -254,7 +268,7 @@ final class AppModel {
     }
     var sourceReview = SourceReviewModel(preview: true)
     var runtimeProject = NativeSpeechSetup.managedRoot
-    let modelStorage = ModelStorageMaintenance()
+    let modelStorage: ModelStorageMaintenance
     var modelStorageRevision = 0
     var runtimeBusy = false
     var runtimeTestResult: SpeechRuntimeTestResult = .untested
@@ -292,7 +306,10 @@ final class AppModel {
     }
     @ObservationIgnored var runtimeTask: Task<Void, Never>?
     @ObservationIgnored private var libraryMaintenanceTask: Task<Void, Never>?
-    @ObservationIgnored let coordinator = FixtureCoordinator()
+    @ObservationIgnored let coordinator: FixtureCoordinator
+    /// Shared by all production speech and live API work in this app.
+    @ObservationIgnored let speechWorkCoordinator: SpeechWorkCoordinator?
+    var voiceServer: VoiceServerModel?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var enqueueTask: Task<Void, Never>?
     @ObservationIgnored private var queueMutationTask: Task<Void, Never>?
@@ -356,7 +373,16 @@ final class AppModel {
          readingListReader: (@Sendable (URL) async throws -> ReadingListSnapshot)? = nil,
          loginItemService: (any LoginItemService)? = nil,
          podcastCoverStore: CoverArtworkStore? = nil,
-         defaultPodcastCoverURL: URL? = nil) {
+         defaultPodcastCoverURL: URL? = nil,
+         speechWorkCoordinator: SpeechWorkCoordinator? = nil) {
+        self.speechWorkCoordinator = speechWorkCoordinator
+        coordinator = FixtureCoordinator(metadataCPUExecutor: speechWorkCoordinator.map {
+            SpeechCPUContext(coordinator: $0, settings: .init(), workspace: AppStorage.root, rank: .podcast)
+        })
+        if let owner = speechWorkCoordinator {
+            let perform: ModelStorageMaintenance.Perform = { operation in try await owner.withMaintenance(operation) }
+            modelStorage = ModelStorageMaintenance(perform: perform)
+        } else { modelStorage = ModelStorageMaintenance() }
         storageOverride = storage; backendOverride = backend; enqueueFetchOverride = enqueueFetch
         archiveFetchOverride = archiveFetch
         runtimeSetupOverride = runtimeSetup
@@ -729,7 +755,15 @@ final class AppModel {
         defaults.set(bytes, forKey: "speechPreferences")
     }
     var readyQueueCount: Int { queueItems.filter { $0.state.isReady }.count }
-    var canGenerateAudio: Bool { !sourcePruningBusy && !deliveryPreflightBusy && !preview && !stopping && !runtimeBusy && !modelStorage.isBusy && !libraryMaintenanceBusy && !libraryReviewRequired && !speechSetupValidation.hasOwnedWork && (speechRuntimeAvailable || (readyQueueCount > 0 && FileManager.default.isExecutableFile(atPath: NativeSpeechSetup.workerExecutable.path))) && !running && !audioMutationBusy
+    /// Admission and processing hold until publishing is enabled, valid and
+    /// reconciled at the current feed folder; recovery can only skip server
+    /// copies it has actually inspected.
+    var deliveryServerChecked: Bool {
+        deliverySettings.enabled && (try? deliverySettings.validate()) != nil
+            && reconciledDeliveryDestination != nil
+            && reconciledDeliveryDestination == (try? deliverySettings.normalized())?.feedFolderURL
+    }
+    var canGenerateAudio: Bool { !sourcePruningBusy && !deliveryPreflightBusy && !preview && !stopping && !runtimeBusy && !modelStorage.isBusy && !libraryMaintenanceBusy && !libraryReviewRequired && deliveryServerChecked && !speechSetupValidation.hasOwnedWork && (speechRuntimeAvailable || (readyQueueCount > 0 && FileManager.default.isExecutableFile(atPath: NativeSpeechSetup.workerExecutable.path))) && !running && !audioMutationBusy
                                  && !sourceReview.maintenanceSuspended && (readyQueueCount > 0 || !pendingAdds.isEmpty) }
     var canStopProcessing: Bool { !preview && !stopping && processingSpeech && !cancelling }
     var canResetQueue: Bool { !preview && !stopping && !libraryMaintenanceBusy && !libraryReviewRequired && !running && !cancelling && !isQueueResetPending
@@ -752,6 +786,7 @@ final class AppModel {
     }
     var processingStatusLine: String {
         if cancelling { return "Stopping…" }
+        if let waiting = speechWaitingLabel { return waiting }
         if running, let batch = batchProgress {
             var line = batch.stage == .published && batch.completedArticles < batch.totalArticles
                 ? "Checking saved audio" : batch.stage.friendlyLabel
@@ -841,6 +876,9 @@ final class AppModel {
                         if allowDelivery && delivery.needsDrain { triggerDelivery() }
                     }
                 }
+                // A destination check completed during this refresh may be the first
+                // one admission was waiting on; the gate inside stays authoritative.
+                if deliveryServerChecked { await autoAdmitNewEntries() }
                 if !launchResumeDone {
                     launchResumeDone = true
                     await resumeInterruptedForAutomation()
@@ -866,15 +904,23 @@ final class AppModel {
         if let backendOverride { return backendOverride }
         let project = runtimeProject
         let dictionaryStore: PronunciationStore? = pronunciationIsInert ? nil : .init()
+        let workCoordinator = speechWorkCoordinator
+        let workStatus = workStatusHandler
         return { episode in
-            try NativeMLXBackend(configuration: NativeSpeechConfiguration(projectRoot: project,
-                settings: episode.settings.speechSelection ?? .init(voice: episode.settings.voice ?? "af_heart", speed: Float(episode.settings.backendSettings["speed"]?.numericValue ?? 1))), pronunciations: dictionaryStore?.load().dictionary ?? .empty, gapSeconds: episode.settings.gapSeconds, narrationOptions: episode.settings.narrationOptions ?? .init())
+            let native = try NativeSpeechConfiguration(projectRoot: project,
+                settings: episode.settings.speechSelection ?? .init(voice: episode.settings.voice ?? "af_heart", speed: Float(episode.settings.backendSettings["speed"]?.numericValue ?? 1)))
+            var worker = WorkerConfiguration(executable: NativeSpeechSetup.workerExecutable,
+                requestTimeout: .seconds(native.synthesisTimeout), inferencePriority: .background)
+            worker.workCoordinator = workCoordinator
+            return try NativeMLXBackend(configuration: native, worker: worker, pronunciations: dictionaryStore?.load().dictionary ?? .empty, gapSeconds: episode.settings.gapSeconds, narrationOptions: episode.settings.narrationOptions ?? .init(), onWorkStatus: workStatus)
         }
     }
     private func resetProgress() {
+        workStatusStates = [:]
         progressID = UUID(); completedQueueIDs.removeAll(); progress = nil; batchProgress = nil
     }
     private func finishProcessing() {
+        workStatusStates = [:]
         // Invalidate queued MainActor callbacks before releasing ownership of this task.
         progressID = UUID()
         let wasCancelling = cancelling, wasStopped = stopped
@@ -903,7 +949,7 @@ final class AppModel {
     }
     func canAddArticles(_ entries: [ReadingListEntry]) -> Bool {
         !preview && !stopping && !libraryMaintenanceBusy && !libraryReviewRequired && !queueMutationBusy
-            && !sourceReview.busy && !sourceReview.maintenanceSuspended && !entries.isEmpty
+            && deliveryServerChecked && !sourceReview.busy && !sourceReview.maintenanceSuspended && !entries.isEmpty
     }
     func queueOriginHost(_ item: SpeechQueueItem) -> String? {
         item.sourceHost ?? sourceReview.catalog.entries.first { $0.id == item.sourceEntryID }?.url.host
@@ -918,7 +964,7 @@ final class AppModel {
     }
     /// Shared admission path for manual Add to Queue and automatic discovery adds.
     private func admit(entries: [ReadingListEntry], automatic: Bool) {
-        guard !libraryMaintenanceBusy, !stopping else { return }
+        guard deliveryServerChecked, !libraryMaintenanceBusy, !stopping else { return }
         // Snapshot list order and settings at the click; selection order never changes FIFO.
         let storage = speechStorage, choices = preferences
         if !automatic {
@@ -996,14 +1042,14 @@ final class AppModel {
     /// Entries whose admission failed are skipped for the rest of the session.
     func autoAdmitNewEntries(explicit: Bool = false) async {
         guard !sourcePruningBusy, !libraryMaintenanceBusy, !libraryReviewRequired, !deliveryPreflightBusy else { return }
-        guard (explicit || (autoAdmitEnabled && !syncPreparing)), !preview, !stopping,
+        guard (explicit || (autoAdmitEnabled && !syncPreparing)), !preview, !stopping, deliveryServerChecked,
               !sourceReview.busy, !sourceReview.maintenanceSuspended else { return }
         let catalog = sourceReview.catalog
         let root = storageOverride?.stateRoot ?? AppStorage.managedLibrary
         let liveQueue: [SpeechQueueItem]
         do { liveQueue = try await coordinator.queue(stateRoot: root) }
         catch { return } // An unreadable library cannot authorize fresh admission.
-        guard !Task.isCancelled, !stopping, !libraryMaintenanceBusy, !libraryReviewRequired,
+        guard !Task.isCancelled, !stopping, !libraryMaintenanceBusy, !libraryReviewRequired, deliveryServerChecked,
               !sourcePruningBusy, !deliveryPreflightBusy, !sourceReview.busy, !sourceReview.maintenanceSuspended,
               (explicit || (autoAdmitEnabled && !syncPreparing)),
               sourceReview.catalog.entries == catalog.entries, sourceReview.catalog.currentIDs == catalog.currentIDs else { return }
@@ -1027,7 +1073,7 @@ final class AppModel {
             do { if try await coordinator.hasRecordedArticle(entry: entry, stateRoot: root) == false { fresh.append(entry) } }
             catch { return }
         }
-        guard !fresh.isEmpty, !Task.isCancelled, !stopping, !libraryMaintenanceBusy, !libraryReviewRequired,
+        guard !fresh.isEmpty, !Task.isCancelled, !stopping, !libraryMaintenanceBusy, !libraryReviewRequired, deliveryServerChecked,
               !sourcePruningBusy, !deliveryPreflightBusy, !sourceReview.busy, !sourceReview.maintenanceSuspended,
               (explicit || (autoAdmitEnabled && !syncPreparing)),
               sourceReview.catalog.entries == catalog.entries, sourceReview.catalog.currentIDs == catalog.currentIDs else { return }
@@ -1076,12 +1122,15 @@ final class AppModel {
                 }
                 if !processingSpeech && !running { status = "Adding \(saved + issues.count + 1): \(entry.title)" }
                 do {
+                    var cpuWork = sourceCPUWork
+                    let control = next.control
+                    cpuWork?.cancelled = { control.isCancelled }
                     let item = try await coordinator.enqueueReadingList(entry.id, storage: next.storage, preferences: next.preferences,
                         fetch: fetch, useArchives: useArchivedArticles && (storageOverride == nil || archiveFetchOverride != nil),
                         archiveFetch: archiveFetchOverride, debugLog: deliveryDebugLog,
-                        describeImages: describeArticleImages, generateMissingTitles: generateMissingTitles, shouldCommit: { [weak self] in
-                            await MainActor.run { self != nil && !self!.stopping && self!.pendingTokens[entry.id] == next.token }
-                        }, admissionControl: next.control)
+                        describeImages: describeArticleImages, generateMissingTitles: generateMissingTitles, shouldCommit: { [self] in
+                            await MainActor.run { !self.stopping && self.pendingTokens[entry.id] == next.token }
+                        }, admissionControl: next.control, hostAdmission: speechWorkCoordinator?.hostAdmission, cpuExecutor: cpuWork)
                     admissionQueue.removeAll { $0.token == next.token }
                     if pendingTokens[entry.id] == next.token {
                         pendingAdds[entry.id] = nil; pendingTokens[entry.id] = nil; pendingControls[entry.id] = nil
@@ -1195,7 +1244,7 @@ final class AppModel {
         enqueueQueueMutation(targets: [.episode(item.id)]) { [self] in
             do {
                 let updated = try await coordinator.renameQueuedArticle(item.id, title: title,
-                    stateRoot: storageOverride?.stateRoot ?? AppStorage.managedLibrary)
+                    stateRoot: storageOverride?.stateRoot ?? AppStorage.managedLibrary, cpuExecutor: sourceCPUWork)
                 if let index = queueItems.firstIndex(where: { $0.id == updated.id }) { queueItems[index] = updated }
                 if let sourceID = updated.sourceEntryID { sourceReview.catalog.setResolvedTitle(updated.title, for: sourceID) }
                 status = "Article title updated"
@@ -1278,9 +1327,10 @@ final class AppModel {
     }
     func runQueue() {
         guard canGenerateAudio else { return }
-        let storage = speechStorage, factory = backendFactory()
+        let storage = speechStorage
         let completion = BatchCompletion()
         resetProgress()
+        let factory = backendFactory()
         let change = queueHandler, token = progressID
         let progress: @Sendable (QueueBatchProgress) -> Void = { [weak self] update in
             Task { @MainActor in
@@ -1327,7 +1377,9 @@ final class AppModel {
                 if delivery != nil { triggerDelivery(); await waitForDelivery() }
                 try Task.checkCancellation()
                 status = "Generating audio…"
-                let completed = try await coordinator.drainQueue(storage: storage, backend: factory, control: control,
+                var queueCPUWork = sourceCPUWork
+                queueCPUWork?.cancelled = { control.discardInterruptedWork }
+                let completed = try await coordinator.drainQueue(storage: storage, backend: factory, control: control, cpuExecutor: queueCPUWork,
                     delivery: delivery, debugLog: deliveryDebugLog, pendingPreparationCount: pendingCount, onQueueChange: change,
                     onArticleComplete: articleDone, onProgress: progress)
                 result = completed.lastResult ?? completion.latest
@@ -1349,6 +1401,7 @@ final class AppModel {
         guard canStopProcessing else { return }
         if cancelSync { syncTask?.cancel() }
         autoHalted = true
+        workStatusStates = [:]
         cancelling = true; stopped = true; progressID = UUID()
         queueControl?.requestStop()
         task?.cancel()
@@ -1602,6 +1655,8 @@ final class AppModel {
     func waitForSync() async { if let syncTask { await syncTask.value } }
     func shutdown() async {
         stopping = true
+        speechWorkCoordinator?.hostAdmission.stopAccepting()
+        await voiceServer?.shutdown()
         if let observer = speechSetupActivationObserver {
             NotificationCenter.default.removeObserver(observer); speechSetupActivationObserver = nil
         }
@@ -1642,6 +1697,7 @@ final class AppModel {
         if let settings { await settings.value }
         if let cover { await cover.value }
         if let loginItem { await loginItem.value }
+        await speechWorkCoordinator?.close()
         deliveryCredentialStore?.clearSession()
         deliveryPassword = ""; deliveryPasswordStored = false; deliveryPasswordChecked = false
     }

@@ -44,7 +44,7 @@ enum AcademicCitations {
             region = []; referenceLevel = nil
         }
         for (index, block) in document.blocks.enumerated() {
-            if index.isMultiple(of: 128) { try Task.checkCancellation() }
+            if index.isMultiple(of: 128) { try NarrationWorkCheckpoint.check() }
             if block.resourcePath != resource { addRegion(); inNotes = false; resource = block.resourcePath }
             if block.pdfPageIndex != nil, block.pdfLayout == nil { addRegion() }
             guard ![.code, .table, .caption].contains(block.kind), block.containsInlineCode != true else { continue }
@@ -128,7 +128,7 @@ enum AcademicCitations {
             let brackets = try NSRegularExpression(pattern: #"\[[0-9]{1,4}(?:\s*[,;–—-]\s*[0-9]{1,4})*\]"#)
             let authorYear = #"^[\p{Lu}][\p{L}’'.-]+(?:\s+(?:[\p{Lu}][\p{L}’'.-]+|and|others|&|et\s+al\.?))*\s*,?\s*"# + year + #"(?:\s*[,–-]\s*(?:[0-9]{1,4}[a-z]?|pp?\.?)\s*)*[.]?$"#
             for (index, block) in document.blocks.enumerated() {
-                if index.isMultiple(of: 128) { try Task.checkCancellation() }
+                if index.isMultiple(of: 128) { try NarrationWorkCheckpoint.check() }
                 guard !notes.contains(index), block.narrationText == nil, ![.code, .table, .caption, .heading].contains(block.kind), block.containsInlineCode != true else { continue }
                 let ns = block.text as NSString
                 for match in parentheses.matches(in: block.text, range: NSRange(location: 0, length: ns.length)) {

@@ -10,19 +10,21 @@ public enum DocumentReader {
                                     progress: @escaping @Sendable (DocumentPreparationProgress) -> Void = { _ in }) async throws -> SemanticDocument {
         try Task.checkCancellation()
         progress(.init(stage: .readingFile))
-        var coordinationError: NSError?
-        var result: Result<Data, Error>?
-        NSFileCoordinator().coordinate(readingItemAt: document.source, options: [], error: &coordinationError) { url in
-            result = Result {
-                if document.kind == .epub { return try EPUBContainer.data(at: url) }
-                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                guard size <= 512_000_000 else { throw DocumentProcessingError.extraction("This file exceeds the document byte budget.") }
-                return try Data(contentsOf: url)
+        let data = try await NarrationPreparationWork.run {
+            var coordinationError: NSError?
+            var result: Result<Data, Error>?
+            NSFileCoordinator().coordinate(readingItemAt: document.source, options: [], error: &coordinationError) { url in
+                result = Result {
+                    if document.kind == .epub { return try EPUBContainer.data(at: url) }
+                    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                    guard size <= 512_000_000 else { throw DocumentProcessingError.extraction("This file exceeds the document byte budget.") }
+                    return try Data(contentsOf: url)
+                }
             }
+            if let coordinationError { throw coordinationError }
+            guard let result else { throw DocumentReadError.malformed }
+            return try result.get()
         }
-        if let coordinationError { throw coordinationError }
-        guard let result else { throw DocumentReadError.malformed }
-        let data = try result.get()
         let title = document.source.deletingPathExtension().lastPathComponent
         let semantic: SemanticDocument
         switch document.kind {
@@ -32,18 +34,24 @@ public enum DocumentReader {
         case .epub:
             return try await EPUBDocumentExtractor.extract(data: data, title: title, describeImages: describeImages, progress: progress)
         case .text:
-            let decoded = try DocumentTextDecoder.decode(data, choice: document.textEncoding)
-            semantic = .init(title: title, blocks: try plainTextBlocks(decoded.text), warnings: decoded.warnings, extractorVersion: "Foundation-text-3/encoding-1/paragraphs-1")
+            semantic = try await NarrationPreparationWork.run {
+                let decoded = try DocumentTextDecoder.decode(data, choice: document.textEncoding)
+                return .init(title: title, blocks: try plainTextBlocks(decoded.text), warnings: decoded.warnings, extractorVersion: "Foundation-text-3/encoding-1/paragraphs-1")
+            }
         case .markdown:
-            let decoded = try DocumentTextDecoder.decode(data, choice: document.textEncoding)
-            let text = decoded.text
-            let parsed = try AttributedString(markdown: text, options: .init(interpretedSyntax: .full, failurePolicy: .throwError),
-                                              baseURL: document.source.deletingLastPathComponent())
-            semantic = .init(title: title, blocks: markdownBlocks(parsed), warnings: decoded.warnings, extractorVersion: "Foundation-Markdown-semantic-2/encoding-1/inline-code-1")
+            semantic = try await NarrationPreparationWork.run {
+                let decoded = try DocumentTextDecoder.decode(data, choice: document.textEncoding)
+                let text = decoded.text
+                let parsed = try AttributedString(markdown: text, options: .init(interpretedSyntax: .full, failurePolicy: .throwError),
+                                                  baseURL: document.source.deletingLastPathComponent())
+                return .init(title: title, blocks: try markdownBlocks(parsed, checkpoint: { try NarrationWorkCheckpoint.check() }), warnings: decoded.warnings, extractorVersion: "Foundation-Markdown-semantic-2/encoding-1/inline-code-1")
+            }
         case .rtf:
-            guard data.starts(with: Data(#"{\rtf"#.utf8)) else { throw DocumentReadError.malformed }
-            let attributed = try NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
-            semantic = .init(title: title, blocks: [.init(kind: .paragraph, text: attributed.string.replacingOccurrences(of: "\u{fffc}", with: ""), origin: .authored)], extractorVersion: "Foundation-RTF-1")
+            semantic = try await NarrationPreparationWork.run {
+                guard data.starts(with: Data(#"{\rtf"#.utf8)) else { throw DocumentReadError.malformed }
+                let attributed = try NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
+                return .init(title: title, blocks: [.init(kind: .paragraph, text: attributed.string.replacingOccurrences(of: "\u{fffc}", with: ""), origin: .authored)], extractorVersion: "Foundation-RTF-1")
+            }
         }
         guard semantic.blocks.contains(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { throw DocumentReadError.emptyText }
         let parent = document.source.deletingLastPathComponent().resolvingSymlinksInPath()
@@ -53,7 +61,7 @@ public enum DocumentReader {
                       url.resolvingSymlinksInPath() == url.standardizedFileURL,
                       (try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])).isRegularFile == true,
                       (try url.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0 <= 2_000_000 else { throw DocumentReadError.malformed }
-                return try Data(contentsOf: url)
+                return try await NarrationPreparationWork.run { try Data(contentsOf: url) }
             })
     }
 
@@ -64,18 +72,21 @@ public enum DocumentReader {
         let expression = try NSRegularExpression(pattern: #"(?>\r\n|[\r\n])(?:[ \t]*(?>\r\n|[\r\n]))+"#)
         let ns = text as NSString
         var ends: [Int] = [], exceeded = false
+        var interruption: Error?
         expression.enumerateMatches(in: text, options: [.reportProgress], range: NSRange(location: 0, length: ns.length)) { match, _, stop in
-            if Task.isCancelled { stop.pointee = true; return }
+            do { try NarrationWorkCheckpoint.check() }
+            catch { interruption = error; stop.pointee = true; return }
             if let match {
                 if ends.count >= 100_000 { exceeded = true; stop.pointee = true; return }
                 ends.append(NSMaxRange(match.range))
             }
         }
-        try Task.checkCancellation()
+        if let interruption { throw interruption }
+        try NarrationWorkCheckpoint.check()
         guard !exceeded else { throw DocumentProcessingError.extraction("The text exceeds the paragraph budget. No text was truncated.") }
         var blocks: [ContentBlock] = [], start = 0, cursor = 0
         for end in ends + [ns.length] where end > cursor {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             let part = ns.substring(with: NSRange(location: cursor, length: end - cursor))
             cursor = end
             if !part.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -91,10 +102,11 @@ public enum DocumentReader {
 
     public static func bookCover(_ document: InputDocument) throws -> Data? {
         guard document.kind == .epub || document.kind == .pdf else { return nil }
-        try Task.checkCancellation()
+        try NarrationWorkCheckpoint.check()
         var error: NSError?, result: Result<Data?, Error>?
         NSFileCoordinator().coordinate(readingItemAt: document.source, options: [], error: &error) { url in
             result = Result {
+                try NarrationWorkCheckpoint.check()
                 if document.kind == .epub { return try EPUBDocumentExtractor.coverImage(data: EPUBContainer.data(at: url)) }
                 guard (try url.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? Int.max <= 512_000_000 else { throw DocumentReadError.malformed }
                 return try PDFCoverImage.read(url)
@@ -102,6 +114,7 @@ public enum DocumentReader {
         }
         if let error { throw error }
         guard let result else { throw DocumentReadError.malformed }
+        try NarrationWorkCheckpoint.check()
         return try result.get()
     }
 
@@ -110,12 +123,16 @@ public enum DocumentReader {
     }
 
     public static func markdownBlocks(_ parsed: AttributedString) -> [ContentBlock] {
+        markdownBlocks(parsed, checkpoint: {})
+    }
+    static func markdownBlocks(_ parsed: AttributedString, checkpoint: () throws -> Void) rethrows -> [ContentBlock] {
         var blocks: [ContentBlock] = [], current = "", identity: Int?, kind: ContentBlock.Kind = .paragraph, level: Int?, containsInlineCode = false
         func flush() {
             if !current.isEmpty { blocks.append(.init(kind: kind, text: current, headingLevel: level, origin: .authored, containsInlineCode: containsInlineCode)) }
             current = ""; containsInlineCode = false
         }
         for run in parsed.runs {
+            try checkpoint()
             let text = String(parsed[run.range].characters).replacingOccurrences(of: "\u{fffc}", with: "")
             if let image = run.imageURL {
                 flush()

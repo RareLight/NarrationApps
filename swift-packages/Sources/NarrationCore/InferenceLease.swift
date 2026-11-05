@@ -10,12 +10,16 @@ public enum InferencePriority: Sendable {
 public final class InferenceLease: @unchecked Sendable {
     private let descriptors: [Int32]
     private let ticket: InteractiveTicket?
+    // Set before transferring a coordinated host lease to its caller. Retains
+    // ranked demand until the platform operation releases kernel exclusion.
+    var coordinatedRelease: (@Sendable () -> Void)?
     private init(descriptors: [Int32], ticket: InteractiveTicket?) {
         self.descriptors = descriptors; self.ticket = ticket
     }
-    deinit { descriptors.forEach { close($0) }; withExtendedLifetime(ticket) {} }
+    deinit { descriptors.forEach { close($0) }; coordinatedRelease?(); withExtendedLifetime(ticket) {} }
 
     @TaskLocal public static var currentPriority: InferencePriority = .background
+    @TaskLocal public static var hostAdmission: SpeechHostAdmission?
 
     public static var defaultFile: URL {
         supportDirectory.appendingPathComponent("SwiftNarration/Locks/inference.lock")
@@ -34,14 +38,65 @@ public final class InferenceLease: @unchecked Sendable {
     public nonisolated(nonsending) static func withPriority<Value: Sendable>(_ priority: InferencePriority, at file: URL = defaultFile,
         operation: nonisolated(nonsending) () async throws -> Value) async throws -> Value {
         try Task.checkCancellation()
-        let ticket = priority == .interactive ? try await registerInteractive(at: file) : nil
+        let ticket = priority == .interactive && hostAdmission == nil ? try await registerInteractive(at: file) : nil
         defer { withExtendedLifetime(ticket) {} }
         return try await $currentPriority.withValue(priority, operation: operation)
     }
 
     public static func acquire(at file: URL = defaultFile, priority: InferencePriority = currentPriority) async throws -> InferenceLease {
+        if let hostAdmission {
+            guard file.standardizedFileURL == defaultFile.standardizedFileURL || file.standardizedFileURL == hostAdmission.inferenceFile.standardizedFileURL else { throw SpeechFailure(.invalidInput) }
+            return try await hostAdmission.acquire()
+        }
         let files = file.standardizedFileURL == defaultFile.standardizedFileURL ? [legacyDefaultFile, file] : [file]
         return try await acquire(files: files, priority: priority)
+    }
+
+    /// Nonblocking compatibility-lock handshake for the coordinated helper.
+    /// Caller holds the shared work-registration gate and has rechecked rank.
+    /// Never wait for another owner while retaining that registration gate.
+    /// The helper retains the result from before load until after drain/unload.
+    public static func tryAcquire(at file: URL = defaultFile, priority: InferencePriority = currentPriority) throws -> InferenceLease? {
+        guard file.isFileURL else { throw SpeechFailure(.invalidInput) }
+        let files = file.standardizedFileURL == defaultFile.standardizedFileURL ? [legacyDefaultFile, file] : [file]
+        return try tryAcquire(files: files, priority: priority)
+    }
+    static func tryAcquire(files: [URL], priority: InferencePriority = currentPriority) throws -> InferenceLease? {
+        guard !files.isEmpty, Set(files.map(\.standardizedFileURL)).count == files.count,
+              files.allSatisfy(\.isFileURL), let file = files.last else { throw SpeechFailure(.invalidInput) }
+        let gate = try openLock(gateFile(for: file)); defer { close(gate) }
+        if flock(gate, LOCK_EX | LOCK_NB) != 0 {
+            guard errno == EWOULDBLOCK || errno == EINTR else { throw SpeechFailure(.storage) }
+            return nil
+        }
+        defer { _ = flock(gate, LOCK_UN) }
+        if priority == .background, try hasInteractiveRequests(at: file) { return nil }
+        var descriptors: [Int32] = [], owned = false
+        defer { if !owned { descriptors.forEach { close($0) } } }
+        for url in files { descriptors.append(try openLock(url)) }
+        for descriptor in descriptors {
+            if flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+                guard errno == EWOULDBLOCK || errno == EINTR else { throw SpeechFailure(.storage) }
+                return nil
+            }
+        }
+        owned = true
+        return InferenceLease(descriptors: descriptors, ticket: nil)
+    }
+
+    /// A resident neural frontend yields at the next bounded preparation
+    /// boundary when interactive work registers. Observe tickets under the same
+    /// gate as acquire; this never revokes another process's lease.
+    public static func shouldYield(at file: URL = defaultFile, priority: InferencePriority) throws -> Bool {
+        guard file.isFileURL else { throw SpeechFailure(.invalidInput) }
+        guard priority == .background else { return false }
+        let gate = try openLock(gateFile(for: file)); defer { close(gate) }
+        guard flock(gate, LOCK_EX | LOCK_NB) == 0 else {
+            guard errno == EWOULDBLOCK || errno == EINTR else { throw SpeechFailure(.storage) }
+            return true
+        }
+        defer { _ = flock(gate, LOCK_UN) }
+        return try hasInteractiveRequests(at: file)
     }
 
     static func acquire(files: [URL], priority: InferencePriority = currentPriority) async throws -> InferenceLease {

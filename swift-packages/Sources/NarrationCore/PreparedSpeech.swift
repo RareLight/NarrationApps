@@ -180,7 +180,7 @@ public enum PhonemeUtterancePacker {
         var output: [PreparedUtterance] = []
         var start = 0
         while start < tokens.count {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             var end = start; var count = 0; var preferred: [(Int, Int)] = []
             while end < tokens.count {
                 let token = tokens[end]
@@ -261,6 +261,7 @@ public enum PreparedSpeechCoverage {
         var end = 0
         guard !values.isEmpty else { throw SpeechFailure(.protocolViolation) }
         for value in values {
+            try NarrationWorkCheckpoint.check()
             let offset = value.source.location - window.source.location
             guard value.source.blockIndices == window.source.blockIndices, value.source.origin == window.source.origin,
                   offset >= end, offset <= ns.length, value.source.length <= ns.length - offset,
@@ -279,8 +280,9 @@ public extension NarrationPlanner {
     static func prepareForSpeech(_ document: SemanticDocument, settings: SpeechSettings,
                                  profile: NarrationProfile = .document,
                                  pronunciations: PronunciationDictionary = .empty,
-                                 policy: SpeechPreparationPolicy = .current, options: NarrationOptions = .init()) throws -> NarrationPlan {
+                                 policy: SpeechPreparationPolicy = .current, options: NarrationOptions = .init(),
+                                 checkpoint: @Sendable () throws -> Void = { try NarrationWorkCheckpoint.check() }) throws -> NarrationPlan {
         return try prepare(document, settings: settings, profile: profile, pronunciations: pronunciations,
-                           purpose: .speechPreparation, options: options)
+                           purpose: .speechPreparation, options: options, checkpoint: checkpoint)
     }
 }

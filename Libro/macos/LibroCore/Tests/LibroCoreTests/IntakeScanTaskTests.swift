@@ -11,9 +11,10 @@ private actor ScanGate {
 final class IntakeScanTaskTests: XCTestCase {
     func testReplacementAndShutdownJoinCancelledPredecessors() async throws {
         let gate = ScanGate()
+        let empty = try InputCollector.collect([]).withNoCovers
         let first = Task<IntakeScanTask.Result, Error> {
             await gate.wait() // Simulates a native operation that ignores cancellation.
-            return try InputCollector.collect([]).withNoCovers
+            return empty
         }
         for _ in 0..<200 {
             if await gate.waiting { break }
@@ -23,11 +24,11 @@ final class IntakeScanTaskTests: XCTestCase {
         XCTAssertTrue(waiting)
         let second = IntakeScanTask.start(replacing: first, after: nil, coverWork: nil) {
             XCTFail("A superseded scanner must not start its native work")
-            return try InputCollector.collect([]).withNoCovers
+            return empty
         }
         let third = IntakeScanTask.start(replacing: second, after: nil, coverWork: nil) {
             XCTFail("Shutdown must cancel the replacement before it starts")
-            return try InputCollector.collect([]).withNoCovers
+            return empty
         }
         third.cancel()
         XCTAssertTrue(first.isCancelled)

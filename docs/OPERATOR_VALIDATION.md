@@ -23,6 +23,12 @@ Open `NarrationApps.xcworkspace` from the monorepo root. The
 records the earlier relocation; do not restore nested repositories or require the
 archived originals to test current source.
 
+For new operator validation, build and run in Xcode with the normal signing team
+and configuration. The operator owns this build (confirmed November 3); automated
+ad-hoc builds are intermediate engineering checks and must not be substituted for
+Keychain, Publishing or other signing-sensitive acceptance. Earlier candidate paths
+below are dated evidence and may have been pruned.
+
 Earlier feature validation used synthetic generated fixtures at
 `.build/cover-navigation/fixtures` (EPUB notes/appendix/bibliography/duplicate
 headings, Markdown headings and covers). Those generated outputs were not migrated;
@@ -66,8 +72,12 @@ separate from automated fixture tests.
   finished audio and the live library intact. For fresh-install tests, use a
   separate macOS user/test installation rather than deleting working caches.
 - Use your normal team/profile-signed VoiceRelay build for existing Keychain
-  credentials and live Publishing tests; the ad-hoc copies do not establish
-  account/entitlement acceptance. Installation/relocation and restore tests are
+  credentials and live Publishing tests. The ad-hoc engineering copies lack the
+  team/application/Keychain entitlements required by VoiceRelay's protected store;
+  Save Password and saved-credential Test Connection cannot be validated in them.
+  Quit the ad-hoc copy before running the normally signed VoiceRelay scheme in
+  Xcode with your usual team/profile. No credential reset or Keychain deletion is
+  needed merely to switch builds. Installation/relocation and restore tests are
   conditional; mark N/A until a suitable test user/library is available.
 - Dated engineering records include passed suites, builds, archives, signatures,
   offline workers and arbitration at their recorded revisions. The earlier A/B
@@ -264,6 +274,21 @@ separate from automated fixture tests.
   preview with normal narration for both engines; generation and existing audio
   must remain unchanged. OCR and file-provider opening can still delay the first
   readable prefix. Report actual-book timing and layout separately from fixtures.
+
+- [ ] **L21 — Deferred speech loading and CPU preparation.** Build Libro in
+  Xcode with the normal signing configuration, then run that build. In
+  General → Text preparation, compare Maximum CPU workers = 1 and Automatic on
+  the same disposable ebook with Qwen/Aiden. Capture time spent preparing text,
+  CPU utilization and time to first generated audio; Automatic is a maximum,
+  not a promise of full CPU utilization. Text preparation should precede the
+  full speech-model load, with progress saying Preparing text tokens and model
+  utterances. Confirm stable narration text/counts and unchanged selected voice,
+  language and speed. Exercise Pause/Resume and Stop during preparation, then
+  start a fresh job. Check each other installed model, including Kokoro Pause/
+  Resume; Kokoro can use its small neural pronunciation model during preparation.
+  Confirm generation/listening and no changes to finished recordings. No model
+  download is required for this check; use installed models only. Intermediate
+  ad-hoc engineering builds do not validate signing, Keychain or GUI behavior.
 
 ## VoiceRelay
 
@@ -597,6 +622,70 @@ separate from automated fixture tests.
   downloaded-app Gatekeeper behavior and stable credential access on a clean Mac.
   Ad-hoc archive verification does not establish these. Engineering release/package
   gates remain in [VoiceRelay's release checklist](../VoiceRelay/docs/RELEASE_CHECKLIST.md).
+
+## VoiceServer staged acceptance
+
+The VoiceServer owner/adapters remain opt-in; normal app constructors still supply
+no coordinator and there is no HTTP listener or service Settings pane yet.
+Synthetic fixtures/builds do not complete these operator checks. Use the matching
+candidate/evidence identified in [current status](IMPLEMENTATION_STATUS.md).
+The ad-hoc candidate is for fixture/GUI work only: use a normally team/profile-
+signed VoiceRelay build for Save Password, Test Connection and live Publishing.
+The reported November 3 password/connection failure was traced to the running
+ad-hoc candidate's missing team/application/Keychain entitlements; it is not
+acceptance of the server or credential policy.
+
+- [x] **VS01 — Offline response-codec listening.** The operator reported
+  “Audio is all good” on November 3, 2026, after reviewing the paired clips in
+  `.local/validation/voiceserver-continuation-20261102/listening.md`.
+  This accepts those offline bounded-unit WAV/MP3 comparisons, not raw incremental
+  Qwen, HTTP/client playback or long-duration streaming. In each explicitly generated
+  coordinator evidence folder, compare `api.wav` with `api-stream.mp3` at normal
+  volume. Check speech onset, missing/repeated audio, clicks, unexpected pauses
+  and level changes; MP3 is lossy and its non-seeking stream has encoder delay/
+  padding without a finalized gapless header. The phrase is synthetic, not private
+  user text. Soprano is a Libro helper check, not added VoiceRelay model support.
+  Record model/file and the issue position. Raw `api-stream.pcm` has no header and
+  needs an explicitly configured 24 kHz mono signed 16-bit little-endian reader.
+- [ ] **VS01a — Preparation/review GUI compatibility.** In the separate
+  preparation candidate identified in current status, preview disposable text,
+  Markdown, digital PDF and EPUB inputs; close/reopen a preview and confirm each
+  passage appears once. For an explicitly generated disposable recording with
+  “Keep chunks for narration review” enabled, use “Load retained narration”,
+  “Play passage”, regeneration and Stop/close; confirm cancellation settles and
+  original recordings/reviews remain intact. Synthetic inputs are available in
+  `.local/validation/voiceserver-preparation-20261103/operator-fixtures/`.
+  File-provider permissions and GUI behavior require the operator. This checks
+  compatibility of preparation/review changes; use the current coordinated builds
+  for API waiting and default scheduling acceptance below.
+- [ ] **VS01b — Intake, artwork and queued-title compatibility.** Build the Libro
+  and VoiceRelay schemes from the current source in Xcode with normal signing.
+  In Libro, import a disposable folder, replace/cancel an in-progress scan, and
+  choose, detect and remove cover art; confirm the selected documents and existing
+  artwork remain correct. In VoiceRelay, rename a disposable Ready article before
+  its first attempt, reopen its preview and confirm the new title appears once
+  with the original prose. Cancel/close owned work and confirm it settles. These
+  checks cover normal UI compatibility; API waiting and default coordinated
+  scheduling are covered separately below.
+- [ ] **VS02 — Coordinated app lifecycle and recovery.**
+  With disposable data, exercise automatic waiting/resume across both apps,
+  manual Pause/Stop/Skip while suspended, model maintenance and Quit. Confirm
+  captured selections, replacement consent, verified recordings and progress
+  survive recovery; opening a captured Libro batch must never begin generation.
+  Use **Queue Actions → Interrupted Batches…**, restore original file access and
+  confirm that only **Resume** starts speech. Check explicit checkpoint discard
+  and retained damaged records without changing source or completed audio.
+- [ ] **VS03 — Live API/private access.** Use an ordinary
+  configurable client for default MP3/PCM streaming and explicit buffered WAV;
+  confirm first speech, continuous playback, slow-reader/disconnect cleanup,
+  authentication/rotation, selected VPN addresses and sleep/wake behavior.
+  Keep request text and credentials out of shared reports. HTTP/Keychain/Tailscale
+  acceptance is not established by offline helper/codec evidence.
+  Start from **Settings → VoiceServer**, choose access explicitly and generate a
+  Keychain key. Verify 80%, 100% and 200% Settings sizing; disabled-by-default
+  behavior, startup/wake, manual Stop and app Quit. Check first spoken audio and
+  sustained playback separately, for idle/same-app warm reuse and cross-app reload.
+  Use the [API guide](../VoiceRelay/docs/VOICESERVER.md) for supported fields and limits.
 
 ## Reporting results
 

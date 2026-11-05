@@ -9,6 +9,7 @@ implementation records are background, not additional setup instructions.
 | --- | --- |
 | Import documents/books and export audio | [Libro](../Libro/README.md) |
 | Make a podcast from Safari Reading List | [VoiceRelay](../VoiceRelay/README.md), [detailed user guide](../VoiceRelay/docs/USER_GUIDE.md) |
+| Connect a private client to local speech | [VoiceServer API](../VoiceRelay/docs/VOICESERVER.md) |
 | Choose a model, interpret speed/quality meters and use reference voices | [Model selection](MODEL_SELECTION.md) |
 | Choose voice previews, footnotes, citations and PDF cleanup | [Narration guide](NARRATION_GUIDE.md) |
 | Correct a word or name | [Pronunciation](PRONUNCIATION.md) |
@@ -25,6 +26,7 @@ implementation records are background, not additional setup instructions.
 | Track development milestones and commit-count builds | [Development versioning](DEVELOPMENT.md#development-versioning), [CHANGELOG.md](../CHANGELOG.md) |
 | Compare TTS models/voices and run a preference bracket | [Swift benchmark utility](../tools/TTSBenchmark/README.md), [design and evidence](TTS_MODEL_BENCHMARK_PLAN.md) |
 | Review Qwen3-TTS, Chatterbox Turbo and Orpheus integration and validation | [Shared model integration plan](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md) |
+| Review VoiceServer design and engineering evidence | [Implementation checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md) |
 | Understand implemented features and current evidence | [Current status](IMPLEMENTATION_STATUS.md) |
 | Find remaining acceptance and proposed work | [Roadmap](IMPLEMENTATION_PLAN.md) |
 | Perform GUI/listening/account checks | [Operator checklist](OPERATOR_VALIDATION.md) |

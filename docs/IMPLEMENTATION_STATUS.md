@@ -1,6 +1,6 @@
 # Current implementation status
 
-Current-state documentation updated October 31, 2026. Feature-specific engineering
+Current-state documentation updated November 4, 2026. Feature-specific engineering
 evidence is dated below. NarrationApps is one repository containing Libro,
 VoiceRelay, SwiftNarration, AppPresentation and the combined Xcode workspace.
 The containing commit identifies all maintained source. See
@@ -8,6 +8,461 @@ The containing commit identifies all maintained source. See
 [remaining work](IMPLEMENTATION_PLAN.md) and [operator validation](OPERATOR_VALIDATION.md).
 Private document reviews and their input-specific results are retained locally;
 they are excluded from the publication history. Synthetic fixtures remain maintained.
+
+## VoiceServer API and production coordination — November 4, 2026
+
+VoiceRelay now owns a disabled-by-default native HTTP/1.1 service with authenticated
+`/v1/models`, `/v1/audio/voices` and `/v1/audio/speech` routes. Its request subset
+captures existing speech/narration/pronunciation settings, defaults MP3/PCM to
+binary streaming and returns complete MP3/WAV/PCM when requested. Orpheus remains
+complete-file only; raw incremental Qwen remains probe-only. Strict schema,
+connection/body/input/queue/output limits and receipt/queue/request/write deadlines
+bound accepted work. Errors are sanitized and never appended to active audio.
+
+VoiceServer Settings owns explicit private address choice, Keychain bearer key
+generation/copy/rotation, self-only Tailscale CLI discovery, status and joined
+listener Stop/sleep/Quit cleanup. Interface changes never select a replacement
+LAN address. Keys/request text do not enter defaults, logs or podcast persistence.
+Listener-running and model readiness remain distinct. See the
+[API guide](../VoiceRelay/docs/VOICESERVER.md) for the supported client contract.
+
+Production factories in both apps now supply the shared coordinator. Preparation
+can initialize a cold frontend without speech weights and promote the same helper;
+compatible live demand can take over promotion before lower-priority speech.
+Versioned directory locks protect scratch until host/helper writers are joined;
+cleanup retains unknown or still-owned work. Private coordinated wire is 7;
+ordinary production speech IPC remains 4. Native worker stderr is discarded.
+
+Libro Interrupted Batches restores original file access, validates captured
+settings/source/destination proofs and requires a separate Resume. Verified
+completed outputs are excluded; interrupted records remain until resumed or
+explicitly discarded. Verified-complete records are cleaned after joined work;
+damaged/unavailable records remain. Legacy VoiceRelay snapshot-derived display
+metadata and saved previews now use admitted CPU reads outside mutation ownership.
+
+The new API fixtures cover contract/authentication/Keychain seams, HTTP parsing and
+routing, FIFO/overload, discovery, slow-write timeout/cancellation and native-renderer
+response cleanup using the synthetic helper. All 13 API fixtures pass, as do cold
+frontend/promotion, scratch and batch recovery cases. The full fixture gate passes,
+including all 383 VoiceRelay core and 185 app cases. Debug/Release workspace builds
+and all four bundle audits pass. The broader run found a cancelled-task checkpoint
+on raw mutation metadata that could prevent a Running row from settling to Paused;
+the checkpoint now applies only to admitted display reads. Origin fallback remains
+read-only, and the existing cancellation/shutdown regressions pass. Settings fixtures
+now include the sixth pane, and the renderer fixture finds the prepared codec under
+the full gate as well as focused runs.
+
+Evidence is indexed in `.local/validation/voiceserver-api-20261104/gate-result.json`.
+The full gate is `full-89690433-8A7A-4A1E-ABAE-6C62550ECFFD`; build/audit evidence
+is `release-39234881-C4E3-483F-ABF1-CA62A4BFB95A`. Build products remain intermediate
+engineering output in `.build/WorkspaceDerivedData`; operator candidates were not
+replaced. No archive, commit or push was performed.
+
+These are engineering checks, not actual-model,
+GUI, signed Keychain, listening or live-network acceptance; those remain under
+[VS02–VS03](OPERATOR_VALIDATION.md#voiceserver-staged-acceptance). No listener,
+real model or private document was exercised for these fixtures.
+
+## VoiceServer intake, artwork and queue metadata — November 3, 2026
+
+Opt-in CPU admission now covers Libro's input discovery, automatic/manual cover
+selection, retained-cover snapshots and unused-cover cleanup. Filesystem entries,
+cover-document reads and image operations have cooperative checkpoints. An
+already-issued File Provider, PDF-rendering or ImageIO call finishes cooperatively;
+there is no claim of immediate cancellation inside those native calls.
+
+VoiceRelay's queued-title preparation and chunk-count planning run through the
+same CPU executor. A title edit releases database ownership before waiting and
+rechecks the exact saved row, snapshot and episode before its transaction can
+commit. Queue plans revalidate both successes and verification failures after
+actor reentry; a changed or removed row is neither started nor marked failed
+from stale evidence. Source bytes and completed recordings remain unchanged.
+
+All 49 focused cases pass, covering intake suspension/resume, cancellation before
+cover access, preserved cover assets, title-edit conflicts and stale queue plans.
+All 369 VoiceRelay core and 185 app cases also pass. The final full fixture gate,
+both ad-hoc Debug/Release workspace builds and all four bundle audits pass;
+explicit native/private opt-ins retain their skips. The broader run exposed stale
+setup-inventory and removal-join fixtures, which now exercise their intended paths.
+No production setup behavior was changed.
+
+Evidence is indexed in
+`.local/validation/voiceserver-intake-metadata-20261103/gate-result.json`.
+The final full and build gates are `full-8FEE7799-C4DD-4271-A51B-848B9F5FFB73`
+and `release-75EB42CB-A3D1-427D-9EDF-B04A64EE6315`. Build products in
+`.build/WorkspaceDerivedData` remain intermediate engineering output, separate
+from operator candidates. No GUI app was launched, no real voice model or private
+document was run, and no archive, commit or push was performed. GUI compatibility
+remains operator-owned under [VS01b](OPERATOR_VALIDATION.md#voiceserver-staged-acceptance),
+using normally signed Xcode builds of the Libro and VoiceRelay schemes.
+
+Default constructors still supply nil. Legacy metadata reads, cold coordinated
+frontend residency, explicit recovery/file-access UI, retention/repair and the
+HTTP/credentials/Settings/Tailscale paths remain activation work.
+
+## Deferred speech models and CPU text preparation — November 3, 2026
+
+Normal-serving narration now starts with lightweight frontends for all five
+models, deferring speech weights until generation and promoting the same helper.
+Qwen, Chatterbox and Orpheus use their existing local tokenizers; Soprano uses its
+text budget. Kokoro still serializes its smaller neural pronunciation fallback
+under inference admission and unloads it when preparation pauses or yields.
+Large speech models retain their existing per-utterance reap boundaries.
+
+Libro General → Text preparation adds Maximum CPU workers. Automatic uses
+available cores, capped at 32; a captured manual maximum is capped at available
+cores. Bounded concurrent tokenizer counts preserve the original serial phrasing,
+source mappings and acoustic identity. Recovery captures the limit; old manifests
+restore serial behavior. Speech generation stays in the MLX helper.
+
+The full fixture gate passes, including 169 ProcessingPipeline, 151 NarrationCore,
+87 document-processing, 43 Libro Core, 366 VoiceRelay Core and 185 app cases;
+explicit native/private opt-ins retain their skips. All five synthetic helper
+traces defer speech weights, promote the same PID and join its reap. First-use
+Qwen conversion passes without linking MLX or using weight files. Three repeated
+synthetic 200-window tokenizer runs measure a median 1.412 s for the frozen
+original and 0.734 s with 12 workers (about 1.9×); these are not actual-book or
+real-model performance measurements.
+
+Both ad-hoc workspace Debug/Release builds and all four bundle audits pass using
+the verified installed Metal toolchain `com.apple.dt.toolchain.Metal.32023.922.4`.
+The reused `.build/WorkspaceDerivedData` is intermediate engineering output, not
+the operator's app. Evidence is indexed in
+`.local/validation/cpu-preparation-20261103/gate-result.json`; the successful gates
+are `full-B796DA22-2326-45C3-B9BD-9BC08666C9B6` and
+`release-051B0A21-296E-4A75-ACF3-625438006D22` under `.local/validation/`.
+Earlier sandbox-restricted, missing-progress-case and stale-toolchain attempts are
+retained separately. The development milestones are
+Libro 0.2.0 and VoiceRelay 0.1.1. Actual-book throughput, GUI and listening are
+operator-owned under [L21](OPERATOR_VALIDATION.md#libro); the operator builds the
+validation app in Xcode with normal signing. No voice model or private ebook was
+run for these engineering checks. The opt-in coordinated residency probe still
+initializes complete speech models; frontend-only cold residency there remains
+service-activation work. VoiceServer HTTP/credentials/default activation remain
+unfinished.
+
+## VoiceServer document and review preparation — November 3, 2026
+
+The next opt-in slice carries admitted CPU work through document readers,
+progressive Libro previews, detached article review and retained narration-review
+operations. Pure text/diagnostic loops share the audio checkpoint hook. PDF pages,
+EPUB chapters, document parsing and review PCM/hash writes can pause without
+occupying the UI or HTTP executor. Speech inference stays in the MLX helper.
+Actual OCR/title/image inference stays outside CPU units; its active-work budget
+excludes time waiting for higher-priority admission. Limits still reject excessive
+active work. Optional review writes serialize; cancellation joins the work and
+cleans only a repair's newly owned take.
+
+Pending article removal now cancels and joins preparation, including an inference
+admission wait. Snapshot planning, hashing and encoding precede the database writer
+transaction; the final commit rejects changed saved bytes or settings and preserves
+existing progress. Synthetic regression checks cover these boundaries without
+models, private documents or live services. The full fixture gate passes, including
+161 processing-pipeline, 145 Core, 86 document-processing, 41 Libro Core,
+366 VoiceRelay Core and 185 VoiceRelay app cases; explicitly opt-in native/private
+checks retain their existing skips. Evidence is in
+`.local/validation/full-BFBB32B9-35EA-4501-8830-CEF8083B5F63/` and indexed in
+`.local/validation/voiceserver-preparation-20261103/fixture-result.json`.
+Both ad-hoc Debug/Release workspace builds and all four helper/codec/notices bundle
+audits pass. The separate candidate is
+`.build/VoiceServerPreparationGate-60D72728-9292-41F5-BE47-CA4233F31DBC/Build/Products/`.
+Final fingerprints/results are indexed in the continuation's `gate-result.json`.
+[VS01a](OPERATOR_VALIDATION.md#voiceserver-staged-acceptance) owns the pending
+preparation/review GUI check, with disposable inputs and an operator handoff in
+the continuation folder. No app was launched or prior candidate replaced; archives,
+commits and pushes were not performed.
+
+This expands the opt-in seams; default app construction still supplies nil.
+Remaining intake/cover and queue-metadata CPU paths, explicit recovery/file-access
+UI, retention/repair, HTTP, credentials, Settings and Tailscale remain activation
+work. The accepted listening candidate and its clips are preserved.
+
+## VoiceServer maintenance, CPU admission and response codecs — November 3, 2026
+
+The November 2 continuation now passes its final gate. The opt-in owner parks
+background CPU work, cancels accepted API work, reaps its helper and joins active
+platform leases before model installation/deletion. Stop/Quit join owned operations;
+published recordings remain intact if a cancelled completion receipt cannot finish.
+Source proofs, narration planning, PCM journals, validation, encoding and publication
+run through admitted CPU work. Separate queues keep a suspended finalizer from
+blocking live encoding or the UI. This adds no CPU model backend: speech inference
+remains in the MLX helper. Some preparation/analysis subcalls and optional review
+retention still need complete admission coverage before activation.
+
+Payload-free notification wakeups retain periodic safety checks. Transient waiting
+status rejects stale events and preserves progress, errors and manual controls.
+Private coordinated/probe IPC is version 6; normal serving IPC stays version 3.
+The response codecs retain one resampler/encoder across frames, stream non-seeking
+MP3 or mono 24 kHz signed 16-bit little-endian PCM, and terminate on bounds/errors
+without replay. VoiceRelay now explicitly embeds/signs the pinned native MP3 codec.
+
+Decoded speech comparisons exposed LAME's preset changing explicit unity scale
+to 0.95. A narrow pinned patch removes that multiplier; initialization and bundle
+audits now require unity. No compensating gain/normalization/limiter is added.
+Completed recordings are unchanged. The final four 24 kHz model comparisons show
+MP3 RMS ratios of approximately 0.999–1.002 and correlation above 0.9996; raw PCM
+differs by at most one quantization step. Soprano's native 32 kHz conversion is
+separately decoded and checked for output rate/frame count; the operator's later
+listening acceptance is recorded below.
+
+All 129 feature-focused cases (119 shared, 10 VoiceRelay) pass in the final full
+fixtures, including 363 VoiceRelay core and 185 app tests:
+`.local/validation/full-27B55398-A19F-4342-AE52-DE83CBDDD07B/`.
+Both ad-hoc Debug/Release builds and all four bundle audits pass for
+`.build/VoiceServerCodecGate-999D964E-DD61-40BE-B28F-9B4222BE5CB3/Build/Products/`.
+All five installed models pass offline initialize-only readiness, exact deferred
+checkpoint readback, compatible warm reuse, MP3/PCM export and owned reap. Final
+worker/codec/harness fingerprints, decoded measurements and retained failures are
+indexed in `.local/validation/voiceserver-continuation-20261102/gate-result.json`;
+the folder retains the continuation's November 2 start date.
+
+The operator accepted the paired synthetic `api.wav`/`api-stream.mp3` clips on
+November 3: “Audio is all good.” This closes
+[VS01 in the operator checklist](OPERATOR_VALIDATION.md#voiceserver-staged-acceptance)
+for those offline bounded-unit comparisons. Raw incremental Qwen, long-duration
+streaming, GUI, HTTP, Keychain, VPN and distribution acceptance remain separate.
+Default constructors still supply nil; recovery/file-access UI, retention/repair,
+remaining preparation/review coverage, HTTP, credentials, service Settings and
+Tailscale are pending. No app was launched, no earlier operator candidate was
+replaced, and no archive, commit or push was performed. Detailed decisions remain
+in the [continuation record](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#maintenance-cpu-admission-wakeups-and-streaming-codecs--november-3-2026).
+
+## VoiceServer host admission and app ownership — November 2, 2026
+
+The opt-in coordinator now also owns ranked host inference admission for OCR,
+on-device title/image descriptions and explicit local recognition. Queued host work
+cannot bypass accepted API demand through a legacy interactive call. Platform
+operations retain compatibility locks and ranked demand through actual completion;
+Quit refuses new grants and joins outstanding leases. Already-started platform calls
+are cooperative, with no native cancellation-latency claim.
+
+Both apps have opt-in constructor bindings for generation/setup/previews and joined
+Quit cleanup. Source preparation propagates admission across detached tasks. Setup
+now has a genuine initialize-only operation: a registered session alone is not
+model readiness. Default constructors still supply no coordinator. CPU loops/hashes,
+maintenance, wakeups/status and explicit recovery UI/retention remain activation
+prerequisites; HTTP/Settings/Tailscale remain pending. See the
+[host-admission record](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#host-inference-and-app-ownership-bindings--november-2-2026).
+
+Ten new synthetic cases pass alongside the earlier 85 feature cases. Full fixtures
+pass in `.local/validation/full-56FED339-53F8-4236-88DF-6CC22B53511E/`, including
+361 VoiceRelay core and 184 app cases. Fresh ad-hoc Debug/Release builds and four
+bundle audits pass for
+`.build/VoiceServerHostAdmissionGate-352F839A-9898-4E2E-8B88-8C55F01048A6/Build/Products/`.
+All five installed models pass offline initialize-only readiness, deferred
+checkpoint readback, warm reuse and owned reap. Evidence/fingerprints are indexed
+in `.local/validation/voiceserver-host-admission-20261102/gate-result.json`.
+This does not establish native platform handoff, GUI, listening, HTTP or
+distribution acceptance. No prior candidate was replaced; no archive, commit or
+push was performed.
+
+## VoiceServer opt-in persistence adapters — November 2, 2026
+
+VoiceRelay now fences the actual SQLite checkpoint commit, with validation, hashing,
+JSON and writer acquisition outside the registration/epoch fence. A rejected result
+rolls back and retries in the same queue run; Stop does not cancel another API job.
+Transient receipts are never serialized. Libro's opt-in batch recovery captures
+source/destination proofs, ordered inputs, encoding, settings, pronunciation rules,
+covers and replacement consent, then reopens verified plans/PCM without new G2P.
+Completed/skipped documents never replay; changed sources/outputs fail closed.
+Manual pause withdraws priority, and Skip can finish while API work remains active.
+
+Eighty-five feature-focused synthetic cases pass: 80 shared and five VoiceRelay
+adapter cases. The apps' default coordinator injection remains nil. Lifecycle,
+setup/preview/OCR admission, waiting status, explicit recovery/file-access UI and
+retention/repair remain activation prerequisites. HTTP/Settings/Tailscale are not
+enabled. See the [persistence record](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#persistence-adapters-and-captured-batch-recovery--november-2-2026)
+for scope; prior candidate/native receipts below remain separately dated evidence.
+
+Final full fixtures pass in
+`.local/validation/full-53916B16-AC23-4AF0-8178-6BE2996ED767/` (360 VoiceRelay core
+and 183 app cases). Fresh ad-hoc Debug/Release builds and four bundle audits pass;
+the candidate is
+`.build/VoiceServerPersistenceGate-21FDC1FB-CBA9-4BD7-AEDD-6B7F114B1E66/Build/Products/`.
+All five installed native models pass deferred checkpoint generation, exact WAV
+readback before commit, same-helper reuse and owned reap, with networking denied.
+Receipts match the audited Release workers. The consolidated record is
+`.local/validation/voiceserver-persistence-20261102/gate-result.json`; the initial
+failed fixture barrier and its correction are retained there. No GUI, listening,
+protected-file, server or distribution acceptance is implied; no archive, commit
+or push was performed.
+
+## VoiceServer coordinated render seam — November 2, 2026
+
+An opt-in app-owned coordinator now connects shared native preparation/generation
+to three-rank admission, warm same-app reuse and cross-app unload-before-load.
+The helper rechecks priority at each unit launch. A private verified-PCM journal
+supports captured-plan reconstruction independently of optional review retention;
+the retained-render regression preserves its writer and committed prefix through
+streaming preemption. Reopening can reconstruct output without launching inference.
+Seventy-three focused synthetic cases pass, including eleven coordinator and seven
+journal/render cases, plus final-launch and close/registration regressions.
+
+Both apps keep their current defaults: coordinator injection is nil. VoiceRelay's
+final database checkpoint fence, Libro batch/source/destination recovery, app
+lifecycle/manual controls and waiting status still need integration before
+activation. No HTTP, Settings or Tailscale feature is enabled. See the
+[coordinated-render record](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#coordinated-render-and-recovery-seam--november-2-2026)
+for scope, provisional bounds and evidence. Earlier native safety receipts below
+remain separate from validation of the new host/helper path.
+
+Final full fixtures pass in
+`.local/validation/full-8BA606D4-E5E5-42D1-95D8-73AA5313A802/`, including 355
+VoiceRelay core tests, 183 app tests and packaging. Debug/Release builds and four
+audits pass for isolated CoordinatorGate candidates. All five installed adapters
+pass the serial offline coordinator check: prepared transfer, same-helper idle
+API handoff/resume and owned reap. Their receipts match audited Release worker
+hashes; `.local/validation/voiceserver-coordinator-20261102/gate-result.json`
+indexes the evidence. This is separate from active-cancellation timing, listening,
+reference/region and long-duration acceptance. No installed candidate was replaced.
+
+## VoiceServer safety gates and shared foundations — November 2, 2026
+
+The three VoiceRelay red assertions are resolved as stale feed metadata/signing
+expectations, preserving article-body/author/local-path privacy checks. Full fixtures
+pass in `.local/validation/full-C5082A95-69BC-4AC9-BB63-9B5DC50E7E9A/`, including
+355 VoiceRelay core tests, 183 app tests and packaging checks. Earlier failed gates
+below remain historical evidence, not current outstanding assertion failures.
+
+The probe control reader now remains responsive during owned initialization.
+Private probe wire version 4 includes a controlled loaded-weight/pre-admission
+barrier, with no job-ready acknowledgement after cancellation/failure. Every
+adapter passes seven initialization/EOF phases, nine generation cancellations and
+ten short completed requests: 35 phases, 45 cancels and 50 completions in total.
+Each helper owns compatibility exclusion through actual unload/reap. Sampled
+footprints remain within existing budgets; longer-duration stability is unproven.
+
+The Qwen decoder double-bias hypothesis is confirmed by a model-free actual-layer
+regression. The opt-in callback correction reduces full-model direct/stream maximum
+PCM difference from 0.2604 to 0.00000276, with identical incremental output after
+reset. Ordinary app generation defaults are unchanged. Every bundle audit now
+checks the fixed-weight CPU regression as well as Metal. Raw Qwen remains probe-only
+pending continuity/listening acceptance; initial bounded Qwen units and unavailable
+Orpheus streaming remain the planned policies.
+
+Full fixtures exposed a probe close race in Foundation's unbounded `waitUntilExit`.
+A retained sample identifies it; bounded exit callbacks now coalesce close callers
+and cover deinitialization. Concurrent close repeats 12 times in regression tests.
+The failed run/sample and final fingerprint-checked native summary are retained in
+`.local/validation/voiceserver-safety-20261102/`; Debug/Release and four audits pass
+for the isolated SafetyGate candidates. No app launch/install, model acquisition,
+live service, signing-account or listening acceptance occurred.
+
+Production integration has begun with `SpeechWorkAdmission`, a private bounded
+three-rank ticket registry with cross-process kernel liveness and atomic final
+rank/compatibility-lock checks, plus `SpeechAttemptFence` for job/epoch commits,
+quiescent resumption and preserved verified-index cursors. Fifty-four focused
+cases pass, including 12 new admission/compatibility and six commit-fence cases.
+The final shared-foundation full run
+`.local/validation/full-3E9FB5F0-F42A-4E32-874E-2C03C4CD3504/` passes, followed by
+the strengthened same-batch epoch focused check. Separate Debug/Release candidates
+and four audits pass in `.local/validation/voiceserver-admission-20261102/`;
+the native SafetyGate candidates/receipts are preserved separately.
+These shared primitives remain unwired to app coordinators, VoiceRelay persistence
+and durable Libro recovery. App serving/scheduling priorities remain unchanged;
+HTTP, Settings and Tailscale integration are still pending. The
+[checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#initialization-safety-decoder-correction-and-shared-foundations--november-2-2026)
+records the native matrix, scope and next integration work.
+
+## VoiceServer live first-unit and reload proof — November 1, 2026
+
+The continuation adds opt-in `firstSentence` / `qwenIncremental` probe modes,
+versioned live-first-sentence packing with preserved mappings, an owned synchronous
+Qwen callback patch, private probe wire version 2 lifecycle events and a two-helper
+native reload driver. App serving, ordinary segmentation and production SpeechIPC
+version 3 are unchanged. No service/Settings implementation or app launch is included.
+
+All 24 focused synthetic cases pass. Audited packaged Release helpers pass smaller
+first-unit reuse for Kokoro and Chatterbox (resumed first WAV 0.13/0.57 s), and actual
+Libro-unload-before-VoiceRelay-load for Kokoro/Qwen (accepted demand to WAV
+2.75/4.09 s). The latter requests interrupt first inference in newly loaded helpers:
+old cancellation takes 1.65/1.45 s, so warm millisecond observations are not universal
+deadlines. Model initialization and transfer remain separate from server/client TTFA.
+
+Qwen incremental lifecycle, sample coverage and reset reuse pass: resumed first WAV
+is 0.19 s in the final parity-enforced run, six frames arrive within the first semantic unit, and output is
+sample-identical after cancellation/reset. **Incremental continuity does not pass**:
+direct-versus-streaming PCM differs by up to 0.2604, starting at subsequent decoder
+chunk boundaries despite equal sample counts. A biased convolution-overflow sum
+is a source-level hypothesis for the next targeted decoder proof, not a validated
+fix. The native harness now fails explicitly on PCM parity failure. Initial Qwen
+streaming therefore uses bounded complete utterances; its raw callback stays
+probe-only. Orpheus streaming remains unavailable. No listening result is claimed.
+
+Receipts, boundary diagnostics and bundle audits live under
+`.local/validation/voiceserver-streaming-20261101/`. Debug/Release builds and all
+four audits pass, preserving prior candidates and installed bundles. The full run
+`.local/validation/full-600AF0BE-7C33-433F-921B-101F8CEF4EF5/` passes all 24 cases,
+other shared/Libro suites and 183 VoiceRelay app tests, and remains red on the same
+three unchanged VoiceRelay core assertions below. No commit/push or archive.
+The [checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#live-first-unit-incremental-and-reload-gate--authorized-november-1-2026)
+records the evidence, revised initial capability policy and remaining initialization,
+decoder-parity and broader native safety gates before scheduler integration.
+
+## VoiceServer native feasibility probe — November 1, 2026
+
+The authorized next gate adds explicit helper `--handoff-probe` and native-check
+`handoff` modes, shared bounded/versioned controls, an owned joined producer,
+one-frame backpressure and helper-owned current/legacy inference exclusion through
+GPU drain/unload. The normal app serving/scheduling paths remain unchanged.
+The recorded Soprano patch now joins its internal token producer in both consumers;
+an iterator ending or a fast cancellation observation alone is insufficient.
+Six new control-path tests and the ten first-proof tests pass. The optimized
+helper builds, passes its Metal probe and passes native cancellation/reuse plus
+lossless first-unit WAV checks for all five installed model adapters, serially
+with network denied. No app bundle was installed, launched or replaced.
+
+Final receipts are `*-owned/receipt.json` under
+`.local/validation/voiceserver-native-20261101/`; `native-summary.json` aggregates
+them. Every run keeps one initialization and the same worker after cancellation.
+The summary verifies each worker hash against its packaged Release audit. Soprano
+uses Libro's helper and remains Libro-only in model selection. Resumed first-unit
+WAV times are 0.48 s Kokoro, 0.70 s Soprano, 3.90 s Qwen,
+2.11 s Chatterbox and 25.08 s Orpheus. These local metrics exclude model loading
+and do not establish server/client TTFA. Cancel-to-ready spans 2.2–55.6 ms for the
+single early injection per adapter, not a production deadline.
+
+Orpheus takes 79.47 s to generate/publish 38.74 s of audio in the resumed probe.
+The design therefore gates initial Orpheus streaming as unavailable; complete-file
+API support remains planned. At this earlier gate, smaller live first units,
+owned incremental Qwen output and actual cross-app reload cost were still open;
+the follow-up above records their implementation and partial acceptance. Broader
+cancellation positions/settings and listening remain open. Chatterbox's regenerated hashes differ; deterministic
+real-model regeneration is not required. The
+[checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#native-feasibility-gate--authorized-november-1-2026)
+records the full table, preserved failed attempts and revised design.
+
+Patched full fixtures in
+`.local/validation/full-0F9381B3-2943-485D-84C4-2C3218A136B4/` pass all 16 probe
+tests and the other shared/Libro/app suites; the same three unchanged VoiceRelay
+core assertions keep the full gate red. Debug/Release workspace builds and all
+four bundle audits pass, with logs in the native evidence directory. Isolated
+ad-hoc candidates are under
+`.build/VoiceServerNativeGate-5D767E69-3CC5-443A-A060-C4F6AC1E31E7/Build/Products/`;
+archives were unrequested and no operator bundle was replaced.
+
+## VoiceServer first synthetic proof — November 1, 2026
+
+The authorized VS00 synthetic proof is implemented in NarrationFixtureWorker and
+NarrationCoreTests. Two isolated app clients and their fake helpers exercise
+API > Libro > Podcasts, epoch rollback, same-app reuse, cross-app unload-before-load,
+FIFO API work, complete-file yielding, pause/Stop, requester loss and orphan drain.
+Checkpoint hashes survive suspension/reopening; an independent trace audit checks
+exclusive residency/generation and quiescence/reset ordering. The
+[checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#vs00-proof-results-and-design-refinements--november-1-2026)
+records the trace, reproduction and design refinements.
+
+All ten focused proof tests pass and pass again within
+`.local/validation/full-D0553F57-D1C9-416D-A7CE-424E8E9A266E/`. That full gate fails
+on three assertions in unchanged VoiceRelay core tests (two feed-content checks
+and the signing include expectation); shared/Libro suites and 183 VoiceRelay app
+tests pass. Subsequent packaging did not run. The checklist names the failures;
+they were retained without unrelated publishing/signing changes.
+
+That first proof is fixture-only state-machine evidence. App priority, normal serving IPC and
+audio behavior are unchanged; HTTP and Settings remain unimplemented. Native
+cancellation/reuse/first-audio feasibility remains a separate operator-owned gate
+before broad integration. That first proof used no models, app launches or live services.
 
 ## Automatic speech-setup validation — current
 

@@ -25,7 +25,7 @@ struct NarrationReviewView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button("Load retained narration") { Task { await reload() } }.disabled(preview.hasOwnedWork || preparing)
+            Button("Load retained narration") { start { await reload() } }.disabled(preview.hasOwnedWork || preparing)
             if !records.isEmpty {
                 Picker("Recording", selection: $selected) {
                     Text("Choose a recording").tag(UUID?.none)
@@ -69,30 +69,46 @@ struct NarrationReviewView: View {
         .onChange(of: selected) { _, id in
             record = nil; passage = 0
             guard let id else { return }
-            Task { do { let loaded = try await Task.detached { try store.load(id) }.value; if selected == id { record = loaded } } catch { self.error = error.localizedDescription } }
+            start {
+                let loaded = try await performCPU { try store.load(id) }
+                try Task.checkCancellation()
+                if selected == id { record = loaded }
+            }
         }
         .onDisappear { preview.stop() }
     }
     private func reload() async {
         preparing = true; defer { preparing = false }
-        do { records = try await Task.detached { try store.records() }.value }
+        do {
+            let loaded = try await performCPU { try store.records() }
+            try Task.checkCancellation(); records = loaded
+        }
+        catch is CancellationError {}
         catch { self.error = error.localizedDescription }
     }
     private func start(_ operation: @escaping @MainActor () async throws -> Void) {
         beforeWork(); error = nil; message = nil
         preview.performReview { do { try await operation() } catch is CancellationError {} catch { self.error = error.localizedDescription } }
     }
+    private func performCPU<Value: Sendable>(_ operation: @escaping @Sendable () throws -> Value) async throws -> Value {
+        let cpu = configuration?.cpuWork
+        let task = Task.detached { try await SpeechCPUContext.run(cpu, operation: operation) }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+    }
     private func play(_ record: NarrationReviewStore.Record) {
         let index = passage
+        let cpu = configuration?.cpuWork
         start {
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("NarrationReview-\(UUID().uuidString)")
             let audio = directory.appendingPathComponent("passage.wav")
             let task = Task.detached {
+                try await SpeechCPUContext.run(cpu) {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
                 let writer = try AtomicAudioWriter(destination: audio)
                 defer { writer.abort() }
                 try writer.append(samples: store.samples(record.id, index: index), sampleRate: record.plan.settings.model.capabilities.sampleRate)
                 try writer.publish(replaceExisting: false)
+                }
             }
             do {
                 try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
@@ -105,20 +121,29 @@ struct NarrationReviewView: View {
     }
     private func check(_ record: NarrationReviewStore.Record) {
         let index = passage
+        let hostAdmission = configuration?.workCoordinator?.hostAdmission
+        let cpu = configuration?.cpuWork
         start {
             let task = Task.detached {
                 let directory = FileManager.default.temporaryDirectory.appendingPathComponent("NarrationCheck-\(UUID().uuidString)")
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
                 defer { try? FileManager.default.removeItem(at: directory) }
-                let audio = directory.appendingPathComponent("check.wav"), writer = try AtomicAudioWriter(destination: directory.appendingPathComponent("check.wav"))
+                let audio = directory.appendingPathComponent("check.wav")
+                try await SpeechCPUContext.run(cpu) {
+                let writer = try AtomicAudioWriter(destination: audio)
                 defer { writer.abort() }
                 try writer.append(samples: store.samples(record.id, index: index), sampleRate: record.plan.settings.model.capabilities.sampleRate); try writer.publish(replaceExisting: false)
-                let lease = try await InferenceLease.acquire(priority: .background)
-                let text = try await LocalNarrationRecognition.transcribe(audio, language: record.plan.settings.languageCode)
-                withExtendedLifetime(lease) {}
-                var diagnostic = record.artifacts[index]!.diagnostics
-                try diagnostic.compare(expected: record.plan.utterances[index].text, recognized: text)
-                return diagnostic
+                }
+                let text = try await InferenceLease.$hostAdmission.withValue(hostAdmission) {
+                    let lease = try await InferenceLease.acquire(priority: .background)
+                    defer { withExtendedLifetime(lease) {} }
+                    return try await LocalNarrationRecognition.transcribe(audio, language: record.plan.settings.languageCode)
+                }
+                return try await SpeechCPUContext.run(cpu) {
+                    var diagnostic = record.artifacts[index]!.diagnostics
+                    try diagnostic.compare(expected: record.plan.utterances[index].text, recognized: text)
+                    return diagnostic
+                }
             }
             let diagnostic = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             try Task.checkCancellation()
@@ -130,9 +155,9 @@ struct NarrationReviewView: View {
         let index = passage, replan = split, apply = applyRules
         start {
             let task = Task.detached {
-                let dictionary = apply ? try PronunciationStore().load().dictionary : nil
+                let dictionary = try await SpeechCPUContext.run(configuration.cpuWork) { apply ? try PronunciationStore().load().dictionary : nil }
                 return try await NarrationReviewRepair.regenerate(store: store, id: record.id, index: index,
-                    configuration: .init(executable: configuration.worker, inferencePriority: configuration.priority), workspace: configuration.workspace, splitAtSentences: replan, pronunciations: dictionary)
+                    configuration: configuration.workerConfiguration, workspace: configuration.workspace, splitAtSentences: replan, pronunciations: dictionary, cpuWork: configuration.cpuWork)
             }
             let id = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             try Task.checkCancellation(); await reload(); selected = id
@@ -144,7 +169,7 @@ struct NarrationReviewView: View {
         start {
             let task = Task.detached {
                 try await NarrationReviewRepair.fillMissing(store: store, id: record.id,
-                    configuration: .init(executable: configuration.worker, inferencePriority: configuration.priority), workspace: configuration.workspace)
+                    configuration: configuration.workerConfiguration, workspace: configuration.workspace, cpuWork: configuration.cpuWork)
             }
             let id = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             try Task.checkCancellation(); await reload(); selected = id
@@ -152,17 +177,18 @@ struct NarrationReviewView: View {
         }
     }
     private func export(_ record: NarrationReviewStore.Record) {
+        let cpu = configuration?.cpuWork
         let panel = NSSavePanel(); panel.allowedContentTypes = [.wav]; panel.nameFieldStringValue = "Reviewed narration.wav"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         start {
-            let task = Task.detached { try store.export(record.id, to: url) }
+            let task = Task.detached { try await SpeechCPUContext.run(cpu) { try store.export(record.id, to: url) } }
             _ = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             try Task.checkCancellation(); message = "Saved a new WAV. Original recordings and podcast transcripts are unchanged."
         }
     }
     private func remove(_ record: NarrationReviewStore.Record) {
         start {
-            try await Task.detached { try store.remove(record.id) }.value
+            try await performCPU { try store.remove(record.id) }
             selected = nil; self.record = nil; await reload()
         }
     }

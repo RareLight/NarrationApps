@@ -1,4 +1,5 @@
 import Foundation
+import NarrationCore
 import Darwin
 import DocumentProcessing
 import SwiftSoup
@@ -97,19 +98,42 @@ public final class QueueAdmissionControl: @unchecked Sendable {
     public let id = UUID()
     private let lock = NSLock()
     private var cancelled = false
+    private var work: [UUID: @Sendable () -> Void] = [:]
     public init() {}
-    public func cancel() { lock.withLock { cancelled = true } }
+    public func cancel() {
+        let pending = lock.withLock { cancelled = true; return Array(work.values) }
+        for cancel in pending { cancel() }
+    }
     public var isCancelled: Bool { lock.withLock { cancelled } }
+    /// Removal cancels and joins actual preparation, including platform admission waits.
+    func withWork<Value: Sendable>(_ operation: @escaping @Sendable () async throws -> Value) async throws -> Value {
+        let id = UUID(), task = Task {
+            try Task.checkCancellation()
+            guard !self.isCancelled else { throw CancellationError() }
+            return try await operation()
+        }
+        let stopped = lock.withLock { work[id] = { task.cancel() }; return cancelled }
+        if stopped { task.cancel() }
+        defer { _ = lock.withLock { work.removeValue(forKey: id) } }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+    }
+    fileprivate func withCommit<Value>(_ operation: () throws -> Value) throws -> Value {
+        try lock.withLock {
+            guard !cancelled else { throw CancellationError() }
+            return try operation()
+        }
+    }
 }
 
 extension FixtureCoordinator {
-    private func metadataReader(_ root: URL) throws -> NativeStore? {
+    nonisolated private static func metadataReader(_ root: URL) throws -> NativeStore? {
         guard root.isFileURL else { throw RelayError.setup("The private library must be local.") }
         let database = PrototypeProfile.fixture(at: root).database
         guard FileManager.default.fileExists(atPath: database.path) else { return nil }
         try ManagedSpeechStorage.validateLibrary(stateRoot: root)
         return try NativeStore(url: database, readOnly: true)
     }
+    private func metadataReader(_ root: URL) throws -> NativeStore? { try Self.metadataReader(root) }
     /// Writers are short-lived; a bounded wait lets interactive work (for example queue adds)
     /// proceed between commits while another coordinator briefly holds the lock.
     func metadataWriter(_ root: URL) throws -> NativeStore {
@@ -141,12 +165,12 @@ extension FixtureCoordinator {
         let missingSources = Set(catalog.entries.map { "reviewed-url-v1-" + Files.hash(Data($0.url.absoluteString.utf8)) })
             .subtracting(currentSources)
         // Resolve legacy origins while the old inventory still exists, then persist cleanup intent.
-        let episodes = try store.episodes()
+        let episodes = try store.episodes(resolveSnapshots: false)
         let sourceByEpisode = Dictionary(uniqueKeysWithValues: episodes.compactMap { episode in
             episode.originalSourceIdentity.map { (episode.id, $0) }
         })
         let currentEntries = Dictionary(snapshot.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let queue = try store.queue()
+        let queue = try store.queue(resolveSnapshots: false)
         var currentEpisodes = Dictionary(uniqueKeysWithValues: episodes.map { ($0.id, $0) })
         catalog.reconcile(snapshot)
         // Legacy exclusions are still decodable but no longer honored; each save clears them.
@@ -184,10 +208,14 @@ extension FixtureCoordinator {
         } catch { try? store.execute("ROLLBACK"); throw error }
         return catalog
     }
-    public func queue(stateRoot: URL = AppStorage.managedLibrary) throws -> [SpeechQueueItem] {
-        guard let store = try metadataReader(stateRoot) else { return [] }
-        let removed = Set(try store.episodes().filter { $0.readingListRemoved == true }.map(\.id))
-        let items = try store.queue().filter { !removed.contains($0.id) }
+    public func queue(stateRoot: URL = AppStorage.managedLibrary) async throws -> [SpeechQueueItem] {
+        try await metadataWork { try Self.readQueue(stateRoot: stateRoot, resolveSnapshots: true) }
+    }
+    private func queueMetadata(stateRoot: URL) throws -> [SpeechQueueItem] { try Self.readQueue(stateRoot: stateRoot, resolveSnapshots: false) }
+    nonisolated private static func readQueue(stateRoot: URL, resolveSnapshots: Bool) throws -> [SpeechQueueItem] {
+        guard let store = try Self.metadataReader(stateRoot) else { return [] }
+        let removed = Set(try store.episodes(resolveSnapshots: false).filter { $0.readingListRemoved == true }.map(\.id))
+        let items = try store.queue(resolveSnapshots: resolveSnapshots).filter { !removed.contains($0.id) }
         guard items.allSatisfy({ UUID(uuidString: $0.id) != nil && $0.attempts >= 0 }) else {
             throw RelayError.setup("The saved speech queue is invalid.")
         }
@@ -195,12 +223,12 @@ extension FixtureCoordinator {
     }
     public func removedReadingListWorkIsActive(stateRoot: URL) throws -> Bool {
         guard let store = try metadataReader(stateRoot) else { return false }
-        let removed = Set(try store.episodes().filter { $0.readingListRemoved == true }.map(\.id))
-        return try store.queue().contains { removed.contains($0.id) && $0.state == .running }
+        let removed = Set(try store.episodes(resolveSnapshots: false).filter { $0.readingListRemoved == true }.map(\.id))
+        return try store.queue(resolveSnapshots: false).contains { removed.contains($0.id) && $0.state == .running }
     }
     /// Local-only cache cleanup; no feed retirement, transport or final-audio unlink.
     public func purgeRemovedReadingListCaches(storage: ManagedSpeechStorage, debugLog: DeliveryDebugLog? = nil) throws {
-        let episodes = try library(storage: storage).filter { $0.readingListRemoved == true && $0.articleCachePurged != true }
+        let episodes = try libraryMetadata(storage: storage).filter { $0.readingListRemoved == true && $0.articleCachePurged != true }
         guard !episodes.isEmpty else { return }
         let lease = try PipelineLease(database: storage.profile.database)
         defer { lease.release() }
@@ -255,8 +283,27 @@ extension FixtureCoordinator {
                                    debugLog: DeliveryDebugLog? = nil,
                                    describeImages: Bool = true,
                                    generateMissingTitles: Bool = false, titleGenerator: DocumentTitles.Generate? = nil,
-                                   shouldCommit: @Sendable () async -> Bool = { true },
-                                   admissionControl: QueueAdmissionControl? = nil) async throws -> SpeechQueueItem {
+                                   shouldCommit: @escaping @Sendable () async -> Bool = { true },
+                                   admissionControl: QueueAdmissionControl? = nil,
+                                   hostAdmission: SpeechHostAdmission? = nil, cpuExecutor: (any NarrationCPUExecutor)? = nil) async throws -> SpeechQueueItem {
+        let executor = cpuExecutor ?? NarrationPreparationWork.executor
+        let operation: @Sendable () async throws -> SpeechQueueItem = {
+            try await NarrationPreparationWork.$executor.withValue(executor) {
+                try await self.enqueueReadingListSource(entryID, storage: storage, preferences: preferences, fetch: fetch,
+                    useArchives: useArchives, archiveFetch: archiveFetch, debugLog: debugLog, describeImages: describeImages,
+                    generateMissingTitles: generateMissingTitles, titleGenerator: titleGenerator,
+                    shouldCommit: shouldCommit, admissionControl: admissionControl, hostAdmission: hostAdmission)
+            }
+        }
+        if let admissionControl { return try await admissionControl.withWork(operation) }
+        return try await operation()
+    }
+    private func enqueueReadingListSource(_ entryID: String, storage: ManagedSpeechStorage, preferences: SpeechPreferences,
+        fetch: (@Sendable (URL) async throws -> FetchedPage)?, useArchives: Bool,
+        archiveFetch: ArticleSourceLoader.ArchiveFetch?, debugLog: DeliveryDebugLog?, describeImages: Bool,
+        generateMissingTitles: Bool, titleGenerator: DocumentTitles.Generate?,
+        shouldCommit: @Sendable () async -> Bool, admissionControl: QueueAdmissionControl?,
+        hostAdmission: SpeechHostAdmission?) async throws -> SpeechQueueItem {
         try Task.checkCancellation(); try preferences.validate(); try storage.validate()
         let savedCatalog = try catalog(stateRoot: storage.stateRoot)
         guard let entry = savedCatalog.entries.first(where: { $0.id == entryID }) else {
@@ -278,13 +325,16 @@ extension FixtureCoordinator {
                     && (candidate.addedAt == nil || candidate.addedAt! <= (episode.readingListSavedAt ?? episode.publicationDate ?? .distantFuture)))),
                let bytes = try store.snapshot(articleID: episode.id) {
                 // The same admitted source stays resumable offline. A new save is fetched anew.
-                review = try JSONDecoder().decode(StoredExtraction.self, from: bytes).review()
+                review = try await NarrationPreparationWork.run {
+                    try JSONDecoder().decode(StoredExtraction.self, from: bytes).review()
+                }
             } else {
                 do {
                     review = try await ArticleSourceLoader(limits: limits, useArchives: useArchives, fetch: fetch,
                         archiveFetch: archiveFetch, debugLog: debugLog, describeImages: describeImages,
                         speechSettings: preferences.modelSelection, narrationOptions: preferences.effectiveNarrationOptions,
-                        sourceTitle: candidate.title, generateMissingTitles: generateMissingTitles, titleGenerator: titleGenerator)
+                        sourceTitle: candidate.title, generateMissingTitles: generateMissingTitles, titleGenerator: titleGenerator,
+                        hostAdmission: hostAdmission)
                         .load(candidate.url, savedAt: candidate.addedAt, chunkLimit: storage.profile.chunkMaxCharacters)
                 } catch is CancellationError { throw CancellationError() }
                 catch {
@@ -310,21 +360,67 @@ extension FixtureCoordinator {
         }
         guard await shouldCommit() else { throw CancellationError() }
         try Task.checkCancellation()
+        let prepared = try await prepareAdmission(review, storage: storage)
         let current = try catalog(stateRoot: storage.stateRoot)
         guard current.entries == savedCatalog.entries, current.currentIDs == savedCatalog.currentIDs else {
             throw CancellationError() // Never bind a comparison to a changed Reading List.
         }
-        return try enqueueResolved(review, storage: storage, preferences: preferences, sourceEntryID: winner.id,
+        return try enqueueResolved(review, prepared: prepared, storage: storage, preferences: preferences, sourceEntryID: winner.id,
             admissionControl: admissionControl, duplicateEvidence: evidence.filter { evaluated.contains($0.key) },
             handledIDs: Set(group.map(\.id)), replacePublished: true)
     }
     /// Enqueue commits approved text, captured settings and episode identity together, without TTS or scratch files.
     public func enqueue(_ review: ReviewedSource, storage: ManagedSpeechStorage, preferences: SpeechPreferences,
-                        sourceEntryID: String? = nil, admissionControl: QueueAdmissionControl? = nil) throws -> SpeechQueueItem {
-        try enqueueResolved(review, storage: storage, preferences: preferences, sourceEntryID: sourceEntryID,
-                            admissionControl: admissionControl)
+                        sourceEntryID: String? = nil, admissionControl: QueueAdmissionControl? = nil,
+                        cpuExecutor: (any NarrationCPUExecutor)? = nil) async throws -> SpeechQueueItem {
+        let executor = cpuExecutor ?? NarrationPreparationWork.executor
+        let operation: @Sendable () async throws -> SpeechQueueItem = {
+            try await NarrationPreparationWork.$executor.withValue(executor) {
+                let prepared = try await self.prepareAdmission(review, storage: storage)
+                return try await self.enqueueResolved(review, prepared: prepared, storage: storage, preferences: preferences,
+                    sourceEntryID: sourceEntryID, admissionControl: admissionControl)
+            }
+        }
+        if let admissionControl { return try await admissionControl.withWork(operation) }
+        return try await operation()
     }
-    private func enqueueResolved(_ review: ReviewedSource, storage: ManagedSpeechStorage, preferences: SpeechPreferences,
+    private struct PreparedAdmission: Sendable {
+        struct Existing: Sendable { let id: String, bytes: Data; let sourceHash: String? }
+        let sourceHash: String
+        let snapshots: [Int: Data]
+        let existing: Existing?
+    }
+    /// Prepare/hash/encode before opening a writer transaction. The final commit
+    /// rechecks the exact stored bytes and captured chunk limit after actor reentry.
+    private func prepareAdmission(_ review: ReviewedSource, storage: ManagedSpeechStorage) async throws -> PreparedAdmission {
+        try storage.validate()
+        guard review.issue == nil, let plan = review.narration, !plan.chunks.isEmpty,
+              review.page.bytes.count <= storage.profile.maxArticleBytes else { throw RelayError.setup("Select a readable article before adding speech.") }
+        let key = "reviewed-url-v1-" + Files.hash(Data(review.page.originalURL.absoluteString.utf8))
+        var reader = try metadataReader(storage.stateRoot)
+        let previous = try reader?.recordedEpisode(sourceKey: key)
+        let bytes = try previous.flatMap { try reader?.snapshot(articleID: $0.id) }
+        let previousID = previous?.id
+        reader = nil
+        let limits = Set([storage.profile.chunkMaxCharacters, previous?.settings.chunkMaxCharacters].compactMap { $0 })
+        return try await NarrationPreparationWork.run {
+            var snapshots: [Int: Data] = [:]
+            for limit in limits {
+                try NarrationWorkCheckpoint.check()
+                snapshots[limit] = try Files.json(StoredExtraction(review: review, chunkLimit: limit))
+            }
+            let existing: PreparedAdmission.Existing?
+            if let bytes, let previousID {
+                // A deliberately superseded recording need not have a readable
+                // snapshot. Reuse still fails closed on that same damaged record.
+                let saved = try? JSONDecoder().decode(StoredExtraction.self, from: bytes).review()
+                existing = .init(id: previousID, bytes: bytes, sourceHash: saved.map { Files.hash($0.page.bytes) })
+            } else { existing = nil }
+            try NarrationWorkCheckpoint.check()
+            return .init(sourceHash: Files.hash(review.page.bytes), snapshots: snapshots, existing: existing)
+        }
+    }
+    private func enqueueResolved(_ review: ReviewedSource, prepared: PreparedAdmission, storage: ManagedSpeechStorage, preferences: SpeechPreferences,
         sourceEntryID: String?, admissionControl: QueueAdmissionControl?,
         duplicateEvidence: [String: ArticleDuplicateEvidence] = [:], handledIDs: Set<String> = [],
         replacePublished: Bool = false) throws -> SpeechQueueItem {
@@ -360,26 +456,28 @@ extension FixtureCoordinator {
         do {
             let key = "reviewed-url-v1-" + Files.hash(Data(review.page.originalURL.absoluteString.utf8))
             let freshDuplicate = handledIDs.count > 1 && !handledIDs.subtracting(catalog.handledEntryIDs ?? []).isEmpty
-            if replacePublished, let previous = try store.existingEpisode(sourceKey: key),
+            if replacePublished, let previous = try store.existingEpisode(sourceKey: key, resolveSnapshots: false),
                previous.stage == .published || previous.stage == .expired || freshDuplicate {
                 // Keep the old bytes, snapshot, original identity and delivery history.
                 // The current URL key now belongs to a fresh generation with current settings.
                 try store.execute("UPDATE episodes SET source_key=?,record=? WHERE id=?", ["superseded-episode-v1-" + previous.id,
                     String(decoding: try Files.json(previous), as: UTF8.self), previous.id])
-                if let queued = try store.queue().first(where: { $0.id == previous.id }), queued.state != .running {
+                if let queued = try store.queue(resolveSnapshots: false).first(where: { $0.id == previous.id }), queued.state != .running {
                     try store.execute("DELETE FROM speech_queue WHERE article_id=?", [previous.id])
                 }
             }
             var episode = try store.episode(sourceKey: key, settings: settings)
             if let bytes = try store.snapshot(articleID: episode.id) {
-                let saved = try JSONDecoder().decode(StoredExtraction.self, from: bytes).review()
-                guard Files.hash(saved.page.bytes) == Files.hash(review.page.bytes) else {
+                guard let existing = prepared.existing, existing.id == episode.id, existing.bytes == bytes else {
+                    throw RelayError.setup("Saved article text changed during preparation. Existing progress is preserved; retry the queue addition.")
+                }
+                guard existing.sourceHash == prepared.sourceHash else {
                     throw RelayError.setup("This article already has saved speech or queued text from another source revision. Existing progress is preserved.")
                 }
             } else {
                 guard episode.stage != .published else { throw RelayError.artifact("Published article text is missing. Existing audio is preserved.") }
-                let snapshot = try StoredExtraction(review: review, chunkLimit: episode.settings.chunkMaxCharacters)
-                try store.saveSnapshot(articleID: episode.id, data: Files.json(snapshot))
+                guard let snapshot = prepared.snapshots[episode.settings.chunkMaxCharacters] else { throw CancellationError() }
+                try store.saveSnapshot(articleID: episode.id, data: snapshot)
                 episode.title = document.article.title; episode.stage = .extracted
             }
             if let saved = sourceEntry?.addedAt { episode.readingListSavedAt = saved }
@@ -388,7 +486,7 @@ extension FixtureCoordinator {
             episode.readingListEntryID = episode.readingListEntryID ?? sourceEntryID
             if replacePublished { episode.replacesDuplicateAudio = true }
             try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
-            var item = try store.queue().first(where: { $0.id == episode.id }) ?? SpeechQueueItem(
+            var item = try store.queue(resolveSnapshots: false).first(where: { $0.id == episode.id }) ?? SpeechQueueItem(
                 id: episode.id, title: episode.title, sourceEntryID: sourceEntryID,
                 admissionID: admissionControl?.id, state: .queued, sourceHost: review.page.originalURL.host)
             if item.sourceEntryID == nil, let sourceEntryID {
@@ -408,46 +506,66 @@ extension FixtureCoordinator {
                 // Pending losers never reach speech. Running work retains its owned
                 // lifetime and the replacement safely supersedes its eventual output.
                 let inactive = catalog.inactiveDuplicateIDs
-                for queued in try store.queue() where queued.state != .running
+                for queued in try store.queue(resolveSnapshots: false) where queued.state != .running
                     && queued.sourceEntryID.map(inactive.contains) == true {
                     try store.execute("DELETE FROM speech_queue WHERE article_id=?", [queued.id])
                 }
                 try store.saveCatalog(catalog)
             }
             beforeEnqueueCommit?()
-            if admissionControl?.isCancelled == true { throw CancellationError() }
-            try store.execute("COMMIT")
+            if let admissionControl { try admissionControl.withCommit { try store.execute("COMMIT") } }
+            else { try store.execute("COMMIT") }
             return item
         } catch { try? store.execute("ROLLBACK"); throw error }
     }
     /// Explicit metadata correction before any speech attempt. Never rewrites audio or published feeds.
-    public func renameQueuedArticle(_ id: String, title: String, stateRoot: URL = AppStorage.managedLibrary) throws -> SpeechQueueItem {
+    public func renameQueuedArticle(_ id: String, title: String, stateRoot: URL = AppStorage.managedLibrary,
+                                    cpuExecutor: (any NarrationCPUExecutor)? = nil) async throws -> SpeechQueueItem {
         try Task.checkCancellation()
         guard let title = DocumentTitles.clean(title) else { throw RelayError.setup("Enter a title of 1–240 characters.") }
-        let store = try metadataWriter(stateRoot)
-        guard let item = try store.queue().first(where: { $0.id == id }), item.state == .queued, item.attempts == 0,
-              var episode = try store.episodes().first(where: { $0.id == id }), episode.stage == .extracted,
-              episode.info == nil, episode.delivery == nil, episode.audioHash == nil, episode.encodedHash == nil,
-              let bytes = try store.snapshot(articleID: id) else {
-            throw RelayError.setup("Titles can be changed only before an article starts generating audio.")
+        let captured = try { () throws -> (SpeechQueueItem, Episode, NativeStore.SnapshotRecord, String) in
+            guard let store = try metadataReader(stateRoot) else { throw RelayError.setup("Saved article text is unavailable.") }
+            guard let item = try store.queue(resolveSnapshots: false).first(where: { $0.id == id }), item.state == .queued, item.attempts == 0,
+                  let record = try store.query("SELECT record FROM episodes WHERE id=?", [id]).first?.first,
+                  let episode = try store.episodes(resolveSnapshots: false).first(where: { $0.id == id }), episode.stage == .extracted,
+                  episode.info == nil, episode.delivery == nil, episode.audioHash == nil, episode.encodedHash == nil,
+                  let snapshot = try store.snapshotRecord(articleID: id) else {
+                throw RelayError.setup("Titles can be changed only before an article starts generating audio.")
+            }
+            return (item, episode, snapshot, record)
+        }()
+        let (item, episode, snapshot, record) = captured
+        // No writer or transaction is held while CPU work waits for API demand.
+        let prepared = try await NarrationPreparationWork.$executor.withValue(cpuExecutor ?? NarrationPreparationWork.executor) {
+            try await NarrationPreparationWork.run { () throws -> (Data, Data) in
+                let bytes = try snapshot.verifiedBytes()
+                let saved = try JSONDecoder().decode(StoredExtraction.self, from: bytes).review()
+                guard let document = saved.document else { throw RelayError.artifact("Saved article text is unavailable.") }
+                var article = document.article
+                article.title = title; article.titleOrigin = .user
+                let html = try SwiftSoup.parse(document.cleanedHTML)
+                try html.title(title)
+                let review = ReviewedSource(page: saved.page, document: .init(article: article, cleanedHTML: try html.outerHtml()), narration: nil, issue: nil)
+                let snapshot = try StoredExtraction(review: review, chunkLimit: episode.settings.chunkMaxCharacters)
+                var renamed = episode; renamed.title = title
+                return (try Files.json(snapshot), try Files.json(renamed))
+            }
         }
-        let saved = try JSONDecoder().decode(StoredExtraction.self, from: bytes).review()
-        guard let document = saved.document else { throw RelayError.artifact("Saved article text is unavailable.") }
-        var article = document.article
-        article.title = title; article.titleOrigin = .user
-        let html = try SwiftSoup.parse(document.cleanedHTML)
-        try html.title(title)
-        let review = ReviewedSource(page: saved.page, document: .init(article: article, cleanedHTML: try html.outerHtml()), narration: nil, issue: nil)
-        let snapshot = try StoredExtraction(review: review, chunkLimit: episode.settings.chunkMaxCharacters)
+        try Task.checkCancellation()
         let updated = SpeechQueueItem(id: item.id, title: title, sourceEntryID: item.sourceEntryID,
             admissionID: item.admissionID, state: item.state, attempts: item.attempts, lastError: item.lastError, sourceHost: item.sourceHost)
-        var catalog = try store.catalog()
-        if let sourceID = item.sourceEntryID { catalog.setResolvedTitle(title, for: sourceID) }
-        episode.title = title
+        let store = try metadataWriter(stateRoot)
         try store.execute("BEGIN IMMEDIATE")
         do {
-            try store.saveSnapshot(articleID: id, data: Files.json(snapshot))
-            try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
+            guard try store.queue(resolveSnapshots: false).first(where: { $0.id == id }) == item,
+                  try store.snapshotRecord(articleID: id) == snapshot,
+                  try store.query("SELECT record FROM episodes WHERE id=?", [id]).first?.first == record else {
+                throw RelayError.setup("This queued article changed while its title was being prepared. Existing progress is preserved; retry the title change.")
+            }
+            var catalog = try store.catalog()
+            if let sourceID = item.sourceEntryID { catalog.setResolvedTitle(title, for: sourceID) }
+            try store.saveSnapshot(articleID: id, data: prepared.0)
+            try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: prepared.1, as: UTF8.self), episode.id])
             try store.saveQueueItem(updated); try store.saveCatalog(catalog)
             try store.execute("COMMIT")
         } catch { try? store.execute("ROLLBACK"); throw error }
@@ -463,7 +581,7 @@ extension FixtureCoordinator {
         let settings = try settings?.normalized()
         try store.execute("BEGIN IMMEDIATE")
         do {
-            let existing = Set(try store.queue().map(\.id))
+            let existing = Set(try store.queue(resolveSnapshots: false).map(\.id))
             let superseded = Set(try store.query("SELECT id FROM episodes WHERE source_key LIKE 'superseded-episode-v1-%'").compactMap(\.first))
             let inactive = try store.catalog().inactiveDuplicateIDs
             for episode in try store.published() where episode.settings.temporaryAudio == true || episode.localAudioReleased == true {
@@ -485,7 +603,7 @@ extension FixtureCoordinator {
     public func retryQueued(_ id: String, stateRoot: URL = AppStorage.managedLibrary) throws -> SpeechQueueItem {
         try Task.checkCancellation()
         let store = try metadataWriter(stateRoot)
-        guard var item = try store.queue().first(where: { $0.id == id }) else { throw RelayError.setup("The queued article is unavailable.") }
+        guard var item = try store.queue(resolveSnapshots: false).first(where: { $0.id == id }) else { throw RelayError.setup("The queued article is unavailable.") }
         if item.state != .completed { item.state = .queued; item.lastError = nil; try store.saveQueueItem(item) }
         return item
     }
@@ -495,7 +613,7 @@ extension FixtureCoordinator {
     public func removeFromQueue(ids: [String], stateRoot: URL = AppStorage.managedLibrary) throws {
         try Task.checkCancellation()
         let store = try metadataWriter(stateRoot)
-        let items = try store.queue()
+        let items = try store.queue(resolveSnapshots: false)
         let known = Set(items.map(\.id))
         let targets = ids.filter { known.contains($0) }
         guard !targets.isEmpty else { return }
@@ -512,7 +630,7 @@ extension FixtureCoordinator {
     public func cancelAdmission(_ id: UUID, stateRoot: URL = AppStorage.managedLibrary) throws -> SpeechQueueItem? {
         try Task.checkCancellation()
         let store = try metadataWriter(stateRoot)
-        guard let item = try store.queue().first(where: { $0.admissionID == id }) else { return nil }
+        guard let item = try store.queue(resolveSnapshots: false).first(where: { $0.admissionID == id }) else { return nil }
         guard item.state != .running else {
             throw RelayError.setup("During preparation completion this article began processing. Stop before removing it.")
         }
@@ -534,18 +652,18 @@ extension FixtureCoordinator {
     }
     private func claimQueued(_ id: String, stateRoot: URL, allowingRunning: Bool = false) throws -> Episode {
         let store = try metadataWriter(stateRoot)
-        let items = try store.queue()
+        let items = try store.queue(resolveSnapshots: false)
         guard allowingRunning || !items.contains(where: { $0.state == .running }) else {
             throw RelayError.setup("A queue item was interrupted. Retry it explicitly before continuing.")
         }
         guard var item = items.first(where: { $0.id == id }), item.state.isReady, item.attempts < Int.max else { throw RelayError.setup("Retry this queue item before running it.") }
-        guard let episode = try store.episodes().first(where: { $0.id == id }) else { throw RelayError.setup("The queued episode is unavailable.") }
+        guard let episode = try store.episodes(resolveSnapshots: false).first(where: { $0.id == id }) else { throw RelayError.setup("The queued episode is unavailable.") }
         item.state = .running; item.attempts += 1; item.lastError = nil; try store.saveQueueItem(item)
         return episode
     }
     private func finishQueued(_ id: String, state: SpeechQueueState, error: String?, stateRoot: URL) throws -> SpeechQueueItem {
         let store = try metadataWriter(stateRoot)
-        guard var item = try store.queue().first(where: { $0.id == id }) else { throw RelayError.setup("The queued article is unavailable.") }
+        guard var item = try store.queue(resolveSnapshots: false).first(where: { $0.id == id }) else { throw RelayError.setup("The queued article is unavailable.") }
         item.state = state; item.lastError = error
         if state == .completed {
             // Called only after resume returns: media hash/probe/decode and local feed commit succeeded.
@@ -581,7 +699,7 @@ extension FixtureCoordinator {
                             delivery: DeliverySettings? = nil, context: SpeechArticleContext? = nil,
                             onQueueChange: @escaping @Sendable (SpeechQueueItem) -> Void,
                             onProgress: @escaping @Sendable (PipelineProgress) -> Void) async throws -> FixtureResult {
-        if let item = try queue(stateRoot: storage.stateRoot).first(where: { $0.id == episode.id }) { onQueueChange(item) }
+        if let item = try queueMetadata(stateRoot: storage.stateRoot).first(where: { $0.id == episode.id }) { onQueueChange(item) }
         do {
             let provider = try makeProvider()
             let result = try await resumeWork(storage: storage, articleID: episode.id, backend: provider,
@@ -619,32 +737,57 @@ extension FixtureCoordinator {
                               onProgress: @escaping @Sendable (PipelineProgress) -> Void = { _ in }) async throws -> FixtureResult? {
         try Task.checkCancellation()
         try refuseCompetingDrain(storage.stateRoot)
-        let items = try queue(stateRoot: storage.stateRoot)
+        let items = try queueMetadata(stateRoot: storage.stateRoot)
         guard !items.contains(where: { $0.state == .running }) else { throw RelayError.setup("A queue item was interrupted. Retry it explicitly before continuing.") }
         guard let first = items.first(where: { $0.state.isReady }) else { return nil }
         return try await runQueued(first.id, storage: storage, backend: backend, onQueueChange: onQueueChange, onProgress: onProgress)
     }
     private func waitingBatch(stateRoot: URL, allowingRunning: Bool = false,
-                              onQueueChange: @Sendable (SpeechQueueItem) -> Void = { _ in }) throws
+                              cpuExecutor: (any NarrationCPUExecutor)? = nil,
+                              onQueueChange: @Sendable (SpeechQueueItem) -> Void = { _ in }) async throws
         -> (ready: [(id: String, chunks: Int)], failed: [SpeechQueueItem]) {
-        let items = try queue(stateRoot: stateRoot)
+        let items = try queueMetadata(stateRoot: stateRoot)
         guard allowingRunning || !items.contains(where: { $0.state == .running }) else { throw RelayError.setup("A queue item was interrupted. Retry it explicitly before continuing.") }
-        guard let store = try metadataReader(stateRoot) else { return ([], []) }
-        let episodes = Dictionary(uniqueKeysWithValues: try store.episodes().map { ($0.id, $0) })
         var ready: [(id: String, chunks: Int)] = [], failed: [SpeechQueueItem] = []
         for item in items where item.state.isReady {
             try Task.checkCancellation()
+            let captured = try { () throws -> (NativeStore.SnapshotRecord?, String?) in
+                guard let store = try metadataReader(stateRoot) else { return (nil, nil) }
+                return (try store.snapshotRecord(articleID: item.id),
+                        try store.query("SELECT record FROM episodes WHERE id=?", [item.id]).first?.first)
+            }()
+            let outcome: Result<Int, any Error>
             do {
-                guard let data = try store.snapshot(articleID: item.id) else { throw RelayError.artifact("Missing queued text.") }
-                let review = try JSONDecoder().decode(StoredExtraction.self, from: data).review()
-                guard var plan = review.narration, !plan.chunks.isEmpty, let episode = episodes[item.id] else {
-                    throw RelayError.artifact("Unusable queued text.")
+                let chunks = try await NarrationPreparationWork.$executor.withValue(cpuExecutor ?? NarrationPreparationWork.executor) {
+                    try await NarrationPreparationWork.run {
+                        guard let data = try captured.0?.verifiedBytes() else { throw RelayError.artifact("Missing queued text.") }
+                        let review = try JSONDecoder().decode(StoredExtraction.self, from: data).review()
+                        guard var plan = review.narration, !plan.chunks.isEmpty, let record = captured.1 else {
+                            throw RelayError.artifact("Unusable queued text.")
+                        }
+                        let episode = try JSONDecoder().decode(Episode.self, from: Data(record.utf8))
+                        // Count the upgraded plan that resume will actually synthesize.
+                        if episode.stage != .published, plan.version != Narration.version, let article = review.document?.article {
+                            plan = try Narration.prepare(article, limit: episode.settings.chunkMaxCharacters, options: episode.settings.narrationOptions ?? .init())
+                        }
+                        return plan.chunks.count
+                    }
                 }
-                // Count the upgraded plan that resume will actually synthesize.
-                if episode.stage != .published, plan.version != Narration.version, let article = review.document?.article {
-                    plan = try Narration.prepare(article, limit: episode.settings.chunkMaxCharacters, options: episode.settings.narrationOptions ?? .init())
-                }
-                ready.append((item.id, plan.chunks.count))
+                outcome = .success(chunks)
+            } catch is CancellationError { throw CancellationError() }
+            catch { outcome = .failure(error) }
+            try Task.checkCancellation()
+            // Actor reentry may remove, retry, rename or start a row during admission.
+            // Neither a stale count nor a stale verification failure may change it.
+            let unchanged = try { () throws -> Bool in
+                guard let store = try metadataReader(stateRoot) else { return false }
+                return try store.queue(resolveSnapshots: false).first(where: { $0.id == item.id }) == item
+                    && store.snapshotRecord(articleID: item.id) == captured.0
+                    && store.query("SELECT record FROM episodes WHERE id=?", [item.id]).first?.first == captured.1
+            }()
+            guard unchanged else { continue }
+            do {
+                ready.append((item.id, try outcome.get()))
             } catch is CancellationError { throw CancellationError() }
             catch {
                 if let relay = error as? RelayError {
@@ -660,12 +803,13 @@ extension FixtureCoordinator {
     /// Fixed FIFO membership prevents totals from changing when more articles are added later.
     public func runQueuedBatch(storage: ManagedSpeechStorage,
                                backend: @Sendable (Episode) throws -> any TTSBackend,
+                               cpuExecutor: (any NarrationCPUExecutor)? = nil,
                                onQueueChange: @escaping @Sendable (SpeechQueueItem) -> Void = { _ in },
                                onArticleComplete: @escaping @Sendable (FixtureResult) -> Void = { _ in },
                                onProgress: @escaping @Sendable (QueueBatchProgress) -> Void = { _ in }) async throws -> QueueBatchResult {
         try Task.checkCancellation()
         try refuseCompetingDrain(storage.stateRoot)
-        let planned = try waitingBatch(stateRoot: storage.stateRoot, onQueueChange: onQueueChange)
+        let planned = try await waitingBatch(stateRoot: storage.stateRoot, cpuExecutor: cpuExecutor, onQueueChange: onQueueChange)
         let batch = planned.ready
         let plannedTotal = batch.reduce(0) { $0 + $1.chunks }
         onProgress(QueueBatchProgress(stage: .extracted, completedChunks: 0, totalChunks: plannedTotal,
@@ -710,6 +854,7 @@ extension FixtureCoordinator {
     public func drainQueue(storage: ManagedSpeechStorage,
                            backend: @escaping @Sendable (Episode) throws -> any TTSBackend,
                            control: QueueRunControl = QueueRunControl(),
+                           cpuExecutor: (any NarrationCPUExecutor)? = nil,
                            delivery: DeliverySettings? = nil, debugLog: DeliveryDebugLog? = nil,
                            pendingPreparationCount: @escaping @Sendable () async -> Int = { 0 },
                            onQueueChange: @escaping @Sendable (SpeechQueueItem) -> Void = { _ in },
@@ -722,7 +867,7 @@ extension FixtureCoordinator {
         }
         defer { activeDrainRoots.remove(root.path) }
         // Refuse interrupted membership before allowing our own two in-flight stages.
-        let initial = try waitingBatch(stateRoot: storage.stateRoot, onQueueChange: onQueueChange)
+        let initial = try await waitingBatch(stateRoot: storage.stateRoot, cpuExecutor: cpuExecutor, onQueueChange: onQueueChange)
         let pipeline = SingleWorkerSpeechPipeline(database: storage.profile.database, debugLog: debugLog, audioObserver: beforeAudioProcessing)
         let start = ProcessInfo.processInfo.systemUptime
         defer { pipeline.close(); pipeline.diagnostics.record(.queue, seconds: ProcessInfo.processInfo.systemUptime - start) }
@@ -736,7 +881,7 @@ extension FixtureCoordinator {
             while true {
                 if Task.isCancelled || interrupted { group.cancelAll() }
                 let planning = Task.isCancelled || interrupted ? (ready: [], failed: [])
-                    : try waitingBatch(stateRoot: storage.stateRoot, allowingRunning: true, onQueueChange: onQueueChange)
+                    : try await waitingBatch(stateRoot: storage.stateRoot, allowingRunning: true, cpuExecutor: cpuExecutor, onQueueChange: onQueueChange)
                 failed += planning.failed
                 let plans = planning.ready
                 let pending = Task.isCancelled || interrupted ? 0 : await pendingPreparationCount()
@@ -787,7 +932,7 @@ extension FixtureCoordinator {
             // Keep the next row removable/Ready until the current speech turn ends.
             if let previous = context.previous { try await previous.wait() }
             try Task.checkCancellation()
-            guard try queue(stateRoot: storage.stateRoot).contains(where: { $0.id == item.id && $0.state.isReady }) else {
+            guard try queueMetadata(stateRoot: storage.stateRoot).contains(where: { $0.id == item.id && $0.state.isReady }) else {
                 return SpeechArticleOutcome(id: item.id)
             }
             _ = try reconcileMissingAudio(storage: storage)
@@ -804,7 +949,7 @@ extension FixtureCoordinator {
                     error: (error as? RelayError)?.localizedDescription ?? "The queued article could not be started.", stateRoot: storage.stateRoot) {
                 progress.start(item.id, chunks: item.chunks); onQueueChange(row)
             }
-            let failure = interrupted ? nil : try? queue(stateRoot: storage.stateRoot).first(where: { $0.id == item.id })
+            let failure = interrupted ? nil : try? queueMetadata(stateRoot: storage.stateRoot).first(where: { $0.id == item.id })
             return SpeechArticleOutcome(id: item.id, failure: failure, interrupted: interrupted)
         }
     }
@@ -818,7 +963,7 @@ extension FixtureCoordinator {
         else { lease = try PipelineLease(database: p.database) }
         defer { lease?.release() }
         let store = try metadataWriter(root)
-        guard let episode = try store.episodes().first(where: { $0.id == episodeID }) else {
+        guard let episode = try store.episodes(resolveSnapshots: false).first(where: { $0.id == episodeID }) else {
             throw RelayError.setup("The interrupted episode is unavailable.")
         }
         guard Files.samePath(episode.settings.database, p.database), Files.samePath(episode.settings.feed, p.feed),

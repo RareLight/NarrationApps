@@ -96,7 +96,10 @@ returns to menu-bar-only operation. Closing windows does not stop work.
    every five minutes, when Articles appears or the source changes, and on
    Articles' pull-down gesture. Newest saved items appear first; ties keep discovery
    order and undated entries come last. Automatic admission and processing are
-   controlled by the General preferences.
+   controlled by the General preferences; enqueuing and processing — automatic
+   or manual — wait until enabled Publishing finishes checking the existing
+   server audio at the current destination, so already-published work is
+   reconciled rather than regenerated or re-uploaded.
    If an entry's address changes, refresh removes its old queued work and cached
    source text once no current entry refers to that address. Published episodes remain.
 
@@ -314,8 +317,9 @@ The Articles filter starts with **Today** and **This Week**, based on the Readin
 List saved date in your local calendar. Undated articles appear under All Websites
 or their website filter. Search combines with the selected filter in each scope.
 
-Publishing automatically reconciles existing server feed/audio with local state.
-Verified matches restore history and leave Queue without regeneration or media PUT.
+Publishing automatically reconciles existing server feed/audio with local state
+before articles are admitted or processed. Verified matches restore history and
+leave Queue without regeneration or media PUT.
 At comparable voice/speed, the longer valid copy wins; ties retain the server copy.
 Recovery conflict replacements preserve the old server file. Deliberate new-save
 replacements follow the duplicate rules above. Item errors retain existing feed membership
@@ -351,6 +355,12 @@ For publishing or backup guidance, open **Help → Publishing and Upload Queue**
 **More Help…** opens the corresponding guide. Help content is bundled and offline.
 
 ## Privacy and backups
+
+VoiceServer is an optional, disabled-by-default private speech API in Settings.
+It requires a Keychain bearer key and explicit access choice. It uses the selected
+voice and captured pronunciation rules, independently of podcast setup. API audio
+is temporary and creates no article, episode, feed, transcript or retained review.
+See [VoiceServer](VOICESERVER.md) for endpoints, formats, limits and lifecycle.
 
 Speech generation and the shared pronunciation dictionary stay on the Mac.
 Fetching articles and optional images uses the network. If archive recovery is

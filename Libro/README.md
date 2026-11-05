@@ -60,6 +60,23 @@ drops cannot add rows later. Replacement scans wait for previous intake work to
 finish. Completed files survive Stop and Quit. **Queue Actions** and clickable status
 issues show diagnostics. Closing a preview cancels its remaining text analysis.
 
+## Recover an interrupted batch
+
+**Queue Actions → Interrupted Batches…** lists private batch recovery records.
+**Open and Restore Access…** asks for the original files or containing folders
+and checks captured source/destination identities and settings. Opening does not
+start speech; **Resume** starts remaining work using the captured voice,
+pronunciation, narration and replacement consent. Completed outputs are verified
+and excluded. A changed source or destination fails closed; restore the original
+location or create a new batch. **Discard Checkpoints…** removes only private
+recovery data and preserves source files and completed recordings. Interrupted
+records remain until resumed or explicitly discarded; fully settled, verified
+records are cleaned after the batch. Unavailable/damaged records are retained.
+
+Live VoiceServer API requests take priority over Libro, then podcasts. Automatic
+suspension retains the partial recording and verified chunks; manual Pause stays
+separate. Use both current app builds for coordinated suspension and recovery.
+
 ## Preview and adjust the text
 
 PDF previews appear after a readable initial portion is analyzed: the first 5%
@@ -106,6 +123,13 @@ renders a live preview using the selected model, voice and speed; unlike Play
 Sample, it requires installed models and idle speech processing.
 
 **General → Appearance** controls text size (also ⌘+, ⌘− and ⌘0).
+**General → Text preparation → Maximum CPU workers** controls parallel text token
+counting for Qwen, Chatterbox and Orpheus. Automatic uses the available processor
+cores, up to 32; a manual maximum is capped at the available cores and applies to
+the next batch. Kokoro pronunciation stays serialized and Soprano uses a simple
+text budget. All models defer loading speech weights until generation needs them;
+Kokoro may still use its smaller neural pronunciation frontend during preparation.
+Speech generation uses one model instance. Existing recordings are unchanged.
 **Models** lists downloaded models, their disk sizes and deletion controls, plus storage overrides and offline checks. Downloads default to the shared Hugging Face cache; explicit existing folder choices remain in place. See [model storage](../docs/MODEL_SELECTION.md#model-storage). Missing models are not
 silently downloaded during narration. **Troubleshooting** owns helper checks and
 optional debug logging; Libro logs can contain document text and paths, so keep

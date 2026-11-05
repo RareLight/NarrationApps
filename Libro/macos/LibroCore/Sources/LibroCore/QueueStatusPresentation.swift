@@ -14,6 +14,7 @@ public enum QueueStatusPresentation {
         case .reviewingImages, .describingImage: label = "Analyzing images"
         case .planningNarration: label = "Preparing narration"
         case .phonemizing: label = "Preparing pronunciation"
+        case .tokenizing: label = "Preparing text tokens"
         }
         if let total = progress.total, total > 0 { return "\(label) \(progress.completed)/\(total)" }
         return label + "…"

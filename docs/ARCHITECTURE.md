@@ -1,10 +1,21 @@
 # Shared architecture
 
-Current contract reviewed October 27, 2026. Product boundaries and package installation
+Current contract reviewed November 4, 2026. Product boundaries and package installation
 are in [PACKAGE_BOUNDARIES.md](PACKAGE_BOUNDARIES.md); the app directories own
 GUI/workflow, preferences, source authorization and app-specific persistence.
 
 ## Processing boundaries
+
+VoiceRelay's disabled-by-default VoiceServer accepts only authenticated model/voice
+metadata and speech routes through SwiftNIO 2.95.0. It captures existing selections
+and runs bounded FIFO jobs through the app's same coordinator. The response owns
+one sequential MP3/PCM encoder or complete Float32 WAV writer; private response
+scratch is outside podcast/history/review storage. Synchronous bounded socket
+writes run only on admitted CPU queues, never UI/event-loop/GPU callbacks. A
+directory ownership lock survives parent failure until actual helper/writer exit;
+orphan cleanup requires the versioned marker and an exclusive lock. Settings owns
+Keychain grants and explicit local-interface bindings. See the
+[VoiceServer guide](../VoiceRelay/docs/VOICESERVER.md) for protocol, limits and lifecycle.
 
 `document intake → semantic blocks → captured spelling rules → mapped spoken forms
 → spoken projection → bounded native G2P → immutable prepared utterances → synthesis → assembly → encoding`
@@ -105,15 +116,103 @@ checkpoints, but are stripped from the helper's 64 KiB control messages.
 
 ## Helpers, admission and memory
 
+The production VoiceServer coordinator also owns `SpeechHostAdmission`. App-owned
+document tasks explicitly carry that context across detached boundaries; existing
+Vision/Foundation Models lease calls then join API > Libro > Podcasts admission
+and retain current/legacy exclusion through actual completion. Platform calls
+already submitted yield cooperatively. Host demand uses a distinct instance so
+idle same-app speech residency cannot deadlock its grant. Setup uses a real
+initialize-only coordinated unit; pronunciation/review sessions capture the same
+worker owner. Both apps have optional constructor and joined Quit bindings, but
+injected construction still defaults to nil; production supplies the owner. Its maintenance gate refuses new jobs,
+stops accepted API work, parks background CPU work, reaps its helper and joins
+started platform leases before installation/deletion. Only still-eligible
+background jobs resume afterward. Quit joins the actual maintenance operation.
+Deletion retains the independent model-storage exclusion; no app kills another
+app's helper.
+
+Opt-in CPU demand ranks source integrity checks, narration planning, PCM journal
+reads/writes, validation, encoding and publication without authorizing a model
+host. Each synchronous CPU operation owns a separate utility queue and cooperative
+checkpoints; a parked podcast encoder cannot block a live response encoder or the
+UI. Same-app CPU finalization does not serialize the next same-rank speech unit.
+Published recordings remain published if a later recovery receipt fails.
+`NarrationPreparationWork` carries an optional synchronous CPU executor through
+async readers and detached app tasks. Document decoding, per-page PDF processing,
+EPUB chapter extraction, preview planning and review PCM/hash/diagnostic writes use
+that executor; Core and audio checkpoints share the same admitted operation.
+PDFKit objects stay exclusively owned across sequential CPU units. Actual platform
+OCR, title/image generation and recognition remain outside CPU units and own their
+inference leases. Their active-work budgets exclude admission waits. Already-issued
+platform calls finish cooperatively.
+
+Optional review writes serialize and join before session replacement/close. A
+cancelled repair removes only its newly owned take, after joining cleanup; original
+reviews and recordings remain intact. Article admissions cancel/join their real
+preparation tasks. New snapshot planning/hash/encoding precedes the writer
+transaction, which rechecks exact saved snapshot bytes and captured chunk limits
+before committing. No CPU admission wait holds that writer transaction.
+Queue-title preparation and chunk-count planning now run through CPU admission;
+each result rechecks the saved row, snapshot and episode after actor reentry.
+Title preparation holds no database writer while waiting, and stale planning
+failures cannot mark a changed row failed. Libro intake enumeration and automatic,
+manual and retained cover operations also use admitted CPU work, with cooperative
+checkpoints between filesystem entries and image operations. Already-issued
+File Provider, PDF rendering and ImageIO calls finish cooperatively. Remaining
+legacy metadata reads and recovery/file-access/retention still gate activation.
+
+Payload-free macOS notification wakeups supplement periodic safety checks; only
+the locked demand registry grants work. Transient waiting projections reject late
+source/run events and leave progress counts, errors and manual Pause/Stop intact.
+Explicit recovery/file-access UI and retention/repair still gate activation.
+
+`AudioStreamEncoder` owns one response's resampler and codec, accepts bounded
+finite mono Float32 frames and emits sequential MP3 or 24 kHz signed 16-bit little-
+endian PCM. It never seeks or concatenates independently encoded fragments. MP3
+uses the existing pinned native LAME at unity scale with ReplayGain disabled;
+its non-seeking mode omits the rewritable Xing frame. Existing file exports retain
+their gapless/seek metadata. PCM rejects unrepresentable levels instead of clipping
+or applying gain. Disconnect, output bounds and codec errors terminate the encoder
+without a flush/replay. HTTP backpressure, deadlines and request routing remain
+separate, unimplemented work. Both app bundles embed/sign the same prepared codec
+and include the shared notices.
+
 Each application embeds its own private signed helper and Metal library. MLX is
 linked into NativeSpeechEngine in that helper, never the GUI. ProcessingPipeline
 supervises one helper/model session per app and reuses compatible sessions.
 
+Cold normal-serving narration sessions initialize storage without a helper. Text
+preparation then starts only the model's frontend: the same pinned local tokenizer
+for Qwen, Chatterbox and Orpheus, a scalar budget for Soprano, or Misaki plus the
+pinned Kokoro phoneme vocabulary. No acoustic weights are needed. First-use Qwen
+conversion reuses the pinned SDK's JSON converter, with generated sidecars
+confined to the validated private overlay. CPU tokenizers
+remain resident across preparation windows and do not acquire inference admission.
+Kokoro's neural G2P fallback remains serialized under admission; a paused checkpoint
+or pending interactive demand unloads it before releasing admission, keeping the
+helper PID. Completion also releases this neural frontend. At first generation,
+the same helper drops frontend resources and loads the speech model under the
+inference lease. Already-resident compatible speech models can still be reused;
+large speech helpers retain their existing per-utterance reap policy. Standalone
+setup validation still initializes the complete speech model.
+
+Libro captures a separate maximum CPU-worker preference per batch (Automatic uses
+available cores, capped at 32). Only deterministic tokenizer counts run in joined,
+bounded concurrent batches; linguistic taggers and generation stay serial. Prefix
+scan order, segmentation boundaries, source mappings and acoustic identity remain
+unchanged. Stop joins the owned CPU tasks/helper before scratch cleanup. Recovery
+retains the captured limit; older manifests without it restore the serial default.
+Coordinated cold preparation starts a lightweight frontend. Speech promotion
+acquires residency and loads the model in that same helper; compatible live
+demand can take over promotion before lower-priority generation starts.
+
 The per-user inference lease also coordinates heavy OCR/image-description work.
-Pending interactive Libro work takes priority over background VoiceRelay at safe
-boundaries. In-flight GPU calls are not interrupted for priority. Cached models
-can remain resident while waiting; one active inference lease is not one total
-resident process. Legacy lock naming is retained where required for compatibility.
+The processing order is API > Libro > podcasts. Streaming live demand cancels an
+unfinished lower-priority unit through its owned producer, joins GPU drain/reset
+and resumes from verified checkpoints. Complete-file API and Libro-to-podcast
+handoffs yield at safe boundaries. Compatible same-app jobs reuse weights;
+cross-app handoffs unload the old owner before the next loads. Older builds retain
+the compatibility locks and need restarting for the new coordinated behavior.
 
 MLX cache/working thresholds and sampled host process-footprint limits provide
 bounded failure handling, not a hard whole-system memory ceiling. Failure/cancel
@@ -123,6 +222,64 @@ outputs; there is no automatic multi-worker fallback/replay.
 Control IPC remains bounded/versioned. Large preparation payloads use private,
 exclusively owned spool files with size/count/digest/path/link validation. No
 whole-document MLX tensor or global text cache is introduced.
+
+VoiceServer feasibility retains an explicit `--handoff-probe` helper mode.
+Production coordinated serving uses its admission-required `--coordinated-serve`
+variant. The versioned control loop owns one
+cancellable producer and joins it before GPU drain/reset/ready. One-frame credits
+bound PCM transfer, including cancellation while the consumer stalls. The helper
+holds existing current/legacy inference exclusion and model-storage protection
+from initialization through unload; parent EOF joins work before release. This
+probe mode continues to support isolated native reuse/first-audio measurements;
+production admission uses the three-rank scheduler described above.
+The recorded Soprano producer-ownership patch joins its internal token task in
+both generation consumers; cancelling an AsyncStream iterator alone is not a
+quiescence guarantee. The Qwen probe uses a maintained synchronous throwing
+callback on that same owned task; adapter cleanup resets the incremental decoder
+on completion or cancellation. A versioned live-only first-sentence policy retains
+source/pronunciation mappings and leaves ordinary narration packing unchanged.
+Private coordinated/probe wire version 7 exposes lease-wait/acquire, unload,
+frontend resource state and controlled loaded-
+initialization admission events. Initialization is cancellable/joined independently
+of its control reader. Production IPC is version 4: frontend-only initialization,
+resource-release acknowledgement and same-process speech promotion fail closed
+with an incompatible helper. Lifecycle events operate alongside the durable
+admission/residency protocol. Other public
+incremental streams with hidden producers remain unused.
+The opt-in Qwen decoder correction now passes direct/stream numerical PCM parity,
+coverage and reset reuse. The initial planned API path still uses complete bounded
+Qwen utterances; the raw callback stays probe-only pending continuity/listening
+acceptance. Warm cancellation timings also do not define first-use
+or cross-app deadlines. The measured transfer retains unload-before-load and does
+not introduce a shared model host.
+Shared `SpeechWorkAdmission` and `SpeechAttemptFence` provide bounded three-rank
+metadata, kernel ticket liveness, FIFO live demand, registration/final-launch and
+commit fences, plus job/attempt epochs and verified-index cursors. A nonblocking
+compatibility-lock handshake never waits for another owner under the registration
+gate. Hosts retain demand tickets; helpers must retain the returned residency
+lease until GPU drain/unload. Final commits use the shared decision gate and the
+local attempt fence, with validation/hashing outside both. Production factories
+in both apps provide `SpeechWorkCoordinator`, which owns a reusable helper via
+`--coordinated-serve`, which requires private admission and rechecks it at each
+preparation/generation launch. `WorkerConfiguration.workCoordinator` is nil by
+default for injected/legacy consumers. Production native sessions retain their render/writer while a unit retries
+after priority suspension. A private `SpeechRenderJournal` records captured plans
+and verified PCM using short fenced descriptor commits; it can reconstruct an
+unfinished output without persisting encoder state. Both apps join lifecycle
+cleanup and use notification wakeups. VoiceRelay
+persistence stages validation/JSON/SQLite writer acquisition before an epoch-fenced
+COMMIT, with automatic rejected-result retry inside the same run. Receipts contain
+no PCM and never serialize into saved checkpoints. `LibroBatchRecovery`
+captures ordered sources, settings, dictionary/cover data and destination/consent
+proofs, then reuses verified prepared plans/PCM through the normal queue/render
+path. Libro's Interrupted Batches UI restores original file access and validates
+captured settings without starting work; Resume is explicit. Interrupted records
+remain until resumed/discarded. Verified-complete records are cleaned only after
+joined work; damaged/unavailable records are retained. Fixture
+coverage is separate from installed-assets,
+GUI, listening and long-duration acceptance.
+See [the checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md) for evidence and
+[development gates](DEVELOPMENT.md#additional-model-checks) for explicit invocation.
 
 ## Shared model cache and deletion
 
@@ -253,7 +410,7 @@ Skip finishes an in-flight operation, discards the item's temporary audio, reaps
 its worker and continues with a fresh session. The publication boundary rejects
 late skips of committed items and stale confirmations cannot target the next job.
 Stop cancels the batch and leaves unfinished items queued for a later Start.
-Default coordinator callers retain their existing priority/session behavior.
+Injected callers without a work coordinator retain their legacy session behavior.
 
 Native circular glass controls sit to the right of cover editing below the queue
 divider, ordered Start/Pause/Resume, Skip, Stop. The first button shows Play when

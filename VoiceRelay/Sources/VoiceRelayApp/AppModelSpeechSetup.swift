@@ -15,9 +15,10 @@ extension AppModel {
                 return try await SpeechSetupValidation.defaultInspect(target)
             }, check: { [weak self] target in
                 let perform = self?.runtimeSetupOverride
+                let workCoordinator = self?.speechWorkCoordinator
                 let worker = Task.detached(priority: .utility) {
                     if let perform { try perform(false, target.root, target.settings, { _ in }) }
-                    else { try NativeSpeechSetup.check(at: target.root, settings: target.settings) }
+                    else { try NativeSpeechSetup.check(at: target.root, settings: target.settings, workCoordinator: workCoordinator) }
                 }
                 do {
                     try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
@@ -157,6 +158,7 @@ extension AppModel {
         deliveryDebugLog.record(.speechRuntime(operation, .started))
         let selected = preferences.modelSelection
         let perform = runtimeSetupOverride
+        let workCoordinator = speechWorkCoordinator
         runtimeTask = Task { [weak self] in
             guard let self else { return }
             var outcome: SpeechSetupValidation.Result?
@@ -183,7 +185,7 @@ extension AppModel {
             }
             let worker = Task.detached {
                 if let perform { try perform(install, root, selected, report) }
-                else { try NativeSpeechSetup.install(at: root, settings: selected, progress: report) }
+                else { try NativeSpeechSetup.install(at: root, settings: selected, workCoordinator: workCoordinator, progress: report) }
             }
             let stampCurrent = { [weak self] in
                 guard let self, self.runtimeSetupOperation == token else { return false }

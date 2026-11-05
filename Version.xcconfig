@@ -1,5 +1,5 @@
 // Shared development milestone versions. Authored centrally; each app carries
 // an independent key so per-app milestones can diverge later. The build number
 // is generated from full Git history by scripts/generate-app-info.sh.
-LIBRO_MARKETING_VERSION = 0.1.0
-VOICERELAY_MARKETING_VERSION = 0.1.0
+LIBRO_MARKETING_VERSION = 0.3.0
+VOICERELAY_MARKETING_VERSION = 0.2.0

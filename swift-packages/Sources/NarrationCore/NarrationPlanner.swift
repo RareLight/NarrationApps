@@ -60,18 +60,18 @@ public enum NarrationPlanner {
         return !text.isEmpty && text.unicodeScalars.allSatisfy { marks.contains($0) }
     }
     private enum OptionalLayoutBudget: Error { case exceeded }
-    public static func prepare(_ article: SemanticDocument, limit: Int = 480, settings: SpeechSettings = .init(), profile: NarrationProfile = .document, pronunciations: PronunciationDictionary = .empty, purpose: NarrationPlanPurpose = .preview, options: NarrationOptions = .init()) throws -> NarrationPlan {
-        do { return try prepare(article, limit: limit, settings: settings, profile: profile, pronunciations: pronunciations, purpose: purpose, options: options, layoutEnabled: true) }
+    public static func prepare(_ article: SemanticDocument, limit: Int = 480, settings: SpeechSettings = .init(), profile: NarrationProfile = .document, pronunciations: PronunciationDictionary = .empty, purpose: NarrationPlanPurpose = .preview, options: NarrationOptions = .init(), checkpoint: @Sendable () throws -> Void = { try NarrationWorkCheckpoint.check() }) throws -> NarrationPlan {
+        do { return try prepare(article, limit: limit, settings: settings, profile: profile, pronunciations: pronunciations, purpose: purpose, options: options, layoutEnabled: true, checkpoint: checkpoint) }
         catch OptionalLayoutBudget.exceeded {
             // Optional layout work must not turn a readable book into a failure.
             // Replan once, before any G2P or inference, retaining all PDF prose.
-            let plain = try prepare(article, limit: limit, settings: settings, profile: profile, pronunciations: pronunciations, purpose: purpose, options: options, layoutEnabled: false)
+            let plain = try prepare(article, limit: limit, settings: settings, profile: profile, pronunciations: pronunciations, purpose: purpose, options: options, layoutEnabled: false, checkpoint: checkpoint)
             return .init(version: plain.version, chunks: plain.chunks,
                          notices: plain.notices + ["PDF layout changes exceeded the source-mapping budget and were skipped; source text is retained."], omissions: plain.omissions, documentTitle: article.title)
         }
     }
-    private static func prepare(_ article: SemanticDocument, limit: Int = 480, settings: SpeechSettings = .init(), profile: NarrationProfile = .document, pronunciations: PronunciationDictionary = .empty, purpose: NarrationPlanPurpose, options: NarrationOptions, layoutEnabled: Bool) throws -> NarrationPlan {
-        try Task.checkCancellation()
+    private static func prepare(_ article: SemanticDocument, limit: Int = 480, settings: SpeechSettings = .init(), profile: NarrationProfile = .document, pronunciations: PronunciationDictionary = .empty, purpose: NarrationPlanPurpose, options: NarrationOptions, layoutEnabled: Bool, checkpoint: @Sendable () throws -> Void) throws -> NarrationPlan {
+        try checkpoint()
         let pronunciations = try pronunciations.resolving(language: settings.languageCode, documentTitle: article.title, model: settings.model.rawValue)
         guard limit > 0 else { throw NarrationError.invalidInput("Narration chunk limit must be positive.") }
         var chunks: [NarrationChunk] = []; var notices: [String] = []; var usedPronunciations = false; var mappedRules = 0; var mappingCount = 0
@@ -86,6 +86,7 @@ public enum NarrationPlanner {
         let hasLayoutChanges = !layout.omissions.isEmpty || !layout.joins.isEmpty || !layout.wordCuts.isEmpty || !layout.letterCuts.isEmpty || !layout.readingOrder.isEmpty || !equations.edits.isEmpty
         var noteIndices: [String: [Int]] = [:]
         for (index, block) in article.blocks.enumerated() {
+            try checkpoint()
             if let id = block.footnoteID { noteIndices[id, default: []].append(index) }
         }
         let duplicateCaptions = CaptionDeduplication.suppressedIndices(in: article.blocks)
@@ -94,6 +95,7 @@ public enum NarrationPlanner {
         var lastOmission: ContentBlock.Kind?
         var announcedComplexEquations = false
         func emit(_ text: String, indices: [Int], boundary: SpeechBoundary = .paragraph, mappingBlock: Int? = nil, projection: MappedProjection? = nil) throws {
+            try checkpoint()
             if !text.isEmpty { lastOmission = nil }
             let application = try pronunciations.applyingWithMappings(to: text)
             mappedRules += application.applications.count
@@ -110,6 +112,7 @@ public enum NarrationPlanner {
             let parts = purpose == .speechPreparation ? [spoken] : try NarrationText.chunks(spoken, settings: settings, maximumScalars: min(limit, 480))
             var partOffset = 0
             for part in parts {
+                try checkpoint()
                 let value = part.trimmingCharacters(in: .whitespacesAndNewlines)
                 let rawOffset = partOffset
                 partOffset += part.utf16.count
@@ -217,6 +220,7 @@ public enum NarrationPlanner {
         let headerChunks = chunks.count
         var joined = Set<Int>()
         for (index, block) in article.blocks.enumerated() where block.footnoteID == nil {
+            try checkpoint()
             if joined.contains(index) || excludedBlocks.contains(index) { continue }
             if block.kind == .footnote && options.notes == .endOfDocument { continue }
             if layout.joins.contains(index) {

@@ -41,6 +41,7 @@ private struct SyntheticProvider: TTSBackend {
         if episode.id == second.id { throw RelayError.artifact("Synthetic second-article failure") }
         return SyntheticProvider()
     })
+    try await markPublishingChecked(model, storage: storage)
     model.queueItems = [first, second]
     #expect(model.canGenerateAudio && !model.libraryReviewRequired)
     model.runQueue(); await model.waitForProcessing()
@@ -95,6 +96,7 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     let coordinator = FixtureCoordinator(), provider = CancellableProvider()
     let item = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
     let model = AppModel(storage: storage, backend: { _ in provider })
+    try await markPublishingChecked(model, storage: storage)
     model.refreshLibrary() // Race an in-flight library refresh with generation/cancellation.
     model.queueItems = [item]; model.runQueue()
     let deadline = Date().addingTimeInterval(5)
@@ -119,6 +121,7 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     let coordinator = FixtureCoordinator()
     let item = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
     let model = AppModel(storage: storage, backend: { _ in throw RelayError.artifact("Synthetic read failure") })
+    try await markPublishingChecked(model, storage: storage)
     model.queueItems = [item]; model.runQueue(); await model.waitForProcessing()
     #expect(!model.running && model.batchProgress == nil && model.progress == nil && model.error != nil)
     #expect(try await coordinator.queue(stateRoot: storage.stateRoot).first?.state == .failed)
@@ -215,6 +218,7 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     let coordinator = FixtureCoordinator(), provider = CancellableProvider(holdCleanup: true)
     let item = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
     let model = AppModel(storage: storage, backend: { _ in provider })
+    try await markPublishingChecked(model, storage: storage)
     model.queueItems = [item]; model.runQueue()
     let deadline = Date().addingTimeInterval(5)
     while !provider.started && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
@@ -273,8 +277,8 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
 }
 
 @Test @MainActor func settingsSectionsAreDistinctAndInertViewsConstruct() throws {
-    #expect(SettingsSection.allCases == [.general, .voiceModel, .pronunciation, .delivery, .troubleshooting])
-    #expect(Set(SettingsSection.allCases.map(\.rawValue)) == ["General", "Voice Model", "Pronunciation", "Publishing", "Troubleshooting"])
+    #expect(SettingsSection.allCases == [.general, .voiceModel, .pronunciation, .delivery, .voiceServer, .troubleshooting])
+    #expect(Set(SettingsSection.allCases.map(\.rawValue)) == ["General", "Voice Model", "Pronunciation", "Publishing", "VoiceServer", "Troubleshooting"])
     let model = AppModel(preview: true)
     let general = SettingsView(model: model)
     let troubleshooting = SettingsView(model: model, initialSection: .troubleshooting)
@@ -282,6 +286,8 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     #expect(model.pronunciationIsInert && model.pronunciationConfiguration == nil)
     _ = SettingsView(model: model, initialSection: .pronunciation)
     _ = SettingsView(model: model, initialSection: .voiceModel)
+    _ = SettingsView(model: model, initialSection: .voiceServer)
+    #expect(model.voiceServer == nil)
     _ = VoiceModelSettingsView(model: model).body
     #expect(!model.running && !model.stopping)
 }
@@ -312,9 +318,9 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
 }
 
 @Test @MainActor func settingsPanesShareFixedGlassControlLayout() async throws {
-    #expect(SettingsView.windowWidth == 540 && SettingsView.windowHeight == 680)
-    #expect(SettingsNavigation<SettingsSection>.idealWidth == 492)
-    #expect(SettingsSection.allCases.map(\.systemImage) == ["gearshape", "waveform", "text.word.spacing", "antenna.radiowaves.left.and.right", "stethoscope"])
+    #expect(SettingsView.windowWidth == 640 && SettingsView.windowHeight == 680)
+    #expect(SettingsNavigation<SettingsSection>.idealWidth == 592)
+    #expect(SettingsSection.allCases.map(\.systemImage) == ["gearshape", "waveform", "text.word.spacing", "antenna.radiowaves.left.and.right", "network", "stethoscope"])
     let model = AppModel(preview: true)
     _ = SettingsView(model: model)
     _ = SettingsView(model: model, initialSection: .troubleshooting)
@@ -512,6 +518,7 @@ func statusItemMenuAddsTwentyFivePercentToContentWidth(width: Double) {
     let coordinator = FixtureCoordinator()
     let item = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() })
+    try await markPublishingChecked(model, storage: storage)
     model.queueItems = [item]
     #expect(model.readyQueueCount == 1 && model.canGenerateAudio && !model.canStopProcessing)
     model.running = true
@@ -545,6 +552,7 @@ func statusItemMenuAddsTwentyFivePercentToContentWidth(width: Double) {
     let coordinator = FixtureCoordinator()
     let item = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences(voice: .bella, speed: 0.9))
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() })
+    try await markPublishingChecked(model, storage: storage)
     model.queueItems = [item]
     model.preferences = SpeechPreferences(voice: .heart, speed: 1.0)
     model.runQueue()
@@ -563,6 +571,7 @@ func statusItemMenuAddsTwentyFivePercentToContentWidth(width: Double) {
     let first = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
     let second = try await coordinator.enqueue(article("second"), storage: storage, preferences: SpeechPreferences())
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() })
+    try await markPublishingChecked(model, storage: storage)
     model.queueItems = [first, second]
     model.runQueue()
     await model.waitForProcessing()
@@ -647,6 +656,7 @@ func statusItemMenuAddsTwentyFivePercentToContentWidth(width: Double) {
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, enqueueFetch: { _ in
         counter.count += 1; throw SourceFetchError.network
     })
+    try await markPublishingChecked(model, storage: storage)
     model.sourceReview.catalog = catalog
     model.articleSelection = [one.id, two.id]
     model.addSelectedToQueue()
@@ -745,6 +755,7 @@ private func awaitMainActor(_ deadline: TimeInterval = 10, _ condition: @MainAct
     let model = AppModel(storage: storage, backend: { episode -> any TTSBackend in
         episode.id == item.id ? provider : SyntheticProvider()
     }, enqueueFetch: { url in try await fetchGate.wait(for: url) })
+    try await markPublishingChecked(model, storage: storage)
     model.sourceReview.catalog = catalog
     model.queueItems = [item]
     model.runQueue()
@@ -773,6 +784,7 @@ private func awaitMainActor(_ deadline: TimeInterval = 10, _ condition: @MainAct
     let model = AppModel(storage: storage, backend: { episode -> any TTSBackend in
         episode.id == second.id ? provider : SyntheticProvider()
     })
+    try await markPublishingChecked(model, storage: storage)
     model.queueItems = [first, second]
     model.runQueue()
     #expect(try await awaitMainActor { provider.synthesizeEntered })
@@ -810,6 +822,8 @@ private func awaitMainActor(_ deadline: TimeInterval = 10, _ condition: @MainAct
     let gate = FetchGate()
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() },
                          enqueueFetch: { url in try await gate.wait(for: url) })
+    try await markPublishingChecked(model, storage: storage)
+    model.autoAdmitEnabled = false
     model.sourceReview.catalog = catalog
     model.queueItems = [ready, failedRow]
     model.articleSelection = [entry.id]
@@ -846,6 +860,7 @@ private let secondRunningID = "00000000-0000-0000-0000-0000000000aa"
     let gate = FetchGate()
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() },
                          enqueueFetch: { url in try await gate.wait(for: url) })
+    try await markPublishingChecked(model, storage: storage)
     model.sourceReview.catalog = catalog
     model.articleSelection = [entries[0].id]
     model.addSelectedToQueue()
@@ -873,6 +888,8 @@ private let secondRunningID = "00000000-0000-0000-0000-0000000000aa"
     let gate = FetchGate()
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() },
                          enqueueFetch: { url in try await gate.wait(for: url) })
+    try await markPublishingChecked(model, storage: storage)
+    model.autoAdmitEnabled = false
     model.sourceReview.catalog = catalog
     model.articleSelection = [entry.id]
     model.addSelectedToQueue()
@@ -881,9 +898,12 @@ private let secondRunningID = "00000000-0000-0000-0000-0000000000aa"
     #expect(model.pendingAdds.isEmpty)
     gate.openGate()
     await model.waitForEnqueue()
+    await model.waitForProcessing() // Removal owns a separate metadata task.
+    #expect(!model.queueMutationBusy)
     #expect(try await coordinator.queue(stateRoot: storage.stateRoot).isEmpty)
     #expect(model.queueItems.isEmpty)
     model.articleSelection = [entry.id]
+    #expect(model.canAddSelectedArticles)
     model.addSelectedToQueue()
     await model.waitForEnqueue()
     #expect(try await coordinator.queue(stateRoot: storage.stateRoot).count == 1)
@@ -899,6 +919,8 @@ private let secondRunningID = "00000000-0000-0000-0000-0000000000aa"
     let catalog = try await coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
     let gate = FetchGate()
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, enqueueFetch: { url in try await gate.wait(for: url) })
+    try await markPublishingChecked(model, storage: storage)
+    model.autoAdmitEnabled = false
     model.sourceReview.catalog = catalog
     model.articleSelection = [entry.id]
     model.addSelectedToQueue()
@@ -932,6 +954,7 @@ private let secondRunningID = "00000000-0000-0000-0000-0000000000aa"
         return FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
                            contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
     })
+    try await markPublishingChecked(model, storage: storage)
     model.sourceReview.catalog = catalog
     model.articleSelection = [entry.id]
     model.addSelectedToQueue()
@@ -966,6 +989,8 @@ private let secondRunningID = "00000000-0000-0000-0000-0000000000aa"
         return FetchedPage(originalURL: url, finalURL: url, bytes: Data(html.utf8), html: html,
                            contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
     })
+    try await markPublishingChecked(model, storage: storage)
+    model.autoAdmitEnabled = false
     model.sourceReview.catalog = catalog
     let probe = CommitProbe()
     await model.coordinator.setBeforeEnqueueCommit({
@@ -1186,6 +1211,7 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     let first = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
     let second = try await coordinator.enqueue(article("second"), storage: storage, preferences: SpeechPreferences())
     let model = AppModel(storage: storage)
+    try await markPublishingChecked(model, storage: storage)
     model.queueItems = [first, second]
     #expect(model.canGenerateAudio && model.canResetQueue)
     do {
@@ -1207,6 +1233,7 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     let second = try await coordinator.enqueue(article("second"), storage: storage, preferences: SpeechPreferences())
     let recorder = RecordingProvider()
     let model = AppModel(storage: storage, backend: { _ in recorder })
+    try await markPublishingChecked(model, storage: storage)
     model.queueItems = [first, second]
     do {
         // Holding the writer lock across runQueue() keeps the removal in flight without a
@@ -1252,6 +1279,7 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     let second = try await coordinator.enqueue(article("second"), storage: storage, preferences: SpeechPreferences())
     let recorder = RecordingProvider()
     let model = AppModel(storage: storage, backend: { _ in recorder })
+    try await markPublishingChecked(model, storage: storage)
     model.queueItems = [first, second]
     do {
         let holder = try NativeStore(url: storage.profile.database)
@@ -1300,8 +1328,8 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
 
 @Test @MainActor func typographyAndSelectorConstantsMeetPresentationFloor() {
     #expect(AppTypography.minimumPointSize >= 12)
-    #expect(SettingsNavigation<SettingsSection>.idealWidth == 492)
-    #expect(SettingsView.windowWidth == 540 && SettingsView.windowHeight == 680)
+    #expect(SettingsNavigation<SettingsSection>.idealWidth == 592)
+    #expect(SettingsView.windowWidth == 640 && SettingsView.windowHeight == 680)
 }
 
 @Test @MainActor func autoSyncWithoutChosenSourceNeverReadsPlist() async throws {
@@ -1442,6 +1470,7 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     let coordinator = FixtureCoordinator()
     _ = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
     let model = AppModel(storage: storage, enqueueFetch: { _ in throw RelayError.setup("inert test fetch") })
+    try await markPublishingChecked(model, storage: storage)
     let notices = model.notices
     model.audioCleanupError = "Audio cleanup could not finish."
     notices.dismiss(message: "Audio cleanup could not finish.", key: "audio")
@@ -1482,13 +1511,27 @@ private func isolatedDefaults() throws -> (UserDefaults, String) {
     return (try #require(UserDefaults(suiteName: name)), name)
 }
 
-private func appDeliverySettings(enabled: Bool = true) -> DeliverySettings {
+func appDeliverySettings(enabled: Bool = true) -> DeliverySettings {
     var settings = DeliverySettings()
     settings.enabled = enabled
     settings.feedFolderURL = URL(string: "https://webdav.example/remote.php/dav/files/user/Podcast%20Feed/")
     settings.username = "user@example.com"
     settings.publicFolderURL = URL(string: "https://podcast.example/")
     return settings
+}
+
+/// Marks publishing configured and its feed-folder check complete in the durable
+/// ledger; admission and processing wait for that server check. Library ownership
+/// is established first so a fresh root stays a valid managed library.
+@MainActor func markPublishingChecked(_ model: AppModel, storage: ManagedSpeechStorage,
+                                      settings: DeliverySettings = appDeliverySettings()) async throws {
+    model.deliverySettings = settings
+    _ = try ManagedSpeechStorage.prepareLibrary(stateRoot: storage.stateRoot)
+    var ledger = try DeliveryLedger.load(stateRoot: storage.stateRoot)
+    ledger.destinationURL = (try settings.normalized()).feedFolderURL
+    ledger.reconciledAt = Date()
+    try ledger.save(stateRoot: storage.stateRoot)
+    model.recordDeliveryPublication(try await model.coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: settings))
 }
 
 @Test @MainActor func deliveryPublishHistoryProjectsOnlyTheCurrentDestination() throws {
@@ -1692,7 +1735,7 @@ private final class MutableFlag: @unchecked Sendable {
     let transport = StubDeliveryTransport()
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, defaults: defaults,
                          deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
-    model.deliverySettings = appDeliverySettings()
+    try await markPublishingChecked(model, storage: storage)
     model.queueItems = [item]
     model.runQueue()
     await model.waitForProcessing()
@@ -1720,7 +1763,8 @@ private final class MutableFlag: @unchecked Sendable {
     let model = AppModel(storage: storage, backend: { episode in
         episode.id == first.id ? SyntheticProvider() as any TTSBackend : provider
     }, defaults: defaults, deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
-    model.deliverySettings = appDeliverySettings(); model.queueItems = [first, second]
+    try await markPublishingChecked(model, storage: storage)
+    model.queueItems = [first, second]
     model.runQueue()
     try await waitUntil("first article uploads while later speech is blocked") {
         provider.synthesizeEntered && transport.calls.contains { $0.method == "PUT" && $0.path.hasSuffix("/audio/\(first.id).m4a") }
@@ -2189,10 +2233,13 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
     let model = AppModel(storage: storage, backend: { _ in provider }, enqueueFetch: { try fetchFixture(url: $0) },
         defaults: defaults, runtimeSetup: { _, _, _, _ in }, readingListReader: { _ in ReadingListSnapshot(entries: entries, skippedEntries: 0) })
     model.sourceReview.plist = root.appendingPathComponent("Bookmarks.plist")
+    try await markPublishingChecked(model, storage: storage)
     model.syncNow()
     #expect(try await awaitMainActor { provider.synthesizeEntered })
     model.stopQueue(); provider.openGate()
     await model.waitForSync(); await model.waitForLibraryRefresh()
+    #expect(model.sourceReview.catalog.entries.map(\.id) == ["first", "second"])
+    #expect(model.enqueueIssues == [])
     #expect(!model.running && !model.syncBusy && model.autoHalted)
     #expect(!model.autoAdmitEnabled && !model.autoProcessEnabled)
     #expect(model.queueItems.count == 2 && model.queueItems.allSatisfy { $0.state == .queued })
@@ -2240,6 +2287,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
         fetches.increment()
         return try fetchFixture(url: url)
     })
+    try await markPublishingChecked(model, storage: storage)
     model.sourceReview.catalog = catalog
     // Disabled auto-admit does nothing.
     model.autoAdmitEnabled = false
@@ -2271,6 +2319,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
         if fail.on { throw SourceFetchError.network }
         return try fetchFixture(url: url)
     })
+    try await markPublishingChecked(model, storage: storage)
     model.sourceReview.catalog = catalog
     model.autoAdmitEnabled = true
     await model.autoAdmitNewEntries()
@@ -2293,6 +2342,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
     let coordinator = FixtureCoordinator()
     let item = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() })
+    try await markPublishingChecked(model, storage: storage)
     // Disabled automation leaves ready items waiting for a manual Generate.
     model.queueItems = [item]
     model.maybeAutoProcess()
@@ -2324,6 +2374,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
     let first = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
     let provider = GateProvider()
     let model = AppModel(storage: storage, backend: { _ in provider }, enqueueFetch: { url in try fetchFixture(url: url) })
+    try await markPublishingChecked(model, storage: storage)
     model.autoProcessEnabled = true; model.autoAdmitEnabled = true
     model.queueItems = [first]
     model.runQueue()
@@ -2362,6 +2413,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
     var failedItem = failed; failedItem.state = .failed; failedItem.lastError = "Synthetic failure"
     try NativeStore(url: storage.profile.database).saveQueueItem(failedItem)
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() })
+    try await markPublishingChecked(model, storage: storage)
     model.autoProcessEnabled = true
     model.refreshLibrary()
     await model.waitForLibraryRefresh()
@@ -2514,6 +2566,7 @@ private actor HeldDeliveryTransport: DeliveryTransport {
     model.testDeliveryConnection(); await model.waitForDeliveryTest()
     #expect(model.deliveryPasswordStored && model.deliveryPasswordChecked)
     model.testDeliveryConnection(); await model.waitForDeliveryTest()
+    try await markPublishingChecked(model, storage: storage)
     model.queueItems = [item]; model.runQueue(); await model.waitForProcessing()
     model.deliverySettings.enabled = true
     model.triggerDelivery(force: true); await model.waitForDelivery()
@@ -2648,7 +2701,8 @@ private actor HeldDeliveryTransport: DeliveryTransport {
     let item = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, defaults: defaults,
         deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
-    model.deliverySettings = settings; model.queueItems = [item]; model.runQueue()
+    try await markPublishingChecked(model, storage: storage, settings: settings)
+    model.queueItems = [item]; model.runQueue()
     await model.waitForProcessing(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
     #expect(model.error == nil && model.deliveryError == nil)
     let saved = try #require(model.savedEpisodes.first)
@@ -2912,6 +2966,7 @@ private actor ServerDeletionGate: DeliveryTransport {
     #expect(defaults.bool(forKey: "useArchivedArticles"))
     model.autoAdmitEnabled = false; model.autoProcessEnabled = false
     model.sourceReview.catalog = try await model.coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    try await markPublishingChecked(model, storage: storage)
     model.articleSelection = [entry.id]
     model.addSelectedToQueue()
     try await waitUntil("Archived article queued") { model.pendingAdds.isEmpty && model.queueItems.count == 1 }
@@ -2960,6 +3015,7 @@ private actor ServerDeletionGate: DeliveryTransport {
     let catalog = try await coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
     let item = try await coordinator.enqueue(review, storage: storage, preferences: SpeechPreferences(), sourceEntryID: entry.id)
     let model = AppModel(storage: storage, backend: { _ in provider })
+    try await markPublishingChecked(model, storage: storage)
     model.sourceReview.catalog = catalog; model.queueItems = [item]; model.articleSelection = [entry.id]
     model.runQueue()
     try await waitUntil("owned speech started") { provider.started }
@@ -2983,6 +3039,7 @@ private actor ServerDeletionGate: DeliveryTransport {
     let entry = ReadingListEntry(id: "removed", safariID: nil, url: review.page.originalURL, title: "Removed", addedAt: nil)
     let catalog = try await coordinator.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
     let model = AppModel(storage: storage, enqueueFetch: { url in try await gate.wait(for: url) })
+    try await markPublishingChecked(model, storage: storage)
     model.sourceReview.catalog = catalog; model.articleSelection = [entry.id]
     model.addSelectedToQueue()
     #expect(model.pendingAdds.count == 1)
@@ -3088,6 +3145,7 @@ private final class PublishingPreflightGate: @unchecked Sendable {
         return SyntheticProvider()
     },
         enqueueFetch: { _ in replacement.page }, readingListReader: { _ in .init(entries: [updated], skippedEntries: 0) })
+    try await markPublishingChecked(model, storage: storage)
     model.sourceReview.plist = root.appendingPathComponent("synthetic-source.plist")
     model.sourceReview.catalog = catalog; model.queueItems = [item]
     model.autoAdmitEnabled = true; model.autoProcessEnabled = false
@@ -3118,6 +3176,7 @@ private final class PublishingPreflightGate: @unchecked Sendable {
     let item = try await coordinator.enqueue(review, storage: storage, preferences: .init(), sourceEntryID: original.id)
     let model = AppModel(storage: storage, enqueueFetch: { _ in replacement.page },
         readingListReader: { _ in .init(entries: [updated, retained], skippedEntries: 0) })
+    try await markPublishingChecked(model, storage: storage)
     model.sourceReview.plist = root.appendingPathComponent("synthetic-source.plist")
     model.sourceReview.catalog = catalog; model.queueItems = [item]
     model.autoAdmitEnabled = true; model.autoProcessEnabled = false
@@ -3146,6 +3205,7 @@ private final class PublishingPreflightGate: @unchecked Sendable {
     let item = try await coordinator.enqueue(review, storage: storage, preferences: .init(), sourceEntryID: original.id)
     let model = AppModel(storage: storage, backend: { _ in provider }, enqueueFetch: { _ in replacement.page },
         readingListReader: { _ in .init(entries: [updated, retained], skippedEntries: 0) })
+    try await markPublishingChecked(model, storage: storage)
     model.sourceReview.plist = root.appendingPathComponent("synthetic-source.plist")
     model.sourceReview.catalog = catalog; model.queueItems = [item]
     model.autoAdmitEnabled = true; model.autoProcessEnabled = false
@@ -3175,6 +3235,7 @@ private final class PublishingPreflightGate: @unchecked Sendable {
         if url == original.url { throw SourceFetchError.network }
         return replacement.page
     }, readingListReader: { _ in .init(entries: [updated], skippedEntries: 0) })
+    try await markPublishingChecked(model, storage: storage)
     model.sourceReview.plist = root.appendingPathComponent("synthetic-source.plist")
     model.sourceReview.catalog = catalog; model.autoAdmitEnabled = true; model.autoProcessEnabled = false
     await model.autoAdmitNewEntries(); await model.waitForEnqueue()
@@ -3200,6 +3261,7 @@ private final class PublishingPreflightGate: @unchecked Sendable {
     }
     _ = try await coordinator.reconcile(.init(entries: entries, skippedEntries: 0), stateRoot: storage.stateRoot)
     let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, enqueueFetch: { try fetchFixture(url: $0, commonTitle: true) })
+    try await markPublishingChecked(model, storage: storage)
     model.autoAdmitEnabled = true; model.autoProcessEnabled = false
     model.sourceReview.catalog = try await coordinator.catalog(stateRoot: storage.stateRoot)
     await model.autoAdmitNewEntries(); await model.waitForEnqueue()
@@ -3213,6 +3275,7 @@ private final class PublishingPreflightGate: @unchecked Sendable {
     let fresh = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, enqueueFetch: { _ in
         Issue.record("Handled duplicate recreated after restart"); throw SourceFetchError.network
     })
+    try await markPublishingChecked(fresh, storage: storage)
     fresh.autoAdmitEnabled = true; fresh.autoProcessEnabled = false
     fresh.sourceReview.catalog = try await FixtureCoordinator().reconcile(.init(entries: entries, skippedEntries: 0), stateRoot: storage.stateRoot)
     await fresh.autoAdmitNewEntries(); await fresh.waitForEnqueue()

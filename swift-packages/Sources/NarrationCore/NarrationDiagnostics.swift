@@ -10,6 +10,7 @@ public struct NarrationDiagnostics: Codable, Equatable, Sendable {
 
     /// Read-only screening. A flag asks for review; it never edits or rejects PCM.
     public static func inspect(samples: [Float], sampleRate: Int, text: String) throws -> Self {
+        try NarrationWorkCheckpoint.check()
         guard (8_000...192_000).contains(sampleRate), !samples.isEmpty, samples.count <= sampleRate * 120,
               samples.allSatisfy(\.isFinite), text.utf8.count <= 64_000 else { throw SpeechFailure(.invalidInput) }
         let duration = Double(samples.count) / Double(sampleRate)
@@ -20,7 +21,7 @@ public struct NarrationDiagnostics: Codable, Equatable, Sendable {
         var hashes: [UInt64: Int] = [:], repeated = false
         let window = sampleRate / 2
         for start in stride(from: 0, to: samples.count, by: window) {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             let part = samples[start..<min(samples.count, start + window)]
             var hash: UInt64 = 14695981039346656037, audible = false
             for sample in part {
@@ -40,7 +41,7 @@ public struct NarrationDiagnostics: Codable, Equatable, Sendable {
         guard !a.isEmpty, a.count <= 2_000, b.count <= 2_000 else { throw SpeechFailure(.invalidInput) }
         var previous = Array(0...b.count)
         for (i, word) in a.enumerated() {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             var row = [i + 1] + Array(repeating: 0, count: b.count)
             for j in b.indices { row[j + 1] = min(previous[j + 1] + 1, row[j] + 1, previous[j] + (word == b[j] ? 0 : 1)) }
             previous = row

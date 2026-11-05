@@ -8,13 +8,15 @@ public enum EPUBDocumentExtractor {
     public static func extract(data: Data, title: String? = nil, limits: EPUBExtractionLimits = .init(),
                                describeImages: Bool = false, caption: ImageDescriptions.Caption? = nil,
                                progress: @escaping @Sendable (DocumentPreparationProgress) -> Void = { _ in }) async throws -> SemanticDocument {
-        let prepared = try read(data: data, title: title, limits: limits, loadImages: describeImages, progress: progress)
+        let prepared = try await NarrationPreparationWork.run {
+            try read(data: data, title: title, limits: limits, loadImages: describeImages, progress: progress)
+        }
         let images = prepared.images
         return try await DocumentImages.enrich(prepared.document, enabled: describeImages, progress: progress,
             fetch: { url in guard let bytes = images[url] else { throw EPUBReadError.malformed }; return bytes }, caption: caption)
     }
 
-    struct Prepared {
+    struct Prepared: Sendable {
         let document: SemanticDocument
         let images: [URL: Data]
     }
@@ -40,7 +42,7 @@ public enum EPUBDocumentExtractor {
             try element.attr("role") == "doc-noteref" || element.attr("epub:type").split(whereSeparator: \.isWhitespace).contains("noteref") || element.hasClass("footnote-ref")
         }
         while position < queue.count {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             guard queue.count <= limits.maximumChapters else { throw EPUBReadError.limit }
             let (item, auxiliary) = queue[position]
             progress(.init(stage: .extractingEPUBChapter, completed: position, total: queue.count, unit: .chapters, currentChapter: position + 1))

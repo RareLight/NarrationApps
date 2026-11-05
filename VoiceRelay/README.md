@@ -20,6 +20,9 @@ and publishes to your HTTPS/WebDAV server. Safari entries are read-only.
    and publish them. Copy **Subscription URL** from Publishing into your podcast app.
 
 VoiceRelay continues while its windows are closed. **Quit** stops it.
+**Settings → VoiceServer** provides a disabled-by-default, authenticated private
+speech API using the same model and voice. See the [VoiceServer guide](docs/VOICESERVER.md)
+for client configuration, streaming formats, private access and limits.
 **Start VoiceRelay at login** defaults on for fresh configurations and is controlled
 in **Settings → General → Startup**. It starts the ordinary app after sign-in;
 existing startup choices are preserved.

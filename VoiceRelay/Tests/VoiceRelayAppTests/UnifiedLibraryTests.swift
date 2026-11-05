@@ -283,8 +283,11 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     model.queueItems = [job("one")]
     model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: [source("entry")], skippedEntries: 0))
     model.articleSelection = ["entry"]
+    // Enqueue and processing hold until configured publishing completes a server check.
+    #expect(!model.canGenerateAudio && !model.canAddSelectedArticles && model.canRemoveQueueIDs([.episode("one")]))
+    #expect(model.publishingReadiness == .needsSetup)
+    try await markPublishingChecked(model, storage: storage)
     #expect(model.canGenerateAudio && model.canAddSelectedArticles && model.canRemoveQueueIDs([.episode("one")]))
-    #expect(model.publishingReadiness == .needsSetup) // Missing Publishing does not block speech.
     model.libraryReviewRequired = true
     #expect(!model.canGenerateAudio && !model.canAddSelectedArticles && !model.canResetQueue)
     #expect(!model.canRemoveQueueIDs([.episode("one")]) && !model.canUploadNewItems)
@@ -303,6 +306,7 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     let suite = "voicerelay-ui-controls-\(UUID())", defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let model = AppModel(storage: storage, defaults: defaults)
+    try await markPublishingChecked(model, storage: storage)
     model.articleScope = .queue
     model.queueItems = [job("changing"), job("waiting"), job("active", state: .running)]
     model.queueMutationBusy = true; model.mutatingQueueEntries = [.episode("changing")]

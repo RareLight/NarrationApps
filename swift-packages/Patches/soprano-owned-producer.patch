@@ -1,0 +1,76 @@
+--- a/Sources/MLXAudioTTS/Models/Soprano/Soprano.swift
++++ b/Sources/MLXAudioTTS/Models/Soprano/Soprano.swift
+@@ -637,20 +637,22 @@
+                 let inputIds = self.tokenize(promptText)
+                 var allHiddenStates: [MLXArray] = []
+ 
+-                for await (token, hiddenState) in self.streamGenerate(
++                let generation = self.streamGenerate(
+                     inputIds: inputIds,
+                     maxTokens: maxTokens,
+                     temperature: parameters.temperature,
+                     topP: parameters.topP,
+                     repetitionPenalty: parameters.repetitionPenalty ?? 1.0,  // Match Python (no penalty)
+                     repetitionContextSize: parameters.repetitionContextSize
+-                ) {
++                )
++                for await (token, hiddenState) in generation.stream {
+                     allHiddenStates.append(hiddenState)
+ 
+                     if token != nil {
+                         totalTokens += 1
+                     }
+                 }
++                await generation.producer.value
+                 try Task.checkCancellation()
+ 
+                 let tokenCount = allHiddenStates.count
+@@ -725,20 +727,22 @@
+                     let inputIds = self.tokenize(promptText)
+                     var allHiddenStates: [MLXArray] = []
+                     
+-                    for await (token, hiddenState) in self.streamGenerate(
++                    let generation = self.streamGenerate(
+                         inputIds: inputIds,
+                         maxTokens: maxTokens,
+                         temperature: parameters.temperature,
+                         topP: parameters.topP,
+                         repetitionPenalty: parameters.repetitionPenalty ?? 1.0,  // Match Python (no penalty)
+                         repetitionContextSize: parameters.repetitionContextSize
+-                    ) {
++                    )
++                    for await (token, hiddenState) in generation.stream {
+                         allHiddenStates.append(hiddenState)
+                         
+                         if let tokenVal = token {
+                             continuation.yield(.token(tokenVal))
+                         }
+                     }
++                    await generation.producer.value
+                     try Task.checkCancellation()
+                     
+                     let tokenCount = allHiddenStates.count
+@@ -805,9 +809,9 @@
+         topP: Float,
+         repetitionPenalty: Float = 1.5,
+         repetitionContextSize: Int = 30
+-    ) -> AsyncStream<(Int?, MLXArray)> {
+-        AsyncStream { continuation in
+-            let task = Task {
++    ) -> (stream: AsyncStream<(Int?, MLXArray)>, producer: Task<Void, Never>) {
++        let (stream, continuation) = AsyncStream<(Int?, MLXArray)>.makeStream()
++        let task = Task {
+                 var ids = inputIds
+                 if ids.ndim == 1 {
+                     ids = ids.expandedDimensions(axis: 0)
+@@ -880,8 +884,8 @@
+ 
+                 continuation.finish()
+             }
+-            continuation.onTermination = { @Sendable _ in task.cancel() }
+-        }
++        continuation.onTermination = { @Sendable _ in task.cancel() }
++        return (stream, task)
+     }
+ 
+     /// Apply repetition penalty to logits

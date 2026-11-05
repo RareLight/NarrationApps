@@ -57,6 +57,7 @@ public final class AtomicAudioWriter {
     deinit { abort() }
 
     public func append(samples: [Float], sampleRate: Int) throws {
+        try AudioWorkCheckpoint.check()
         guard !samples.isEmpty, samples.allSatisfy(\.isFinite), sampleRate > 0,
               sampleRate <= 192_000, samples.count <= Int(UInt32.max) else { throw AudioOutputError.invalidPCM }
         // AVFoundation includes padding (4 KiB on the acceptance machine),
@@ -67,6 +68,15 @@ public final class AtomicAudioWriter {
         }
         if let expected = self.sampleRate, expected != sampleRate { throw AudioOutputError.inconsistentFormat }
         guard !published, !aborted else { throw AudioOutputError.storage }
+        if AudioWorkCheckpoint.current != nil, samples.count > 16_384 {
+            var offset = 0
+            while offset < samples.count {
+                let end = min(samples.count, offset + 16_384)
+                try append(samples: Array(samples[offset..<end]), sampleRate: sampleRate)
+                offset = end
+            }
+            return
+        }
         do {
             if format == .mp3 {
                 if mp3 == nil { mp3 = try MP3Encoder(libraryURL: mp3Library, output: temporary, sampleRate: sampleRate, coverArtwork: coverArtwork); self.sampleRate = sampleRate }
@@ -98,6 +108,7 @@ public final class AtomicAudioWriter {
             frames += UInt64(samples.count)
         } catch let error as AudioOutputError { throw error }
         catch is CancellationError { throw CancellationError() }
+        catch let error as any AudioWorkInterruption { throw error }
         catch { throw AudioOutputError.storage }
     }
 
@@ -106,7 +117,7 @@ public final class AtomicAudioWriter {
         guard frames > 0, !published, !aborted else { throw AudioOutputError.empty }
         guard coverArtwork == nil || format == .mp3 || artworkFinalized else { throw ArtworkError.metadata }
         do {
-            try Task.checkCancellation()
+            try AudioWorkCheckpoint.check()
             try mp3?.finish(); mp3 = nil
             audioFile = nil // Finalize the native container/encoder before fsync.
             let handle = try FileHandle(forWritingTo: temporary)
@@ -129,18 +140,25 @@ public final class AtomicAudioWriter {
             published = true
         } catch let error as AudioOutputError { throw error }
         catch is CancellationError { throw CancellationError() }
+        catch let error as any AudioWorkInterruption { throw error }
         catch { throw AudioOutputError.storage }
     }
 
     /// Async native metadata finalization remains inside the atomic transaction.
     public func publishWithArtwork(replaceExisting: Bool = true, beforePublication: () throws -> Void = {}) async throws {
-        if let coverArtwork, format == .m4a || format == .m4b {
+        try await prepareArtwork()
+        try publish(replaceExisting: replaceExisting, beforePublication: beforePublication)
+    }
+
+    /// Finish the asynchronous metadata step before transferring sole writer
+    /// ownership to an admitted CPU queue for validation and atomic publication.
+    public func prepareArtwork() async throws {
+        if let coverArtwork, !artworkFinalized, format == .m4a || format == .m4b {
             guard frames > 0, !published, !aborted else { throw AudioOutputError.empty }
             audioFile = nil
             try await AudioArtworkMetadata.addAAC(coverArtwork, to: temporary)
             artworkFinalized = true
         }
-        try publish(replaceExisting: replaceExisting, beforePublication: beforePublication)
     }
 
     public func abort() {

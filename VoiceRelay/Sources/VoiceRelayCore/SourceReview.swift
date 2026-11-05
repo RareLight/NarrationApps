@@ -33,27 +33,33 @@ public struct ReviewedSource: Sendable {
         self.page = page; self.document = document; self.narration = narration; self.issue = issue
         self.archiveRecoveryFailed = archiveRecoveryFailed
     }
-    public static func prepareAsync(_ page: FetchedPage, chunkLimit: Int, settings: SpeechSettings = .init(), pronunciations: PronunciationDictionary = .empty, options: NarrationOptions = .init(), sourceTitle: String? = nil, titleGenerator: DocumentTitles.Generate? = nil) async throws -> ReviewedSource {
+    public static func prepareAsync(_ page: FetchedPage, chunkLimit: Int, settings: SpeechSettings = .init(), pronunciations: PronunciationDictionary = .empty, options: NarrationOptions = .init(), sourceTitle: String? = nil, titleGenerator: DocumentTitles.Generate? = nil, admittedTitleGenerator: DocumentTitles.AdmittedGenerate? = nil) async throws -> ReviewedSource {
         let review: ReviewedSource
         if page.contentType == "application/pdf" {
             let document = try await PDFArticleExtractor.extract(page)
             review = ReviewedSource(page: page, document: document, narration: nil, issue: nil)
-        } else { review = try prepare(page, chunkLimit: chunkLimit, settings: settings, pronunciations: pronunciations, options: options) }
+        } else {
+            review = try await NarrationPreparationWork.run {
+                try prepare(page, chunkLimit: chunkLimit, settings: settings, pronunciations: pronunciations, options: options)
+            }
+        }
         guard let document = review.document, review.issue == nil else { return review }
         let resolved = try await DocumentTitles.resolve(title: document.article.title, sourceTitle: sourceTitle,
-            blocks: document.article.blocks, urls: [page.originalURL, page.finalURL], isPDF: page.contentType == "application/pdf", generate: titleGenerator)
-        var article = document.article
-        article.title = resolved.text; article.titleOrigin = resolved.origin
-        let changed = article.title != document.article.title
-        let cleanedHTML: String
-        if changed {
-            let html = try SwiftSoup.parse(document.cleanedHTML)
-            try html.title(article.title); cleanedHTML = try html.outerHtml()
-        } else { cleanedHTML = document.cleanedHTML }
-        let narration: NarrationPlan
-        if !changed, let existing = review.narration { narration = existing }
-        else { narration = try Narration.prepare(article, limit: chunkLimit, pronunciations: pronunciations, settings: settings, options: options) }
-        return ReviewedSource(page: page, document: .init(article: article, cleanedHTML: cleanedHTML), narration: narration, issue: nil)
+            blocks: document.article.blocks, urls: [page.originalURL, page.finalURL], isPDF: page.contentType == "application/pdf", generate: titleGenerator, admittedGenerate: admittedTitleGenerator)
+        return try await NarrationPreparationWork.run {
+            var article = document.article
+            article.title = resolved.text; article.titleOrigin = resolved.origin
+            let changed = article.title != document.article.title
+            let cleanedHTML: String
+            if changed {
+                let html = try SwiftSoup.parse(document.cleanedHTML)
+                try html.title(article.title); cleanedHTML = try html.outerHtml()
+            } else { cleanedHTML = document.cleanedHTML }
+            let narration: NarrationPlan
+            if !changed, let existing = review.narration { narration = existing }
+            else { narration = try Narration.prepare(article, limit: chunkLimit, pronunciations: pronunciations, settings: settings, options: options) }
+            return ReviewedSource(page: page, document: .init(article: article, cleanedHTML: cleanedHTML), narration: narration, issue: nil)
+        }
     }
     public static func prepare(_ page: FetchedPage, chunkLimit: Int, settings: SpeechSettings = .init(), pronunciations: PronunciationDictionary = .empty, options: NarrationOptions = .init()) throws -> ReviewedSource {
         guard page.contentType != "application/pdf" else { throw RelayError.setup("PDF preparation requires asynchronous intake.") }
@@ -71,6 +77,7 @@ public struct ReviewedSource: Sendable {
         if let issue { return ReviewedSource(page: page, document: nil, narration: nil, issue: issue) }
         var document: ExtractedDocument
         do { document = try ArticleExtractor.extract(html: page.html, originalURL: page.originalURL, finalURL: page.finalURL) }
+        catch is CancellationError { throw CancellationError() }
         catch { return ReviewedSource(page: page, document: nil, narration: nil, issue: .extraction) }
         let text = document.article.blocks.map(\.text).joined(separator: " ").lowercased()
         if text.count < 1200 && ["subscribe to continue reading", "subscribe to read the full", "this article is for subscribers", "subscription required"].contains(where: text.contains) {
@@ -114,15 +121,20 @@ enum PDFArticleExtractor {
         catch PDFExtractionError.ocrLimit { throw SourceFetchError.pdfOCRLimit }
         catch PDFExtractionError.restricted { throw SourceFetchError.pdfRestricted }
         catch PDFExtractionError.textLimit { throw SourceFetchError.tooLarge }
-        guard document.blocks.reduce(0, { $0 + $1.text.count }) >= 80 else { throw RelayError.extraction("The PDF has too little readable text for narration.") }
-        let title = document.title ?? "PDF document"
-        let article = SemanticArticle(title: title, originalURL: page.originalURL, finalURL: page.finalURL,
-            canonicalURL: nil, author: document.author, blocks: document.blocks, warnings: document.warnings,
-            extractorVersion: document.extractorVersion, sourceName: page.originalURL.host, outline: document.outline)
-        let html = try SwiftSoup.parseBodyFragment("")
-        try html.title(title)
-        for block in document.blocks { try html.body()?.appendElement("p").text(block.text) }
-        return .init(article: article, cleanedHTML: "<!doctype html>\n" + (try html.outerHtml()))
+        return try await NarrationPreparationWork.run {
+            guard document.blocks.reduce(0, { $0 + $1.text.count }) >= 80 else { throw RelayError.extraction("The PDF has too little readable text for narration.") }
+            let title = document.title ?? "PDF document"
+            let article = SemanticArticle(title: title, originalURL: page.originalURL, finalURL: page.finalURL,
+                canonicalURL: nil, author: document.author, blocks: document.blocks, warnings: document.warnings,
+                extractorVersion: document.extractorVersion, sourceName: page.originalURL.host, outline: document.outline)
+            let html = try SwiftSoup.parseBodyFragment("")
+            try html.title(title)
+            for block in document.blocks {
+                try NarrationWorkCheckpoint.check()
+                try html.body()?.appendElement("p").text(block.text)
+            }
+            return ExtractedDocument(article: article, cleanedHTML: "<!doctype html>\n" + (try html.outerHtml()))
+        }
     }
     static func render(_ page: PDFPage, maximumDimension: CGFloat = 2200) throws -> CGImage {
         try PDFDocumentExtractor.render(page, maximumDimension: maximumDimension)

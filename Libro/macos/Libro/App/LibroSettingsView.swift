@@ -22,7 +22,7 @@ enum SettingsTab: String, SettingsPane {
         switch self { case .general: "gearshape"; case .document: "doc.text"; case .models: "shippingbox"; case .pronunciation: "text.word.spacing"; case .troubleshooting: "stethoscope" }
     }
     var help: String {
-        switch self { case .general: "Appearance and completion alerts"; case .document: "Choose what text is read and how printed words are joined"; case .models: "Speech models, storage and setup"; case .pronunciation: "Shared word pronunciations and live voice previews"; case .troubleshooting: "Debug logs and helper diagnostics" }
+        switch self { case .general: "Appearance, CPU preparation and completion alerts"; case .document: "Choose what text is read and how printed words are joined"; case .models: "Speech models, storage and setup"; case .pronunciation: "Shared word pronunciations and live voice previews"; case .troubleshooting: "Debug logs and helper diagnostics" }
     }
 }
 
@@ -94,6 +94,14 @@ struct LibroSettingsView: View {
     private var general: some View {
         Form {
             AppearanceSettingsSection(textSize: $textSize)
+            Section {
+                Picker("Maximum CPU workers", selection: $model.textPreparationWorkerPreference) {
+                    Text("Automatic (\(CPUTextPreparation.automaticWorkers))").tag(0)
+                    ForEach(1...CPUTextPreparation.maximumWorkers, id: \.self) { Text("\($0)").tag($0) }
+                }
+            } header: {
+                SettingsSectionHeader(title: "Text preparation", explanation: "Use available processor cores for Qwen, Chatterbox and Orpheus token counting. Kokoro's neural pronunciation frontend stays serialized; Soprano uses a lightweight text budget. This controls CPU tasks inside the existing helper. Automatic uses up to \(CPUTextPreparation.automaticWorkers) workers; a chosen maximum is limited to available cores. Applies to the next batch. Speech generation remains one model instance.")
+            }
             Section {
                 Text(model.notificationStatus ?? "Notification permission is requested when you first generate audio.")
                     .appFont(.secondary)

@@ -40,7 +40,8 @@ let package = Package(
             .product(name: "MLXAudioCore", package: "mlx-audio-swift"),
             .product(name: "MLXAudioTTS", package: "mlx-audio-swift"),
             .product(name: "HuggingFace", package: "swift-huggingface"),
-            .product(name: "Transformers", package: "swift-transformers")
+            .product(name: "Transformers", package: "swift-transformers"),
+            .product(name: "Tokenizers", package: "swift-transformers")
         ]),
         .executableTarget(name: "NarrationSpeechWorker", dependencies: ["NativeSpeechEngine"]),
         .executableTarget(name: "NarrationNativeCheck", dependencies: ["NarrationCore", "DocumentProcessing", "NativeSpeech", "AudioOutput", "ProcessingPipeline"]),
@@ -54,7 +55,7 @@ let package = Package(
         .testTarget(name: "DocumentProcessingTests", dependencies: [.product(name: "ZIPFoundation", package: "ZIPFoundation"), "NarrationCore", "DocumentProcessing", "NativeSpeech", "ProcessingPipeline", "AudioOutput"]),
         .testTarget(name: "AudioOutputTests", dependencies: ["AudioOutput", "NarrationCore", "NativeSpeech", "DocumentProcessing", "ProcessingPipeline"]),
         .testTarget(name: "ProcessingPipelineTests", dependencies: ["NarrationCore", "DocumentProcessing", "NativeSpeech", "AudioOutput", "ProcessingPipeline"]),
-        .testTarget(name: "NarrationCoreTests", dependencies: ["NarrationCore"])
+        .testTarget(name: "NarrationCoreTests", dependencies: ["NarrationCore", .product(name: "Tokenizers", package: "swift-transformers")])
     ],
     swiftLanguageModes: [.v6]
 )

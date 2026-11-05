@@ -76,6 +76,7 @@ do {
     try require(Set(helperNames) == ["\(name)SpeechWorker", "mlx.metallib"], "Unexpected embedded helper/runtime.")
     var artifacts = ["gui": try digest(gui), "worker": try digest(worker), "metal": try digest(metal)]
     var codecSymbols: [String] = []
+    var codecUnityScaleVerified = false
     if name == "VoiceRelay" {
         let original = root.appendingPathComponent("VoiceRelay/icon/VoiceRelay_Cover.jpg")
         let bundled = app.appendingPathComponent("Contents/Resources/VoiceRelay_Cover.jpg")
@@ -83,7 +84,7 @@ do {
         try require(try digest(bundled) == expected, "Default podcast cover differs from the authored image.")
         artifacts["defaultPodcastCover"] = expected
     }
-    if name == "Libro" {
+    if name == "Libro" || name == "VoiceRelay" {
         let codec = app.appendingPathComponent("Contents/Frameworks/libmp3lame.0.dylib")
         try require(try run("/usr/bin/lipo", ["-archs", codec.path]).trimmingCharacters(in: .whitespacesAndNewlines) == "arm64", "Expected arm64 codec.")
         _ = try run("/usr/bin/codesign", ["--verify", "--strict", codec.path])
@@ -93,8 +94,25 @@ do {
             "lame_set_out_samplerate", "lame_set_mode", "lame_set_brate", "lame_set_quality",
             "lame_set_findReplayGain", "lame_set_decode_on_the_fly", "lame_set_bWriteVbrTag",
             "lame_set_write_id3tag_automatic", "id3tag_set_albumart", "lame_set_scale", "lame_init_params",
+            "lame_get_scale", "lame_get_scale_left", "lame_get_scale_right", "lame_get_findReplayGain",
             "lame_encode_buffer_ieee_float", "lame_encode_flush", "lame_get_lametag_frame", "lame_get_id3v2_tag"]
         for symbol in codecSymbols { try require(dlsym(library, symbol) != nil, "Missing packaged codec symbol: \(symbol)") }
+        typealias LameInit = @convention(c) () -> OpaquePointer?
+        typealias LameSetInt = @convention(c) (OpaquePointer?, Int32) -> Int32
+        typealias LameSetFloat = @convention(c) (OpaquePointer?, Float) -> Int32
+        typealias LameGetFloat = @convention(c) (OpaquePointer?) -> Float
+        typealias LameState = @convention(c) (OpaquePointer?) -> Int32
+        guard let state = unsafeBitCast(dlsym(library, "lame_init")!, to: LameInit.self)() else { throw CocoaError(.executableNotLoadable) }
+        let close = unsafeBitCast(dlsym(library, "lame_close")!, to: LameState.self)
+        defer { _ = close(state) }
+        for (symbol, value): (String, Int32) in [("lame_set_num_channels", 1), ("lame_set_in_samplerate", 24_000),
+                                                ("lame_set_out_samplerate", 24_000), ("lame_set_brate", 128)] {
+            try require(unsafeBitCast(dlsym(library, symbol)!, to: LameSetInt.self)(state, value) == 0, "Codec configuration failed.")
+        }
+        try require(unsafeBitCast(dlsym(library, "lame_set_scale")!, to: LameSetFloat.self)(state, 1) == 0, "Codec unity scale failed.")
+        try require(unsafeBitCast(dlsym(library, "lame_init_params")!, to: LameState.self)(state) == 0, "Codec initialization failed.")
+        try require(unsafeBitCast(dlsym(library, "lame_get_scale")!, to: LameGetFloat.self)(state) == 1, "Packaged codec applies preset attenuation; rebuild prepared codecs.")
+        codecUnityScaleVerified = true
         artifacts["codec"] = try digest(codec)
     }
     _ = try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
@@ -103,10 +121,17 @@ do {
     let probe = try run("/usr/bin/sandbox-exec", ["-p", "(version 1)(allow default)(deny network*)", worker.path, "--probe"])
     let json = try JSONSerialization.jsonObject(with: Data(probe.utf8)) as? [String: Any]
     try require(json?["metal"] as? String == "ready", "Embedded helper Metal probe did not report ready.")
+    let decoderOutput = try run("/usr/bin/sandbox-exec", ["-p", "(version 1)(allow default)(deny network*)", worker.path, "--qwen-decoder-probe"])
+    let decoder = try JSONSerialization.jsonObject(with: Data(decoderOutput.utf8)) as? [String: Any]
+    let parity = decoder?["decoder"] as? [String: Double]
+    try require(parity?["cases"] == 3 && (parity?["legacyMaximumError"] ?? 0) > 0.1 &&
+        (parity?["correctedMaximumError"] ?? 1) < 0.00001 && parity?["resetMaximumError"] == 0 &&
+        (parity?["zeroBiasMaximumError"] ?? 1) < 0.00001, "Embedded helper Qwen decoder parity regression failed.")
     let report: [String: Any] = ["app": name, "path": app.path, "artifacts": artifacts,
         "notices": notices, "samples": samples, "signatureVerified": true,
         "signingClass": signature.contains("Signature=adhoc") ? "ad-hoc-engineering" : "configured-signature",
-        "metalProbe": json ?? [:], "codecSymbolsVerified": codecSymbols, "operatorAcceptance": "not-performed"]
+        "metalProbe": json ?? [:], "qwenDecoderProbe": decoder ?? [:], "codecSymbolsVerified": codecSymbols,
+        "codecUnityScaleVerified": codecUnityScaleVerified, "operatorAcceptance": "not-performed"]
     print(String(decoding: try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]), as: UTF8.self))
 } catch {
     print("Bundle verification failed: \(error)")

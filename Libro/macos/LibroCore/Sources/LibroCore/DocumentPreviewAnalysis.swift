@@ -34,9 +34,11 @@ public enum DocumentPreviewAnalysis {
                 try Task.checkCancellation()
                 let content: DocumentPreviewContent
                 do {
-                    content = try .init(prefix.document, settings: settings,
-                        pronunciations: pronunciations, options: options,
-                        completedPages: prefix.completedPages, totalPages: prefix.totalPages)
+                    content = try await NarrationPreparationWork.run {
+                        try DocumentPreviewContent(prefix.document, settings: settings,
+                            pronunciations: pronunciations, options: options,
+                            completedPages: prefix.completedPages, totalPages: prefix.totalPages)
+                    }
                 } catch NarrationError.invalidInput(let reason) where reason == "No narration chunks were produced." {
                     // A leading decorative/omitted-only prefix must not prevent
                     // later readable pages or the canonical final plan.
@@ -46,8 +48,10 @@ public enum DocumentPreviewAnalysis {
                 try Task.checkCancellation()
             })
         try Task.checkCancellation()
-        let content = try DocumentPreviewContent(document, settings: settings,
-            pronunciations: pronunciations, options: options)
+        let content = try await NarrationPreparationWork.run {
+            try DocumentPreviewContent(document, settings: settings,
+                pronunciations: pronunciations, options: options)
+        }
         try await update(content)
         try Task.checkCancellation()
     }

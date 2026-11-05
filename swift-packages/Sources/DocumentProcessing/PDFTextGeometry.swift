@@ -37,7 +37,7 @@ enum PDFTextGeometry {
         let ns = text as NSString
         var lines: [PDFTextLine] = [], previousEnd = 0
         for selection in selections {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             guard selection.numberOfTextRanges(on: page) == 1 else { return nil }
             let range = selection.range(at: 0, on: page)
             guard range.location != NSNotFound, range.location >= previousEnd, range.length > 0,

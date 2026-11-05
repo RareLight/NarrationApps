@@ -31,7 +31,7 @@ public struct SpeechFailure: Error, LocalizedError, Sendable {
         case .memoryLimit: "This model needs more system memory, or its worker exceeded the supported memory limit."
         }
         let stage = switch operation {
-        case .initialize: " During model initialization."
+        case .initialize, .loadSpeech: " During model initialization."
         case .generate: " While generating chunk \((chunk ?? 0) + 1)."
         case .prepare: " During model preparation."
         default: ""
@@ -50,7 +50,7 @@ public struct AttemptIdentity: Codable, Equatable, Sendable {
 }
 
 public struct WorkerCommand: Codable, Sendable {
-    public enum Kind: String, Codable, Sendable { case initialize, generate, prepare, prepareText, generatePrepared, cancel, shutdown }
+    public enum Kind: String, Codable, Sendable { case initialize, loadPreparation, releasePreparation, loadSpeech, generate, prepare, prepareText, generatePrepared, cancel, shutdown }
     public var protocolVersion = SpeechIPC.protocolVersion
     public let kind: Kind
     public let identity: AttemptIdentity
@@ -62,11 +62,15 @@ public struct WorkerCommand: Codable, Sendable {
     public let policy: SpeechPreparationPolicy?
     public let textWindow: SpeechTextWindow?
     public let utterance: PreparedUtterance?
+    public let textPreparationOnly: Bool?
+    public let textPreparationWorkers: Int?
 
     public init(kind: Kind, identity: AttemptIdentity, chunk: Int? = nil,
                 workspace: URL? = nil, settings: SpeechSettings? = nil,
                 spoolDirectory: URL? = nil, text: String? = nil, policy: SpeechPreparationPolicy? = nil,
-                textWindow: SpeechTextWindow? = nil, utterance: PreparedUtterance? = nil) {
+                textWindow: SpeechTextWindow? = nil, utterance: PreparedUtterance? = nil,
+                textPreparationOnly: Bool? = nil, textPreparationWorkers: Int? = nil) {
+        self.textPreparationOnly = textPreparationOnly; self.textPreparationWorkers = textPreparationWorkers
         self.kind = kind; self.identity = identity; self.chunk = chunk
         self.workspace = workspace; self.settings = settings
         self.spoolDirectory = spoolDirectory; self.text = text
@@ -96,18 +100,27 @@ public struct WorkerEvent: Codable, Sendable {
     public let preparedFile: PreparedSpeechFile?
     public let source: SpokenSourceRange?
 
+    /// Acknowledgements distinguish model-free CPU preparation from neural G2P.
+    /// A frontend using inference must unload before admission is released.
+    public let textPreparationOnly: Bool?
+    public let preparationUsesInference: Bool?
+    public let preparationReleased: Bool?
+
     public init(kind: Kind, identity: AttemptIdentity, chunk: Int? = nil,
                 sampleRate: Int? = nil, frames: Int? = nil, channels: Int? = nil,
-                pcmFile: String? = nil, failure: SpeechFailureCode? = nil, preparation: ModelPreparationProgress? = nil, preparedFile: PreparedSpeechFile? = nil, source: SpokenSourceRange? = nil) {
+                pcmFile: String? = nil, failure: SpeechFailureCode? = nil, preparation: ModelPreparationProgress? = nil, preparedFile: PreparedSpeechFile? = nil, source: SpokenSourceRange? = nil, textPreparationOnly: Bool? = nil,
+                preparationUsesInference: Bool? = nil, preparationReleased: Bool? = nil) {
         self.kind = kind; self.identity = identity; self.chunk = chunk
         self.sampleRate = sampleRate; self.frames = frames; self.channels = channels
         self.pcmFile = pcmFile; self.failure = failure
         self.preparedFile = preparedFile; self.preparation = preparation; self.source = source
+        self.textPreparationOnly = textPreparationOnly
+        self.preparationUsesInference = preparationUsesInference; self.preparationReleased = preparationReleased
     }
 }
 
 public enum SpeechIPC {
-    public static let protocolVersion = 3
+    public static let protocolVersion = 4
     public static let maximumRecordBytes = 65_536
 
     public static func encode<T: Encodable>(_ record: T) throws -> Data {

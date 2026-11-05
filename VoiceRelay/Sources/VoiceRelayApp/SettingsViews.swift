@@ -295,6 +295,7 @@ enum SettingsSection: String, SettingsPane {
     case voiceModel = "Voice Model"
     case pronunciation = "Pronunciation"
     case delivery = "Publishing"
+    case voiceServer = "VoiceServer"
     case troubleshooting = "Troubleshooting"
     var id: Self { self }
     var title: String { rawValue }
@@ -304,6 +305,7 @@ enum SettingsSection: String, SettingsPane {
         case .voiceModel: "waveform"
         case .pronunciation: "text.word.spacing"
         case .delivery: "antenna.radiowaves.left.and.right"
+        case .voiceServer: "network"
         case .troubleshooting: "stethoscope"
         }
     }
@@ -313,13 +315,14 @@ enum SettingsSection: String, SettingsPane {
         case .voiceModel: "Models, voices, samples and downloads"
         case .pronunciation: "Shared word pronunciations and live voice previews"
         case .delivery: "Podcast connection, publishing and subscription URL"
+        case .voiceServer: "Private speech API, bearer key and live requests"
         case .troubleshooting: "Library backup and logs"
         }
     }
 }
 
 struct SettingsView: View {
-    static let windowWidth: CGFloat = 540
+    static let windowWidth: CGFloat = 640
     static let windowHeight: CGFloat = 680
     static let minWindowWidth: CGFloat = 360
     static let minWindowHeight: CGFloat = 540
@@ -348,6 +351,12 @@ struct SettingsView: View {
                         editor: model.pronunciationIsInert ? .init(inertEntries: []) : .init(), beforePreview: { model.voiceSamplePlayer.stop() })
                 case .delivery:
                     DeliveryPaneView(model: model).padding(.horizontal, 8)
+                case .voiceServer:
+                    if let server = model.voiceServer {
+                        VoiceServerSettingsView(model: model, server: server).padding(.horizontal, 8)
+                    } else {
+                        ContentUnavailableView("VoiceServer unavailable", systemImage: "network", description: Text("The shared speech coordinator is unavailable. Restart the current VoiceRelay build."))
+                    }
                 case .troubleshooting:
                     TroubleshootingView(model: model).padding(.horizontal, 8)
                 }

@@ -5,7 +5,7 @@ import NarrationCore
 /// A caption followed by an image-only area is evidence for a missing table,
 /// not permission to OCR/replace the surrounding authored page.
 enum PDFImageTable {
-    struct Candidate {
+    struct Candidate: Sendable {
         let label: String
         let bounds: CGRect
     }

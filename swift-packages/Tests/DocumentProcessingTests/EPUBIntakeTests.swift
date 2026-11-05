@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+import CryptoKit
 import ZIPFoundation
 import NarrationCore
 import CoreGraphics
@@ -322,4 +323,39 @@ final class EPUBIntakeTests: XCTestCase {
             XCTAssertNil(try EPUBDocumentExtractor.coverImage(data: bytes))
         }
     }
+    func testSyntheticBookPreparationPreservesOrderAndReportsPhaseCosts() async throws {
+        let benchmark = ProcessInfo.processInfo.environment["NARRATION_CPU_PREPARATION_BENCHMARK"] == "1"
+        let chapters = benchmark ? 24 : 3, paragraphs = benchmark ? 100 : 4
+        var manifest = "", spine = "", files: [(String, Data)] = []
+        for chapter in 0..<chapters {
+            manifest += "<item id='extra-\(chapter)' href='Text/extra-\(chapter).xhtml' media-type='application/xhtml+xml'/>"
+            spine += "<itemref idref='extra-\(chapter)'/>"
+            let prose = (0..<paragraphs).map { paragraph in
+                "<p>Passage \(paragraph) in section \(chapter). The traveller walked through the quiet village and watched the light cross the old stone bridge. Each authored passage remains in its original place.</p>"
+            }.joined()
+            files.append(("EPUB/Text/extra-\(chapter).xhtml", Data("<html><body><h1 id='opening'>Synthetic section \(chapter)</h1>\(prose)</body></html>".utf8)))
+        }
+        let bytes = try book(manifest: manifest, spine: spine, files: files)
+        let start = ProcessInfo.processInfo.systemUptime
+        let document = try await EPUBDocumentExtractor.extract(data: bytes)
+        let extracted = ProcessInfo.processInfo.systemUptime
+        let plan = try NarrationPlanner.prepareForSpeech(document, settings: .init())
+        let planned = ProcessInfo.processInfo.systemUptime
+        XCTAssertEqual(document.blocks.count, 4 + chapters * (paragraphs + 1))
+        XCTAssertEqual(document.blocks.filter { $0.kind == .heading }.map(\.text),
+            ["First chapter", "Second chapter"] + (0..<chapters).map { "Synthetic section \($0)" })
+        XCTAssertTrue(document.blocks.last?.text.hasPrefix("Passage \(paragraphs - 1) in section \(chapters - 1).") == true)
+        XCTAssertFalse(plan.chunks.isEmpty)
+        if benchmark {
+            let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+            let digest = SHA256.hash(data: try encoder.encode(document)).map { String(format: "%02x", $0) }.joined()
+            let metrics: [String: Any] = ["chapters": chapters + 2, "blocks": document.blocks.count,
+                "textBytes": document.blocks.reduce(0) { $0 + $1.text.utf8.count },
+                "extractionSeconds": extracted - start, "planningSeconds": planned - extracted,
+                "semanticSHA256": digest]
+            let data = try JSONSerialization.data(withJSONObject: metrics, options: [.sortedKeys])
+            print("CPU_PREPARATION_BENCHMARK " + String(decoding: data, as: UTF8.self))
+        }
+    }
+
 }

@@ -63,6 +63,15 @@ public final class BatchQueueControl: @unchecked Sendable {
         guard let wake else { return false }
         wake.forEach { $0.resume() }; emit(); return true
     }
+    /// A priority-suspended renderer has already reached a safe pause boundary.
+    /// Acknowledge the independent manual pause without waiting for inference.
+    public func acknowledgePause(job: UUID) {
+        let changed = lock.withLock {
+            guard current == job, pauseRequested, !paused, !skipRequested else { return false }
+            paused = true; sequence += 1; return true
+        }
+        if changed { emit() }
+    }
     @discardableResult public func reorderPending(_ jobs: [UUID]) -> Bool {
         let accepted = lock.withLock {
             guard jobs.count == pending.count, Set(jobs) == Set(pending) else { return false }

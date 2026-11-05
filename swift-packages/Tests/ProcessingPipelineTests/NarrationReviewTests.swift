@@ -114,6 +114,22 @@ final class NarrationReviewTests: XCTestCase {
         XCTAssertEqual(try store.records().count, 1)
         XCTAssertEqual(try store.samples(id, index: 0), [0.1])
     }
+    func testInterruptedReviewRecordRemovesOnlyItsUncommittedPCM() throws {
+        struct Interrupted: AudioWorkInterruption {}
+        let root = try root(), store = NarrationReviewStore(root: root.appendingPathComponent("reviews"))
+        let plan = plan(), id = try store.begin(plan: plan)
+        try store.record(id, index: 0, samples: [0.25])
+        let directory = store.root.appendingPathComponent(id.uuidString), pending = directory.appendingPathComponent("1.f32")
+        try AudioWorkCheckpoint.$current.withValue({
+            if FileManager.default.fileExists(atPath: pending.path) { throw Interrupted() }
+        }) {
+            XCTAssertThrowsError(try store.record(id, index: 1, samples: [0.125, -0.5], plan: plan, existingBytes: 4)) { XCTAssertTrue($0 is Interrupted) }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pending.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("1.json").path))
+        XCTAssertEqual(try store.samples(id, index: 0), [0.25])
+        XCTAssertNil(try store.load(id).artifacts[1])
+    }
     func testMissingPassagesRequireExplicitContinuationAndReuseVerifiedPCM() async throws {
         guard let path = ProcessInfo.processInfo.environment["NARRATION_FIXTURE_WORKER"] else { throw XCTSkip("Build the model-free fixture worker") }
         let root = try root(), store = NarrationReviewStore(root: root.appendingPathComponent("reviews"))

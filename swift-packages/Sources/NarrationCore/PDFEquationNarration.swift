@@ -22,7 +22,7 @@ enum PDFEquationNarration {
         let lexicon = DocumentWordLexicon()
         let anchors = CharacterSet(charactersIn: "=<>≤≥≈≠∫∑∏→¼þ")
         for (index, block) in document.blocks.enumerated() {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             guard !excluded.contains(index), block.kind == .paragraph, block.role != .bibliography,
                   block.narrationText == nil, block.containsInlineCode != true,
                   block.origin == .authored || block.origin == .ocr,

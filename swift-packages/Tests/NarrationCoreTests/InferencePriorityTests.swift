@@ -83,6 +83,23 @@ final class InferencePriorityTests: XCTestCase {
         let acquired = try await background.value
         withExtendedLifetime(acquired) {}
     }
+    func testNeuralPreparationYieldsOnlyAtItsOwnBoundaryForLiveInteractiveDemand() async throws {
+        let root = try root(), file = root.appendingPathComponent("inference.lock")
+        var owner: InferenceLease? = try await InferenceLease.acquire(at: file)
+        XCTAssertFalse(try InferenceLease.shouldYield(at: file, priority: .background))
+        let foreground = Task {
+            let acquired = try await InferenceLease.acquire(at: file, priority: .interactive)
+            withExtendedLifetime(acquired) {}
+        }
+        try await waitFor { hasTicket(file) }
+        XCTAssertTrue(try InferenceLease.shouldYield(at: file, priority: .background))
+        XCTAssertFalse(try InferenceLease.shouldYield(at: file, priority: .interactive))
+        // Observation neither releases the current owner nor revokes its lock.
+        XCTAssertNil(try InferenceLease.tryAcquire(at: file, priority: .interactive))
+        withExtendedLifetime(owner) {}; owner = nil
+        try await foreground.value
+        XCTAssertFalse(try InferenceLease.shouldYield(at: file, priority: .background))
+    }
     func testInteractiveReservationBlocksBackgroundAcrossGapsWithoutHoldingInference() async throws {
         let root = try root(), file = root.appendingPathComponent("inference.lock")
         let foreground = Task {

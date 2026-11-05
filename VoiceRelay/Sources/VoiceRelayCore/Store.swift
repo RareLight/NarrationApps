@@ -1,4 +1,5 @@
 import Foundation
+import NarrationCore
 import CSQLite
 import Darwin
 
@@ -189,7 +190,7 @@ final class NativeStore {
         }
     }
     func episode(sourceKey: String, settings: PrototypeProfile) throws -> Episode {
-        if let saved = try existingEpisode(sourceKey: sourceKey) { return saved }
+        if let saved = try existingEpisode(sourceKey: sourceKey, resolveSnapshots: false) { return saved }
         var e = Episode(id: UUID().uuidString.lowercased(), title: "Saved fixture", stage: .discovered, settings: settings)
         e.originalSourceIdentity = ServerRecoveryIdentity.validSource(sourceKey) ? sourceKey : nil
         try execute("INSERT INTO episodes VALUES(?,?,?)", [e.id, sourceKey, String(decoding: try Files.json(e), as: UTF8.self)])
@@ -200,9 +201,9 @@ final class NativeStore {
         guard let record = try query("SELECT record FROM episodes WHERE source_key=?", [sourceKey]).first?.first else { return nil }
         return try JSONDecoder().decode(Episode.self, from: Data(record.utf8))
     }
-    func existingEpisode(sourceKey: String) throws -> Episode? {
+    func existingEpisode(sourceKey: String, resolveSnapshots: Bool = true) throws -> Episode? {
         guard var episode = try recordedEpisode(sourceKey: sourceKey) else { return nil }
-        resolveArticleOrigin(&episode, sourceKey: sourceKey, entries: try readingListEntriesBySource())
+        resolveArticleOrigin(&episode, sourceKey: sourceKey, entries: try readingListEntriesBySource(), resolveSnapshots: resolveSnapshots)
         return episode
     }
     func save(_ e: Episode, pendingFeed: Bool = false) throws {
@@ -250,11 +251,12 @@ final class NativeStore {
     func published() throws -> [Episode] {
         try episodes().filter { $0.stage == .published }
     }
-    func episodes() throws -> [Episode] {
+    func episodes(resolveSnapshots: Bool = true) throws -> [Episode] {
         let entries = try readingListEntriesBySource()
         return try query("SELECT record,source_key FROM episodes ORDER BY rowid DESC").map {
             var episode = try JSONDecoder().decode(Episode.self, from: Data($0[0].utf8))
-            resolveArticleOrigin(&episode, sourceKey: $0[1], entries: entries)
+            if resolveSnapshots { try NarrationWorkCheckpoint.check() }
+            resolveArticleOrigin(&episode, sourceKey: $0[1], entries: entries, resolveSnapshots: resolveSnapshots)
             return episode
         }
     }
@@ -266,13 +268,13 @@ final class NativeStore {
         return Dictionary(pairs, uniquingKeysWith: { first, _ in first })
     }
     private func resolveArticleOrigin(_ episode: inout Episode, sourceKey: String,
-                                      entries: [String: ReadingListEntry]) {
+                                      entries: [String: ReadingListEntry], resolveSnapshots: Bool) {
         if ServerRecoveryIdentity.validSource(sourceKey) { episode.originalSourceIdentity = sourceKey }
         let entry = entries[sourceKey]
         if episode.readingListSavedAt == nil { episode.readingListSavedAt = entry?.addedAt }
         if episode.originalSourceHost == nil { episode.originalSourceHost = entry?.url.host }
         let nameMissing = episode.sourceName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
-        guard episode.originalSourceHost == nil || nameMissing else { return }
+        guard resolveSnapshots, episode.originalSourceHost == nil || nameMissing else { return }
         if let bytes = try? snapshot(articleID: episode.id),
            let review = try? JSONDecoder().decode(StoredExtraction.self, from: bytes).review() {
             let original = review.page.originalURL
@@ -289,11 +291,22 @@ final class NativeStore {
                     [articleID, data.base64EncodedString(), Files.hash(data)])
     }
     func snapshot(articleID: String) throws -> Data? {
-        guard let row = try query("SELECT record,hash FROM snapshots WHERE article_id=?", [articleID]).first else { return nil }
-        guard let data = Data(base64Encoded: row[0]), Files.hash(data) == row[1] else {
-            throw RelayError.artifact("Saved article integrity failed. Existing audio is preserved.")
+        try snapshotRecord(articleID: articleID)?.verifiedBytes()
+    }
+    /// Captured without hashing under actor/writer ownership. CPU preparation
+    /// verifies bytes; final metadata commits compare the exact stored record.
+    struct SnapshotRecord: Equatable, Sendable {
+        let record: String, hash: String
+        func verifiedBytes() throws -> Data {
+            guard let data = Data(base64Encoded: record), Files.hash(data) == hash else {
+                throw RelayError.artifact("Saved article integrity failed. Existing audio is preserved.")
+            }
+            return data
         }
-        return data
+    }
+    func snapshotRecord(articleID: String) throws -> SnapshotRecord? {
+        guard let row = try query("SELECT record,hash FROM snapshots WHERE article_id=?", [articleID]).first else { return nil }
+        return .init(record: row[0], hash: row[1])
     }
     func catalog() throws -> ReadingListCatalog {
         guard try query("SELECT name FROM sqlite_master WHERE type='table' AND name='reading_list_inventory'").first != nil,
@@ -303,15 +316,16 @@ final class NativeStore {
     func saveCatalog(_ catalog: ReadingListCatalog) throws {
         try execute("INSERT OR REPLACE INTO reading_list_inventory VALUES(1,?)", [String(decoding: try Files.json(catalog), as: UTF8.self)])
     }
-    func queue() throws -> [SpeechQueueItem] {
+    func queue(resolveSnapshots: Bool = true) throws -> [SpeechQueueItem] {
         guard try query("SELECT name FROM sqlite_master WHERE type='table' AND name='speech_queue'").first != nil else { return [] }
         let entries = try catalog().entries
         return try query("SELECT article_id,record FROM speech_queue ORDER BY rowid").map {
             var item = try JSONDecoder().decode(SpeechQueueItem.self, from: Data($0[1].utf8))
+            if resolveSnapshots { try NarrationWorkCheckpoint.check() }
             guard item.id == $0[0] else { throw RelayError.storage("The saved queue identity is invalid.") }
             if item.sourceHost == nil {
                 item.sourceHost = entries.first { $0.id == item.sourceEntryID }?.url.host
-                if item.sourceHost == nil, let bytes = try? snapshot(articleID: item.id),
+                if resolveSnapshots, item.sourceHost == nil, let bytes = try? snapshot(articleID: item.id),
                    let saved = try? JSONDecoder().decode(StoredExtraction.self, from: bytes).review() {
                     item.sourceHost = saved.page.originalURL.host
                 }
@@ -328,8 +342,10 @@ final class NativeStore {
 
 final class PipelineStore: Sendable {
     private let databaseURL: URL
-    init(databaseURL: URL) throws {
+    private let onWriterBusy: @Sendable () -> Void
+    init(databaseURL: URL, onWriterBusy: @escaping @Sendable () -> Void = {}) throws {
         self.databaseURL = databaseURL
+        self.onWriterBusy = onWriterBusy
         try writing { _ in () }
     }
     private func reading<T>(_ body: (NativeStore) throws -> T) throws -> T {
@@ -340,6 +356,7 @@ final class PipelineStore: Sendable {
         while true {
             do { return try body(NativeStore(url: databaseURL)) }
             catch RelayError.writerBusy {
+                onWriterBusy()
                 try Task.checkCancellation()
                 guard ProcessInfo.processInfo.systemUptime < deadline else { throw RelayError.writerBusy }
                 Thread.sleep(forTimeInterval: 0.05)
@@ -367,8 +384,25 @@ final class PipelineStore: Sendable {
     func chunk(articleID: String, index: Int, fingerprint: String) throws -> ChunkCheckpoint? {
         try reading { try $0.chunk(articleID: articleID, index: index, fingerprint: fingerprint) }
     }
-    func saveChunk(articleID: String, index: Int, fingerprint: String, checkpoint: ChunkCheckpoint) throws {
-        try writing { try $0.saveChunk(articleID: articleID, index: index, fingerprint: fingerprint, checkpoint: checkpoint) }
+    @discardableResult func saveChunk(articleID: String, index: Int, fingerprint: String, checkpoint: ChunkCheckpoint,
+                                     receipt: SpeechCheckpointReceipt? = nil) throws -> Bool {
+        let record = String(decoding: try Files.json(checkpoint), as: UTF8.self)
+        guard let receipt else {
+            try writing { try $0.execute("INSERT OR REPLACE INTO chunks VALUES(?,?,?,?)", [articleID, String(index), fingerprint, record]) }
+            return true
+        }
+        return try writing { store in
+            // Acquire/configure SQLite and stage the invisible write outside the
+            // admission fence. A busy writer must never delay API registration.
+            try store.execute("BEGIN IMMEDIATE")
+            do {
+                try store.execute("INSERT OR REPLACE INTO chunks VALUES(?,?,?,?)", [articleID, String(index), fingerprint, record])
+                try Task.checkCancellation()
+                let accepted = try receipt.commit(index: index) { try store.execute("COMMIT") }
+                if !accepted { try store.execute("ROLLBACK") }
+                return accepted
+            } catch { try? store.execute("ROLLBACK"); throw error }
+        }
     }
     func published() throws -> [Episode] {
         try reading { try $0.published() }

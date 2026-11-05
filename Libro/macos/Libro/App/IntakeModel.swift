@@ -17,7 +17,11 @@ import OSLog
 @MainActor
 @Observable
 final class IntakeModel {
-    static let shared = IntakeModel()
+    static let shared: IntakeModel = {
+        let owner = try? SpeechWorkCoordinator(owner: .libro, configuration: .init(executable:
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), inferencePriority: .interactive, pronunciationStore: .init()))
+        return IntakeModel(speechWorkCoordinator: owner)
+    }()
     var documents: [InputDocument] = []
     var selection = Set<UUID>()
     var names: [UUID: String] = [:]
@@ -39,6 +43,9 @@ final class IntakeModel {
             if oldValue != settings { pronunciationPreview.stop(); voiceSamplePlayer.stop() }
             if oldValue.model != settings.model || oldValue.voice != settings.voice { refreshReadiness() }
         }
+    }
+    var textPreparationWorkerPreference = TextPreparationWorkerPreference().load() {
+        didSet { TextPreparationWorkerPreference().save(textPreparationWorkerPreference) }
     }
     var outputFormat = OutputFormatPreference().load() {
         didSet {
@@ -72,13 +79,13 @@ final class IntakeModel {
         let sources = documents.filter { selection.contains($0.id) }.map(\.source)
         guard !sources.isEmpty else { return }
         busy = true
-        let store = coverStore
+        let store = coverStore, cpuWork = preparationCPUWork
         coverTask = Task {
             defer { coverTask = nil; busy = scanner != nil || reader != nil }
             do {
                 let work = Task.detached(priority: .userInitiated) {
                     let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
-                    return try store.save(CoverArtwork.read(url))
+                    return try await SpeechCPUContext.run(cpuWork) { try store.save(CoverArtwork.read(url)) }
                 }
                 let digest = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
                 try Task.checkCancellation()
@@ -92,14 +99,16 @@ final class IntakeModel {
     func useBookCover(_ document: InputDocument) {
         guard !busy, !isGenerating else { return }
         busy = true
-        let store = coverStore
+        let store = coverStore, cpuWork = preparationCPUWork
         coverTask = Task {
             defer { coverTask = nil; busy = scanner != nil || reader != nil }
             do {
                 let work = Task.detached(priority: .userInitiated) {
-                    let bytes = try DocumentReader.bookCover(document)
-                    guard let bytes else { throw NarrationError.invalidInput("No usable cover was found on this document's cover or first page. Choose an image instead.") }
-                    return try store.save(CoverArtwork(data: bytes))
+                    try await SpeechCPUContext.run(cpuWork) {
+                        let bytes = try DocumentReader.bookCover(document)
+                        guard let bytes else { throw NarrationError.invalidInput("No usable cover was found on this document's cover or first page. Choose an image instead.") }
+                        return try store.save(CoverArtwork(data: bytes))
+                    }
                 }
                 let digest = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
                 try Task.checkCancellation()
@@ -110,12 +119,14 @@ final class IntakeModel {
         }
     }
     func cleanCoverAssets() {
-        let store = coverStore, keeping = Set(coverDigests.values)
+        let store = coverStore, keeping = Set(coverDigests.values), cpuWork = preparationCPUWork
         busy = true
         coverTask = Task {
             defer { coverTask = nil; busy = scanner != nil || reader != nil }
             do {
-                let work = Task.detached(priority: .utility) { try store.removeUnreferenced(keeping: keeping) }
+                let work = Task.detached(priority: .utility) {
+                    try await SpeechCPUContext.run(cpuWork) { try store.removeUnreferenced(keeping: keeping) }
+                }
                 try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
             } catch is CancellationError { }
             catch { status = "Cover removed. Some unused cover files could not be cleaned up." }
@@ -166,7 +177,7 @@ final class IntakeModel {
     let pronunciationPreview = PronunciationPreview()
     var pronunciationConfiguration: PronunciationPreviewConfiguration? {
         guard assetsReady, !modelStorage.isBusy, !setupVerificationFailed, !isGenerating, !isPreparingModel, !hasOwnedProbe, !speechSetupValidation.hasOwnedWork, let root = workspace?.url else { return nil }
-        return .init(worker: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), workspace: root, settings: settings, priority: .interactive)
+        return .init(worker: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), workspace: root, settings: settings, priority: .interactive, workCoordinator: speechWorkCoordinator)
     }
     private var onboarding = SpeechSetupOnboarding()
     @ObservationIgnored private(set) var stoppingValidation = false
@@ -198,8 +209,9 @@ final class IntakeModel {
     private func checkSpeechSetup(_ target: SpeechSetupValidation.Target) async throws {
         let access = DirectoryAccess(target.root)
         defer { withExtendedLifetime(access) {} }
-        let configuration = WorkerConfiguration(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"),
+        var configuration = WorkerConfiguration(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"),
             requestTimeout: .seconds(1_800), inferencePriority: .interactive)
+        configuration.workCoordinator = speechWorkCoordinator
         try await SpeechSetupCheck.run(configuration: configuration, workspace: target.root, settings: target.settings)
     }
     var needsSpeechSetup: Bool { onboarding.needsSetup }
@@ -218,6 +230,16 @@ final class IntakeModel {
     var activityProgress: BatchActivityProgress?
     var speechProgress: SpeechProgress?
     var generationStatus = ""
+    private var workStatusByDocument: [UUID: SpeechWorkStatusProjection] = [:]
+    var displayedGenerationStatus: String {
+        guard !isStopping, let currentJob else { return generationStatus }
+        switch queueState?.phase {
+        case .paused: return "Paused"
+        case .pausing: return "Pausing…"
+        case .skipping: return "Skipping…"
+        default: return workStatusByDocument[currentJob]?.reason?.statusLabel ?? generationStatus
+        }
+    }
     var batchSummary: BatchSummary?
     var notificationSummary: String?
     var notificationStatus: String?
@@ -256,7 +278,7 @@ final class IntakeModel {
         return nil
     }
     var canManageSpeechSetup: Bool { speechSetupDisabledReason == nil }
-    let modelStorage = ModelStorageMaintenance()
+    let modelStorage: ModelStorageMaintenance
     var modelStorageRevision = 0
     var canPrepareModel: Bool { workspace?.url != nil && canManageSpeechSetup }
     var cancellable: Bool { hasCoverWork || pronunciationPreview.hasOwnedWork || droppedFiles.hasOwnedWork || scanner != nil || reader != nil || hasOwnedProbe || isGenerating || isPreparingModel }
@@ -300,6 +322,12 @@ final class IntakeModel {
     private var preparationOperation = UUID()
     private var preparationScopes: [DirectoryAccess] = []
     private var batchScopes: [DirectoryAccess] = []
+    var recoveryRows: [RecoveryRow] = []
+    var recoveryStatus: String?
+    var recoveryBusy = false
+    @ObservationIgnored private var openedRecovery: LibroBatchRecovery?
+    @ObservationIgnored private var recoveredRequest: BatchRequest?
+    var canResumeRecovery: Bool { recoveredRequest != nil && !isGenerating && !recoveryBusy }
     private var outputScopes: [UUID: DirectoryAccess] = [:]
     private var savedNames: [UUID: String] = [:]
     private var activity: NSObjectProtocol?
@@ -309,9 +337,19 @@ final class IntakeModel {
     private var playbackTask: Task<Void, Never>?
     private static let logger = Logger(subsystem: "org.librotts.Libro", category: "Batch")
 
-    private init() {
-        coordinator = QueueCoordinator(configuration: WorkerConfiguration(executable:
-            Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), inferencePriority: .interactive, pronunciationStore: .init()))
+    @ObservationIgnored private let speechWorkCoordinator: SpeechWorkCoordinator?
+    var hasCoordinatedSpeech: Bool { speechWorkCoordinator != nil }
+    func stopSpeechCoordinator() async { await speechWorkCoordinator?.close() }
+    private init(speechWorkCoordinator: SpeechWorkCoordinator? = nil) {
+        self.speechWorkCoordinator = speechWorkCoordinator
+        if let owner = speechWorkCoordinator {
+            let perform: ModelStorageMaintenance.Perform = { operation in try await owner.withMaintenance(operation) }
+            modelStorage = ModelStorageMaintenance(perform: perform)
+        } else { modelStorage = ModelStorageMaintenance() }
+        var worker = WorkerConfiguration(executable:
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), inferencePriority: .interactive, pronunciationStore: .init())
+        worker.workCoordinator = speechWorkCoordinator
+        coordinator = QueueCoordinator(configuration: worker)
         voices = [settings.voice]
         output = preferences.load(.output)
         let oldDefault = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Libro/SpeechRuntime")
@@ -381,30 +419,32 @@ final class IntakeModel {
         busy = true; scanCount = 0; coverScanProgress = nil; status = "Scanning inputs…"
         let recipient = self
         let references = coverDigests, exclusions = automaticCoverExclusions, store = coverStore
-        let removedPaths = removed
+        let removedPaths = removed, cpuWork = preparationCPUWork
         let previousCoverWork = coverTask
         let task = IntakeScanTask.start(replacing: previousScanner, after: previousReader, coverWork: previousCoverWork) {
             let access = selection.map { DirectoryAccess($0) }
             defer { withExtendedLifetime(access) {} }
             let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Discovering Libro documents")
             defer { ProcessInfo.processInfo.endActivity(activity) }
-            let result = try InputCollector.collect(selection, excludingOutput: excluded) { count in
-                Task { @MainActor in
-                    guard recipient.operation == token else { return }
-                    recipient.scanCount = count
-                }
-            }
-            let covers = try DocumentCoverPreferences.automaticCovers(
-                result.documents.filter { !removedPaths.contains($0.source.path) },
-                references: references, excluding: exclusions, store: store,
-                progress: { completed, total in
-                    guard total > 0 else { return }
+            return try await SpeechCPUContext.run(cpuWork) {
+                let result = try InputCollector.collect(selection, excludingOutput: excluded) { count in
                     Task { @MainActor in
-                        guard recipient.operation == token, recipient.scanner != nil else { return }
-                        recipient.coverScanProgress = "Finding cover art… \(completed) of \(total) documents."
+                        guard recipient.operation == token else { return }
+                        recipient.scanCount = count
                     }
-                })
-            return (intake: result, covers: covers)
+                }
+                let covers = try DocumentCoverPreferences.automaticCovers(
+                    result.documents.filter { !removedPaths.contains($0.source.path) },
+                    references: references, excluding: exclusions, store: store,
+                    progress: { completed, total in
+                        guard total > 0 else { return }
+                        Task { @MainActor in
+                            guard recipient.operation == token, recipient.scanner != nil else { return }
+                            recipient.coverScanProgress = "Finding cover art… \(completed) of \(total) documents."
+                        }
+                    })
+                return (intake: result, covers: covers)
+            }
         }
         scanner = task
         Task {
@@ -467,6 +507,11 @@ final class IntakeModel {
         return true
     }
 
+    private var preparationCPUWork: SpeechCPUContext? {
+        speechWorkCoordinator.map { .init(coordinator: $0, settings: settings,
+            workspace: workspace?.url ?? FileManager.default.temporaryDirectory, rank: .libro) }
+    }
+
     func replan() {
         planner?.cancel()
         let token = UUID(); planOperation = token
@@ -475,13 +520,15 @@ final class IntakeModel {
         guard let url = output?.url else { planningError = output?.error ?? "Choose an output folder to preview destinations."; return }
         let inputs = candidates
         let overrides = names
-        let format = outputFormat
+        let format = outputFormat, cpuWork = preparationCPUWork
         planningError = nil
         let task = Task.detached(priority: .userInitiated) {
             try await Task.sleep(for: .milliseconds(150))
             let scope = DirectoryAccess(url)
             defer { withExtendedLifetime(scope) {} }
-            return try BatchPlanner.plan(inputs, output: url, names: overrides, format: format)
+            return try await SpeechCPUContext.run(cpuWork) {
+                try BatchPlanner.plan(inputs, output: url, names: overrides, format: format)
+            }
         }
         planner = task
         Task {
@@ -541,7 +588,7 @@ final class IntakeModel {
         guard let batch = activeBatch?.id else { return }
         let alert = NSAlert()
         alert.messageText = "Stop the queue?"
-        alert.informativeText = "Unfinished audio will be discarded. Saved files are kept."
+        alert.informativeText = "Generation stops and saved files are kept. Verified checkpoints remain available in Interrupted Batches."
         alert.addButton(withTitle: "Keep Processing")
         alert.addButton(withTitle: "Stop Queue")
         if alert.runModal() == .alertSecondButtonReturn, activeBatch?.id == batch { cancel() }
@@ -628,16 +675,25 @@ final class IntakeModel {
         states[document.id] = "Analyzing text…"
         let imageDescriptions = describeImages, selectedSettings = settings, options = narrationOptions
         let recipient = self
+        let hostAdmission = speechWorkCoordinator?.hostAdmission
+        let cpuWork = speechWorkCoordinator.map {
+            SpeechCPUContext(coordinator: $0, settings: selectedSettings,
+                workspace: workspace?.url ?? FileManager.default.temporaryDirectory, rank: .libro)
+        }
         let task = Task.detached(priority: .userInitiated) {
             let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Analyzing a Libro document")
             defer { ProcessInfo.processInfo.endActivity(activity) }
-            let dictionary = try PronunciationStore().load().dictionary
-            try await InferenceLease.withPriority(.interactive) {
-                try await DocumentPreviewAnalysis.run(document, describeImages: imageDescriptions,
-                    settings: selectedSettings, pronunciations: dictionary, options: options) { content in
-                        try Task.checkCancellation()
-                        try await recipient.receivePreview(content, document: document, token: token)
+            try await NarrationPreparationWork.$executor.withValue(cpuWork) {
+                let dictionary = try await NarrationPreparationWork.run { try PronunciationStore().load().dictionary }
+                try await InferenceLease.$hostAdmission.withValue(hostAdmission) {
+                    try await InferenceLease.withPriority(.interactive) {
+                        try await DocumentPreviewAnalysis.run(document, describeImages: imageDescriptions,
+                            settings: selectedSettings, pronunciations: dictionary, options: options) { content in
+                                try Task.checkCancellation()
+                                try await recipient.receivePreview(content, document: document, token: token)
+                            }
                     }
+                }
             }
         }
         reader = task
@@ -836,7 +892,9 @@ final class IntakeModel {
         preparationScopes = [DirectoryAccess(root)]
         let log = makeDebugLog(root)
         log?.record("preparation started model=\(selected.model.rawValue) revision=\(NativePrimaryCatalog.specification(for: selected.model).revision)")
-        let configuration = WorkerConfiguration(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), requestTimeout: .seconds(1_800), debugLog: log, inferencePriority: .interactive)
+        var captured = WorkerConfiguration(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), requestTimeout: .seconds(1_800), debugLog: log, inferencePriority: .interactive)
+        captured.workCoordinator = speechWorkCoordinator
+        let configuration = captured
         let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Preparing user-requested Libro models")
         pronunciationPreview.stop()
         preparationTask = Task { [self] in
@@ -925,7 +983,8 @@ final class IntakeModel {
         guard canGenerate, let destination = output?.url, let root = workspace?.url else { return }
         let inputs = planned.map(\.input), references = coverDigests, store = coverStore
         let format = outputFormat, overrides = names, selectedSettings = settings
-        let options = narrationOptions, imageDescriptions = describeImages
+        let options = narrationOptions, imageDescriptions = describeImages, cpuWork = preparationCPUWork
+        let preparationWorkers = CPUTextPreparation.resolvedWorkers(preference: textPreparationWorkerPreference)
         busy = true
         coverTask = Task {
             defer { coverTask = nil; busy = scanner != nil || reader != nil }
@@ -933,7 +992,9 @@ final class IntakeModel {
                 let planningWork = Task.detached(priority: .userInitiated) {
                     let scope = DirectoryAccess(destination)
                     defer { withExtendedLifetime(scope) {} }
-                    return try BatchPlanner.plan(inputs, output: destination, names: overrides, format: format)
+                    return try await SpeechCPUContext.run(cpuWork) {
+                        try BatchPlanner.plan(inputs, output: destination, names: overrides, format: format)
+                    }
                 }
                 await speechSetupValidation.waitForIdle()
                 let plans = try await withTaskCancellationHandler { try await planningWork.value } onCancel: { planningWork.cancel() }
@@ -966,28 +1027,32 @@ final class IntakeModel {
                     return
                 }
                 let work = Task.detached(priority: .userInitiated) {
-                    format.supportsCoverArtwork ? try DocumentCoverPreferences.snapshot(selection.documents.map(\.input), references: references, store: store) : [:]
+                    try await SpeechCPUContext.run(cpuWork) {
+                        format.supportsCoverArtwork ? try DocumentCoverPreferences.snapshot(selection.documents.map(\.input), references: references, store: store) : [:]
+                    }
                 }
                 let covers = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+                let dictionary = try await SpeechCPUContext.run(cpuWork) { try PronunciationStore().load().dictionary }
                 try Task.checkCancellation()
                 skippedExisting.formUnion(selection.skipped)
                 retryQueued.subtract(selection.skipped)
                 let request = BatchRequest(documents: selection.documents, outputDirectory: destination, workspace: root,
                     settings: selectedSettings, describeImages: imageDescriptions, replaceExisting: selection.replaceExisting,
-                    outputFormat: format, coverArtwork: covers, narrationOptions: options)
+                    outputFormat: format, pronunciations: dictionary, coverArtwork: covers, narrationOptions: options, textPreparationWorkers: preparationWorkers)
                 beginGeneration(request)
             } catch is CancellationError { status = "Batch start cancelled." }
             catch { planningError = error.localizedDescription }
         }
     }
 
-    private func beginGeneration(_ request: BatchRequest) {
+    private func beginGeneration(_ request: BatchRequest, recovery restored: LibroBatchRecovery? = nil) {
         guard !isGenerating else { return }
         let destination = request.outputDirectory, root = request.workspace
         let log = makeDebugLog(root)
-        log?.record("batch=\(request.id) started documents=\(request.documents.count) model=\(request.settings.model.rawValue) voice=\(request.settings.voice) speed=\(request.settings.speed) format=\(request.outputFormat.rawValue) app=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown") os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
+        log?.record("batch=\(request.id) started documents=\(request.documents.count) model=\(request.settings.model.rawValue) voice=\(request.settings.voice) speed=\(request.settings.speed) format=\(request.outputFormat.rawValue) textPreparationWorkers=\(request.textPreparationWorkers) app=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown") os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
         activityProgress = .init(batch: request.id, jobs: request.documents.map(\.id))
         activeBatch = request; speechProgress = nil; batchSummary = nil; notificationSummary = nil
+        workStatusByDocument = [:]
         batchOrder = request.documents.map(\.id)
         let control = BatchQueueControl(batch: request.id, jobs: batchOrder)
         queueControl = control; queueState = control.state
@@ -1012,7 +1077,13 @@ final class IntakeModel {
         generationTask = Task { [self] in
             await pronunciationPreview.stopAndWait()
             do {
-                let summary = try await coordinator.run(request, debugLog: log, control: control) { [weak self] event in
+                let cpu = speechWorkCoordinator.map { SpeechCPUContext(coordinator: $0, settings: request.settings, workspace: request.workspace, rank: .libro) }
+                let recovery = try await SpeechCPUContext.run(cpu) { () throws -> LibroBatchRecovery? in
+                    if let restored { return restored }
+                    guard cpu != nil else { return nil as LibroBatchRecovery? }
+                    return try LibroBatchRecovery(directory: Self.recoveryRoot.appendingPathComponent(request.id.uuidString), request: request)
+                }
+                let summary = try await coordinator.run(request, debugLog: log, control: control, recovery: recovery) { [weak self] event in
                     if case .speech(let value) = event, value.phase == .chunkWritten { updates.store(value) }
                     else if case .textPreparation(let value) = event { updates.storeText(value) }
                     else { Task { @MainActor in self?.receive(event) } }
@@ -1027,6 +1098,14 @@ final class IntakeModel {
                 }
                 batchSummary = summary
                 generationStatus = (summary.cancelled ? "Stopped" : "Complete") + ": \(summary.successfulCount) saved; \(summary.failedCount) failed; \(summary.skippedCount) skipped."
+                if let issue = summary.recoveryIssue { recoveryStatus = issue }
+                else if let recovery {
+                    do {
+                        try await SpeechCPUContext.run(cpu) {
+                            if try recovery.resumeRequest().documents.isEmpty { try recovery.discard() }
+                        }
+                    } catch { recoveryStatus = "The batch recovery record was retained. Completed recordings are preserved." }
+                }
                 announce(generationStatus)
                 Self.logger.info("Settled batch \(summary.id.uuidString, privacy: .public), saved \(summary.successfulCount), failed \(summary.failedCount), cancelled \(summary.cancelled)")
                 Task { await notify(summary) }
@@ -1051,6 +1130,7 @@ final class IntakeModel {
             activityProgress = nil; speechProgress = nil; batchScopes = []
             if let activity { ProcessInfo.processInfo.endActivity(activity); self.activity = nil }
             generationTask = nil; status = generationStatus
+            openedRecovery = nil; recoveredRequest = nil
             replan()
         }
         replan()
@@ -1059,6 +1139,10 @@ final class IntakeModel {
     private func receive(_ event: BatchEvent) {
         guard let batch = activeBatch, generationTask?.isCancelled != true else { return }
         switch event {
+        case .workStatus(let id, let job, let event) where id == batch.id:
+            guard outcomes[job] == nil else { return }
+            var state = workStatusByDocument[job] ?? .init()
+            if state.receive(event) { workStatusByDocument[job] = state }
         case .control(let value) where value.batch == batch.id:
             guard value.sequence >= (queueState?.sequence ?? 0) else { return }
             queueState = value
@@ -1089,6 +1173,7 @@ final class IntakeModel {
                 generationStatus = "Generating \(name): \(value.completedChunks) of \(value.totalChunks) chunks."
             }
         case .document(let id, let outcome) where id == batch.id:
+            workStatusByDocument[outcome.id] = nil
             outcomes[outcome.id] = outcome
             if outcome.state == .published { savedNames[outcome.id] = batch.documents.first { $0.id == outcome.id }?.relativeOutput }
             if outcome.state == .failed { announce("A document failed. See its queue row for details.") }
@@ -1113,6 +1198,7 @@ final class IntakeModel {
             }
         }
         if skippedExisting.contains(document.id) { return "Skipped: audio already exists" }
+        if !isStopping, let waiting = workStatusByDocument[document.id]?.reason { return waiting.statusLabel }
         if retryQueued.contains(document.id) { return isGenerating ? "Queued for next batch" : "Queued for retry" }
         if let outcome = outcomes[document.id] {
             switch outcome.state {
@@ -1252,6 +1338,96 @@ final class IntakeModel {
     private func announce(_ message: String) {
         NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
             userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+    }
+}
+
+extension IntakeModel {
+    struct RecoveryRow: Identifiable, Sendable {
+        let id: UUID
+        let directory: URL
+        let summary: LibroBatchRecovery.Summary?
+    }
+    nonisolated private static var recoveryRoot: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Libro/BatchRecovery", isDirectory: true).resolvingSymlinksInPath()
+    }
+    func discoverRecovery() {
+        guard !recoveryBusy, !isGenerating else { return }
+        openedRecovery = nil; recoveredRequest = nil; recoveryBusy = true
+        let cpu = preparationCPUWork
+        Task {
+            defer { recoveryBusy = false }
+            do {
+                recoveryRows = try await SpeechCPUContext.run(cpu) {
+                    guard FileManager.default.fileExists(atPath: Self.recoveryRoot.path) else { return [] }
+                    return try FileManager.default.contentsOfDirectory(at: Self.recoveryRoot, includingPropertiesForKeys: nil)
+                        .compactMap { directory in
+                            try NarrationWorkCheckpoint.check()
+                            guard let id = UUID(uuidString: directory.lastPathComponent) else { return nil }
+                            let summary = try? LibroBatchRecovery(reopening: directory).summary()
+                            return RecoveryRow(id: id, directory: directory, summary: summary)
+                        }.sorted { $0.id.uuidString < $1.id.uuidString }
+                }
+                recoveryStatus = "Opening restores file access and validates captured settings. Only Resume starts speech. Interrupted records remain until resumed or discarded."
+            } catch { recoveryStatus = "Batch recovery records could not be read. No recordings were changed." }
+        }
+    }
+    func openRecovery(_ row: RecoveryRow) {
+        guard !recoveryBusy, !isGenerating else { return }
+        openedRecovery = nil; recoveredRequest = nil
+        do {
+            let recovery = try LibroBatchRecovery(reopening: row.directory)
+            // Recovery never silently substitutes relocated inputs/destinations.
+            // The operator may grant an original file or an ancestor directory.
+            var granted: [URL] = []
+            for original in recovery.requiredAccess {
+                if granted.contains(where: { original.path == $0.path || original.path.hasPrefix($0.path + "/") }) { continue }
+                let panel = NSOpenPanel(); panel.canChooseFiles = true; panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = false; panel.prompt = "Restore Access"
+                panel.message = "Restore access to the original location: \(original.path). Choose this item or a containing folder."
+                panel.directoryURL = original.deletingLastPathComponent()
+                guard panel.runModal() == .OK, let chosen = panel.url,
+                      original.standardizedFileURL.path == chosen.standardizedFileURL.path || original.standardizedFileURL.path.hasPrefix(chosen.standardizedFileURL.path + "/") else {
+                    recoveryStatus = "Access restoration cancelled. The batch remains saved."; return
+                }
+                scopes[chosen.path] = DirectoryAccess(chosen); granted.append(chosen)
+            }
+            recoveryBusy = true
+            let cpu = speechWorkCoordinator.map { SpeechCPUContext(coordinator: $0, settings: recovery.capturedSettings,
+                workspace: recovery.capturedWorkspace, rank: .libro) }
+            Task {
+                defer { recoveryBusy = false }
+                do {
+                    let request = try await SpeechCPUContext.run(cpu) {
+                        let request = try recovery.resumeRequest()
+                        if !request.documents.isEmpty { try recovery.validateBinding(request) }
+                        return request
+                    }
+                    guard !request.documents.isEmpty else { recoveryStatus = "All documents are complete. Discard may remove the private recovery record; completed audio stays in place."; return }
+                    openedRecovery = recovery; recoveredRequest = request
+                    recoveryStatus = "Ready to resume \(request.documents.count) documents using captured \(request.settings.model.rawValue) / \(request.settings.voice). Press Resume to start."
+                } catch { recoveryStatus = "This batch could not be validated. Restore its original files and output folder, or discard its checkpoints and create a new batch. Completed recordings were preserved." }
+            }
+        } catch { recoveryStatus = "This record is unavailable, in use or damaged. It was retained without changing any recordings." }
+    }
+    func resumeRecovery() {
+        guard canResumeRecovery, let request = recoveredRequest, let recovery = openedRecovery else { return }
+        let existing = Set(documents.map(\.id))
+        documents += request.documents.map(\.input).filter { !existing.contains($0.id) }
+        for document in request.documents where names[document.id] == nil { names[document.id] = document.relativeOutput }
+        beginGeneration(request, recovery: recovery)
+    }
+    func discardRecovery(_ row: RecoveryRow) {
+        guard !isGenerating, !recoveryBusy else { return }
+        openedRecovery = nil; recoveredRequest = nil; recoveryBusy = true
+        let cpu = preparationCPUWork
+        Task {
+            do {
+                try await SpeechCPUContext.run(cpu) { try LibroBatchRecovery(reopening: row.directory).discard() }
+                recoveryRows.removeAll { $0.id == row.id }; recoveryStatus = "Private checkpoints discarded. Source files and completed recordings were preserved."
+            } catch { recoveryStatus = "The record is in use or damaged and could not be safely discarded. It was retained." }
+            recoveryBusy = false
+        }
     }
 }
 

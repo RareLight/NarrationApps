@@ -67,8 +67,8 @@ func temporaryAudioIsMissing(_ episode: Episode) -> Bool {
 }
 
 extension FixtureCoordinator {
-    public func savedAudio(storage: ManagedSpeechStorage) throws -> [Episode] {
-        let episodes = try library(storage: storage)
+    public func savedAudio(storage: ManagedSpeechStorage) async throws -> [Episode] {
+        let episodes = try await library(storage: storage)
         // Visibility follows all pending objects, including transcript-only
         // cleanup after the media path has been cleared. This grants no deletion
         // authority; each drain independently validates destination/path ownership.
@@ -95,7 +95,7 @@ extension FixtureCoordinator {
     func releaseTemporaryAudio(storage: ManagedSpeechStorage, settings: DeliverySettings, continueOnFailure: Bool,
                                debugLog: DeliveryDebugLog? = nil) throws {
         guard storage.temporaryAudio, FileManager.default.fileExists(atPath: storage.profile.database.path) else { return }
-        let episodes = try library(storage: storage)
+        let episodes = try libraryMetadata(storage: storage)
         let settings = try settings.normalized()
         let summary = try deliverySummary(stateRoot: storage.stateRoot, settings: settings)
         let store = try NativeStore(url: storage.profile.database)
@@ -140,7 +140,7 @@ extension FixtureCoordinator {
     }
     public func reconcileMissingAudio(storage: ManagedSpeechStorage) throws -> [String] {
         try Task.checkCancellation()
-        let episodes = try library(storage: storage)
+        let episodes = try libraryMetadata(storage: storage)
         guard !episodes.isEmpty else { return [] }
         // A prior article may still be committing its final checkpoint. Use the
         // same bounded, cancellable writer acquisition as other queue metadata.
@@ -264,7 +264,7 @@ extension FixtureCoordinator {
         try storage.validateState()
         let lease = try PipelineLease(database: storage.profile.database)
         defer { lease.release() }
-        guard var episode = try library(storage: storage).first(where: { $0.id == id }),
+        guard var episode = try libraryMetadata(storage: storage).first(where: { $0.id == id }),
               episode.stage == .published, episode.manualAudioDeletionRequested != true,
               episode.info != nil, episode.audioHash != nil else {
             throw RelayError.setup("This local upload is no longer available. Reopen Upload Queue and try again.")
@@ -317,11 +317,11 @@ extension FixtureCoordinator {
     public func removeSavedAudio(ids: [String], storage: ManagedSpeechStorage) throws -> [String] {
         guard !ids.isEmpty else { return [] }
         try Task.checkCancellation()
-        _ = try library(storage: storage)
+        _ = try libraryMetadata(storage: storage)
         beforeAudioRemovalLease?()
         let lease = try PipelineLease(database: storage.profile.database)
         defer { lease.release() }
-        let episodes = try library(storage: storage)
+        let episodes = try libraryMetadata(storage: storage)
         let store = try NativeStore(url: storage.profile.database)
         let targetIDs = Set(ids)
         let targets = episodes.filter { targetIDs.contains($0.id) }
@@ -385,13 +385,13 @@ extension FixtureCoordinator {
     }
     public func resumePendingAudioRemovals(storage: ManagedSpeechStorage) throws -> [String] {
         try Task.checkCancellation()
-        let episodes = try library(storage: storage)
+        let episodes = try libraryMetadata(storage: storage)
         let flagged = episodes.filter { $0.manualAudioDeletionRequested == true }
         guard !flagged.isEmpty else { return [] }
         beforeAudioRemovalLease?()
         let lease = try PipelineLease(database: storage.profile.database)
         defer { lease.release() }
-        let current = try library(storage: storage)
+        let current = try libraryMetadata(storage: storage)
         let pending = current.filter { $0.manualAudioDeletionRequested == true }
         guard !pending.isEmpty else { return [] }
         for episode in pending {

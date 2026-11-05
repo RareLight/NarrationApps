@@ -8,8 +8,9 @@ prefix="$native_root/.build/codecs/lame"
 library="$prefix/lib/libmp3lame.0.dylib"
 patch_file="$native_root/Patches/lame-export-symbols.patch"
 artwork_patch="$native_root/Patches/lame-front-cover.patch"
+scale_patch="$native_root/Patches/lame-preserve-input-scale.patch"
 mkdir -p "$native_root/.build/codecs"
-signature="$( { shasum -a 256 "$0" "$patch_file" "$artwork_patch"; xcodebuild -version; } | shasum -a 256 | cut -d ' ' -f 1)"
+signature="$( { shasum -a 256 "$0" "$patch_file" "$artwork_patch" "$scale_patch"; xcodebuild -version; } | shasum -a 256 | cut -d ' ' -f 1)"
 if [[ -f "$prefix/build.signature" && "$(cat "$prefix/build.signature")" == "$signature" && -f "$library" ]]; then
     (cd "$prefix" && shasum -a 256 -c library.sha256)
     exit 0
@@ -29,6 +30,8 @@ patch --dry-run -p1 < "$patch_file"
 patch -p1 < "$patch_file"
 patch --dry-run -p1 < "$artwork_patch"
 patch -p1 < "$artwork_patch"
+patch --dry-run -p1 < "$scale_patch"
+patch -p1 < "$scale_patch"
 # Enable decoder symbols declared by the upstream shared-library export list;
 # Libro never enables on-the-fly decoding or ReplayGain. No frontend is built.
 CC=clang ./configure --build=aarch64-apple-darwin --host=aarch64-apple-darwin \

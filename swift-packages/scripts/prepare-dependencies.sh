@@ -73,5 +73,9 @@ prepare_patches "$dependency_dir" "$revision" "$native_root/.build" \
     "$native_root/Patches/native-model-adapters.patch" \
     "$native_root/Patches/chatterbox-narration-pcm.patch" \
     "$native_root/Patches/native-token-count.patch" \
-    "$native_root/Patches/qwen-narration-token-ceiling.patch"
+    "$native_root/Patches/qwen-narration-token-ceiling.patch" \
+    "$native_root/Patches/soprano-owned-producer.patch" \
+    "$native_root/Patches/qwen-owned-audio-callback.patch" \
+    "$native_root/Patches/qwen-streaming-overlap-bias.patch" \
+    "$native_root/Patches/qwen-text-tokenizer-preparation.patch"
 echo 'Pinned native packages and recorded compatibility patches prepared.'

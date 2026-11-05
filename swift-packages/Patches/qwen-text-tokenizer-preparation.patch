@@ -1,0 +1,12 @@
+diff --git a/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift b/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift
+--- a/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift
++++ b/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift
+@@ -1322,7 +1322,7 @@
+     /// Qwen3-TTS repos ship with a slow tokenizer (vocab.json + merges.txt) but
+     /// swift-transformers requires tokenizer.json (fast tokenizer format). This
+     /// generates the fast tokenizer JSON from the available files.
+-    private static func generateTokenizerJson(
++    public static func generateTokenizerJson(
+         vocabPath: URL,
+         mergesPath: URL,
+         tokenizerConfigPath: URL,

@@ -193,6 +193,30 @@ private func seedSelectedModel(_ model: SpeechModel, root: URL) throws -> URL {
     #expect(maintenance.error == nil && state.action(for: selection) == .download)
 }
 
+private final class MaintenanceCall: @unchecked Sendable {
+    let lock = NSLock(); private var stored = false
+    var called: Bool { lock.withLock { stored } }
+    func record() { lock.withLock { stored = true } }
+}
+@Test @MainActor func deletionRunsInsideOwnedMaintenanceAndFailurePreservesAssets() async throws {
+    let root = try syntheticModelCache(); defer { try? FileManager.default.removeItem(at: root) }
+    let primary = try seedSelectedModel(.kokoro, root: root)
+    let refused = ModelStorageMaintenance(perform: { _ in throw CocoaError(.fileReadNoPermission) })
+    refused.remove(.kokoro, at: root) {}
+    await refused.waitForIdle()
+    #expect(refused.error != nil && FileManager.default.fileExists(atPath: primary.path))
+    let call = MaintenanceCall()
+    let owned = ModelStorageMaintenance(perform: { operation in
+        call.record()
+        #expect(FileManager.default.fileExists(atPath: primary.path))
+        try await operation()
+        #expect(!FileManager.default.fileExists(atPath: primary.path))
+    })
+    owned.remove(.kokoro, at: root) {}
+    await owned.waitForIdle()
+    #expect(call.called && owned.error == nil)
+}
+
 @Test @MainActor func importedModelsRemainReadOnlyAndMissingFoldersAreNotCreated() async throws {
     let missing = FileManager.default.temporaryDirectory.appendingPathComponent("model-missing-\(UUID())")
     let state = SelectedModelStorage()

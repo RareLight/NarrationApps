@@ -7,6 +7,29 @@ SQLite queue/recovery, Publishing/Keychain, backup and GUI lifecycle.
 
 ## Components
 
+VoiceRelay's production app model owns one shared `SpeechWorkCoordinator` for
+native generation, offline setup and pronunciation/review previews, and closes it
+after joined Quit cleanup. Its host admission context follows article preparation
+and preview through detached tasks, ranking platform inference without a second
+speech helper. Already-started platform calls keep their lease until completion.
+Injected/test defaults remain nil. Installation/deletion maintenance parks owned CPU
+work and joins the helper/platform leases. Validation, hashing, AAC finalization
+and publication run on admitted CPU queues; rejected checkpoint validation aborts
+before waiting behind API demand. Transient waiting labels preserve progress and
+reject stale events. Legacy snapshot-derived display metadata and saved previews
+run through admitted CPU reads; scheduling mutations use captured raw metadata.
+Listener enablement remains off until explicitly configured.
+
+The bundle now embeds/signs the same pinned LAME library as Libro for the shared
+non-seeking MP3 response encoder. PCM responses use native stateful conversion to
+24 kHz signed 16-bit little-endian samples and reject unrepresentable levels.
+VoiceServerService admits bounded FIFO requests to that same coordinator;
+VoiceServerHTTP uses pinned SwiftNIO HTTP/1 parsing and bounded synchronous writes
+only on the request's CPU queue. Every route checks a Keychain bearer grant.
+VoiceServerModel owns explicit listener bindings, CLI-first self-only Tailscale
+discovery, Settings state, key rotation and joined sleep/Stop/Quit cleanup.
+See the [API guide](VOICESERVER.md) for the supported request subset and limits.
+
 | Component | Responsibility |
 | --- | --- |
 | VoiceRelayApp, AppModel, SettingsViews, MenuBarViews, WindowPresence | Native scenes, preferences, actions and cached UI projections |
@@ -155,6 +178,19 @@ compatible lossless checkpoints. Encoding version 3 reassembles unfinished encod
 scratch with that policy, preserving PCM and finished recordings.
 
 ## Publishing, recovery and cleanup
+
+Production native sessions use the VoiceServer persistence adapter with coordinated scheduling.
+Native article begin/end hooks bind each captured job to the pipeline's active
+backend. A generated WAV carries a process-local receipt; its identity/epoch is
+checked only after audio validation/hash and SQLite writer acquisition. The final
+COMMIT is fenced, so a revoked result cannot become a checkpoint. Its transaction
+rolls back and the queue retries that position without a failed row or a new attempt.
+One validation can still overlap the next synthesis. Old cleanup cannot discard
+committed/uncertain/replaced files, and optional review retention follows acceptance
+outside the writer/fence. Explicit Stop closes its podcast context and retains
+independent API demand. Receipts are excluded from checkpoint Codable data and
+never restore live requests. Normal default scheduling remains unchanged; see the
+[shared checklist](../../docs/VOICESERVER_IMPLEMENTATION_CHECKLIST.md) for activation gates.
 
 New admissions capture General's default-on timed-transcript choice in the episode
 profile. Missing choices on historical profiles remain disabled. NativeAudio's

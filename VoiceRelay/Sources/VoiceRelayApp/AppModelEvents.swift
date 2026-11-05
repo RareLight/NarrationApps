@@ -1,8 +1,20 @@
 import Foundation
 import VoiceRelayCore
+import ProcessingPipeline
 
 @MainActor
 extension AppModel {
+    var workStatusHandler: @Sendable (String, SpeechWorkStatus) -> Void {
+        let token = progressID
+        return { [weak self] article, event in
+            Task { @MainActor [weak self] in self?.recordWorkStatus(article: article, event: event, token: token) }
+        }
+    }
+    func recordWorkStatus(article: String, event: SpeechWorkStatus, token: UUID) {
+        guard progressID == token, running, !stopping, !completedQueueIDs.contains(article) else { return }
+        var state = workStatusStates[article] ?? .init()
+        if state.receive(event) { workStatusStates[article] = state }
+    }
     var progressHandler: @Sendable (PipelineProgress) -> Void {
         let token = progressID
         return { [weak self] update in Task { @MainActor in
@@ -16,6 +28,7 @@ extension AppModel {
             Task { @MainActor in
                 guard let self, self.progressID == token else { return }
                 if item.state == .completed {
+                    self.workStatusStates[item.id] = nil
                     self.completedQueueIDs.insert(item.id)
                     self.queueItems.removeAll { $0.id == item.id }
                     self.queueSelection.remove(.episode(item.id)); return
@@ -49,5 +62,6 @@ extension AppModel {
         deliveryFeedError = summary.feedError
         deliveryLastPublishedAt = summary.destinationURL == (try? deliverySettings.normalized())?.feedFolderURL
             ? summary.lastPublishedAt : nil
+        reconciledDeliveryDestination = summary.reconciledAt == nil ? nil : summary.destinationURL
     }
 }

@@ -51,7 +51,7 @@ final class SpokenFormNormalizer {
         // Track UTF-16 offsets as we scan; no repeated prefix counts or wildcard
         // regex backtracking on long URLs, equations or unbroken identifiers.
         for (offset, unit) in text.utf16.enumerated() {
-            if offset.isMultiple(of: 4096) { try Task.checkCancellation() }
+            if offset.isMultiple(of: 4096) { try NarrationWorkCheckpoint.check() }
             if unit == 96 {
                 if let opening = tick { regions.append(NSRange(location: opening, length: offset + 1 - opening)); tick = nil }
                 else { tick = offset }
@@ -97,13 +97,13 @@ final class SpokenFormNormalizer {
             if exceeded { break }
         }
         candidates.sort { $0.range.location < $1.range.location }
-        try Task.checkCancellation()
+        try NarrationWorkCheckpoint.check()
         if exceeded { throw NarrationError.invalidInput("Spoken-form candidate budget exceeded. No text was truncated.") }
         guard !candidates.isEmpty else { return try unchanged() }
         let protected = try protectedRegions(in: application.text)
         var protectedIndex = 0, userIndex = 0, edits: [ProjectionEdit] = []
         for match in candidates {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             while protectedIndex < protected.count && NSMaxRange(protected[protectedIndex]) <= match.range.location { protectedIndex += 1 }
             while userIndex < application.applications.count && application.applications[userIndex].spokenLocation + application.applications[userIndex].spokenLength <= match.range.location { userIndex += 1 }
             if protectedIndex < protected.count && NSIntersectionRange(protected[protectedIndex], match.range).length > 0 { continue }

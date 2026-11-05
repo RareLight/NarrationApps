@@ -7,7 +7,7 @@ public enum SpeechTextWindows {
     /// splitting an override or sending presentation/source maps to the helper.
     public static func boundedForControl(_ windows: [SpeechTextWindow]) throws -> [SpeechTextWindow] {
         func divide(_ window: SpeechTextWindow) throws -> [SpeechTextWindow] {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             let transfer = SpeechTextWindow(text: window.text, source: .init(blockIndices: window.source.blockIndices,
                 location: window.source.location, length: window.source.length, origin: window.source.origin,
                 pronunciationApplications: window.source.pronunciationApplications?.filter { $0.phonemes != nil }), boundaryAfter: window.boundaryAfter)
@@ -43,6 +43,7 @@ public enum SpeechTextWindows {
         guard maximumScalars > 0, maximumScalars <= 1_000 else { throw SpeechFailure(.invalidInput) }
         var result: [SpeechTextWindow] = []
         for chunk in plan.chunks {
+            try NarrationWorkCheckpoint.check()
             let chunkStart = result.count
             let text = chunk.text
             func applications(location: Int, length: Int) -> [PronunciationApplication]? {
@@ -68,7 +69,7 @@ public enum SpeechTextWindows {
                 let end = position == ranges.count - 1 ? text.endIndex : sentence.upperBound
                 var start = previousEnd; previousEnd = end
                 while start < end {
-                    try Task.checkCancellation()
+                    try NarrationWorkCheckpoint.check()
                     var cut = start
                     var count = 0
                     var lastSpace: String.Index?

@@ -1122,7 +1122,7 @@ extension FixtureCoordinator {
         let database = PrototypeProfile.fixture(at: stateRoot).database
         guard FileManager.default.fileExists(atPath: database.path) else { return false }
         let store = try NativeStore(url: database, readOnly: true)
-        if try store.existingEpisode(sourceKey: "reviewed-url-v1-" + Files.hash(Data(url.absoluteString.utf8))) != nil { return true }
+        if try store.existingEpisode(sourceKey: "reviewed-url-v1-" + Files.hash(Data(url.absoluteString.utf8)), resolveSnapshots: false) != nil { return true }
         // An old feed can lack original-source fingerprints. An exact article-link
         // match to recovered remote-only history still prevents automatic duplication.
         return try store.query("SELECT record FROM episodes WHERE source_key LIKE 'remote-episode-v1-%'").contains { row in
@@ -1209,6 +1209,13 @@ extension FixtureCoordinator {
             ledger.destinationURL = settings.feedFolderURL
             ledger.lastPublishedAt = nil
             ledger.remoteFeedPending = true
+            // Check evidence describes only the destination it inspected. A failed
+            // attempt keeps its retry backoff; a deferred one reruns next drain.
+            ledger.reconciledAt = nil; ledger.reconciledQueueIDs = nil
+            ledger.reconciledFeed = nil; ledger.reconciledFeedETag = nil
+            ledger.serverAudioProofs = nil; ledger.preservedServerItems = nil
+            ledger.blockedServerIDs = nil
+            if ledger.reconciliationAttemptAt != now { ledger.reconciliationAttemptAt = nil }
         }
         if ledger.settingsHash != settingsHash { ledger.remoteFeedPending = true }
         if ledger.settingsHash != settingsHash || force {

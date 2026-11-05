@@ -1,0 +1,143 @@
+--- a/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift
++++ b/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift
+@@ -332,7 +332,8 @@
+             topK: settings.topK, topP: settings.topP,
+             repetitionPenalty: settings.repetitionPenalty, minP: settings.minP,
+             maxTokens: settings.maxTokens, streamingInterval: streamingInterval,
+-            onInfo: { tokens = $0.generationTokenCount }, onAudioChunk: onAudioChunk)
++            onInfo: { tokens = $0.generationTokenCount }, onAudioChunk: onAudioChunk,
++            narrationCorrectDecoderOverlap: true)
+         guard narrationCompleted, tokens > 0, let speechTokenizer else {
+             throw AudioGenerationError.invalidInput("Incomplete narration generation")
+         }
+@@ -357,7 +358,8 @@
+         streamingInterval: Double = 2.0,
+         onToken: ((Int) -> Void)? = nil,
+         onInfo: ((AudioGenerationInfo) -> Void)? = nil,
+-        onAudioChunk: ((MLXArray) throws -> Void)? = nil
++        onAudioChunk: ((MLXArray) throws -> Void)? = nil,
++        narrationCorrectDecoderOverlap: Bool = false
+     ) throws -> MLXArray {
+         guard let speechTokenizer, let tokenizer else {
+             throw AudioGenerationError.modelNotInitialized(
+@@ -535,7 +537,7 @@
+                     let codesChunk = stacked(Array(generatedCodes[decodedTokens...]), axis: 1)
+                     let codesForDecoder = codesChunk.transposed(0, 2, 1)
+                     eval(codesForDecoder)
+-                    let decoded = speechTokenizer.decoder.streamingStep(codesForDecoder).squeezed(axis: 1)
++                    let decoded = speechTokenizer.decoder.streamingStep(codesForDecoder, correctOverlapBias: narrationCorrectDecoderOverlap).squeezed(axis: 1)
+                     let audioChunk = decoded[0]
+                     eval(audioChunk)
+ 
+@@ -575,7 +577,7 @@
+                 let codesChunk = stacked(Array(generatedCodes[decodedTokens...]), axis: 1)
+                 let codesForDecoder = codesChunk.transposed(0, 2, 1)
+                 eval(codesForDecoder)
+-                let decoded = speechTokenizer.decoder.streamingStep(codesForDecoder).squeezed(axis: 1)
++                let decoded = speechTokenizer.decoder.streamingStep(codesForDecoder, correctOverlapBias: narrationCorrectDecoderOverlap).squeezed(axis: 1)
+                 let audioChunk = decoded[0]
+                 eval(audioChunk)
+                 try onAudioChunk(audioChunk)
+--- a/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTSSpeechTokenizer.swift
++++ b/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTSSpeechTokenizer.swift
+@@ -1,3 +1,4 @@
+ import Foundation
+ @preconcurrency import MLX
++import MLXAudioCore
+ import MLXAudioCodecs
+@@ -550,12 +550,17 @@
+         return h
+     }
+ 
+-    func step(_ x: MLXArray) -> MLXArray {
++    func step(_ x: MLXArray, correctOverlapBias: Bool = false) -> MLXArray {
+         var h = conv(x.transposed(0, 2, 1)).transposed(0, 2, 1)
+ 
+         if let overflow {
+             let overlapLen = overflow.dim(2)
+-            let overlap = h[0..., 0..., ..<overlapLen] + overflow
++            var overlap = h[0..., 0..., ..<overlapLen] + overflow
++            // Each partial transposed convolution already includes its bias.
++            // Their overlapping sum must contain it once, like a full decode.
++            if correctOverlapBias, let bias = conv.bias {
++                overlap = overlap - bias.reshaped(1, -1, 1)
++            }
+             let tailStart = min(overlapLen, h.dim(2))
+             if tailStart < h.dim(2) {
+                 let tail = h[0..., 0..., tailStart...]
+@@ -607,13 +612,13 @@
+         return h
+     }
+ 
+-    func step(_ x: MLXArray) -> MLXArray {
++    func step(_ x: MLXArray, correctOverlapBias: Bool = false) -> MLXArray {
+         var h = x
+         if let snake = block[0] as? SnakeBeta {
+             h = snake(h)
+         }
+         if let upsample = block[1] as? DecoderBlockUpsample {
+-            h = upsample.step(h)
++            h = upsample.step(h, correctOverlapBias: correctOverlapBias)
+         }
+         for layer in block.dropFirst(2) {
+             if let resUnit = layer as? DecoderResidualUnit {
+@@ -968,7 +973,7 @@
+     }
+ 
+     /// Incrementally decode only new codec tokens.
+-    func streamingStep(_ codes: MLXArray) -> MLXArray {
++    func streamingStep(_ codes: MLXArray, correctOverlapBias: Bool = false) -> MLXArray {
+         if transformerCache == nil {
+             transformerCache = preTransformer.makeCache()
+         }
+@@ -991,7 +996,7 @@
+         if decoder.count > 2 {
+             for layer in decoder[1 ..< (decoder.count - 2)] {
+                 if let block = layer as? DecoderBlock {
+-                    wav = block.step(wav)
++                    wav = block.step(wav, correctOverlapBias: correctOverlapBias)
+                 }
+             }
+         }
+@@ -1453,3 +1458,41 @@
+     }
+     return dim2 < dim3
+ }
++
++/// Model-free regression using the actual decoder layer, fixed nonzero biases,
++/// multiple strides and split sizes. Called only by the private helper probe.
++public enum QwenNarrationDecoderProof {
++    public static func run() throws -> [String: Double] {
++        var legacyMax: Float = 0, correctedMax: Float = 0, resetMax: Float = 0, zeroMax: Float = 0
++        func difference(_ a: MLXArray, _ b: MLXArray) -> Float {
++            abs(a - b).max().item(Float.self)
++        }
++        for stride in [1, 2, 4] {
++            let layer = DecoderBlockUpsample(inDim: 2, outDim: 3, upsampleRate: stride)
++            let weights = MLXArray((0..<(3 * 2 * stride * 2)).map { Float($0 % 11 - 5) / 16 }).reshaped(3, 2 * stride, 2)
++            layer.conv.update(parameters: .unflattened(["weight": weights, "bias": MLXArray([Float(0.25), -0.5, 0.75])]))
++            let input = MLXArray((0..<14).map { Float($0 - 7) / 10 }).reshaped(1, 2, 7)
++            let full = layer(input)
++            func chunks(_ corrected: Bool) -> MLXArray {
++                layer.resetState()
++                return concatenated([(0, 1), (1, 4), (4, 7)].map { start, end in
++                    layer.step(input[0..., 0..., start..<end], correctOverlapBias: corrected)
++                }, axis: -1)
++            }
++            let legacy = chunks(false), corrected = chunks(true), reset = chunks(true)
++            eval(full, legacy, corrected, reset)
++            legacyMax = max(legacyMax, difference(full, legacy))
++            correctedMax = max(correctedMax, difference(full, corrected))
++            resetMax = max(resetMax, difference(corrected, reset))
++            layer.conv.update(parameters: .unflattened(["bias": MLXArray.zeros([3])]))
++            let zeroFull = layer(input), zeroStream = chunks(true)
++            zeroMax = max(zeroMax, difference(zeroFull, zeroStream))
++        }
++        guard legacyMax > 0.1, correctedMax < 0.00001, resetMax == 0, zeroMax < 0.00001 else {
++            throw AudioGenerationError.invalidInput("Narration decoder parity regression")
++        }
++        return ["cases": 3, "legacyMaximumError": Double(legacyMax),
++            "correctedMaximumError": Double(correctedMax), "resetMaximumError": Double(resetMax),
++            "zeroBiasMaximumError": Double(zeroMax)]
++    }
++}

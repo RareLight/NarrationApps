@@ -229,7 +229,7 @@ struct VoiceRelayApp: App {
     @Environment(\.openSettings) private var openSettings
     init() {
         umask(0o077)
-        let model = AppModel()
+        let model = AppModel.production()
         model.launchedAtLogin = LoginLaunchContext.isLoginItemLaunch(NSAppleEventManager.shared().currentAppleEvent)
         _model = State(initialValue: model)
         delegate.model = model
@@ -261,7 +261,7 @@ struct VoiceRelayApp: App {
                 if let url {
                     let profile = model.previewProfiles[url]
                     let options = profile.map { $0.narrationOptions ?? .init() } ?? model.preferences.effectiveNarrationOptions
-                    ArticlePreviewView(url: url, inert: model.preview, review: model.previewReviews[url], settings: model.preferences.modelSelection, profile: profile, options: options, sourceTitle: model.previewSourceTitles[url])
+                    ArticlePreviewView(url: url, inert: model.preview, review: model.previewReviews[url], settings: model.preferences.modelSelection, profile: profile, options: options, sourceTitle: model.previewSourceTitles[url], hostAdmission: model.speechWorkCoordinator?.hostAdmission, cpuExecutor: model.sourceCPUWork)
                         .id(options.versionSuffix).appTextSizing(model.textSize)
                         .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
                         .frame(minWidth: 560, minHeight: 420)

@@ -10,8 +10,11 @@ The authorized native unification plan in the parent `../docs/IMPLEMENTATION_PLA
 supersedes previous Python/product CLI work. Shared implementation belongs in ../swift-packages;
 VoiceRelay owns discovery, retained article identity, SQLite and publication.
 Speech uses at most one native helper, with no serial/parallel mode or automatic
-fallback replay. VoiceRelay requests background admission through the shared lease
-and yields between chunks to pending Libro work. Do not change team/Keychain
+fallback replay. API > Libro > podcasts share the same admission/coordinator;
+streaming cancellation joins owned generation/drain and resumes from verified
+checkpoints. File/Libro handoffs yield safely. VoiceServer defaults off and its
+Keychain key, temporary responses and request text never enter podcast persistence.
+Do not change team/Keychain
 signing settings merely to produce local ad-hoc test artifacts.
 No maintained Python support remains. Audio is never normalized or volume leveled.
 

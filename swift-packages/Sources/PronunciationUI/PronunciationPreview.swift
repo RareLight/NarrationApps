@@ -12,9 +12,25 @@ public struct PronunciationPreviewConfiguration: Sendable, Equatable {
     public let settings: SpeechSettings
     public let priority: InferencePriority
     public let documentTitle: String?
-    public init(worker: URL, workspace: URL, settings: SpeechSettings, priority: InferencePriority, documentTitle: String? = nil) {
+    public let workCoordinator: SpeechWorkCoordinator?
+    public init(worker: URL, workspace: URL, settings: SpeechSettings, priority: InferencePriority, documentTitle: String? = nil,
+                workCoordinator: SpeechWorkCoordinator? = nil) {
         self.worker = worker; self.workspace = workspace; self.settings = settings; self.priority = priority
         self.documentTitle = documentTitle
+        self.workCoordinator = workCoordinator
+    }
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.worker == rhs.worker && lhs.workspace == rhs.workspace && lhs.settings == rhs.settings &&
+        lhs.priority == rhs.priority && lhs.documentTitle == rhs.documentTitle && lhs.workCoordinator === rhs.workCoordinator
+    }
+    var workerConfiguration: WorkerConfiguration {
+        var captured = WorkerConfiguration(executable: worker, inferencePriority: priority)
+        captured.workCoordinator = workCoordinator
+        return captured
+    }
+    var cpuWork: SpeechCPUContext? {
+        workCoordinator.map { .init(coordinator: $0, settings: settings, workspace: workspace,
+            rank: priority == .interactive ? .libro : .podcast) }
     }
 }
 
@@ -55,7 +71,8 @@ struct PronunciationPreviewArtifact: Sendable {
             guard !Task.isCancelled, self.token == operation else { return }
             do {
                 let context = PronunciationPreviewConfiguration(worker: configuration.worker, workspace: configuration.workspace,
-                    settings: configuration.settings, priority: configuration.priority, documentTitle: entry.documentTitle)
+                    settings: configuration.settings, priority: configuration.priority, documentTitle: entry.documentTitle,
+                    workCoordinator: configuration.workCoordinator)
                 let artifact = try await render(sentence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? entry.word : sentence, dictionary, context)
                 if Task.isCancelled || self.token != operation { await artifact.remove(); return }
                 self.renderingID = nil
@@ -99,13 +116,15 @@ struct PronunciationPreviewArtifact: Sendable {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         let artifact = PronunciationPreviewArtifact(directory: directory)
         do {
-            let projection = try NarrationPlanner.prepareForSpeech(.init(title: configuration.documentTitle, blocks: [.init(kind: .paragraph, text: word)], extractorVersion: "pronunciation-preview-1"),
-                settings: configuration.settings, pronunciations: dictionary)
-            let worker = WorkerConfiguration(executable: configuration.worker, inferencePriority: configuration.priority)
+            let projection = try await SpeechCPUContext.run(configuration.cpuWork) {
+                try NarrationPlanner.prepareForSpeech(.init(title: configuration.documentTitle, blocks: [.init(kind: .paragraph, text: word)], extractorVersion: "pronunciation-preview-1"),
+                    settings: configuration.settings, pronunciations: dictionary)
+            }
+            let worker = configuration.workerConfiguration
             let session = try NativeSpeechSession(configuration: worker, workspace: configuration.workspace,
                 settings: configuration.settings, leaseFile: worker.inferenceLeaseFile)
             do {
-                try await session.prepare()
+                try await session.prepare(forTextPreparation: true)
                 let plan = try await session.prepareSpeech(projection)
                 try await session.render(plan: plan, destination: artifact.audio, identity: .init(batch: UUID(), job: UUID()))
                 await session.close() // Release the model before playback begins.

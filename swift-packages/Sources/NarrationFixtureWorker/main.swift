@@ -10,6 +10,40 @@ import Darwin
 struct FixtureWorker {
     static func main() async throws {
         let arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments == ["--probe-version-five"] {
+            var data = Data()
+            while !data.contains(10) {
+                guard let bytes = try SpeechIPC.readPipe(.standardInput), data.count + bytes.count <= SpeechIPC.maximumRecordBytes else { return }
+                data.append(bytes)
+            }
+            let command = try JSONDecoder().decode(SpeechProbeCommand.self, from: data)
+            var event = SpeechProbeEvent(session: command.session, worker: UUID(), identity: command.command.identity, kind: .initialized)
+            event.version = 5
+            try FileHandle.standardOutput.write(contentsOf: SpeechIPC.encode(event))
+            _ = try FileHandle.standardInput.read(upToCount: 1)
+            return
+        }
+        if arguments.first == "--work-admission" {
+            guard arguments.count == 4, let value = Int(arguments[2]), let rank = SpeechWorkRank(rawValue: value),
+                  let delivery = SpeechWorkDelivery(rawValue: arguments[3]) else { exit(2) }
+            let root = URL(fileURLWithPath: arguments[1]).standardizedFileURL
+            guard root.lastPathComponent.hasPrefix("admission-") else { exit(2) }
+            let registry = try SpeechWorkAdmission(root: root)
+            let ticket = try registry.register(owner: rank == .libro ? .libro : .voiceRelay,
+                instance: UUID(), rank: rank, delivery: delivery)
+            try FileHandle.standardOutput.write(contentsOf: SpeechIPC.encode(ticket.demand))
+            while try SpeechIPC.readPipe(.standardInput) != nil {}
+            try ticket.withdraw()
+            return
+        }
+        if arguments == ["--handoff-probe"] {
+            try await SpeechProbeServer(backend: HandoffProbeFixture(), output: .standardOutput).run()
+            return
+        }
+        if arguments.first == "--priority-proof" {
+            try await PriorityProof.run(Array(arguments.dropFirst()))
+            return
+        }
         if arguments.first == "--lease" {
             guard arguments.count == 5, let milliseconds = Int(arguments[3]), milliseconds >= 0,
                   ["interactive", "background"].contains(arguments[2]) else { exit(2) }
@@ -43,6 +77,8 @@ struct FixtureWorker {
                 item["attempt"] = command.identity.attempt.uuidString
                 item["job"] = command.identity.job.uuidString
                 item["chunk"] = command.chunk
+                item["textPreparationOnly"] = command.textPreparationOnly
+                item["textPreparationWorkers"] = command.textPreparationWorkers
                 if let settings = command.settings {
                     item["model"] = settings.model.rawValue; item["voice"] = settings.voice; item["speed"] = settings.speed
                 }
@@ -63,6 +99,7 @@ struct FixtureWorker {
         defer { try? record("exit") }
         let reader = WorkerCommandReader()
         var initial: WorkerCommand?
+        var preparationOnly = false, preparationLoaded = true
         while let command = try reader.next() {
             try record(command.kind.rawValue, command)
             if command.kind == .cancel || command.kind == .shutdown {
@@ -82,18 +119,38 @@ struct FixtureWorker {
             }
             if command.kind == .initialize {
                 initial = command
+                preparationOnly = command.textPreparationOnly == true; preparationLoaded = true
                 if mode == "initializeFailure" {
                     try FileHandle.standardOutput.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .failure,
                         identity: command.identity, failure: .invalidInput)))
                     return
                 }
                 if mode == "prepareStall" { signal(SIGTERM, SIG_IGN); try await Task.sleep(for: .seconds(30)) }
-                try FileHandle.standardOutput.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .ready, identity: command.identity)))
+                try FileHandle.standardOutput.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .ready, identity: command.identity,
+                    textPreparationOnly: mode == "cpuReadyMissing" ? nil : preparationOnly,
+                    preparationUsesInference: mode == "cpuReadyMissing" ? nil : (!preparationOnly || command.settings?.model == .kokoro))))
+                continue
+            }
+            if [.loadPreparation, .releasePreparation, .loadSpeech].contains(command.kind) {
+                guard let initial, initial.identity == command.identity else { exit(4) }
+                if command.kind == .loadSpeech && mode == "speechLoadFailure" {
+                    try FileHandle.standardOutput.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .failure, identity: command.identity, failure: .invalidInput)))
+                    return
+                }
+                preparationOnly = command.kind != .loadSpeech
+                preparationLoaded = command.kind != .releasePreparation
+                try FileHandle.standardOutput.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .ready, identity: command.identity,
+                    textPreparationOnly: preparationOnly,
+                    preparationUsesInference: !preparationOnly || (preparationLoaded && initial.settings?.model == .kokoro),
+                    preparationReleased: command.kind == .releasePreparation && mode != "releaseReadyMissing" ? true : nil)))
                 continue
             }
             guard let initial, let spool = initial.spoolDirectory, let index = command.chunk else { exit(4) }
             if command.kind == .prepareText {
-                guard let window = command.textWindow, let settings = initial.settings else { exit(4) }
+                guard preparationLoaded, let window = command.textWindow, let settings = initial.settings else { exit(4) }
+                if mode == "cpuPreparationStall", preparationOnly {
+                    signal(SIGTERM, SIG_IGN); try await Task.sleep(for: .seconds(30))
+                }
                 let prepared = (initial.policy ?? .legacy).usesPreparedPhonemes
                 let utterance = PreparedUtterance(text: window.text, phonemes: prepared ? "a" : nil, tokenCount: prepared ? 1 : 0,
                     source: window.source, boundaryAfter: window.boundaryAfter,
@@ -102,6 +159,10 @@ struct FixtureWorker {
                 try FileHandle.standardOutput.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .textPrepared,
                     identity: command.identity, chunk: index, preparedFile: reference)))
                 continue
+            }
+            if preparationOnly {
+                try FileHandle.standardOutput.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .failure, identity: command.identity, chunk: index, failure: .invalidInput)))
+                return
             }
             if mode == "slowFirst", index == 0 { try await Task.sleep(for: .milliseconds(250)) }
             if (mode == "stall" && index == 0) || (mode == "secondDocumentStall" && index == 1) { signal(SIGTERM, SIG_IGN); try await Task.sleep(for: .seconds(30)) }

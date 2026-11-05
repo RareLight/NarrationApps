@@ -3,6 +3,7 @@ import Pronunciation
 import NarrationCore
 import NativeSpeech
 import ProcessingPipeline
+import AudioOutput
 
 /// The retained VoiceRelay queue contract is synchronous and runs off the UI
 /// actor. This adapter joins a detached async operation while preserving caller
@@ -55,6 +56,14 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
     public var preparationPurpose: NarrationPlanPurpose { .speechPreparation }
     public let narrationVersion: String
     private let gapSeconds: Double?
+    private let coordinated: Bool
+    public let cpuWork: SpeechCPUContext?
+    private let onWorkStatus: @Sendable (String, SpeechWorkStatus) -> Void
+    private final class ArticleState: @unchecked Sendable {
+        let lock = NSLock()
+        var current: (id: String, identity: AttemptIdentity)?
+    }
+    private let article = ArticleState()
 
     public convenience init(configuration: KokoroConfiguration, worker: WorkerConfiguration? = nil, pronunciations: PronunciationDictionary = .empty, policy: SpeechPreparationPolicy = .current, gapSeconds: Double? = nil, narrationOptions: NarrationOptions = .init()) throws {
         try self.init(configuration: NativeSpeechConfiguration(projectRoot: configuration.projectRoot,
@@ -62,7 +71,9 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
             worker: worker, pronunciations: pronunciations, policy: policy, gapSeconds: gapSeconds, narrationOptions: narrationOptions)
     }
 
-    public init(configuration: NativeSpeechConfiguration, worker: WorkerConfiguration? = nil, pronunciations: PronunciationDictionary = .empty, policy requestedPolicy: SpeechPreparationPolicy = .current, gapSeconds: Double? = nil, narrationOptions: NarrationOptions = .init()) throws {
+    public init(configuration: NativeSpeechConfiguration, worker: WorkerConfiguration? = nil, pronunciations: PronunciationDictionary = .empty, policy requestedPolicy: SpeechPreparationPolicy = .current, gapSeconds: Double? = nil, narrationOptions: NarrationOptions = .init(),
+                onWorkStatus: @escaping @Sendable (String, SpeechWorkStatus) -> Void = { _, _ in }) throws {
+        self.onWorkStatus = onWorkStatus
         let settings = configuration.settings
         let policy = SpeechPreparationPolicy.selected(settings: settings, requested: requestedPolicy)
         self.pronunciations = pronunciations; voice = settings.voice; speed = Double(settings.speed)
@@ -70,6 +81,8 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
         narrationVersion = Narration.version(settings: settings, pronunciations: pronunciations, options: narrationOptions) + "/native-preparation-1/" + SpeechAcousticIdentity.make(settings: settings, policy: policy)
         let selected = worker ?? WorkerConfiguration(executable: NativeSpeechSetup.workerExecutable,
                                                       requestTimeout: .seconds(configuration.synthesisTimeout), inferencePriority: .background)
+        coordinated = selected.workCoordinator != nil
+        cpuWork = selected.workCoordinator.map { .init(coordinator: $0, settings: settings, workspace: configuration.projectRoot, rank: .podcast) }
         session = try NativeSpeechSession(configuration: selected, workspace: configuration.projectRoot,
                                           settings: settings, leaseFile: selected.inferenceLeaseFile, policy: policy)
         let catalog = NativePrimaryCatalog.specification(for: settings.model)
@@ -78,16 +91,50 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
                                    displayName: settings.model.label + " via native Swift MLX", isMock: false)
     }
 
-    public func prepare() throws { try bridge.run { [session] in try await session.prepare() } }
+    public func prepare() throws { try bridge.run { [session] in try await session.prepare(forTextPreparation: true) } }
+    public func beginArticle(_ articleID: String) throws {
+        guard coordinated else { return }
+        try article.lock.withLock {
+            if article.current?.id == articleID { return }
+            let identity = AttemptIdentity(batch: UUID(), job: UUID())
+            let reporter = SpeechWorkStatusReporter { [onWorkStatus] in onWorkStatus(articleID, $0) }
+            try bridge.run { [session] in try await session.configureWork(identity: identity, waiting: { reporter.update($0) }) }
+            article.current = (articleID, identity)
+        }
+    }
+    public func cpuWork(for articleID: String) -> SpeechCPUContext? {
+        guard var context = cpuWork else { return nil }
+        context.status = { [onWorkStatus] in onWorkStatus(articleID, $0) }
+        return context
+    }
+    public func endArticle(_ articleID: String) {
+        let identity = article.lock.withLock { () -> AttemptIdentity? in
+            guard article.current?.id == articleID else { return nil }
+            let identity = article.current?.identity; article.current = nil; return identity
+        }
+        guard let identity else { return }
+        let joined = DispatchSemaphore(value: 0)
+        Task.detached { [session] in await session.finishWork(identity: identity); joined.signal() }
+        joined.wait()
+    }
     public func prepareNarration(_ projection: NarrationPlan) throws -> NarrationPlan {
         let plan = try bridge.run { [session] in
-            try await session.prepare()
+            try await session.prepare(forTextPreparation: true)
             return try await session.prepareSpeech(projection)
         }
-        return NarrationPlan(version: narrationVersion, chunks: plan.utterances.enumerated().map {
-            .init(index: $0.offset, text: $0.element.text, blockIndices: $0.element.source.blockIndices,
-                boundaryAfter: $0.element.boundaryAfter, origin: $0.element.source.origin, preparedUtterance: $0.element, sourceMappings: $0.element.source.sourceMappings)
-        }, notices: plan.notices, omissions: projection.omissions, documentTitle: projection.documentTitle)
+        let current = article.lock.withLock { article.current?.id }
+        let cpu = current.flatMap { cpuWork(for: $0) } ?? cpuWork
+        let version = narrationVersion
+        return try bridge.run {
+            try await SpeechCPUContext.run(cpu) {
+                NarrationPlan(version: version, chunks: try plan.utterances.enumerated().map {
+                    try NarrationWorkCheckpoint.check()
+                    return .init(index: $0.offset, text: $0.element.text, blockIndices: $0.element.source.blockIndices,
+                        boundaryAfter: $0.element.boundaryAfter, origin: $0.element.source.origin,
+                        preparedUtterance: $0.element, sourceMappings: $0.element.source.sourceMappings)
+                }, notices: plan.notices, omissions: projection.omissions, documentTitle: projection.documentTitle)
+            }
+        }
     }
 
     public func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
@@ -107,12 +154,39 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
         }
         let plan = PreparedSpeechPlan(policy: policy, settings: speechSettings, semanticVersion: narrationVersion,
             acousticIdentity: identity, utterances: [utterance], notices: [], provenance: SpeechAcousticIdentity.provenance(settings: speechSettings, policy: policy))
-        try bridge.run { [session] in
-            try await session.render(plan: plan, destination: destination, identity: .init(batch: UUID(), job: UUID()))
+        let receipt: SpeechCheckpointReceipt?
+        if coordinated {
+            try beginArticle(request.articleID)
+            receipt = try bridge.run { [session] in
+                try await session.prepare(forTextPreparation: true)
+                let generated = try await session.generateForCheckpoint(utterance)
+                do {
+                    guard case .audio(let samples) = generated.result.value else { throw SpeechFailure(.protocolViolation) }
+                    try await SpeechCPUWork.run(job: generated.job) {
+                        let writer = try AtomicAudioWriter(destination: destination, format: .wav)
+                        defer { writer.abort() }
+                        try writer.append(samples: samples, sampleRate: self.speechSettings.model.capabilities.sampleRate)
+                        try writer.publish(replaceExisting: false)
+                    }
+                    return try SpeechCheckpointReceipt(job: generated.job, receipt: generated.result.receipt, file: destination) {
+                        let joined = DispatchSemaphore(value: 0)
+                        Task.detached {
+                            await session.retainCommittedReview(utterance, artifact: destination)
+                            joined.signal()
+                        }
+                        joined.wait()
+                    }
+                } catch { generated.job.discardResult(generated.result); throw error }
+            }
+        } else {
+            try bridge.run { [session] in
+                try await session.render(plan: plan, destination: destination, identity: .init(batch: UUID(), job: UUID()))
+            }
+            receipt = nil
         }
         let gap = policy.usesStructuralPauses ? NarrationPausePolicy.seconds(after: utterance.boundaryAfter, explicitGap: gapSeconds) : nil
         return SynthesisResult(artifacts: [.init(url: destination, sampleRate: speechSettings.model.capabilities.sampleRate, channels: 1,
-            format: "wav", gapAfterSeconds: gap, assemblyPolicy: policy.usesStructuralPauses ? NarrationPausePolicy.candidateVersion : nil)])
+            format: "wav", gapAfterSeconds: gap, assemblyPolicy: policy.usesStructuralPauses ? NarrationPausePolicy.candidateVersion : nil)], checkpointReceipt: receipt)
     }
 
     /// Assembly belongs to the captured episode, independently of the reused

@@ -6,6 +6,32 @@ import UniformTypeIdentifiers
 @testable import AudioOutput
 
 final class CoverArtworkTests: XCTestCase {
+    private final class Checkpoints: @unchecked Sendable {
+        let lock = NSLock(); private var count = 0
+        func next() -> Int { lock.withLock { count += 1; return count } }
+    }
+    func testUnusedCoverReadDoesNotSwallowCancellationInsideCleanup() throws {
+        let store = CoverArtworkStore(root: try root()), artwork = try CoverArtwork(data: image())
+        let digest = try store.save(artwork), checkpoints = Checkpoints()
+        XCTAssertThrowsError(try AudioWorkCheckpoint.$current.withValue({
+            if checkpoints.next() == 3 { throw CancellationError() }
+        }) { try store.removeUnreferenced(keeping: []) }) { XCTAssertTrue($0 is CancellationError) }
+        XCTAssertEqual(try Data(contentsOf: store.url(for: digest)), artwork.data)
+    }
+    func testCoverLoadAndCleanupPreserveCPUInterruptionAndExistingBytes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cover-admission-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = CoverArtworkStore(root: root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let digest = String(repeating: "a", count: 64), url = try store.url(for: digest)
+        let bytes = Data("Existing bytes stay untouched".utf8); try bytes.write(to: url)
+        try AudioWorkCheckpoint.$current.withValue({ throw CancellationError() }) {
+            XCTAssertThrowsError(try store.load(digest)) { XCTAssertTrue($0 is CancellationError) }
+            XCTAssertThrowsError(try store.removeUnreferenced(keeping: [])) { XCTAssertTrue($0 is CancellationError) }
+            XCTAssertThrowsError(try CoverArtwork.read(url)) { XCTAssertTrue($0 is CancellationError) }
+        }
+        XCTAssertEqual(try Data(contentsOf: url), bytes)
+    }
     private func root() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -83,6 +109,7 @@ final class CoverArtworkTests: XCTestCase {
             XCTAssertEqual(a.map(\.bitPattern), b.map(\.bitPattern))
             let atomic = try AtomicAudioWriter(destination: root.appendingPathComponent("atomic.\(format.rawValue)"), format: format, coverArtwork: cover)
             try atomic.append(samples: samples, sampleRate: 24000)
+            try await atomic.prepareArtwork()
             try await atomic.publishWithArtwork()
             let embedded = try await AudioArtworkMetadata.embeddedCover(in: atomic.destination)
             XCTAssertEqual(embedded, cover.data)

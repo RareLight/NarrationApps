@@ -95,11 +95,11 @@ public enum NativeAudio {
         var inputError: (any Error)?
         var decoded: Int64 = 0
         while true {
-            try Task.checkCancellation()
+            try AudioWorkCheckpoint.check()
             var conversionError: NSError?
             let status = converter.convert(to: output, error: &conversionError) { requested, inputStatus in
                 do {
-                    try Task.checkCancellation()
+                    try AudioWorkCheckpoint.check()
                     guard file.framePosition < file.length else { inputStatus.pointee = .endOfStream; return nil }
                     let capacity = min(min(max(requested, 1), 16_384), AVAudioFrameCount(min(file.length - file.framePosition, 16_384)))
                     guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: capacity) else {
@@ -144,6 +144,7 @@ public enum NativeAudio {
         let assembler = try ZeroFrameAudioAssembler(writer: writer, sampleRate: profile.sampleRate)
         var timeline: [AudioSegmentTiming] = []
         for (index, input) in inputs.enumerated() {
+            try AudioWorkCheckpoint.check()
             var firstBuffer = true
             var start = writer.frames
             try decode(input, sampleRate: profile.sampleRate) { samples in
@@ -157,7 +158,7 @@ public enum NativeAudio {
             if scheduledGaps == nil && index < inputs.count - 1 {
                 var remaining = Int(Double(profile.sampleRate) * profile.gapSeconds)
                 while remaining > 0 {
-                    try Task.checkCancellation()
+                    try AudioWorkCheckpoint.check()
                     let count = min(remaining, 16_384)
                     try writer.append(samples: [Float](repeating: 0, count: count), sampleRate: profile.sampleRate)
                     remaining -= count

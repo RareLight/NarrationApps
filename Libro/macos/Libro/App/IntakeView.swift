@@ -20,6 +20,8 @@ struct IntakeView: View {
     @State private var dropTarget = false
     @State private var showingNextBatchSettings = false
     @State private var showingDetails = false
+    @State private var showingRecovery = false
+    @State private var recoveryToDiscard: IntakeModel.RecoveryRow?
     @State private var showingIssueNotice = false
     @State private var issueNoticeMessages: [String] = []
 
@@ -65,6 +67,8 @@ struct IntakeView: View {
                     Button("Add Folder…", systemImage: "folder.badge.plus") { model.openInputs(foldersOnly: true) }
                     Button("Queue Unfinished") { model.retryUnfinished() }
                         .disabled(!model.outcomes.values.contains { $0.state == .failed || $0.state == .cancelled || $0.state == .skipped })
+                    Button("Interrupted Batches…") { model.discoverRecovery(); showingRecovery = true }
+                        .disabled(model.isGenerating || model.recoveryBusy)
                     Divider()
                     Button("Remove Selected", systemImage: "minus") { model.removeSelected() }.disabled(model.selection.isEmpty || model.busy || model.isGenerating)
                     Button("Clear Finished") { model.clearFinished() }.disabled(!model.hasFinished || model.busy || model.isGenerating)
@@ -84,6 +88,40 @@ struct IntakeView: View {
             }
         }
         .onAppear { model.reopenWindow = { openWindow(id: "main") }; model.replan() }
+        .sheet(isPresented: $showingRecovery) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Interrupted Batches").appFont(.title2)
+                Text("Resume uses captured source files, destinations, voice, pronunciation rules and replacement consent. Opening a record never starts generation.")
+                    .appFont(.secondary).foregroundStyle(.secondary)
+                List(model.recoveryRows) { row in
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let summary = row.summary {
+                            Text(summary.firstSource).appFont(.headline)
+                            Text("\(summary.completedCount) of \(summary.documentCount) settled · \(summary.output.path)")
+                                .appFont(.secondary).foregroundStyle(.secondary).textSelection(.enabled)
+                        } else { Text("Unavailable or damaged record · \(row.id.uuidString)").appFont(.secondary) }
+                        HStack {
+                            Button("Open and Restore Access…") { model.openRecovery(row) }.disabled(row.summary == nil)
+                            Button("Discard Checkpoints…", role: .destructive) { recoveryToDiscard = row }.disabled(row.summary == nil)
+                        }
+                    }.padding(.vertical, 6)
+                }.frame(minHeight: 180)
+                if let status = model.recoveryStatus { Text(status).appFont(.secondary).textSelection(.enabled) }
+                HStack {
+                    Button("Refresh", action: model.discoverRecovery)
+                    Spacer()
+                    Button("Close") { showingRecovery = false }
+                    Button("Resume") { model.resumeRecovery(); showingRecovery = false }
+                        .buttonStyle(.borderedProminent).disabled(!model.canResumeRecovery)
+                }
+            }.padding(20).frame(minWidth: 520, minHeight: 400)
+                .disabled(model.recoveryBusy || model.isGenerating)
+                .confirmationDialog("Discard this batch's private checkpoints?", isPresented: Binding(get: { recoveryToDiscard != nil }, set: { if !$0 { recoveryToDiscard = nil } })) {
+                    Button("Discard Checkpoints", role: .destructive) {
+                        if let row = recoveryToDiscard { model.discardRecovery(row) }; recoveryToDiscard = nil
+                    }
+                } message: { Text("Source files and completed recordings stay in place. Unfinished documents must be prepared and generated again in a new batch.") }
+        }
         .sheet(isPresented: $showingNextBatchSettings) {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Next batch settings").appFont(.headline)
@@ -201,7 +239,7 @@ struct IntakeView: View {
                         .buttonStyle(.plain).lineLimit(1).help("Show import, destination and queue diagnostics")
                 } else {
                     Text(activityLabel).lineLimit(1).truncationMode(.middle)
-                        .help(model.isGenerating ? model.generationStatus : model.status)
+                        .help(model.isGenerating ? model.displayedGenerationStatus : model.status)
                 }
                 if model.isGenerating && model.queueState?.phase != .paused {
                     if let fraction = activityFraction { ProgressView(value: fraction).frame(width: 100) }
@@ -314,7 +352,7 @@ struct IntakeView: View {
     }
     private var detailMessages: [String] {
         let values: [String?] = issueMessages.map(Optional.some) + [model.debugLogStatus,
-            model.isGenerating ? model.generationStatus : nil,
+            model.isGenerating ? model.displayedGenerationStatus : nil,
             model.isPreparingModel ? model.preparationStatus : nil,
             model.busy ? model.activityStatus : nil, model.readiness,
             model.status, model.importSummary, model.notificationSummary, model.notificationStatus,

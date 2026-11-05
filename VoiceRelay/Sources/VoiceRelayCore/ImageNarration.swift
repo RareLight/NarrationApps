@@ -28,13 +28,15 @@ enum ImageNarration {
                                                              warnings: input.warnings, extractorVersion: input.extractorVersion, outline: input.outline),
                                                        pdfData: review.page.contentType == "application/pdf" ? review.page.bytes : nil,
                                                        enabled: nativeEnabled || caption != nil, fetch: guarded, caption: caption)
-        var article = input
-        article = SemanticArticle(title: input.title, originalURL: input.originalURL, finalURL: input.finalURL, canonicalURL: input.canonicalURL,
-                                  author: input.author, blocks: enriched.blocks, warnings: enriched.warnings, extractorVersion: input.extractorVersion,
-                                  sourceName: input.sourceName, previewImageURL: input.previewImageURL, archivedCopy: input.archivedCopy, outline: enriched.outline)
-        article.titleOrigin = input.titleOrigin
-        return .init(page: review.page, document: .init(article: article, cleanedHTML: document.cleanedHTML),
-                     narration: try Narration.prepare(article, limit: chunkLimit, pronunciations: pronunciations, settings: settings, options: options), issue: review.issue, archiveRecoveryFailed: review.archiveRecoveryFailed)
+        return try await NarrationPreparationWork.run {
+            var article = input
+            article = SemanticArticle(title: input.title, originalURL: input.originalURL, finalURL: input.finalURL, canonicalURL: input.canonicalURL,
+                                      author: input.author, blocks: enriched.blocks, warnings: enriched.warnings, extractorVersion: input.extractorVersion,
+                                      sourceName: input.sourceName, previewImageURL: input.previewImageURL, archivedCopy: input.archivedCopy, outline: enriched.outline)
+            article.titleOrigin = input.titleOrigin
+            return ReviewedSource(page: review.page, document: .init(article: article, cleanedHTML: document.cleanedHTML),
+                         narration: try Narration.prepare(article, limit: chunkLimit, pronunciations: pronunciations, settings: settings, options: options), issue: review.issue, archiveRecoveryFailed: review.archiveRecoveryFailed)
+        }
     }
     static func eligible(_ url: URL) -> Bool {
         guard url.scheme == "https", var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }

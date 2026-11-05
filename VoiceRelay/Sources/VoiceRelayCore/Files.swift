@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import Darwin
+import AudioOutput
 
 enum Files {
     static func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
@@ -11,7 +12,7 @@ enum Files {
         stream.open(); defer { stream.close() }
         var hash = SHA256(); var buffer = [UInt8](repeating: 0, count: 65_536)
         while true {
-            try Task.checkCancellation()
+            try AudioWorkCheckpoint.check()
             let n = stream.read(&buffer, maxLength: buffer.count)
             if n < 0 { throw failure }
             if n == 0 { break }
@@ -46,7 +47,7 @@ enum Files {
         let input = try FileHandle(forReadingFrom: source)
         defer { try? input.close() }
         while let data = try input.read(upToCount: 65_536), !data.isEmpty {
-            try Task.checkCancellation()
+            try AudioWorkCheckpoint.check()
             try output.write(contentsOf: data)
         }
         try output.synchronize(); try output.close()

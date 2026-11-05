@@ -1,4 +1,5 @@
 import Foundation
+import Tokenizers
 import NarrationCore
 import NativeSpeech
 import MLX
@@ -17,12 +18,20 @@ public enum NativeSpeechWorker {
         dup2(STDERR_FILENO, STDOUT_FILENO)
         do {
             let arguments = Array(CommandLine.arguments.dropFirst())
+            if arguments == ["--handoff-probe"] || arguments == ["--coordinated-serve"] {
+                guard fcntl(control.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 else { throw WorkerError.storage }
+                let backend = NativeHandoffProbeBackend(requiresAdmission: arguments == ["--coordinated-serve"])
+                try await SpeechProbeServer(backend: backend, output: control).run()
+                return
+            }
             if arguments == ["--serve"] {
                 try await serve(control: control)
                 return
             }
             let response: [String: Any]
-            if arguments == ["--probe"] {
+            if arguments == ["--qwen-decoder-probe"] {
+                response = ["decoder": try Device.withDefaultDevice(.cpu) { try QwenNarrationDecoderProof.run() }, "protocolVersion": 1]
+            } else if arguments == ["--probe"] {
                 let result = (MLXArray([Float(1), 2, 3]) * 2).asArray(Float.self)
                 // Exercise non-leading scalar gather as well as basic arithmetic.
                 let gathered = take(MLXArray(0..<12, [3, 4]), MLXArray(Int32(2)), axis: 1)
@@ -89,17 +98,43 @@ public enum NativeSpeechWorker {
                     guard staging.path.hasPrefix(workspace.nativeRoot.path + "/staging/attempt-"),
                           staging == spool, (try staging.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true,
                           settings.speed.isFinite, settings.speed > 0 else { throw SpeechFailure(.invalidInput) }
-                    let engine = try await load(settings: settings, workspace: workspace, reference: staging.appendingPathComponent("reference.wav"))
-                    context = WorkerContext(identity: command.identity, spool: staging, settings: settings, engine: engine,
+                    let engine = try await load(settings: settings, workspace: workspace, reference: staging.appendingPathComponent("reference.wav"), textPreparationOnly: command.textPreparationOnly == true)
+                    context = WorkerContext(identity: command.identity, workspace: workspace, spool: staging, settings: settings, engine: engine,
                         policy: settings.model == .kokoro ? .current : .nativeText)
-                    try control.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .ready, identity: command.identity)))
+                    try control.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .ready, identity: command.identity,
+                        textPreparationOnly: engine.isTextPreparationOnly,
+                        preparationUsesInference: engine.usesInference)))
+                case .loadPreparation, .loadSpeech:
+                    guard context?.identity == command.identity, let workspace = context?.workspace,
+                          let spool = context?.spool, let settings = context?.settings, let policy = context?.policy,
+                          command.settings == nil, command.workspace == nil, command.chunk == nil,
+                          command.text == nil, command.textWindow == nil, command.utterance == nil,
+                          command.spoolDirectory == nil else { throw SpeechFailure(.invalidInput) }
+                    let drain = context?.engine?.usesInference == true
+                    context = nil // Drop all old frontend/weight references before the new load.
+                    if drain { Stream.gpu.synchronize(); Stream.cpu.synchronize(); Memory.clearCache() }
+                    let engine = try await load(settings: settings, workspace: workspace,
+                        reference: spool.appendingPathComponent("reference.wav"), textPreparationOnly: command.kind == .loadPreparation)
+                    context = WorkerContext(identity: command.identity, workspace: workspace, spool: spool, settings: settings, engine: engine, policy: policy)
+                    try control.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .ready, identity: command.identity,
+                        textPreparationOnly: engine.isTextPreparationOnly, preparationUsesInference: engine.usesInference)))
+                case .releasePreparation:
+                    guard context?.identity == command.identity, context?.engine?.isTextPreparationOnly == true,
+                          command.settings == nil, command.workspace == nil, command.chunk == nil,
+                          command.text == nil, command.textWindow == nil, command.utterance == nil,
+                          command.spoolDirectory == nil else { throw SpeechFailure(.invalidInput) }
+                    let drain = context?.engine?.usesInference == true
+                    context?.engine = nil
+                    if drain { Stream.gpu.synchronize(); Stream.cpu.synchronize(); Memory.clearCache() }
+                    try control.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .ready, identity: command.identity,
+                        textPreparationOnly: true, preparationUsesInference: false, preparationReleased: true)))
                 case .generate:
                     guard let context, context.identity == command.identity, !context.policy.usesPreparedPhonemes,
-                          let chunk = command.chunk, chunk >= 0, let text = command.text else {
+                          let chunk = command.chunk, chunk >= 0, let text = command.text, let engine = context.engine else {
                         throw SpeechFailure(.invalidInput)
                     }
                     try validate(text: text, settings: context.settings)
-                    let (samples, rate) = try await context.engine.generate(text: text, settings: context.settings)
+                    let (samples, rate) = try await engine.generate(text: text, settings: context.settings)
                     let file = SpeechIPC.chunkFile(in: context.spool, index: chunk)
                     try writePCM(samples, to: file)
                     let event = WorkerEvent(kind: .chunk, identity: context.identity, chunk: chunk,
@@ -108,19 +143,20 @@ public enum NativeSpeechWorker {
                 case .prepareText:
                     guard let context, context.identity == command.identity,
                           let window = command.textWindow, let index = command.chunk, index >= 0,
-                          window.text.unicodeScalars.count <= 1_000, !window.text.isEmpty else {
+                          window.text.unicodeScalars.count <= 1_000, !window.text.isEmpty, let engine = context.engine else {
                         throw SpeechFailure(.invalidInput)
                     }
-                    let utterances = try context.engine.prepare(window: window, settings: context.settings, policy: context.policy)
+                    let utterances = try engine.prepare(window: window, settings: context.settings, policy: context.policy,
+                        workers: command.textPreparationWorkers ?? 1)
                     let reference = try PreparedSpeechTransfer.write(utterances, index: index, spool: context.spool)
                     try control.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .textPrepared,
                         identity: context.identity, chunk: index, preparedFile: reference)))
                 case .generatePrepared:
                     guard let context, context.identity == command.identity,
                           context.policy.usesPreparedPhonemes, let utterance = command.utterance,
-                          let chunk = command.chunk, chunk >= 0 else { throw SpeechFailure(.invalidInput) }
+                          let chunk = command.chunk, chunk >= 0, let engine = context.engine else { throw SpeechFailure(.invalidInput) }
                     try utterance.validate(identity: SpeechAcousticIdentity.make(settings: context.settings, policy: context.policy), prepared: true)
-                    let (samples, rate) = try await context.engine.generate(utterance: utterance, settings: context.settings)
+                    let (samples, rate) = try await engine.generate(utterance: utterance, settings: context.settings)
                     let file = SpeechIPC.chunkFile(in: context.spool, index: chunk)
                     try writePCM(samples, to: file)
                     try control.write(contentsOf: SpeechIPC.encode(WorkerEvent(kind: .chunk, identity: context.identity,
@@ -165,10 +201,37 @@ public enum NativeSpeechWorker {
               settings.speed > 0 else { throw WorkerError.invalidRequest }
     }
 
-    private static func load(settings: SpeechSettings, workspace: NativeWorkspace, reference: URL? = nil) async throws -> LoadedEngine {
+    private struct PreparationVocabulary: Decodable { let vocab: [String: Int] }
+
+    static func load(settings: SpeechSettings, workspace: NativeWorkspace, reference: URL? = nil, textPreparationOnly: Bool = false) async throws -> LoadedEngine {
         guard settings.isValid else { throw SpeechFailure(.invalidInput) }
-        Memory.memoryLimit = SpeechMemoryPolicy.workingLimit(for: settings.model)
         let primary = try workspace.primaryDirectory(for: settings.model, voice: settings.voice)
+        if textPreparationOnly {
+            switch settings.model {
+            case .kokoro:
+                let directory: URL
+                do { directory = try workspace.pronunciationDirectory(for: settings) }
+                catch where settings.voice.hasPrefix("b") { throw SpeechFailure(.regionalAssets) }
+                let vocabulary = try JSONDecoder().decode(PreparationVocabulary.self, from: Data(contentsOf: primary.appendingPathComponent("config.json")))
+                guard !vocabulary.vocab.isEmpty else { throw SpeechFailure(.invalidInput) }
+                return .kokoroTextPreparation(MisakiTextProcessor(resourceDirectory: directory), Set(vocabulary.vocab.keys))
+            case .soprano: return .scalarTextPreparation
+            case .qwen3, .chatterbox, .orpheus:
+                if settings.model == .qwen3 {
+                    let output = primary.appendingPathComponent("tokenizer.json")
+                    if !FileManager.default.fileExists(atPath: output.path) {
+                        // Reuse the pinned SDK's exact conversion without constructing
+                        // a model. Generated sidecars stay in the private overlay.
+                        try Qwen3TTSModel.generateTokenizerJson(vocabPath: primary.appendingPathComponent("vocab.json"),
+                            mergesPath: primary.appendingPathComponent("merges.txt"),
+                            tokenizerConfigPath: primary.appendingPathComponent("tokenizer_config.json"), outputPath: output)
+                    }
+                    try NativePrimaryStore.validateGenerated(directory: primary, specification: NativePrimaryCatalog.specification(for: .qwen3))
+                }
+                return .tokenizerTextPreparation(try await AutoTokenizer.from(modelFolder: primary))
+            }
+        }
+        Memory.memoryLimit = SpeechMemoryPolicy.workingLimit(for: settings.model)
         switch settings.model {
         case .kokoro:
             let directory: URL
@@ -209,7 +272,7 @@ public enum NativeSpeechWorker {
         }
     }
 
-    private static func configureCache(_ workspace: NativeWorkspace) throws {
+    static func configureCache(_ workspace: NativeWorkspace) throws {
         if !workspace.usesSharedHub { _ = try workspace.managed(workspace.hubCache) }
         for url in [workspace.nativeRoot.appendingPathComponent("hf"),
                     workspace.nativeRoot.appendingPathComponent("xet"), workspace.nativeRoot.appendingPathComponent("hf-assets")] {
@@ -457,7 +520,7 @@ public enum NativeSpeechWorker {
                 "channels": 1, "pcmFile": file.path, "elapsedSeconds": Date().timeIntervalSince(started)]
     }
 
-    private static func writePCM(_ samples: [Float], to file: URL) throws {
+    static func writePCM(_ samples: [Float], to file: URL) throws {
         let descriptor = open(file.path, O_CREAT | O_EXCL | O_WRONLY, 0o600)
         guard descriptor >= 0 else { throw WorkerError.storage }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
@@ -475,32 +538,53 @@ public enum NativeSpeechWorker {
 
 private struct WorkerContext {
     let identity: AttemptIdentity
+    let workspace: NativeWorkspace
     let spool: URL
     let settings: SpeechSettings
-    let engine: LoadedEngine
+    var engine: LoadedEngine?
     let policy: SpeechPreparationPolicy
 }
 
-/// Exactly one engine is owned by the worker's sequential command loop. It is
-/// never sent to the GUI, a task group, or a second inference task.
-private enum LoadedEngine {
+/// One helper owns this engine. Normal serving is sequential; the opt-in probe
+/// transfers it between explicitly joined producers and never overlaps them.
+enum LoadedEngine: @unchecked Sendable {
     case kokoro(KokoroModel)
     case soprano(SopranoModel)
+    case kokoroTextPreparation(MisakiTextProcessor, Set<String>)
+    case tokenizerTextPreparation(any Tokenizer)
+    case scalarTextPreparation
     case qwen3(Qwen3TTSModel), chatterbox(ChatterboxModel, MLXArray?), orpheus(LlamaTTSModel)
 
-    func prepare(window: SpeechTextWindow, settings: SpeechSettings, policy: SpeechPreparationPolicy) throws -> [PreparedUtterance] {
-        defer { Memory.clearCache() }
+    var isTextPreparationOnly: Bool {
+        switch self { case .kokoroTextPreparation, .tokenizerTextPreparation, .scalarTextPreparation: true; default: false }
+    }
+    var usesInference: Bool {
+        switch self { case .tokenizerTextPreparation, .scalarTextPreparation: false; default: true }
+    }
+
+    func prepare(window: SpeechTextWindow, settings: SpeechSettings, policy: SpeechPreparationPolicy, workers: Int = 1) throws -> [PreparedUtterance] {
+        guard CPUTextPreparation.validates(workers) else { throw SpeechFailure(.invalidInput) }
+        defer { if usesInference { Memory.clearCache() } }
         let identity = SpeechAcousticIdentity.make(settings: settings, policy: policy)
-        if case .kokoro(let model) = self {
+        let pronunciation: (MisakiTextProcessor, Set<String>)?
+        switch self {
+        case .kokoro(let model):
             guard let processor = model.textProcessor as? MisakiTextProcessor else { throw SpeechFailure(.invalidInput) }
+            pronunciation = (processor, model.supportedPhonemeVocabulary)
+        case .kokoroTextPreparation(let processor, let vocabulary): pronunciation = (processor, vocabulary)
+        default: pronunciation = nil
+        }
+        if let (processor, vocabulary) = pronunciation {
             let aligned = try processor.processAligned(text: window.text, language: settings.voice.hasPrefix("b") ? "en-gb" : "en-us")
             let tokens = try PronunciationPhoneOverrides.apply(window: window,
                 tokens: aligned.map { .init(range: $0.sourceRange, phonemes: $0.phonemes, whitespace: $0.whitespace) })
             return try PhonemeUtterancePacker.pack(window: window, tokens: tokens,
-                vocabulary: model.supportedPhonemeVocabulary, identity: identity, semantic: true)
+                vocabulary: vocabulary, identity: identity, semantic: true)
         }
-        let measure: (String) throws -> Int
+        let measure: @Sendable (String) throws -> Int
         switch self {
+        case .tokenizerTextPreparation(let tokenizer):
+            measure = { tokenizer.encode(text: $0).count }
         case .qwen3(let model):
             measure = { try model.narrationTokenCount($0) }
         case .chatterbox(let model, _):
@@ -509,15 +593,21 @@ private enum LoadedEngine {
         case .orpheus(let model):
             guard let tokenizer = model.tokenizer else { throw SpeechFailure(.invalidInput) }
             measure = { tokenizer.encode(text: $0).count }
-        case .soprano:
+        case .soprano, .scalarTextPreparation:
             // Soprano's public frontend owns its tokenizer; retain a scalar
             // budget rather than pretending to expose native token counts.
             measure = { $0.unicodeScalars.count }
         default: throw SpeechFailure(.invalidInput)
         }
         let target = settings.model == .soprano ? 180 : settings.model == .chatterbox ? 80 : 96
-        let slices = try SemanticSpeechSegmentation.slices(window.text, language: settings.languageCode,
-            target: target, maximum: settings.model == .soprano ? 480 : 512, measure: measure)
+        let slices: [SemanticSpeechSegmentation.Slice]
+        if [.qwen3, .chatterbox, .orpheus].contains(settings.model) {
+            slices = try SemanticSpeechSegmentation.parallelSlices(window.text, language: settings.languageCode,
+                target: target, maximum: 512, workers: workers, measure: measure)
+        } else {
+            slices = try SemanticSpeechSegmentation.slices(window.text, language: settings.languageCode,
+                target: target, maximum: settings.model == .soprano ? 480 : 512, measure: measure)
+        }
         return slices.compactMap { slice in
             let raw = window.text[slice.range]
             let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -538,11 +628,11 @@ private enum LoadedEngine {
         return try samples(audio, rate: model.sampleRate, settings: settings)
     }
 
-    private func samples(_ audio: MLXArray, rate: Int, settings: SpeechSettings) throws -> ([Float], Int) {
+    private func samples(_ audio: MLXArray, rate: Int, settings: SpeechSettings, allowSilence: Bool = false) throws -> ([Float], Int) {
         guard (audio.ndim == 1 || (audio.ndim == 2 && audio.dim(0) == 1)), audio.size > 0, audio.size <= rate * 120,
               rate == settings.model.capabilities.sampleRate else { throw WorkerError.invalidPCM }
         let samples = audio.reshaped([-1]).asArray(Float.self)
-        guard samples.allSatisfy(\.isFinite), !settings.model.isLarge || samples.contains(where: { $0 != 0 }) else { throw WorkerError.invalidPCM }
+        guard samples.allSatisfy(\.isFinite), allowSilence || !settings.model.isLarge || samples.contains(where: { $0 != 0 }) else { throw WorkerError.invalidPCM }
         return (samples, rate)
     }
 
@@ -553,11 +643,36 @@ private enum LoadedEngine {
         return try await generatePCM(text: text, settings: settings)
     }
 
+    /// The pinned callback runs on this owned producer, with no hidden task.
+    /// Decoder state resets in the adapter's defer, including throwing consumers.
+    func streamQwen(text: String, settings: SpeechSettings,
+                    emit: @escaping @Sendable ([Float], Int) throws -> Void) throws {
+        guard case .qwen3(let model) = self else { throw SpeechFailure(.invalidInput) }
+        defer { Memory.clearCache() }
+        try model.validateNarrationInput(text)
+        if let seed = settings.seed { MLXRandom.seed(seed) }
+        var parameters = model.defaultGenerationParameters; parameters.seed = settings.seed
+        let voice = settings.voice + (settings.styleInstruction.map { ", " + $0 } ?? "")
+        var frames = 0
+        let result = try model.generateNarrationStreaming(text: text, voice: voice,
+            language: settings.effectiveLanguage, generationParameters: parameters, streamingInterval: 0.5) { audio in
+                try Task.checkCancellation()
+                guard audio.size > 0 else { return }
+                let (pcm, rate) = try samples(audio, rate: model.sampleRate, settings: settings, allowSilence: true)
+                frames += pcm.count
+                guard frames <= rate * 120 else { throw SpeechFailure(.generation) }
+                try emit(pcm, rate)
+            }
+        guard model.narrationCompleted, frames == result.expectedFrames else { throw SpeechFailure(.generation) }
+    }
+
     private func generatePCM(text: String, settings: SpeechSettings) async throws -> ([Float], Int) {
+        if isTextPreparationOnly { throw SpeechFailure(.invalidInput) }
         if let seed = settings.seed { MLXRandom.seed(seed) }
         let audio: MLXArray
         let rate: Int
         switch self {
+        case .kokoroTextPreparation, .tokenizerTextPreparation, .scalarTextPreparation: throw SpeechFailure(.invalidInput)
         case .kokoro(let model):
             audio = try await model.generate(text: text, voice: settings.voice, refAudio: nil, refText: nil,
                 language: settings.voice.hasPrefix("b") ? "en-gb" : "en-us",

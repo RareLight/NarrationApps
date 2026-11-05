@@ -74,7 +74,7 @@ enum PDFWordJoining {
         let omitted = omissions.mapValues(Set.init)
         var blocks: [Int: [Fragment]] = [:], pageFragments: [Int: [Fragment]] = [:]
         for (page, lines) in pages {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             for line in lines {
                 let block = document.blocks[line.block]
                 guard eligible(block), line.basis == .cropBox, line.rotation == 0,
@@ -94,7 +94,7 @@ enum PDFWordJoining {
         }
         var result = Result()
         for (index, fragments) in blocks {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             let source = document.blocks[index].text as NSString
             for position in fragments.indices.dropFirst() {
                 if position.isMultiple(of: maximumFragments) { continue }
@@ -120,7 +120,7 @@ enum PDFWordJoining {
             }
         }
         for index in document.blocks.indices.dropLast() {
-            if index.isMultiple(of: 256) { try Task.checkCancellation() }
+            if index.isMultiple(of: 256) { try NarrationWorkCheckpoint.check() }
             let a = document.blocks[index], b = document.blocks[index + 1]
             guard eligible(a), eligible(b), let page = a.pdfPageIndex, b.pdfPageIndex == page + 1,
                   let last = blocks[index]?.last, let first = blocks[index + 1]?.first,

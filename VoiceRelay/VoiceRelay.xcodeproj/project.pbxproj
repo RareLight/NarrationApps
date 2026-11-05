@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        A57E00000000000000000001 /* VoiceServerModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A57E00000000000000000002 /* VoiceServerModel.swift */; };
 		706038754237405C9DBF42D3 /* Sources/VoiceRelayApp/AppModelEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B435156B1CF468E8F47FA04 /* Sources/VoiceRelayApp/AppModelEvents.swift */; };
 		AEEBCDF43EF64AE4A943B6BA /* Sources/VoiceRelayApp/AppModelSpeechSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF4B1312873448AA8E69DA9A /* Sources/VoiceRelayApp/AppModelSpeechSetup.swift */; };
 		B10000000000000000000001 /* VoiceRelayApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* VoiceRelayApp.swift */; };
@@ -29,6 +30,7 @@
 		B20000000000000000000004 /* NarrationUI in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000004 /* NarrationUI */; };
 		B20000000000000000000005 /* AudioOutput in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000005 /* AudioOutput */; };
 		B90000000000000000000001 /* ../swift-packages/ThirdPartyNotices in Resources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001 /* ../swift-packages/ThirdPartyNotices */; };
+		B90000000000000000000002 /* ../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib in Embed MP3 Encoder */ = {isa = PBXBuildFile; fileRef = F90000000000000000000002 /* ../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		BA1800000000000000000001 /* icon/VoiceRelay_Cover.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FA1800000000000000000001 /* icon/VoiceRelay_Cover.jpg */; };
 		C334E2DD0B0B4F719DFF0DEF /* Sources/VoiceRelayApp/AppModelHealth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377F33843F254AF29A86DC59 /* Sources/VoiceRelayApp/AppModelHealth.swift */; };
 		FEFD934D5BBD42AB8AE09DBE /* Sources/VoiceRelayApp/AppModelSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75C7382263904AAFBBFF5D41 /* Sources/VoiceRelayApp/AppModelSync.swift */; };
@@ -54,9 +56,19 @@
 			);
 			name = "Embed Native Worker";
 		};
+		E40000000000000000000003 /* Embed MP3 Encoder */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = "";
+			dstSubfolder = Frameworks;
+			files = (
+				B90000000000000000000002 /* ../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib in Embed MP3 Encoder */,
+			);
+			name = "Embed MP3 Encoder";
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        A57E00000000000000000002 /* VoiceServerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/VoiceRelayApp/VoiceServerModel.swift; sourceTree = "<group>"; };
 		1B435156B1CF468E8F47FA04 /* Sources/VoiceRelayApp/AppModelEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/VoiceRelayApp/AppModelEvents.swift; sourceTree = "<group>"; };
 		377F33843F254AF29A86DC59 /* Sources/VoiceRelayApp/AppModelHealth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/VoiceRelayApp/AppModelHealth.swift; sourceTree = "<group>"; };
 		75C7382263904AAFBBFF5D41 /* Sources/VoiceRelayApp/AppModelSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/VoiceRelayApp/AppModelSync.swift; sourceTree = "<group>"; };
@@ -103,6 +115,7 @@
 		F20000000000000000000002 /* VoiceRelaySpeechWorker */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = VoiceRelaySpeechWorker; sourceTree = BUILT_PRODUCTS_DIR; };
 		F20000000000000000000003 /* VoiceRelayCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = VoiceRelayCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F90000000000000000000001 /* ../swift-packages/ThirdPartyNotices */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "../swift-packages/ThirdPartyNotices"; sourceTree = "<group>"; };
+		F90000000000000000000002 /* ../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; path = "../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib"; sourceTree = "<group>"; };
 		FA1800000000000000000001 /* icon/VoiceRelay_Cover.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = icon/VoiceRelay_Cover.jpg; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -157,6 +170,7 @@
 			isa = PBXGroup;
 			children = (
 				F90000000000000000000001 /* ../swift-packages/ThirdPartyNotices */,
+				F90000000000000000000002 /* ../swift-packages/.build/codecs/lame/lib/libmp3lame.0.dylib */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -191,6 +205,7 @@
 				377F33843F254AF29A86DC59 /* Sources/VoiceRelayApp/AppModelHealth.swift */,
 				1B435156B1CF468E8F47FA04 /* Sources/VoiceRelayApp/AppModelEvents.swift */,
 				CF4B1312873448AA8E69DA9A /* Sources/VoiceRelayApp/AppModelSpeechSetup.swift */,
+                A57E00000000000000000002 /* VoiceServerModel.swift */,
 				75C7382263904AAFBBFF5D41 /* Sources/VoiceRelayApp/AppModelSync.swift */,
 				F10000000000000000000010 /* SourceReviewView.swift */,
 				F10000000000000000000014 /* WindowPresence.swift */,
@@ -253,6 +268,7 @@
 				E30000000000000000000001 /* Resources */,
 				E40000000000000000000001 /* Embed Native Worker */,
 				E40000000000000000000002 /* Embed MLX Metal Library */,
+				E40000000000000000000003 /* Embed MP3 Encoder */,
 			);
 			buildRules = (
 			);
@@ -353,7 +369,7 @@
 /* Begin PBXShellScriptBuildPhase section */
 		C50000000000000000000001 /* Generate App Info */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = YES;
+			alwaysOutOfDate = 1;
 			inputPaths = (
 				"$(NARRATION_REPOSITORY_ROOT)/scripts/generate-app-info.sh",
 				"$(NARRATION_INFO_PLIST_TEMPLATE)",
@@ -415,6 +431,7 @@
 				C334E2DD0B0B4F719DFF0DEF /* Sources/VoiceRelayApp/AppModelHealth.swift in Sources */,
 				706038754237405C9DBF42D3 /* Sources/VoiceRelayApp/AppModelEvents.swift in Sources */,
 				AEEBCDF43EF64AE4A943B6BA /* Sources/VoiceRelayApp/AppModelSpeechSetup.swift in Sources */,
+                A57E00000000000000000001 /* VoiceServerModel.swift in Sources */,
 				FEFD934D5BBD42AB8AE09DBE /* Sources/VoiceRelayApp/AppModelSync.swift in Sources */,
 				B10000000000000000000008 /* SourceReviewView.swift in Sources */,
 				B1000000000000000000000F /* WindowPresence.swift in Sources */,
@@ -471,13 +488,13 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = "$(VOICERELAY_MARKETING_VERSION)";
-				USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES;
+				MARKETING_VERSION = 2026.11.2;
 				NARRATION_INFO_PLIST_TEMPLATE = "$(SRCROOT)/Packaging/Info.plist";
 				NARRATION_REPOSITORY_ROOT = "$(SRCROOT)/..";
 				PRODUCT_BUNDLE_IDENTIFIER = org.voicerelay.tts;
 				PRODUCT_NAME = VoiceRelay;
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES;
 			};
 			name = Debug;
 		};
@@ -504,13 +521,13 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = "$(VOICERELAY_MARKETING_VERSION)";
-				USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES;
+				MARKETING_VERSION = 2026.11.2;
 				NARRATION_INFO_PLIST_TEMPLATE = "$(SRCROOT)/Packaging/Info.plist";
 				NARRATION_REPOSITORY_ROOT = "$(SRCROOT)/..";
 				PRODUCT_BUNDLE_IDENTIFIER = org.voicerelay.tts;
 				PRODUCT_NAME = VoiceRelay;
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES;
 			};
 			name = Release;
 		};

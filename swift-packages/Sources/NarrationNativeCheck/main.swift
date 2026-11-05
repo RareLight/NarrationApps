@@ -12,7 +12,11 @@ import Darwin
 struct NativeCheck {
     static func main() async {
         do {
-            if CommandLine.arguments.dropFirst().dropFirst(3).first == "prepare" { try await prepare() }
+            if CommandLine.arguments.dropFirst().dropFirst(3).first == "handoff" { try HandoffCheck.run() }
+            else if CommandLine.arguments.dropFirst().dropFirst(3).first == "reload" { try HandoffReloadCheck.run() }
+            else if CommandLine.arguments.dropFirst().dropFirst(3).first == "safety" { try await HandoffSafetyCheck.run() }
+            else if CommandLine.arguments.dropFirst().dropFirst(3).first == "coordinator" { try await CoordinatorCheck.run() }
+            else if CommandLine.arguments.dropFirst().dropFirst(3).first == "prepare" { try await prepare() }
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "contention" { try await ContentionCheck.run() }
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "models" { try await ExpandedModelCheck.run() }
             else if CommandLine.arguments.dropFirst().dropFirst(3).first == "catalog" { try await CatalogCheck.run() }

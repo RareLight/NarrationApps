@@ -3,9 +3,26 @@ import Foundation
 import Pronunciation
 import NarrationCore
 import AudioOutput
+import ProcessingPipeline
 @testable import PronunciationUI
 
 @MainActor final class PronunciationUITests: XCTestCase {
+    func testPreviewKeepsTheCapturedAppWorkerOwner() async throws {
+        let base = try root().resolvingSymlinksInPath()
+        let owner = try SpeechWorkCoordinator(owner: .voiceRelay,
+            configuration: .init(executable: URL(fileURLWithPath: "/synthetic/worker")), root: base.appendingPathComponent("admission"))
+        let invoked = expectation(description: "App worker owner captured")
+        let preview = PronunciationPreview { _, _, configuration in
+            XCTAssertTrue(configuration.workCoordinator === owner)
+            XCTAssertTrue(configuration.workerConfiguration.workCoordinator === owner)
+            invoked.fulfill(); throw CancellationError()
+        }
+        preview.play(entry: .init(word: "Mina", spelling: "mee nah"), dictionary: .empty,
+            configuration: .init(worker: URL(fileURLWithPath: "/synthetic/worker"), workspace: base, settings: .init(),
+                priority: .background, workCoordinator: owner))
+        await fulfillment(of: [invoked], timeout: 2)
+        await preview.stopAndWait(); await owner.close()
+    }
     func testContextPreviewCapturesSentenceAndDocumentScope() async throws {
         let invoked = expectation(description: "Context captured")
         let preview = PronunciationPreview { text, _, configuration in

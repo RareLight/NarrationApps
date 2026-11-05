@@ -1,0 +1,65 @@
+--- a/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift
++++ b/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift
+@@ -308,7 +308,35 @@
+             }
+             cachedReferenceAudioContext = context
+             return context
++        }
++    }
++
++    /// Owned narration callback: generation and decoding remain on the caller's
++    /// task. A throwing consumer stops generation and runs decoder-state cleanup.
++    /// The public AsyncThrowingStream convenience API remains unchanged.
++    public func generateNarrationStreaming(
++        text: String, voice: String?, language: String,
++        generationParameters: GenerateParameters, streamingInterval: Double,
++        onAudioChunk: @escaping (MLXArray) throws -> Void
++    ) throws -> (codecTokens: Int, expectedFrames: Int) {
++        try requireGenerationComponents()
++        guard streamingInterval.isFinite, streamingInterval >= 0.08,
++              streamingInterval <= 2 else {
++            throw AudioGenerationError.invalidInput("Invalid narration streaming interval")
++        }
++        let settings = resolveVoiceDesignGenerationSettings(
++            language: language, generationParameters: generationParameters)
++        var tokens = 0
++        _ = try generateVoiceDesign(text: text, instruct: voice, language: settings.language,
++            refAudio: nil, refText: nil, temperature: settings.temperature,
++            topK: settings.topK, topP: settings.topP,
++            repetitionPenalty: settings.repetitionPenalty, minP: settings.minP,
++            maxTokens: settings.maxTokens, streamingInterval: streamingInterval,
++            onInfo: { tokens = $0.generationTokenCount }, onAudioChunk: onAudioChunk)
++        guard narrationCompleted, tokens > 0, let speechTokenizer else {
++            throw AudioGenerationError.invalidInput("Incomplete narration generation")
+         }
++        return (tokens, tokens * speechTokenizer.decodeUpsampleRate)
+     }
+ 
+     // MARK: - VoiceDesign generation
+@@ -329,7 +357,7 @@
+         streamingInterval: Double = 2.0,
+         onToken: ((Int) -> Void)? = nil,
+         onInfo: ((AudioGenerationInfo) -> Void)? = nil,
+-        onAudioChunk: ((MLXArray) -> Void)? = nil
++        onAudioChunk: ((MLXArray) throws -> Void)? = nil
+     ) throws -> MLXArray {
+         guard let speechTokenizer, let tokenizer else {
+             throw AudioGenerationError.modelNotInitialized(
+@@ -512,7 +540,7 @@
+                     eval(audioChunk)
+ 
+                     decodedTokens = generatedCodes.count
+-                    onAudioChunk(audioChunk)
++                    try onAudioChunk(audioChunk)
+                 }
+             }
+ 
+@@ -550,7 +578,7 @@
+                 let decoded = speechTokenizer.decoder.streamingStep(codesForDecoder).squeezed(axis: 1)
+                 let audioChunk = decoded[0]
+                 eval(audioChunk)
+-                onAudioChunk(audioChunk)
++                try onAudioChunk(audioChunk)
+             }
+             // Streaming chunks already yielded; return empty (caller uses chunks)
+             return MLXArray.zeros([1])

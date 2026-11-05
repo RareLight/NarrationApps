@@ -1,10 +1,31 @@
 import XCTest
 import AudioOutput
+import NarrationCore
 import ImageIO
 import UniformTypeIdentifiers
 @testable import LibroCore
 
 final class DocumentCoverTests: XCTestCase {
+    private final class Checkpoints: @unchecked Sendable {
+        let lock = NSLock()
+        private var stopped = false
+        func cancel() { lock.withLock { stopped = true } }
+        func check() throws { if lock.withLock({ stopped }) { throw CancellationError() } }
+    }
+    func testAutomaticCoverCancellationAtCPUCheckpointPreservesExistingAssets() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = CoverArtworkStore(root: root), bytes = try artworkBytes()
+        let digest = try store.save(CoverArtwork(data: bytes))
+        let document = InputDocument(source: root.appendingPathComponent("synthetic.pdf"), kind: .pdf, relativePath: "synthetic.pdf")
+        let checkpoints = Checkpoints()
+        XCTAssertThrowsError(try NarrationWorkCheckpoint.$current.withValue({ try checkpoints.check() }) {
+            try DocumentCoverPreferences.automaticCovers([document], references: [:], excluding: [], store: store,
+                readCover: { _ in checkpoints.cancel(); return bytes })
+        }) { XCTAssertTrue($0 is CancellationError) }
+        XCTAssertEqual(try store.load(digest).data, try CoverArtwork(data: bytes).data)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [digest + ".jpg"])
+    }
     private func artworkBytes() throws -> Data {
         let context = try XCTUnwrap(CGContext(data: nil, width: 120, height: 180, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))

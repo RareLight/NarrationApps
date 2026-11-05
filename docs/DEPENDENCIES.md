@@ -16,6 +16,16 @@ This is a native Swift runtime. Python, the CLI environment and Homebrew are not
 - Swift Hugging Face: 0.8.1 (`de01c0ab8fd537bbd8216cea7f774275178501a2`), root-local checkout with the workspace-download adaptation below.
 - Remote pins are retained in this repository’s `Package.resolved`; each consumer also retains its own resolved graph. MLX Audio, MLX Swift, MLX Swift LM and Swift Hugging Face are local checkouts pinned by preparation scripts. Their manifests use the same sibling locations throughout the graph, avoiding SwiftPM's conflicting local/remote identity warning. Controlled Hub SDK fixtures now live in the shared HubDownloadTests target.
 
+## VoiceServer HTTP dependency
+
+VoiceRelay directly declares SwiftNIO **2.95.0**
+(`e932d3c4d8f77433c8f7093b5ebcbf91463948a0`) for NIOCore, NIOPosix and NIOHTTP1;
+NIOEmbedded is test-only. This matches the combined workspace's resolved pin.
+Its standalone resolution also selects the compatible async-http-client 1.33.1
+and swift-nio-ssl 2.37.0 already used by that workspace graph. Existing SwiftNIO,
+async-http-client and SSL notices remain bundled; no new runtime or external
+server executable is introduced.
+
 ## EPUB container dependency
 
 [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) is pinned exactly to
@@ -154,11 +164,22 @@ AAC-LC uses Apple's system encoder through AVFoundation. The local `AudioFormatG
 `Patches/lame-front-cover.patch` changes only the APIC picture-kind byte emitted
 by the existing album-art API from Other (0) to Front Cover (3). It adds no tag
 serializer and changes no audio sample, encoder math, bitrate, ReplayGain or
-codec API. The pinned archive/release is unchanged. Preparation applies both
-patches reproducibly and includes both digests in the cached build signature.
+codec API. The pinned archive/release is unchanged. Preparation applies the
+patches reproducibly and includes every digest in the cached build signature.
 Audio regressions inspect the APIC MIME/type and compare MPEG packets/seek data.
 
-Preparation stamps the compiler/script/patch identity and verifies the cached library's digest. Xcode's standard Copy Files phase embeds and signs `libmp3lame.0.dylib` under `Contents/Frameworks/`. Libro opens that exact path lazily for MP3; there is no global-library search. Each output owns its codec state. Unity scale, the IEEE Float32 API, original sample rate, mono 128 kbps and disabled ReplayGain preserve the submitted levels without an integer intermediate. MP3 itself is lossy.
+`Patches/lame-preserve-input-scale.patch` removes the preset's bitrate-dependent
+scale multiplier. November 2 response comparisons exposed this upstream behavior:
+CBR initialization changed an explicit scale of 1 to 0.95 at 128 kbps. The narrow
+patch keeps the caller-selected scale through initialization; no compensating gain
+or PCM processing is added. The wrapper verifies global/channel scales remain 1
+and ReplayGain remains disabled after initialization, refusing an older unpatched
+library. Fixtures check four sample rates and decoded signal levels; bundle audits
+initialize the actual packaged library and require unity scale. Re-run native
+dependency preparation to rebuild a cached codec. This corrects future file and
+response encoding; completed recordings are never re-encoded or modified.
+
+Preparation stamps the compiler/script/patch identity and verifies the cached library's digest. Both apps' standard Xcode Copy Files phases embed and sign `libmp3lame.0.dylib` under `Contents/Frameworks/`. The shared encoder opens that exact path lazily for MP3; there is no global-library search. Each output owns its codec state. Unity scale, the IEEE Float32 API, mono 128 kbps and disabled ReplayGain preserve the submitted levels without an integer intermediate. File exports keep their original sample rate and seek/gapless metadata. The opt-in response encoder converts to 24 kHz with a persistent native converter when needed and disables the rewritable Xing frame for non-seeking streaming. It keeps one LAME state through all frames and flushes once. MP3 itself is lossy; non-seeking output has codec delay/padding without the file export's finalized gapless metadata. Bundle audits verify architecture, signature, codec symbols and the shared notices in both apps. Public distribution/signing-account acceptance remains open.
 
 LAME is LGPL-licensed. Its `COPYING` and `README` are retained under `.build/notices/lame/`, alongside the verified source archive and patched source build directory. Public distribution must include the applicable notices and corresponding-source/relinking arrangements; the existing distribution gate remains open. When updating, deliberately change the release/digest, review or remove the export patch, rebuild, then repeat codec level/metadata/cancellation fixtures, Debug/Release signing and actual speech exports. The Swift graph is unchanged by this codec addition.
 
@@ -205,6 +226,45 @@ The product Orpheus profile explicitly uses the benchmark's 4,096-token generati
 cap instead of the SDK's 1,200-token convenience default. Longer bounded text can
 exhaust the smaller cap. The cap and generation-policy version participate in
 acoustic identity; clean EOS remains mandatory before publication.
+
+`Patches/soprano-owned-producer.patch` retains Soprano's internal token producer
+and joins it in both audio-generation consumers before decoding or returning from
+cancellation. AsyncStream termination cancels the producer but does not join it.
+This patch changes no sampling, tokenization, model math or audio levels; it is
+required before the opt-in VoiceServer probe can acknowledge safe warm reuse.
+
+`Patches/qwen-owned-audio-callback.patch` adds a synchronous throwing Qwen
+narration callback at the same pin. It calls the existing generation/streaming
+decoder directly on the caller's owned task, propagates consumer cancellation,
+and returns codec-token/sample coverage. Existing decoder-state cleanup runs on
+both success and error. The public convenience stream is unchanged and unused
+by this probe; no new task, sampling/math change, overlap correction or audio gain
+is introduced. Preparation audits this patch after the Soprano ownership patch.
+
+`Patches/qwen-streaming-overlap-bias.patch` adds an opt-in correction for the new
+narration callback: both transposed-convolution partial outputs contain their
+learned bias, so an overlapping sum must subtract one copy of that bias. This is
+decoder arithmetic, not audio gain/normalization or waveform smoothing. Existing
+generation/decoder defaults remain unchanged; completed app recordings and their
+identities are preserved. Any future promotion of this callback needs its own
+acoustic policy identity and continuity/listening acceptance.
+
+`Patches/qwen-text-tokenizer-preparation.patch` changes only the visibility of
+the pinned SDK's existing `generateTokenizerJson` converter. Cold text preparation
+can create Qwen's required fast-tokenizer sidecar from the pinned local vocab,
+merges and tokenizer configuration without constructing a speech model. Conversion
+bytes and model math are unchanged; generated files remain in the private runtime
+overlay and pass the existing size/digest validation. `scripts/check-native-tokenizer.sh`
+compiles that exact Foundation-only converter against synthetic vocab/merge/special-
+token expectations without linking MLX or loading weights. The Tokenizers product
+is used directly from the already pinned Swift Transformers dependency; no new pin
+or package is added.
+
+The patch also includes a model-free regression using the actual upsampling
+layer, fixed nonzero and zero biases, three strides, several chunk lengths and
+reset reuse. The private helper's `--qwen-decoder-probe` runs it on CPU without
+assets or networking. All packaged-bundle audits require this regression as well
+as the existing Metal probe. Native full-model PCM comparisons remain separate.
 
 The conversion cards declare Apache-2.0:
 [Qwen](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit),

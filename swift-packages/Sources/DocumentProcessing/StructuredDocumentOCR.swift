@@ -93,9 +93,11 @@ public enum StructuredDocumentOCR {
         try await recognize(image, onInferenceAcquired: {})
     }
 
-    public static func recognize(_ image: CGImage, onInferenceAcquired: @Sendable () -> Void) async throws -> [ContentBlock] {
-        let lease = try await InferenceLease.acquire()
-        defer { withExtendedLifetime(lease) {} }
+    public static func recognize(_ image: CGImage, onInferenceFinished: @Sendable () -> Void = {},
+                                 onInferenceAcquired: @Sendable () -> Void) async throws -> [ContentBlock] {
+        var lease: InferenceLease? = try await InferenceLease.acquire()
+        var finished = false
+        defer { if !finished { onInferenceFinished() }; withExtendedLifetime(lease) {} }
         onInferenceAcquired()
         var request = RecognizeDocumentsRequest()
         request.textRecognitionOptions.automaticallyDetectLanguage = true
@@ -103,7 +105,11 @@ public enum StructuredDocumentOCR {
         request.barcodeDetectionOptions.enabled = false
         let observations = try await request.perform(on: image)
         try Task.checkCancellation()
-        return observations.flatMap { observation in
+        onInferenceFinished(); finished = true
+        lease = nil // CPU projection must not wait for API while holding exclusion.
+        return try await NarrationPreparationWork.run {
+        return try observations.flatMap { observation in
+            try NarrationWorkCheckpoint.check()
             let document = observation.document
             let paragraphs = document.paragraphs.map { OCRParagraph(text: $0.transcript, bounds: $0.boundingRegion.boundingBox.cgRect) }
             var structures = document.tables.map { table in
@@ -119,6 +125,7 @@ public enum StructuredDocumentOCR {
                              bounds: list.boundingRegion.boundingBox.cgRect)
             }
             return project(paragraphs: paragraphs, structures: structures, fallback: document.text.transcript)
+        }
         }
     }
 }

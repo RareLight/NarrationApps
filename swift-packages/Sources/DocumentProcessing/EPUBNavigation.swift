@@ -26,7 +26,7 @@ enum EPUBNavigation {
             }
         }
         func append(label: String, href: String?, depth: Int) throws {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             guard depth < 32, entries.count < DocumentNavigation.maximumEntries else { throw EPUBReadError.limit }
             let label = NarrationText.normalizeWhitespace(label)
             guard !label.isEmpty, label.utf16.count <= 4096 else { return }
@@ -79,7 +79,7 @@ public extension EPUBDocumentExtractor {
         var paths = [package.coverPagePath, package.spine.first.flatMap { package.manifest[$0.id]?.path }].compactMap { $0 }
         paths = paths.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
         for path in paths {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             guard let item = package.manifest.values.first(where: { $0.path == path }) else { continue }
             if ["image/jpeg", "image/png"].contains(item.mediaType) {
                 return try container.read(path, maximum: 20 * 1024 * 1024)
@@ -99,7 +99,7 @@ public extension EPUBDocumentExtractor {
         let page = try item.mediaType == "image/svg+xml" ? SwiftSoup.parse(text, "", Parser.xmlParser()) : SwiftSoup.parse(text)
         var best: (bytes: Data, pixels: Int)?, seen = Set<String>()
         for element in try page.select("img, image").array().prefix(32) {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             for attribute in ["src", "href", "xlink:href", "data-src", "data-original"] where element.hasAttr(attribute) {
                 guard let target = try? EPUBContainer.reference(element.attr(attribute), relativeTo: item.path),
                       target.fragment == nil, seen.insert(target.path).inserted,

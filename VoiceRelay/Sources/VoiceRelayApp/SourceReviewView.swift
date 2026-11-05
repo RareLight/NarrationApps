@@ -236,7 +236,8 @@ final class ArticlePreviewModel {
         self.inert = inert
         if let review { self.review = review; status = review.issue == nil ? "Article ready." : "Source needs inspection." }
     }
-    func load(_ url: URL, profile: PrototypeProfile? = nil, settings: SpeechSettings = .init(), options: NarrationOptions = .init(), sourceTitle: String? = nil) {
+    func load(_ url: URL, profile: PrototypeProfile? = nil, settings: SpeechSettings = .init(), options: NarrationOptions = .init(), sourceTitle: String? = nil,
+              hostAdmission: SpeechHostAdmission? = nil, cpuExecutor: (any NarrationCPUExecutor)? = nil) {
         guard !inert, review == nil, !busy else { return }
         busy = true; error = nil; status = "Loading article…"
         task = Task {
@@ -251,10 +252,12 @@ final class ArticlePreviewModel {
                 let capturedOptions = profile.map { $0.narrationOptions ?? .init() } ?? options
                 let capturedSettings = profile.map { SpeechSettings(voice: $0.voice ?? settings.voice, speed: Float($0.backendSettings["speed"]?.numericValue ?? Double(settings.speed))) } ?? settings
                 let work = Task.detached {
-                    let dictionary = try PronunciationStore().load().dictionary
-                    return try await ArticleSourceLoader(limits: limits, useArchives: archives,
-                        describeImages: descriptions, speechSettings: capturedSettings, pronunciations: dictionary, narrationOptions: capturedOptions,
-                        sourceTitle: sourceTitle, generateMissingTitles: generateTitles).load(url, chunkLimit: limit)
+                    try await NarrationPreparationWork.$executor.withValue(cpuExecutor) {
+                        let dictionary = try await NarrationPreparationWork.run { try PronunciationStore().load().dictionary }
+                        return try await ArticleSourceLoader(limits: limits, useArchives: archives,
+                            describeImages: descriptions, speechSettings: capturedSettings, pronunciations: dictionary, narrationOptions: capturedOptions,
+                            sourceTitle: sourceTitle, generateMissingTitles: generateTitles, hostAdmission: hostAdmission).load(url, chunkLimit: limit)
+                    }
                 }
                 let result = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
                 try Task.checkCancellation()
@@ -265,7 +268,7 @@ final class ArticlePreviewModel {
         }
     }
     func cancel() { task?.cancel() }
-    func showSaved(_ saved: ReviewedSource, profile: PrototypeProfile? = nil, settings: SpeechSettings = .init(), options: NarrationOptions = .init()) async {
+    func showSaved(_ saved: ReviewedSource, profile: PrototypeProfile? = nil, settings: SpeechSettings = .init(), options: NarrationOptions = .init(), cpuExecutor: (any NarrationCPUExecutor)? = nil) async {
         task?.cancel()
         if let task { await task.value }
         guard !Task.isCancelled else { return }
@@ -276,10 +279,13 @@ final class ArticlePreviewModel {
         let capturedSettings = profile.map { SpeechSettings(voice: $0.voice ?? settings.voice, speed: Float($0.backendSettings["speed"]?.numericValue ?? Double(settings.speed))) } ?? settings
         let capturedOptions = profile.map { $0.narrationOptions ?? .init() } ?? options
         let work = Task.detached {
-            try Task.checkCancellation()
-            let dictionary = try PronunciationStore().load().dictionary
-            return try Narration.prepare(document.article, limit: profile?.chunkMaxCharacters ?? 1800,
-                pronunciations: dictionary, settings: capturedSettings, options: capturedOptions)
+            try await NarrationPreparationWork.$executor.withValue(cpuExecutor) {
+                try await NarrationPreparationWork.run {
+                    let dictionary = try PronunciationStore().load().dictionary
+                    return try Narration.prepare(document.article, limit: profile?.chunkMaxCharacters ?? 1800,
+                        pronunciations: dictionary, settings: capturedSettings, options: capturedOptions)
+                }
+            }
         }
         do {
             let narration = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
@@ -342,6 +348,8 @@ struct ArticlePreviewContent: View {
     }
 }
 struct ArticlePreviewView: View {
+    let cpuExecutor: (any NarrationCPUExecutor)?
+    let hostAdmission: SpeechHostAdmission?
     let url: URL
     let settings: SpeechSettings
     let profile: PrototypeProfile?
@@ -350,7 +358,9 @@ struct ArticlePreviewView: View {
     let sourceTitle: String?
     @State private var model: ArticlePreviewModel
     @Environment(\.dismiss) private var dismiss
-    init(url: URL, inert: Bool = false, review: ReviewedSource? = nil, settings: SpeechSettings = .init(), profile: PrototypeProfile? = nil, options: NarrationOptions = .init(), sourceTitle: String? = nil) {
+    init(url: URL, inert: Bool = false, review: ReviewedSource? = nil, settings: SpeechSettings = .init(), profile: PrototypeProfile? = nil, options: NarrationOptions = .init(), sourceTitle: String? = nil,
+         hostAdmission: SpeechHostAdmission? = nil, cpuExecutor: (any NarrationCPUExecutor)? = nil) {
+        self.hostAdmission = hostAdmission; self.cpuExecutor = cpuExecutor
         self.profile = profile; self.options = options
         self.savedReview = review; self.sourceTitle = sourceTitle
         self.url = url; self.settings = settings
@@ -372,8 +382,8 @@ struct ArticlePreviewView: View {
             }
         }
         .task(id: savedReview?.document?.article.title) {
-            if let savedReview { await model.showSaved(savedReview, profile: profile, settings: settings, options: options) }
-            else { model.load(url, profile: profile, settings: settings, options: options, sourceTitle: sourceTitle) }
+            if let savedReview { await model.showSaved(savedReview, profile: profile, settings: settings, options: options, cpuExecutor: cpuExecutor) }
+            else { model.load(url, profile: profile, settings: settings, options: options, sourceTitle: sourceTitle, hostAdmission: hostAdmission, cpuExecutor: cpuExecutor) }
         }
         .onDisappear { model.cancel() }
     }

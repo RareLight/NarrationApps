@@ -1,6 +1,7 @@
 import Pronunciation
 import NarrationCore
 import Foundation
+import ProcessingPipeline
 
 public enum SpeechTimingStage: String, Sendable {
     case preparation, speech, pronunciation, inference, wavWrite = "WAV write"
@@ -169,6 +170,18 @@ final class SingleWorkerSpeechPipeline: @unchecked Sendable {
         do { return try worker.prepareNarration(projection) }
         catch { lock.withLock { active?.cancel(); active = nil }; throw error }
     }
+    fileprivate func beginArticle(_ candidate: any TTSBackend, id: String) throws {
+        try prepare(candidate)
+        let worker = try lock.withLock {
+            guard let active, active.identity.id == candidate.identity.id else { throw RelayError.setup("Prepare the speech pipeline first.") }
+            return active
+        }
+        try worker.beginArticle(id)
+    }
+    fileprivate func endArticle(_ candidate: any TTSBackend, id: String) {
+        let worker = lock.withLock { active?.identity.id == candidate.identity.id ? active : nil }
+        worker?.endArticle(id)
+    }
 
     fileprivate func synthesize(_ candidate: any TTSBackend, request: SynthesisRequest,
                                directory: URL, next: SynthesisRequest?) throws -> SynthesisResult {
@@ -193,11 +206,15 @@ final class SingleWorkerSpeechPipeline: @unchecked Sendable {
 }
 
 private struct PipelineSpeechBackend: LookaheadTTSBackend {
+    var cpuWork: SpeechCPUContext? { candidate.cpuWork }
+    func cpuWork(for articleID: String) -> SpeechCPUContext? { candidate.cpuWork(for: articleID) }
     let pipeline: SingleWorkerSpeechPipeline
     let candidate: any TTSBackend
     var identity: BackendIdentity { candidate.identity }
     var pronunciations: PronunciationDictionary { candidate.pronunciations }
     func prepare() throws { try pipeline.prepare(candidate) }
+    func beginArticle(_ id: String) throws { try pipeline.beginArticle(candidate, id: id) }
+    func endArticle(_ id: String) { pipeline.endArticle(candidate, id: id) }
     func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
         try synthesize(request, directory: directory, next: nil)
     }
@@ -209,6 +226,8 @@ private struct PipelineSpeechBackend: LookaheadTTSBackend {
 }
 
 private struct PreparedPipelineSpeechBackend: PreparedTTSBackend, LookaheadTTSBackend {
+    var cpuWork: SpeechCPUContext? { candidate.cpuWork }
+    func cpuWork(for articleID: String) -> SpeechCPUContext? { candidate.cpuWork(for: articleID) }
     let pipeline: SingleWorkerSpeechPipeline
     let candidate: any PreparedTTSBackend
     var identity: BackendIdentity { candidate.identity }
@@ -218,6 +237,8 @@ private struct PreparedPipelineSpeechBackend: PreparedTTSBackend, LookaheadTTSBa
     var preparationPurpose: NarrationPlanPurpose { candidate.preparationPurpose }
     func prepareNarration(_ projection: NarrationPlan) throws -> NarrationPlan { try pipeline.prepareNarration(candidate, projection: projection) }
     func prepare() throws { try pipeline.prepare(candidate) }
+    func beginArticle(_ id: String) throws { try pipeline.beginArticle(candidate, id: id) }
+    func endArticle(_ id: String) { pipeline.endArticle(candidate, id: id) }
     func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult {
         try synthesize(request, directory: directory, next: nil)
     }

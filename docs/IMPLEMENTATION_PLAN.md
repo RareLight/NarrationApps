@@ -50,6 +50,92 @@ spoken-form listening, including capital-A labels, is accepted. Soprano keeps it
 native frontend. One worker per app, helper-only MLX, safe Libro priority,
 source/finished-recording preservation and unchanged audio levels remain invariants.
 
+## VoiceServer implementation and remaining acceptance
+
+As of November 4, the native API, Keychain authentication, response modes,
+bounded HTTP/FIFO work, Settings/private bindings and Tailscale self discovery
+are wired. Both production app factories now provide coordinated scheduling;
+Libro exposes explicit file-access restoration and Resume, and ownership locks
+protect orphan scratch cleanup. See [current status](IMPLEMENTATION_STATUS.md)
+and the [API guide](../VoiceRelay/docs/VOICESERVER.md). Full synthetic and
+Debug/Release/four-audit verification passes. Remaining work is operator acceptance
+of actual models, GUI/Keychain,
+client playback, private-network reachability and sleep/wake; it is not another
+request for model downloads or live tests by the development agent.
+
+The following retains the dated implementation sequence and its earlier gates.
+
+The agreed [VoiceServer implementation checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md)
+covers a native Swift private TTS endpoint using existing model/voice selection,
+with per-user priority TTS API > Libro > Podcasts. Both apps share suspension,
+checkpoint and recovery primitives; streaming API demand cancels unfinished
+lower-priority inference and resumes it from verified checkpoints. Compatible
+same-app handoffs retain resident weights. The proposed initial cross-app policy
+unloads before loading in the new owner to avoid duplicate residency; shared code
+alone cannot transfer live model allocations between helpers.
+The design review adds a feasibility gate before broad scheduler changes,
+SDK-compatible streaming defaults, speech/library ownership separation and
+CLI-first Tailscale discovery. The first bounded proof uses isolated Swift clients,
+fake workers and synthetic checkpoints to verify cross-process ordering, rollback
+and recovery. The user authorized that proof on November 1; it is implemented
+with ten focused cases. Results require helper-owned exclusion through orphan
+drain/idle residency, job-plus-epoch fencing and a final atomic launch recheck.
+The separately authorized next gate now implements an opt-in native helper/control
+and first-unit WAV probe. All five selected adapters pass bounded same-worker
+cancellation/reuse; Orpheus's measured resumed pipeline RTF is 2.05, so initial
+Orpheus streaming is gated as unavailable. Complete-file operation remains planned.
+The next authorized slice implements a versioned smaller live first unit, owned
+incremental Qwen callback and actual two-helper reload probe. Kokoro/Chatterbox
+resumed first WAV takes 0.13/0.57 s; Libro-to-VoiceRelay Kokoro/Qwen transfers take
+2.75/4.09 s including reload. First-inference cancellation takes 1.45–1.65 s in
+those transfers, unlike warm millisecond reuse. Qwen incremental reuse/coverage
+passes at 0.19 s first WAV; the following November 2 decoder correction reduces
+direct/stream PCM difference from 0.2604 to 0.00000276 and preserves identical
+reset output. Raw incremental output remains probe-only pending continuity/
+listening acceptance; initial Qwen streaming uses bounded complete utterances.
+Initialization cancellation/EOF, loaded-weight cleanup and repeated native safety
+now pass for all five adapters. The three VoiceRelay stale assertions are fixed
+and full fixtures pass. Shared three-rank admission, nonblocking compatibility-lock
+handoff and job/epoch commit fences are implemented and tested. An opt-in app-owned
+coordinator now connects bounded preparation/generation to the shared render session,
+retains its writer through suspension, and journals verified PCM for reconstruction
+without inference. Seventy-three focused cases cover this seam and earlier contracts;
+full fixtures, Debug/Release builds and four bundle audits pass. All five installed
+adapters pass offline prepared transfer, idle API handoff/resume and owned reap
+through the new coordinator, using fingerprint-matched packaged Release helpers.
+The following adapter gate now binds VoiceRelay's actual final SQLite commit,
+preserves the existing validation overlap and retries rejected results without a
+failed row. Libro captures batch/source/destination/consent and restores verified
+plans/PCM without repeating preparation. Eighty-five feature-focused cases cover
+these opt-in paths. The next gate adds app-owned constructor/Quit bindings,
+initialize-only setup, preview reuse and ranked host OCR/title/image admission,
+including explicit context across detached source tasks. Defaults remain nil.
+The following opt-in slice implements maintenance, admitted CPU/hash operations,
+notification wakeups and transient waiting status. Non-seeking MP3/PCM codecs and
+VoiceRelay's explicit native MP3 packaging are implemented. The November 3 full
+fixture, both-configuration/four-audit and all-five-model offline gates pass, including
+the correction for inherited MP3 preset attenuation. The operator accepted the
+linked offline WAV/MP3 comparisons on November 3. The following slice expands
+admitted document/preview/review work, separates active OCR/image/title budgets
+from admission waits, and cancels/joins pending article preparation with final
+snapshot revalidation. The following slice admits Libro intake/cover operations
+and VoiceRelay queue-title/chunk-count preparation, rejecting stale results after
+admission waits. Those legacy metadata, explicit recovery/file-access/retention
+and authenticated HTTP/Settings/Tailscale paths are now integrated as described
+above; their operator playback/GUI validation remains separate.
+The checklist retains measurements, failed attempts and remaining native/manual
+limits. Earlier stage statements about nil defaults/unwired service are historical.
+
+Normal-serving narration now prepares with lightweight frontends and defers cold
+speech weights for all five models. Libro captures a bounded CPU token-counting
+limit per batch; the ordinary pipeline keeps one frontend helper across windows
+and promotes it at generation. Kokoro's smaller neural pronunciation fallback
+still uses inference admission and unloads before a paused handoff. The opt-in
+coordinated residency path now also defers speech weights and promotes its cold
+frontend in the same helper. See the
+[architecture](ARCHITECTURE.md) and [L21](OPERATOR_VALIDATION.md#libro) for the
+operator's Xcode build and actual-book timing gate.
+
 ## Remaining operator acceptance
 
 October 30 long-form preparation work is detailed in the authorized

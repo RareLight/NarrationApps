@@ -35,24 +35,26 @@ public enum PDFDocumentExtractor {
     public static func extract(data: Data, title: String? = nil, limits: PDFExtractionLimits = .init(),
                                forceOCR: Bool = false, recognize: Recognition? = nil,
                                preview: Preview? = nil,
+                               monotonicTime: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
                                progress: @escaping @Sendable (DocumentPreparationProgress) -> Void = { _ in }) async throws -> SemanticDocument {
         try Task.checkCancellation()
         guard limits.maximumPages > 0, limits.maximumOCRPages >= 0, limits.maximumTextBytes > 0,
               limits.ocrSeconds.isFinite, limits.ocrSeconds > 0,
-              data.starts(with: Data("%PDF-".utf8)), let pdf = PDFDocument(data: data) else { throw DocumentReadError.malformed }
-        let pageCount = pdf.pageCount
-        guard !pdf.isLocked else { throw DocumentReadError.encryptedPDF }
-        guard pdf.allowsCopying || pdf.allowsContentAccessibility else { throw PDFExtractionError.restricted }
-        guard pageCount <= limits.maximumPages else { throw PDFExtractionError.pageLimit }
+              data.starts(with: Data("%PDF-".utf8)) else { throw DocumentReadError.malformed }
+        let (owned, pageCount, metadataTitle, author, alternatives) = try await NarrationPreparationWork.run {
+            guard let pdf = PDFDocument(data: data) else { throw DocumentReadError.malformed }
+            guard !pdf.isLocked else { throw DocumentReadError.encryptedPDF }
+            guard pdf.allowsCopying || pdf.allowsContentAccessibility else { throw PDFExtractionError.restricted }
+            guard pdf.pageCount <= limits.maximumPages else { throw PDFExtractionError.pageLimit }
+            return (OwnedPDFDocument(pdf), pdf.pageCount, pdf.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String,
+                    pdf.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String, PDFImageMetadata.alternatives(pdf))
+        }
         progress(.init(stage: .readingPDFStructure))
-        let alternatives = PDFImageMetadata.alternatives(pdf)
         var blocks: [ContentBlock] = [], totalBytes = 0, ocrPages = 0, geometryLines = 0
         var geometrySkipped = Set<Int>(), tablePages = 0, tableRecognitionIncomplete = false
         // A small first prefix, then doubling prefixes: less than 3 full-document
         // equivalents of provisional planning, with backpressure from the reader.
         var nextPreviewPage = min(5, max(1, (pageCount + 19) / 20))
-        let metadataTitle = pdf.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String
-        let author = pdf.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String
         func snapshot(outline: [DocumentOutlineEntry]? = nil, warnings: [String] = []) -> SemanticDocument {
             .init(title: metadataTitle ?? title, author: author, blocks: blocks,
                 warnings: warnings + ["Complex PDF reading order should be reviewed."] +
@@ -61,94 +63,120 @@ public enum PDFDocumentExtractor {
                     (geometrySkipped.isEmpty ? [] : ["Layout evidence unavailable for \(geometrySkipped.count) PDF pages; uncertain text is preserved."]),
                 extractorVersion: version, outline: outline)
         }
-        let deadline = ProcessInfo.processInfo.systemUptime + limits.ocrSeconds
+        var ocrElapsed: TimeInterval = 0
+        func recognizeImage(_ image: CGImage, context: DocumentPreparationProgress) async throws -> [ContentBlock] {
+            let interval = PreparationInterval(now: monotonicTime)
+            defer { interval.end(); ocrElapsed += interval.elapsed }
+            if let recognize {
+                progress(context.with(stage: .recognizingText)); interval.begin()
+                return try await recognize(image)
+            }
+            progress(context.with(stage: .waitingForOCR))
+            return try await StructuredDocumentOCR.recognize(image, onInferenceFinished: { interval.end() }, onInferenceAcquired: {
+                interval.begin(); progress(context.with(stage: .recognizingText))
+            })
+        }
         for index in 0..<pageCount {
             try Task.checkCancellation()
             progress(.init(stage: .extractingText, completed: index, total: pageCount, currentPage: index + 1))
-            guard let page = pdf.page(at: index) else { throw DocumentReadError.malformed }
-            var text = (page.string ?? "").replacingOccurrences(of: "\u{fffc}", with: "")
+            let (page, text, needsOCR, hasImage, tableGeometry) = try await NarrationPreparationWork.run {
+                guard let page = owned.document.page(at: index) else { throw DocumentReadError.malformed }
+                var text = (page.string ?? "").replacingOccurrences(of: "\u{fffc}", with: "")
+                let authored = alternatives[index] ?? []
+                let authoredKeys = Set(authored.map(NarrationText.normalizeWhitespace))
+                text = text.components(separatedBy: .newlines).filter { !authoredKeys.contains(NarrationText.normalizeWhitespace($0)) }.joined(separator: "\n")
+                let scalars = text.unicodeScalars
+                let usable = scalars.filter { CharacterSet.alphanumerics.contains($0) }.count
+                let broken = scalars.filter { $0.value == 0xfffd || ($0.value < 32 && !CharacterSet.whitespacesAndNewlines.contains($0)) }.count
+                let image = PDFImageMetadata.hasImage(page)
+                let needsOCR = forceOCR || usable == 0 || (image && usable < 80) || broken * 20 > max(scalars.count, 1)
+                return (OwnedPDFPage(page), text, needsOCR, image,
+                        page.rotation == 0 && page.bounds(for: .cropBox) == page.bounds(for: .mediaBox))
+            }
             let authored = alternatives[index] ?? []
-            let authoredKeys = Set(authored.map(NarrationText.normalizeWhitespace))
-            text = text.components(separatedBy: .newlines).filter { !authoredKeys.contains(NarrationText.normalizeWhitespace($0)) }.joined(separator: "\n")
-            let scalars = text.unicodeScalars
-            let usable = scalars.filter { CharacterSet.alphanumerics.contains($0) }.count
-            let broken = scalars.filter { $0.value == 0xfffd || ($0.value < 32 && !CharacterSet.whitespacesAndNewlines.contains($0)) }.count
-            let needsOCR = forceOCR || usable == 0 || (PDFImageMetadata.hasImage(page) && usable < 80) || broken * 20 > max(scalars.count, 1)
             var pageBlocks: [ContentBlock]
             if needsOCR {
-                guard ocrPages < limits.maximumOCRPages, ProcessInfo.processInfo.systemUptime < deadline else {
+                guard ocrPages < limits.maximumOCRPages, ocrElapsed < limits.ocrSeconds else {
                     throw PDFExtractionError.ocrLimit
                 }
                 progress(.init(stage: .renderingOCR, completed: index, total: pageCount, currentPage: index + 1))
-                let image = try autoreleasepool { try render(page) }
-                if let recognize {
-                    progress(.init(stage: .recognizingText, completed: index, total: pageCount, currentPage: index + 1))
-                    pageBlocks = try await recognize(image)
-                } else {
-                    progress(.init(stage: .waitingForOCR, completed: index, total: pageCount, currentPage: index + 1))
-                    pageBlocks = try await StructuredDocumentOCR.recognize(image, onInferenceAcquired: {
-                        progress(.init(stage: .recognizingText, completed: index, total: pageCount, currentPage: index + 1))
-                    })
-                }
+                let image = try await NarrationPreparationWork.run { try autoreleasepool { try render(page.page) } }
+                pageBlocks = try await recognizeImage(image, context: .init(stage: .waitingForOCR, completed: index, total: pageCount, currentPage: index + 1))
 
                 try Task.checkCancellation()
                 ocrPages += 1
-                guard ProcessInfo.processInfo.systemUptime < deadline else { throw PDFExtractionError.ocrLimit }
+                guard ocrElapsed < limits.ocrSeconds else { throw PDFExtractionError.ocrLimit }
             } else {
                 progress(.init(stage: .reviewingPDFLayout, completed: index, total: pageCount, currentPage: index + 1))
-                let rawBlocks = try DocumentReader.plainTextBlocks(text)
-                let layouts = try autoreleasepool { try PDFTextGeometry.capture(page: page, text: text, blocks: rawBlocks, remaining: PDFTextGeometry.maximumLines - geometryLines) }
-                if layouts == nil { geometrySkipped.insert(index) }
-                pageBlocks = rawBlocks.enumerated().map { position, block in
-                    .init(kind: block.kind, text: block.text, origin: .authored, pdfLayout: layouts?[position])
+                let remaining = PDFTextGeometry.maximumLines - geometryLines
+                let capturedBytes = totalBytes
+                let (mappedBlocks, geometryMissing) = try await NarrationPreparationWork.run {
+                    let raw = try DocumentReader.plainTextBlocks(text)
+                    let layouts = try autoreleasepool { try PDFTextGeometry.capture(page: page.page, text: text, blocks: raw, remaining: remaining) }
+                    let mapped = raw.enumerated().map { position, block in
+                        ContentBlock(kind: block.kind, text: block.text, origin: .authored, pdfLayout: layouts?[position])
+                    }
+                    guard mapped.reduce(capturedBytes, { $0 + $1.text.utf8.count }) <= limits.maximumTextBytes else { throw PDFExtractionError.textLimit }
+                    return (mapped, layouts == nil)
                 }
-                guard pageBlocks.reduce(totalBytes, { $0 + $1.text.utf8.count }) <= limits.maximumTextBytes else { throw PDFExtractionError.textLimit }
-                if PDFImageMetadata.hasImage(page), page.rotation == 0,
-                   page.bounds(for: .cropBox) == page.bounds(for: .mediaBox),
-                   let table = PDFImageTable.candidate(pageBlocks) {
+                if geometryMissing { geometrySkipped.insert(index) }
+                pageBlocks = mappedBlocks
+                let capturedPageBlocks = pageBlocks
+                let candidate: PDFImageTable.Candidate?
+                if hasImage, tableGeometry { candidate = try await NarrationPreparationWork.run { PDFImageTable.candidate(capturedPageBlocks) } }
+                else { candidate = nil }
+                if let table = candidate {
                     // Count targeted image-table recognition against the same OCR
                     // page/time budget. Native prose and geometry remain untouched.
                     var recognized: [ContentBlock] = []
-                    if tablePages < 20, ocrPages < limits.maximumOCRPages, ProcessInfo.processInfo.systemUptime < deadline {
+                    if tablePages < 20, ocrPages < limits.maximumOCRPages, ocrElapsed < limits.ocrSeconds {
                         tablePages += 1; ocrPages += 1
                         do {
                             progress(.init(stage: .renderingOCR, completed: index, total: pageCount, currentPage: index + 1))
-                            let crop = try autoreleasepool { PDFImageTable.crop(try render(page, maximumDimension: 4096), to: table.bounds) }
+                            let crop = try await NarrationPreparationWork.run {
+                                try autoreleasepool { PDFImageTable.crop(try render(page.page, maximumDimension: 4096), to: table.bounds) }
+                            }
                             if let crop {
                                 progress(.init(stage: .waitingForOCR, completed: index, total: pageCount, currentPage: index + 1))
-                                if let recognize { recognized = try await recognize(crop) }
-                                else { recognized = try await StructuredDocumentOCR.recognize(crop, onInferenceAcquired: {
-                                    progress(.init(stage: .recognizingText, completed: index, total: pageCount, currentPage: index + 1))
-                                }) }
+                                recognized = try await recognizeImage(crop, context: .init(stage: .waitingForOCR, completed: index, total: pageCount, currentPage: index + 1))
                             }
                         } catch is CancellationError { throw CancellationError() }
                         catch { tableRecognitionIncomplete = true }
                         try Task.checkCancellation()
-                        if ProcessInfo.processInfo.systemUptime >= deadline { recognized = [] }
+                        if ocrElapsed >= limits.ocrSeconds { recognized = [] }
                     }
                     if !recognized.contains(where: { $0.kind == .table }) { tableRecognitionIncomplete = true }
-                    pageBlocks += PDFImageTable.recovered(recognized, caption: table.label)
+                    let capturedRecognition = recognized
+                    pageBlocks += try await NarrationPreparationWork.run { PDFImageTable.recovered(capturedRecognition, caption: table.label) }
                 }
             }
-            let pageGeometryCount = pageBlocks.reduce(0) { $0 + ($1.pdfLayout?.lines.count ?? 0) }
-            let retainPageGeometry = pageGeometryCount <= PDFTextGeometry.maximumLinesPerPage && pageGeometryCount <= PDFTextGeometry.maximumLines - geometryLines
-            if !retainPageGeometry { geometrySkipped.insert(index) }
-            for block in pageBlocks {
-                totalBytes += block.text.utf8.count
-                guard totalBytes <= limits.maximumTextBytes else { throw PDFExtractionError.textLimit }
-                let layout: PDFTextLayout?
-                if retainPageGeometry, let candidate = block.pdfLayout, candidate.lines.count <= PDFTextGeometry.maximumLinesPerPage,
-                   candidate.lines.count <= PDFTextGeometry.maximumLines - geometryLines {
-                    layout = candidate; geometryLines += candidate.lines.count
-                } else { layout = nil; if block.kind == .paragraph { geometrySkipped.insert(index) } }
-                blocks.append(.init(kind: block.kind, text: block.text, headingLevel: block.headingLevel, narrationText: block.narrationText,
-                                    footnoteReferences: block.footnoteReferences, footnoteID: block.footnoteID, pdfPageIndex: index,
-                                    origin: block.origin ?? (needsOCR ? .ocr : .authored), pdfLayout: layout))
+            let capturedPageBlocks = pageBlocks, startingBytes = totalBytes, startingGeometry = geometryLines
+            let appended = try await NarrationPreparationWork.run {
+                var totalBytes = startingBytes, geometryLines = startingGeometry, result: [ContentBlock] = [], geometryMissing = false
+                let pageGeometryCount = capturedPageBlocks.reduce(0) { $0 + ($1.pdfLayout?.lines.count ?? 0) }
+                let retainPageGeometry = pageGeometryCount <= PDFTextGeometry.maximumLinesPerPage && pageGeometryCount <= PDFTextGeometry.maximumLines - geometryLines
+                if !retainPageGeometry { geometryMissing = true }
+                for block in capturedPageBlocks {
+                    try NarrationWorkCheckpoint.check()
+                    totalBytes += block.text.utf8.count
+                    guard totalBytes <= limits.maximumTextBytes else { throw PDFExtractionError.textLimit }
+                    let layout: PDFTextLayout?
+                    if retainPageGeometry, let candidate = block.pdfLayout, candidate.lines.count <= PDFTextGeometry.maximumLinesPerPage,
+                       candidate.lines.count <= PDFTextGeometry.maximumLines - geometryLines {
+                        layout = candidate; geometryLines += candidate.lines.count
+                    } else { layout = nil; if block.kind == .paragraph { geometryMissing = true } }
+                    result.append(.init(kind: block.kind, text: block.text, headingLevel: block.headingLevel, narrationText: block.narrationText,
+                                        footnoteReferences: block.footnoteReferences, footnoteID: block.footnoteID, pdfPageIndex: index,
+                                        origin: block.origin ?? (needsOCR ? .ocr : .authored), pdfLayout: layout))
+                }
+                for caption in authored {
+                    result.append(.init(kind: .caption, text: caption, narrationText: "Image description: " + caption,
+                                        pdfPageIndex: index, origin: .authored))
+                }
+                return (result, totalBytes, geometryLines, geometryMissing)
             }
-            for caption in authored {
-                blocks.append(.init(kind: .caption, text: caption, narrationText: "Image description: " + caption,
-                                    pdfPageIndex: index, origin: .authored))
-            }
+            blocks.append(contentsOf: appended.0); totalBytes = appended.1; geometryLines = appended.2
+            if appended.3 { geometrySkipped.insert(index) }
             progress(.init(stage: .extractingText, completed: index + 1, total: pageCount))
             if let preview, index + 1 >= nextPreviewPage,
                blocks.contains(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
@@ -160,7 +188,8 @@ public enum PDFDocumentExtractor {
         }
         guard blocks.contains(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { throw DocumentReadError.emptyPDF }
         var outline: [DocumentOutlineEntry]?, outlineWarnings: [String] = []
-        do { outline = try PDFNavigation.entries(pdf, blocks: blocks) }
+        let capturedBlocks = blocks
+        do { outline = try await NarrationPreparationWork.run { try PDFNavigation.entries(owned.document, blocks: capturedBlocks) } }
         catch is CancellationError { throw CancellationError() }
         catch { outlineWarnings.append("The PDF outline exceeded its navigation budget; source text is retained.") }
         return snapshot(outline: outline, warnings: outlineWarnings)

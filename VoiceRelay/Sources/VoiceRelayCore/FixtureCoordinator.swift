@@ -1,6 +1,7 @@
 import NarrationCore
 import AudioOutput
 import Foundation
+import ProcessingPipeline
 
 public enum FixtureBoundary: String, CaseIterable, Sendable {
     case chunkCommitted = "chunk-committed"
@@ -139,7 +140,12 @@ enum FixtureWorkspace {
 }
 
 public actor FixtureCoordinator {
-    public init() {}
+    let metadataCPUExecutor: (any NarrationCPUExecutor)?
+    public init(metadataCPUExecutor: (any NarrationCPUExecutor)? = nil) { self.metadataCPUExecutor = metadataCPUExecutor }
+    func metadataWork<Value: Sendable>(_ work: @escaping @Sendable () throws -> Value) async throws -> Value {
+        if let metadataCPUExecutor { return try await metadataCPUExecutor.perform(work) }
+        return try work()
+    }
     var beforeAudioProcessing: (@Sendable (SpeechTimingStage, URL) throws -> Void)?
     func setBeforeAudioProcessing(_ hook: (@Sendable (SpeechTimingStage, URL) throws -> Void)?) { beforeAudioProcessing = hook }
     var activeDrainRoots: Set<String> = []
@@ -152,12 +158,16 @@ public actor FixtureCoordinator {
     func setBeforeAudioRemovalLease(_ hook: (@Sendable () -> Void)?) { beforeAudioRemovalLease = hook }
     var beforeDeliveryPreflight: (@Sendable () -> Void)?
     func setBeforeDeliveryPreflight(_ hook: (@Sendable () -> Void)?) { beforeDeliveryPreflight = hook }
-    public func library(storage: ManagedSpeechStorage) throws -> [Episode] {
+    public func library(storage: ManagedSpeechStorage) async throws -> [Episode] {
+        try await metadataWork { try Self.readLibrary(storage: storage, resolveSnapshots: true) }
+    }
+    func libraryMetadata(storage: ManagedSpeechStorage) throws -> [Episode] { try Self.readLibrary(storage: storage, resolveSnapshots: false) }
+    nonisolated private static func readLibrary(storage: ManagedSpeechStorage, resolveSnapshots: Bool) throws -> [Episode] {
         try storage.validate()
         let p = storage.profile
         guard FileManager.default.fileExists(atPath: p.database.path) else { return [] }
         try storage.validateState()
-        let episodes = try NativeStore(url: p.database, readOnly: true).episodes()
+        let episodes = try NativeStore(url: p.database, readOnly: true).episodes(resolveSnapshots: resolveSnapshots)
         for e in episodes {
             guard UUID(uuidString: e.id) != nil,
                   [e.settings.database, e.settings.work, e.settings.audio, e.settings.feed].allSatisfy(\.isFileURL),
@@ -179,7 +189,10 @@ public actor FixtureCoordinator {
         }
         return try JSONDecoder().decode(Episode.self, from: Data(record.utf8)).settings
     }
-    public func articlePreviewURL(articleID: String, stateRoot: URL = AppStorage.managedLibrary) throws -> URL {
+    public func articlePreviewURL(articleID: String, stateRoot: URL = AppStorage.managedLibrary) async throws -> URL {
+        try await metadataWork { try Self.readArticlePreviewURL(articleID: articleID, stateRoot: stateRoot) }
+    }
+    nonisolated private static func readArticlePreviewURL(articleID: String, stateRoot: URL) throws -> URL {
         try ManagedSpeechStorage.validateLibrary(stateRoot: stateRoot)
         let database = PrototypeProfile.fixture(at: stateRoot).database
         guard FileManager.default.fileExists(atPath: database.path), UUID(uuidString: articleID) != nil,
@@ -190,7 +203,10 @@ public actor FixtureCoordinator {
         try ArticleURL.validate(url)
         return url
     }
-    public func savedArticlePreview(articleID: String, stateRoot: URL = AppStorage.managedLibrary) throws -> ReviewedSource {
+    public func savedArticlePreview(articleID: String, stateRoot: URL = AppStorage.managedLibrary) async throws -> ReviewedSource {
+        try await metadataWork { try Self.readSavedArticlePreview(articleID: articleID, stateRoot: stateRoot) }
+    }
+    nonisolated private static func readSavedArticlePreview(articleID: String, stateRoot: URL) throws -> ReviewedSource {
         try ManagedSpeechStorage.validateLibrary(stateRoot: stateRoot)
         let database = PrototypeProfile.fixture(at: stateRoot).database
         guard UUID(uuidString: articleID) != nil, FileManager.default.fileExists(atPath: database.path),
@@ -207,7 +223,7 @@ public actor FixtureCoordinator {
     func resumeWork(storage: ManagedSpeechStorage, articleID: String, backend: any TTSBackend,
                     delivery: DeliverySettings? = nil, context: SpeechArticleContext? = nil,
                     onProgress: @escaping @Sendable (PipelineProgress) -> Void) async throws -> FixtureResult {
-        guard let e = try library(storage: storage).first(where: { $0.id == articleID }),
+        guard let e = try libraryMetadata(storage: storage).first(where: { $0.id == articleID }),
               let data = try NativeStore(url: storage.profile.database, readOnly: true).snapshot(articleID: e.id) else {
             throw RelayError.setup("The saved article text is unavailable. Select the article again before generating speech.")
         }
@@ -367,14 +383,19 @@ public actor FixtureCoordinator {
         defer { diagnostics.record(.article, seconds: ProcessInfo.processInfo.systemUptime - articleStart) }
         var finalizer: SpeechFinalizationPermit?
         defer { finalizer?.release() }
+        var speechArticleID: String?
+        defer { if let speechArticleID { backend.endArticle(speechArticleID) } }
         func handoffSpeech() async throws {
             if let context, finalizer == nil {
                 let waitStart = diagnostics.beginFinalizerWait(database: selected.database)
                 finalizer = try await context.pipeline.finalization.acquire()
                 diagnostics.endFinalizerWait(waitStart, database: selected.database)
                 try Task.checkCancellation()
-                context.beginFinalization(); context.finishSpeech()
+                context.beginFinalization()
+                if let speechArticleID { backend.endArticle(speechArticleID) }
+                context.finishSpeech()
             }
+            if context == nil, let speechArticleID { backend.endArticle(speechArticleID) }
         }
         let store = try PipelineStore(databaseURL: selected.database)
         let sourceKey = review.map { "reviewed-url-v1-" + Files.hash(Data($0.page.originalURL.absoluteString.utf8)) }
@@ -435,6 +456,7 @@ public actor FixtureCoordinator {
         }
         try p.validate()
         let directory = p.work.appendingPathComponent(e.id)
+        speechArticleID = e.id
         guard Files.contains(p.work, directory), !Files.hasSymlink(directory, below: p.work) else {
             throw RelayError.setup("Episode work must remain inside its fixture without symlinks.")
         }
@@ -453,69 +475,86 @@ public actor FixtureCoordinator {
         let narrationFile = directory.appendingPathComponent("narration.json")
         let cleanedFile = directory.appendingPathComponent("cleaned.html")
         let extractionFile = directory.appendingPathComponent("extraction-checkpoint.json")
-        let sourceBytes = try review?.page.bytes ?? FixtureResource.html(); let sourceHash = Files.hash(sourceBytes)
+        let cpu = backend.cpuWork(for: e.id), capturedEpisode = e
+        let sourceBytes = try review?.page.bytes ?? FixtureResource.html()
+        let sourceHash = try await SpeechCPUContext.run(cpu) { Files.hash(sourceBytes) }
         let placedDestination = p.audio.appendingPathComponent(e.id + ".m4a")
-        let preservingPlacedAudio = e.stage == .encoded && e.encodedHash != nil
+        let preservingPlacedAudio = try await SpeechCPUContext.run(cpu) {
+            capturedEpisode.stage == .encoded && capturedEpisode.encodedHash != nil
             && !Files.hasSymlink(placedDestination, below: p.audio)
-            && (try? Files.hash(placedDestination)) == e.encodedHash
+            && (try? Files.hash(placedDestination)) == capturedEpisode.encodedHash
             && (try? processor.probe(placedDestination, final: true)) != nil
-        if storage != nil, let data = try store.snapshot(articleID: e.id) {
+        }
+        if storage != nil, let data = try await SpeechCPUContext.run(cpu, operation: { try store.snapshot(articleID: capturedEpisode.id) }) {
+            try await SpeechCPUContext.run(cpu) {
             let saved = try JSONDecoder().decode(StoredExtraction.self, from: data)
             let savedReview = try saved.review()
             if Files.hash(savedReview.page.bytes) == sourceHash { try saved.restore(to: directory) }
-            else if e.stage == .published || preservingPlacedAudio { throw RelayError.setup("This article already has audio from a different source snapshot. Existing audio is preserved.") }
+            else if capturedEpisode.stage == .published || preservingPlacedAudio { throw RelayError.setup("This article already has audio from a different source snapshot. Existing audio is preserved.") }
+            }
         }
-        if review != nil, e.stage == .published || preservingPlacedAudio,
+        let restored = try await SpeechCPUContext.run(cpu) { () throws -> (SemanticArticle?, NarrationPlan?) in
+        if review != nil, capturedEpisode.stage == .published || preservingPlacedAudio,
            let bytes = try? Data(contentsOf: extractionFile),
            let cp = try? JSONDecoder().decode(ExtractionCheckpoint.self, from: bytes), cp.sourceHash != sourceHash {
             throw RelayError.setup("This article already has audio from a different source snapshot. Existing audio is preserved.")
         }
-        var article: SemanticArticle?
-        var plan: NarrationPlan?
         if let bytes = try? Data(contentsOf: extractionFile),
            let cp = try? JSONDecoder().decode(ExtractionCheckpoint.self, from: bytes),
            cp.sourceHash == sourceHash,
-           (e.stage == .published || preservingPlacedAudio || (cp.extractorVersion == (review?.document?.article.extractorVersion ?? ArticleExtractor.version)
+           (capturedEpisode.stage == .published || preservingPlacedAudio || (cp.extractorVersion == (review?.document?.article.extractorVersion ?? ArticleExtractor.version)
                                       && cp.narrationVersion == ((backend as? any PreparedTTSBackend)?.narrationVersion ?? Narration.version(pronunciations: backend.pronunciations)))),
            (try? Files.hash(source)) == sourceHash, (try? Files.hash(articleFile)) == cp.articleHash,
            (try? Files.hash(narrationFile)) == cp.narrationHash, (try? Files.hash(cleanedFile)) == cp.cleanedHash {
-            article = try? JSONDecoder().decode(SemanticArticle.self, from: Data(contentsOf: articleFile))
-            plan = try? JSONDecoder().decode(NarrationPlan.self, from: Data(contentsOf: narrationFile))
+            return (try? JSONDecoder().decode(SemanticArticle.self, from: Data(contentsOf: articleFile)),
+                    try? JSONDecoder().decode(NarrationPlan.self, from: Data(contentsOf: narrationFile)))
         }
+        return (nil, nil)
+        }
+        var article = restored.0, plan = restored.1
         if article == nil || plan == nil {
             guard e.stage != .published && !preservingPlacedAudio else { throw RelayError.artifact("Finished audio is preserved, but its semantic checkpoint needs inspection before publication can continue.") }
             e.stage = .fetching; try store.save(e); progress(.fetching)
             guard sourceBytes.count <= p.maxArticleBytes else {
                 throw RelayError.extraction("Fixture HTML exceeds configured bounds or has an unsupported encoding.")
             }
-            if (try? Files.hash(source)) != sourceHash { try Files.write(sourceBytes, to: source) }
-            let document: ExtractedDocument
-            if let reviewed = review?.document { document = reviewed }
-            else {
-                guard let html = String(data: sourceBytes, encoding: .utf8) else { throw RelayError.extraction("Saved article encoding is unsupported.") }
-                let page = URL(string: "https://articles.example/fixture")!
-                document = try ArticleExtractor.extract(html: html, originalURL: page, finalURL: page)
-            }
             let native = backend as? any PreparedTTSBackend
             let purpose = native?.preparationPurpose ?? .preview
-            let projection = try Narration.prepare(document.article, limit: p.chunkMaxCharacters,
-                pronunciations: backend.pronunciations, settings: native?.speechSettings, purpose: purpose, options: p.narrationOptions ?? .init())
-            if native != nil, let previous = context?.previous { try await previous.wait() }
-            var narration = try native?.prepareNarration(projection) ?? projection
-            if native != nil, let oldData = try? Data(contentsOf: narrationFile),
-               let old = try? JSONDecoder().decode(NarrationPlan.self, from: oldData), old.version != narration.version {
-                narration = NarrationPlan(version: narration.version, chunks: narration.chunks,
-                    notices: narration.notices + ["Unfinished narration was prepared with the current speech pipeline. Completed and published audio is preserved."], omissions: narration.omissions)
+            let (document, projection) = try await SpeechCPUContext.run(cpu) {
+                if (try? Files.hash(source)) != sourceHash { try Files.write(sourceBytes, to: source) }
+                let document: ExtractedDocument
+                if let reviewed = review?.document { document = reviewed }
+                else {
+                    guard let html = String(data: sourceBytes, encoding: .utf8) else { throw RelayError.extraction("Saved article encoding is unsupported.") }
+                    let page = URL(string: "https://articles.example/fixture")!
+                    document = try ArticleExtractor.extract(html: html, originalURL: page, finalURL: page)
+                }
+                let projection = try Narration.prepare(document.article, limit: p.chunkMaxCharacters,
+                    pronunciations: backend.pronunciations, settings: native?.speechSettings, purpose: purpose, options: p.narrationOptions ?? .init())
+                return (document, projection)
             }
-            try Files.write(try Files.json(document.article), to: articleFile)
-            try Files.write(try Files.json(narration), to: narrationFile)
-            try Files.write(Data(document.cleanedHTML.utf8), to: cleanedFile)
-            let cp = ExtractionCheckpoint(sourceHash: sourceHash, extractorVersion: document.article.extractorVersion, narrationVersion: narration.version,
-                                          articleHash: try Files.hash(articleFile, description: "prepared article text"),
-                                          narrationHash: try Files.hash(narrationFile, description: "prepared narration"),
-                                          cleanedHash: try Files.hash(cleanedFile, description: "cleaned article"))
-            try Files.write(try Files.json(cp), to: extractionFile)
-            if storage != nil { try store.saveSnapshot(articleID: e.id, data: Files.json(StoredExtraction(directory: directory))) }
+            if native != nil, let previous = context?.previous { try await previous.wait() }
+            if native != nil { try backend.beginArticle(e.id) }
+            let preparedNarration = try native?.prepareNarration(projection) ?? projection
+            let saveSnapshot = storage != nil
+            let narration = try await SpeechCPUContext.run(cpu) {
+                var narration = preparedNarration
+                if native != nil, let oldData = try? Data(contentsOf: narrationFile),
+                   let old = try? JSONDecoder().decode(NarrationPlan.self, from: oldData), old.version != narration.version {
+                    narration = NarrationPlan(version: narration.version, chunks: narration.chunks,
+                        notices: narration.notices + ["Unfinished narration was prepared with the current speech pipeline. Completed and published audio is preserved."], omissions: narration.omissions)
+                }
+                try Files.write(try Files.json(document.article), to: articleFile)
+                try Files.write(try Files.json(narration), to: narrationFile)
+                try Files.write(Data(document.cleanedHTML.utf8), to: cleanedFile)
+                let cp = ExtractionCheckpoint(sourceHash: sourceHash, extractorVersion: document.article.extractorVersion, narrationVersion: narration.version,
+                                              articleHash: try Files.hash(articleFile, description: "prepared article text"),
+                                              narrationHash: try Files.hash(narrationFile, description: "prepared narration"),
+                                              cleanedHash: try Files.hash(cleanedFile, description: "cleaned article"))
+                try Files.write(try Files.json(cp), to: extractionFile)
+                if saveSnapshot { try store.saveSnapshot(articleID: capturedEpisode.id, data: Files.json(StoredExtraction(directory: directory))) }
+                return narration
+            }
             article = document.article; plan = narration; e.title = document.article.title
             e.encodedHash = nil; e.info = nil; e.stage = .extracted; try store.save(e)
         }
@@ -546,17 +585,25 @@ public actor FixtureCoordinator {
                 var pendingIndex = 0
                 func commitPending() async throws {
                     guard let task = pending else { return }
+                    defer { pending = nil }
                     let cp = try await task.value
-                    pending = nil
                     artifacts += NativeMLXBackend.assemblyArtifacts(for: cp.request, result: cp.result, gapSeconds: p.gapSeconds)
                     transcriptTexts.append(cp.request.preparedUtterance?.text ?? cp.request.text)
                     transcriptArtifactCounts.append(cp.result.artifacts.count)
+                    syntheses += 1
                     try boundary(.chunkCommitted)
                     progress(.synthesizing, pendingIndex + 1, plan.chunks.count)
                 }
                 do {
-                    for (position, chunk) in plan.chunks.enumerated() {
+                    var position = 0
+                    while position < plan.chunks.count || pending != nil {
                         try Task.checkCancellation()
+                        if position == plan.chunks.count {
+                            do { try await commitPending() }
+                            catch let suspension as SpeechCheckpointSuspension { position = suspension.index }
+                            continue
+                        }
+                        let chunk = plan.chunks[position]
                         let chunkDirectory = directory.appendingPathComponent("chunk-\(chunk.index)")
                         guard Files.contains(directory, chunkDirectory), !Files.hasSymlink(chunkDirectory, below: directory) else {
                             throw RelayError.setup("Chunk work must remain inside its fixture without symlinks.")
@@ -576,14 +623,16 @@ public actor FixtureCoordinator {
                             if !valid || (try? processor.validate(cp.result, within: chunkDirectory)) == nil { checkpoint = nil }
                         }
                         if let cp = checkpoint {
-                            try await commitPending()
+                            do { try await commitPending() }
+                            catch let suspension as SpeechCheckpointSuspension { position = suspension.index; continue }
                             artifacts += NativeMLXBackend.assemblyArtifacts(for: cp.request, result: cp.result, gapSeconds: p.gapSeconds)
                             transcriptTexts.append(cp.request.preparedUtterance?.text ?? cp.request.text)
                             transcriptArtifactCounts.append(cp.result.artifacts.count)
                             progress(.synthesizing, chunk.index + 1, plan.chunks.count)
+                            position += 1
                             continue
                         }
-                        if !prepared { try backend.prepare(); prepared = true }
+                        if !prepared { try backend.beginArticle(e.id); try backend.prepare(); prepared = true }
                         let result: SynthesisResult
                         do {
                             if let lookahead = backend as? any LookaheadTTSBackend {
@@ -595,22 +644,41 @@ public actor FixtureCoordinator {
                         catch { throw RelayError.artifact("Fixture backend failed; completed chunks are retained.") }
                         // One validation/checkpoint may overlap the next inference; it is
                         // always joined before another validation or any cleanup starts.
-                        try await commitPending()
+                        do { try await commitPending() }
+                        catch let suspension as SpeechCheckpointSuspension {
+                            result.checkpointReceipt?.discard()
+                            position = suspension.index; continue
+                        } catch { result.checkpointReceipt?.discard(); throw error }
                         let articleID = e.id
+                        let cpuWork = backend.cpuWork(for: e.id)
+                        let retryPosition = position
                         pendingIndex = chunk.index
                         pending = Task.detached(priority: .userInitiated) {
-                            try diagnostics.measure(.validation, chunk: chunk.index) { try processor.validate(result, within: chunkDirectory) }
-                            let cp = ChunkCheckpoint(request: request, result: result,
-                                hashes: try result.artifacts.map { try Files.hash($0.url, description: "generated speech chunk") })
-                            try diagnostics.measure(.checkpoint, chunk: chunk.index) {
-                                try store.saveChunk(articleID: articleID, index: chunk.index, fingerprint: fingerprint, checkpoint: cp)
-                            }
-                            return cp
+                            do {
+                                let cp = try await SpeechCPUContext.run(cpuWork, interruption: {
+                                    if let receipt = result.checkpointReceipt, try !receipt.isCurrent() {
+                                        throw SpeechCheckpointSuspension(index: retryPosition)
+                                    }
+                                }) {
+                                    try diagnostics.measure(.validation, chunk: chunk.index) { try processor.validate(result, within: chunkDirectory) }
+                                    return ChunkCheckpoint(request: request, result: result,
+                                        hashes: try result.artifacts.map { try Files.hash($0.url, description: "generated speech chunk") })
+                                }
+                                let accepted = try diagnostics.measure(.checkpoint, chunk: chunk.index) {
+                                    try store.saveChunk(articleID: articleID, index: chunk.index, fingerprint: fingerprint, checkpoint: cp,
+                                        receipt: result.checkpointReceipt)
+                                }
+                                guard accepted else { throw SpeechCheckpointSuspension(index: retryPosition) }
+                                result.checkpointReceipt?.didCommit()
+                                return cp
+                            } catch { result.checkpointReceipt?.discard(); throw error }
                         }
-                        syntheses += 1
-                        if context == nil { try await commitPending() }
+                        position += 1
+                        if context == nil {
+                            do { try await commitPending() }
+                            catch let suspension as SpeechCheckpointSuspension { position = suspension.index }
+                        }
                     }
-                    try await commitPending()
                 } catch {
                     // Preserve a completed predecessor even when the next inference fails.
                     if let task = pending {
@@ -621,9 +689,13 @@ public actor FixtureCoordinator {
                 }
                 try await handoffSpeech()
                 e.stage = .encoding; try store.save(e); progress(.encoding, plan.chunks.count, plan.chunks.count)
-                var timeline: [AudioOutput.AudioSegmentTiming] = []
-                let (_, info) = try processor.encode(artifacts, in: directory) { timeline = $0 }
-                e.info = info; e.encodedHash = try Files.hash(encoded, description: "encoded audio")
+                let capturedArtifacts = artifacts
+                let (info, timeline, encodedHash) = try await SpeechCPUContext.run(backend.cpuWork(for: e.id)) {
+                    var timeline: [AudioOutput.AudioSegmentTiming] = []
+                    let (_, info) = try processor.encode(capturedArtifacts, in: directory) { timeline = $0 }
+                    return (info, timeline, try Files.hash(encoded, description: "encoded audio"))
+                }
+                e.info = info; e.encodedHash = encodedHash
                 e.transcript = p.publishTranscripts == true ? try EpisodeTranscript.make(texts: transcriptTexts,
                     artifactCounts: transcriptArtifactCounts, timeline: timeline, language: p.language, audioHash: e.encodedHash!) : nil
                 e.transcriptReferences = nil
@@ -631,13 +703,15 @@ public actor FixtureCoordinator {
             }
             try await handoffSpeech()
             let publicationSource = placedAudioValid ? destination : encoded
-            try processor.decode(publicationSource)
+            try await SpeechCPUContext.run(backend.cpuWork(for: e.id)) { try processor.decode(publicationSource) }
             e.stage = .encoded
             if e.publicationDate == nil { e.publicationDate = Date() }
             try store.save(e); try boundary(.encoded)
             guard let encodedHash = e.encodedHash else { throw RelayError.artifact("Encoded checkpoint has no integrity record.") }
-            try diagnostics.measure(.publication) {
-                try processor.publish(publicationSource, destination: destination, expectedHash: encodedHash, inMediaDirectory: storage != nil)
+            try await SpeechCPUContext.run(backend.cpuWork(for: e.id)) {
+                try diagnostics.measure(.publication) {
+                    try processor.publish(publicationSource, destination: destination, expectedHash: encodedHash, inMediaDirectory: storage != nil)
+                }
             }
             try boundary(.audioPlaced)
             // Origin metadata is captured at the commit whether or not delivery is enabled.
@@ -655,10 +729,11 @@ public actor FixtureCoordinator {
             try store.save(e, pendingFeed: true); try boundary(.episodeCommitted)
         }
         try await handoffSpeech()
-        guard let committedHash = e.audioHash, try Files.hash(destination, description: "saved audio") == committedHash else {
+        let savedHash = try await SpeechCPUContext.run(backend.cpuWork(for: e.id)) { try Files.hash(destination, description: "saved audio") }
+        guard let committedHash = e.audioHash, savedHash == committedHash else {
             throw RelayError.artifact("Published media integrity failed; previous feed is preserved.")
         }
-        _ = try processor.probe(destination, final: true); try processor.decode(destination)
+        try await SpeechCPUContext.run(backend.cpuWork(for: e.id)) { _ = try processor.probe(destination, final: true); try processor.decode(destination) }
         if e.author == nil, e.sourceURL == nil {
             e.author = article.author
             e.sourceHost = article.archivedCopy == nil ? (article.finalURL.host ?? article.originalURL.host) : article.originalURL.host

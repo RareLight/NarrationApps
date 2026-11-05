@@ -9,7 +9,7 @@ enum PDFLetterSpacing {
         let ns = text as NSString
         var result: [NSRange] = []
         for line in lines {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             for match in pattern.matches(in: text, range: NSRange(location: line.location, length: line.length)) {
                 let value = ns.substring(with: match.range), parts = value.split(whereSeparator: \.isWhitespace).map(String.init)
                 let joined = parts.joined()

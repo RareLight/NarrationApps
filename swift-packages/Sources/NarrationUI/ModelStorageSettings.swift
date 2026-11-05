@@ -11,13 +11,19 @@ public final class ModelStorageMaintenance {
     public private(set) var error: String?
     public private(set) var revision = 0
     private var task: Task<Void, Never>?
-    public init() {}
+    public typealias Perform = @Sendable (@escaping @Sendable () async throws -> Void) async throws -> Void
+    @ObservationIgnored private let perform: Perform?
+    public init(perform: Perform? = nil) { self.perform = perform }
     public func remove(_ model: NarrationCore.SpeechModel, at root: URL, changed: @escaping @MainActor () -> Void) {
         guard !isBusy else { return }
         isBusy = true; error = nil
         task = Task {
             defer { isBusy = false; task = nil; revision += 1; changed() }
-            let work = Task.detached(priority: .utility) { try NativeModelStorage.remove(model, at: root) }
+            let perform = self.perform
+            let work = Task.detached(priority: .utility) {
+                let remove: @Sendable () async throws -> Void = { try NativeModelStorage.remove(model, at: root) }
+                if let perform { try await perform(remove) } else { try await remove() }
+            }
             do { try await work.value }
             catch { self.error = error.localizedDescription }
         }

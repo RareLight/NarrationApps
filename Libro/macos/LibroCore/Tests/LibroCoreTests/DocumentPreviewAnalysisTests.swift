@@ -6,6 +6,16 @@ import NarrationCore
 import Pronunciation
 @testable import LibroCore
 
+private enum PreviewCPUState { @TaskLocal static var inside = false }
+private struct PreviewCPUExecutor: NarrationCPUExecutor {
+    func perform<Value: Sendable>(_ operation: @escaping @Sendable () throws -> Value) async throws -> Value {
+        let work = Task.detached { try PreviewCPUState.$inside.withValue(true) {
+            try NarrationWorkCheckpoint.$current.withValue({ XCTAssertTrue(PreviewCPUState.inside) }, operation: operation)
+        } }
+        return try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+    }
+}
+
 private actor PreviewUpdates {
     var values: [DocumentPreviewContent] = []
     func append(_ value: DocumentPreviewContent) { values.append(value) }
@@ -93,4 +103,20 @@ final class DocumentPreviewAnalysisTests: XCTestCase {
         XCTAssertEqual(values.count, 1)
         XCTAssertFalse(values[0].isComplete)
     }
+    func testCPUAdmissionWrapsPreviewPlanningButNotUpdates() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input = try pdf(2, at: root), updates = PreviewUpdates()
+        try await NarrationPreparationWork.$executor.withValue(PreviewCPUExecutor()) {
+            try await DocumentPreviewAnalysis.run(input, describeImages: false, settings: .init(),
+                pronunciations: .empty, options: .init()) { content in
+                    XCTAssertFalse(PreviewCPUState.inside)
+                    await updates.append(content)
+                }
+        }
+        let values = await updates.values
+        XCTAssertEqual(values.count, 3)
+        XCTAssertTrue(values.last?.isComplete == true)
+    }
+
 }

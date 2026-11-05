@@ -301,9 +301,26 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		76C97A059D0F523A8095539D /* Embed MLX Metal Library */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(LIBRO_MLX_METAL_LIBRARY)",
+				"$(SRCROOT)/Configuration/embed-worker-resources.sh",
+			);
+			name = "Embed MLX Metal Library";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/mlx.metallib",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "bash \"$SRCROOT/Configuration/embed-worker-resources.sh\"\n";
+		};
 		BB00000000000000000000A1 /* Generate App Info */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = YES;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -328,23 +345,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
 			shellScript = "bash \"$NARRATION_REPOSITORY_ROOT/scripts/generate-app-info.sh\" \"$NARRATION_REPOSITORY_ROOT\" \"$NARRATION_INFO_PLIST_TEMPLATE\" \"$DERIVED_FILE_DIR/NarrationApps-Info.plist\" \"$MARKETING_VERSION\"\n";
-		};
-		76C97A059D0F523A8095539D /* Embed MLX Metal Library */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"$(LIBRO_MLX_METAL_LIBRARY)",
-				"$(SRCROOT)/Configuration/embed-worker-resources.sh",
-			);
-			name = "Embed MLX Metal Library";
-			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/mlx.metallib",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/bash;
-			shellScript = "bash \"$SRCROOT/Configuration/embed-worker-resources.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -441,13 +441,13 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
 				MARKETING_VERSION = "$(LIBRO_MARKETING_VERSION)";
-				USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES;
 				NARRATION_INFO_PLIST_TEMPLATE = "$(SRCROOT)/App/Info.plist";
 				NARRATION_REPOSITORY_ROOT = "$(SRCROOT)/../../..";
 				PRODUCT_BUNDLE_IDENTIFIER = org.librotts.Libro;
 				PRODUCT_NAME = Libro;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES;
 			};
 			name = Release;
 		};
@@ -540,13 +540,13 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
 				MARKETING_VERSION = "$(LIBRO_MARKETING_VERSION)";
-				USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES;
 				NARRATION_INFO_PLIST_TEMPLATE = "$(SRCROOT)/App/Info.plist";
 				NARRATION_REPOSITORY_ROOT = "$(SRCROOT)/../../..";
 				PRODUCT_BUNDLE_IDENTIFIER = org.librotts.Libro;
 				PRODUCT_NAME = Libro;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES;
 			};
 			name = Debug;
 		};

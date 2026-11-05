@@ -58,7 +58,7 @@ enum PDFLayoutAnalysis {
                         excludedBlocks: Set<Int> = []) throws -> Result {
         var pages: [Int: [Line]] = [:], count = 0
         for (index, block) in document.blocks.enumerated() {
-            if index.isMultiple(of: 256) { try Task.checkCancellation() }
+            if index.isMultiple(of: 256) { try NarrationWorkCheckpoint.check() }
             guard !excludedBlocks.contains(index), block.kind == .paragraph, block.narrationText == nil, block.footnoteID == nil,
                   (block.footnoteReferences ?? []).isEmpty, block.containsInlineCode != true,
                   block.origin == .authored || block.origin == .ocr,
@@ -86,7 +86,7 @@ enum PDFLayoutAnalysis {
         var sequenceOffsets: [String: [Int: Set<Int>]] = [:]
         var sequenceAnchors: [String: [Int: [Int: Set<Int>]]] = [:]
         for (page, lines) in pages {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             let body = lines.filter { line in
                 let b = line.value.bounds
                 return b.y >= 0.15 && b.y + b.height <= 0.88 && b.width > 0.15 && b.width > b.height * 2
@@ -185,7 +185,7 @@ enum PDFLayoutAnalysis {
         let omitted = omissions.mapValues(Set.init)
         var byBlock: [Int: [Line]] = [:], columns: [Int: Column] = [:]
         for (page, all) in pages {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             let remaining = all.filter { !(omitted[$0.block]?.contains(NSRange(location: $0.value.location, length: $0.value.length)) ?? false) }
             for line in remaining { byBlock[line.block, default: []].append(line) }
             let body = remaining.filter { line in
@@ -199,7 +199,7 @@ enum PDFLayoutAnalysis {
         }
         var joins = Set<Int>()
         for index in document.blocks.indices.dropLast() {
-            if index.isMultiple(of: 256) { try Task.checkCancellation() }
+            if index.isMultiple(of: 256) { try NarrationWorkCheckpoint.check() }
             let a = document.blocks[index], b = document.blocks[index + 1]
             guard a.kind == .paragraph, b.kind == .paragraph, a.origin == .authored, b.origin == .authored,
                   a.resourcePath == nil, b.resourcePath == nil,

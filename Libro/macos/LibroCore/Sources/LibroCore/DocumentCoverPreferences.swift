@@ -1,6 +1,7 @@
 import Foundation
 import AudioOutput
 import DocumentProcessing
+import NarrationCore
 
 public struct DocumentCoverPreferences {
     private let defaults: UserDefaults
@@ -22,31 +23,32 @@ public struct DocumentCoverPreferences {
         readCover: @Sendable (InputDocument) throws -> Data? = { try DocumentReader.bookCover($0) },
         progress: @Sendable (Int, Int) -> Void = { _, _ in }
     ) throws -> [String: String] {
+        try NarrationWorkCheckpoint.check()
         let candidates = documents.filter {
             [.pdf, .epub].contains($0.kind) && references[key($0.source)] == nil && !excluding.contains(key($0.source))
         }
         var result: [String: String] = [:]
         progress(0, candidates.count)
         for (index, document) in candidates.enumerated() {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             do {
                 if let bytes = try readCover(document) {
                     let artwork = try CoverArtwork(data: bytes)
-                    try Task.checkCancellation()
+                    try NarrationWorkCheckpoint.check()
                     result[key(document.source)] = try store.save(artwork)
                 }
             } catch is CancellationError { throw CancellationError() }
             catch { }
             progress(index + 1, candidates.count)
         }
-        try Task.checkCancellation()
+        try NarrationWorkCheckpoint.check()
         return result
     }
     public static func snapshot(_ documents: [InputDocument], references: [String: String],
                                 store: CoverArtworkStore) throws -> [UUID: CoverArtwork] {
         var result: [UUID: CoverArtwork] = [:], cache: [String: CoverArtwork] = [:]
         for document in documents {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             if let digest = references[key(document.source)] {
                 let artwork = try cache[digest] ?? store.load(digest)
                 cache[digest] = artwork; result[document.id] = artwork

@@ -87,7 +87,7 @@ struct MappedProjection {
         let rawSource = raw as NSString
         func range(_ start: Int, _ length: Int) -> ExtractedTextRange { .init(blockIndex: block, location: sourceOffset + start, length: length) }
         for character in raw {
-            if offset % 1024 == 0 { try Task.checkCancellation() }
+            if offset % 1024 == 0 { try NarrationWorkCheckpoint.check() }
             let value = String(character), width = value.utf16.count
             if character.isWhitespace {
                 if whitespaceStart == nil { whitespaceStart = offset }
@@ -123,7 +123,7 @@ struct MappedProjection {
             mappingCursor = index > 0 ? index - 1 : 0
         }
         for edit in edits {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             guard edit.range.location >= cursor, NSMaxRange(edit.range) <= ns.length else { throw NarrationError.invalidInput("Invalid spoken-form mapping. No text was truncated.") }
             copied(NSRange(location: cursor, length: edit.range.location - cursor), into: &result)
             let covered = ProjectionMapping.intersecting(mappings, location: edit.range.location, length: edit.range.length) ?? []
@@ -148,7 +148,7 @@ struct MappedProjection {
         let sourced = mappings.filter { $0.source != nil && $0.spokenLength > 0 }.sorted { $0.source!.location < $1.source!.location }
         var resolved: [ProjectionEdit] = [], cursor = 0
         for edit in edits.sorted(by: { $0.range.location < $1.range.location }) {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             var low: Int?, high: Int?
             while cursor < sourced.count, let source = sourced[cursor].source, source.location + source.length <= edit.range.location { cursor += 1 }
             var index = cursor
@@ -202,7 +202,7 @@ struct MappedProjection {
         let ns = raw as NSString
         var result: Self?, previous: PDFTextLine?
         for line in lines {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             let range = NSRange(location: line.location, length: line.length)
             var part = try source(ns.substring(with: range), block: block, canonical: canonical, sourceOffset: range.location)
             let localMargins = margins.filter { NSIntersectionRange($0, range).length > 0 }
@@ -229,7 +229,7 @@ struct MappedProjection {
     func removingSourceRanges(_ ranges: [NSRange], rule: String = "pdf-recurring-margin-1") throws -> Self {
         var edits: [ProjectionEdit] = [], cursor = 0
         for range in ranges {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             while cursor < mappings.count, let source = mappings[cursor].source, source.location + source.length <= range.location { cursor += 1 }
             var index = cursor, start: Int?, end: Int?
             while index < mappings.count, let source = mappings[index].source, source.location < NSMaxRange(range) {
@@ -279,7 +279,7 @@ struct MappedProjection {
                         edits.append(.init(range: match.range, replacement: replacement, rule: rule))
                     }
                 }
-                try Task.checkCancellation()
+                try NarrationWorkCheckpoint.check()
                 if exceeded { throw NarrationError.invalidInput("Spoken-form note mapping budget exceeded. No text was truncated.") }
                 return edits
             }

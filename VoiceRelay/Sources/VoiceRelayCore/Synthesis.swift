@@ -1,6 +1,7 @@
 import Foundation
 import Pronunciation
 import NarrationCore
+import ProcessingPipeline
 
 public struct BackendIdentity: Codable, Sendable, Equatable {
     public let id: String
@@ -29,16 +30,29 @@ public struct LosslessArtifact: Codable, Sendable {
 }
 public struct SynthesisResult: Codable, Sendable {
     public let artifacts: [LosslessArtifact]
+    // Process-local only. Restored checkpoints must never resurrect live demand.
+    var checkpointReceipt: SpeechCheckpointReceipt? = nil
+    private enum CodingKeys: String, CodingKey { case artifacts }
 }
 public protocol TTSBackend: Sendable {
+    var cpuWork: SpeechCPUContext? { get }
+    func cpuWork(for articleID: String) -> SpeechCPUContext?
     var pronunciations: PronunciationDictionary { get }
     var identity: BackendIdentity { get }
     func prepare() throws
     func synthesize(_ request: SynthesisRequest, directory: URL) throws -> SynthesisResult
     func cancel()
+    func beginArticle(_ articleID: String) throws
+    func endArticle(_ articleID: String)
 }
 
-public extension TTSBackend { var pronunciations: PronunciationDictionary { .empty } }
+public extension TTSBackend {
+    var cpuWork: SpeechCPUContext? { nil }
+    func cpuWork(for articleID: String) -> SpeechCPUContext? { cpuWork }
+    var pronunciations: PronunciationDictionary { .empty }
+    func beginArticle(_ articleID: String) throws {}
+    func endArticle(_ articleID: String) {}
+}
 
 /// Optional CPU pronunciation lookahead; engines remain usable without it.
 public protocol LookaheadTTSBackend: TTSBackend {

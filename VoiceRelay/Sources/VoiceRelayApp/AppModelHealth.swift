@@ -51,6 +51,7 @@ extension AppModel {
         if sourceReview.lastSyncedAt == nil { return .failure("Reading List not checked", .general) }
         if runtimeTestResult != .success { return .failure("Speech setup not checked", .voiceModel) }
         if !deliveryConnectionVerified { return .failure("Publishing not checked", .delivery) }
+        if let waiting = speechWaitingLabel { return .checking(waiting) }
         if syncBusy { return .checking("Syncing…") }
         if processingSpeech { return .checking("Generating audio…") }
         if deliveryBusy { return .checking("Publishing…") }
@@ -87,6 +88,7 @@ extension AppModel {
         if stopping { return "VoiceRelay is quitting; owned work is stopping." }
         if runtimeBusy { return "Wait for speech setup to finish, or cancel it in Voice Model." }
         if !preview && !speechRuntimeAvailable && (readyQueueCount == 0 || !FileManager.default.isExecutableFile(atPath: NativeSpeechSetup.workerExecutable.path)) { return "Speech setup is required before generating audio." }
+        if !deliveryServerChecked { return "Set up Publishing and let its server check finish before generating audio." }
         if cancelling { return "Stopping… Wait for owned work to finish." }
         if running { return "Audio work is already running." }
         if audioMutationBusy || sourceReview.maintenanceSuspended { return "Waiting for library changes to finish." }

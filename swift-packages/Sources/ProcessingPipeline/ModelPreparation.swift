@@ -9,6 +9,14 @@ import Foundation
 public enum ModelPreparation {
     public static func run(configuration: WorkerConfiguration, workspace: URL, settings: SpeechSettings,
                            progress: @escaping @Sendable (ModelPreparationProgress) -> Void = { _ in }) async throws {
+        if let coordinator = configuration.workCoordinator {
+            var captured = configuration; captured.workCoordinator = nil
+            let installer = captured
+            try await coordinator.withMaintenance {
+                try await run(configuration: installer, workspace: workspace, settings: settings, progress: progress)
+            }
+            return
+        }
         try Task.checkCancellation()
         guard SpeechMemoryPolicy.canLoad(settings.model) else { throw SpeechFailure(.memoryLimit) }
         let storageLease = try ModelStorageLease(workspace: NativeWorkspace(root: workspace))

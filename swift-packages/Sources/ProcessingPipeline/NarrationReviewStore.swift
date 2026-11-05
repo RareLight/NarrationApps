@@ -35,6 +35,7 @@ public struct NarrationReviewStore: Sendable {
     public let root: URL
     public init(root: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/SwiftNarration/Narration Reviews")) { self.root = root.standardizedFileURL.resolvingSymlinksInPath() }
     public func begin(plan: PreparedSpeechPlan) throws -> UUID {
+        try AudioWorkCheckpoint.check()
         guard !plan.utterances.isEmpty, plan.utterances.count <= 10_000 else { throw SpeechFailure(.storage) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         guard root.resolvingSymlinksInPath().path == root.path else { throw SpeechFailure(.storage) }
@@ -50,9 +51,13 @@ public struct NarrationReviewStore: Sendable {
         let value = try JSONDecoder().decode(Record.self, from: data)
         guard value.version == 1, value.id == id, !value.plan.utterances.isEmpty, value.plan.utterances.count <= 10_000,
               value.artifacts.count == value.plan.utterances.count, value.plan.settings.isValid else { throw SpeechFailure(.storage) }
-        for utterance in value.plan.utterances { try utterance.validate(identity: utterance.acousticIdentity, prepared: utterance.phonemes != nil) }
+        for utterance in value.plan.utterances {
+            try AudioWorkCheckpoint.check()
+            try utterance.validate(identity: utterance.acousticIdentity, prepared: utterance.phonemes != nil)
+        }
         var result = value
         for index in result.artifacts.indices where result.artifacts[index] == nil {
+            try AudioWorkCheckpoint.check()
             let metadata = try file(id, "\(index).json")
             if FileManager.default.fileExists(atPath: metadata.path) {
                 result.artifacts[index] = try JSONDecoder().decode(Artifact.self, from: read(metadata, maximum: 16_384))
@@ -83,6 +88,7 @@ public struct NarrationReviewStore: Sendable {
     /// Caller owns this captured plan/counter. The immutable plan is written
     /// once; per-chunk journals avoid quadratic whole-book JSON rewrites.
     func record(_ id: UUID, index: Int, samples: [Float], plan: PreparedSpeechPlan, existingBytes: Int64) throws {
+        try AudioWorkCheckpoint.check()
         guard plan.utterances.indices.contains(index), existingBytes >= 0 else { throw SpeechFailure(.invalidInput) }
         let rate = plan.settings.model.capabilities.sampleRate
         let diagnostics = try NarrationDiagnostics.inspect(samples: samples, sampleRate: rate, text: plan.utterances[index].text)
@@ -90,9 +96,13 @@ public struct NarrationReviewStore: Sendable {
         guard existingBytes + Int64(bytes.count) <= 4 * 1_024 * 1_024 * 1_024 else { throw SpeechFailure(.storage) }
         let destination = try file(id, "\(index).f32")
         guard !FileManager.default.fileExists(atPath: destination.path) else { throw SpeechFailure(.storage) }
+        let metadata = Artifact(frames: samples.count, sha256: try digest(bytes), diagnostics: diagnostics)
+        try AudioWorkCheckpoint.check()
         try bytes.write(to: destination, options: [.withoutOverwriting])
-        let metadata = Artifact(frames: samples.count, sha256: digest(bytes), diagnostics: diagnostics)
-        do { try JSONEncoder().encode(metadata).write(to: file(id, "\(index).json"), options: [.withoutOverwriting]) }
+        do {
+            try AudioWorkCheckpoint.check()
+            try JSONEncoder().encode(metadata).write(to: file(id, "\(index).json"), options: [.withoutOverwriting])
+        }
         catch { try? FileManager.default.removeItem(at: destination); throw error }
     }
     public func samples(_ id: UUID, index: Int) throws -> [Float] {
@@ -103,9 +113,16 @@ public struct NarrationReviewStore: Sendable {
         guard value.artifacts.indices.contains(index), let artifact = value.artifacts[index],
               (1...value.plan.settings.model.capabilities.sampleRate * 120).contains(artifact.frames) else { throw SpeechFailure(.storage) }
         let bytes = try read(file(id, "\(index).f32"), maximum: artifact.frames * 4)
-        guard bytes.count == artifact.frames * 4, digest(bytes) == artifact.sha256 else { throw SpeechFailure(.storage) }
-        let values = bytes.withUnsafeBytes { buffer in (0..<artifact.frames).map { buffer.loadUnaligned(fromByteOffset: $0 * 4, as: Float.self) } }
-        guard values.allSatisfy(\.isFinite) else { throw SpeechFailure(.storage) }
+        guard bytes.count == artifact.frames * 4, try digest(bytes) == artifact.sha256 else { throw SpeechFailure(.storage) }
+        var values: [Float] = []; values.reserveCapacity(artifact.frames)
+        for start in stride(from: 0, to: artifact.frames, by: 16_384) {
+            try AudioWorkCheckpoint.check()
+            let part = bytes.withUnsafeBytes { buffer in
+                (start..<min(start + 16_384, artifact.frames)).map { buffer.loadUnaligned(fromByteOffset: $0 * 4, as: Float.self) }
+            }
+            guard part.allSatisfy(\.isFinite) else { throw SpeechFailure(.storage) }
+            values.append(contentsOf: part)
+        }
         return values
     }
     @discardableResult public func export(_ id: UUID, to destination: URL) throws -> [Cue] {
@@ -131,9 +148,11 @@ public struct NarrationReviewStore: Sendable {
         try FileManager.default.removeItem(at: root.appendingPathComponent(id.uuidString))
     }
     private func save(_ record: Record) throws {
+        try AudioWorkCheckpoint.check()
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(record)
         guard data.count <= 16 * 1_024 * 1_024 else { throw SpeechFailure(.storage) }
+        try AudioWorkCheckpoint.check()
         try data.write(to: file(record.id, "review.json"), options: .atomic)
     }
     private func file(_ id: UUID, _ name: String) throws -> URL {
@@ -150,9 +169,26 @@ public struct NarrationReviewStore: Sendable {
         var info = stat()
         guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1,
               info.st_size > 0, info.st_size <= maximum else { throw SpeechFailure(.storage) }
-        let bytes = try handle.read(upToCount: maximum + 1) ?? Data()
+        var bytes = Data(capacity: Int(info.st_size))
+        while true {
+            try AudioWorkCheckpoint.check()
+            let remaining = maximum + 1 - bytes.count
+            guard remaining > 0 else { throw SpeechFailure(.storage) }
+            let count = try autoreleasepool { () throws -> Int in
+                let part = try handle.read(upToCount: min(1_024 * 1_024, remaining)) ?? Data()
+                bytes.append(part); return part.count
+            }
+            if count == 0 { break }
+        }
         guard bytes.count == info.st_size else { throw SpeechFailure(.storage) }
         return bytes
     }
-    private func digest(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
+    private func digest(_ data: Data) throws -> String {
+        var hash = SHA256()
+        for start in stride(from: 0, to: data.count, by: 1_024 * 1_024) {
+            try AudioWorkCheckpoint.check()
+            autoreleasepool { hash.update(data: data.subdata(in: start..<min(start + 1_024 * 1_024, data.count))) }
+        }
+        return hash.finalize().map { String(format: "%02x", $0) }.joined()
+    }
 }

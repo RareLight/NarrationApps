@@ -6,15 +6,17 @@ import Pronunciation
 public enum NarrationReviewRepair {
     /// Explicit continuation of an incomplete retained take. Each missing chunk
     /// is attempted once; verified existing PCM and the original take survive.
-    public static func fillMissing(store: NarrationReviewStore, id: UUID, configuration: WorkerConfiguration, workspace: URL) async throws -> UUID {
-        let original = try store.load(id)
+    public static func fillMissing(store: NarrationReviewStore, id: UUID, configuration: WorkerConfiguration, workspace: URL,
+                                   cpuWork: SpeechCPUContext? = nil) async throws -> UUID {
+        guard configuration.workCoordinator === cpuWork?.coordinator else { throw SpeechFailure(.invalidInput) }
+        let original = try await SpeechCPUContext.run(cpuWork) { try store.load(id) }
         guard !original.complete else { throw SpeechFailure(.invalidInput) }
         var settings = original.plan.settings; settings.retainReview = nil
         let session = try NativeSpeechSession(configuration: configuration, workspace: workspace, settings: settings,
             leaseFile: configuration.inferenceLeaseFile, policy: original.plan.policy)
         var take: UUID?
         do {
-            try await session.prepare()
+            try await session.prepare(forTextPreparation: true)
             var utterances: [PreparedUtterance] = [], reused: [Int?] = []
             let currentIdentity = SpeechAcousticIdentity.make(settings: settings, policy: .selected(settings: settings, requested: original.plan.policy))
             for (index, passage) in original.plan.utterances.enumerated() {
@@ -29,24 +31,31 @@ public enum NarrationReviewRepair {
                 semanticVersion: original.plan.semanticVersion, acousticIdentity: original.plan.acousticIdentity,
                 utterances: utterances, notices: original.plan.notices + ["Explicitly generated missing passages with current preparation; verified existing PCM reused. Per-passage acoustic identities are retained."],
                 provenance: original.plan.provenance, documentTitle: original.plan.documentTitle)
-            let created = try store.begin(plan: plan); take = created
+            let created = try await SpeechCPUContext.run(cpuWork) { try store.begin(plan: plan) }; take = created
             var bytes: Int64 = 0
             for index in plan.utterances.indices {
                 try Task.checkCancellation()
                 let samples: [Float]
-                if let source = reused[index] { samples = try store.samples(id, index: source, record: original) }
+                if let source = reused[index] { samples = try await SpeechCPUContext.run(cpuWork) { try store.samples(id, index: source, record: original) } }
                 else { samples = try await session.renderReviewChunk(plan.utterances[index]) }
-                try store.record(created, index: index, samples: samples, plan: plan, existingBytes: bytes)
+                let existingBytes = bytes
+                try await SpeechCPUContext.run(cpuWork) { try store.record(created, index: index, samples: samples, plan: plan, existingBytes: existingBytes) }
                 bytes += Int64(samples.count) * 4
             }
             await session.close(); try Task.checkCancellation(); return created
-        } catch { await session.close(); if let take { try? store.remove(take) }; throw error }
+        } catch {
+            await session.close()
+            if let take { _ = await Task.detached { try? store.remove(take) }.value }
+            throw error
+        }
     }
     /// New private take, reusing verified PCM for every unselected chunk. The old
     /// take and any published audio remain untouched, even on cancellation/failure.
     public static func regenerate(store: NarrationReviewStore, id: UUID, index: Int, configuration: WorkerConfiguration,
-                                  workspace: URL, splitAtSentences: Bool = false, pronunciations: PronunciationDictionary? = nil) async throws -> UUID {
-        let original = try store.load(id)
+                                  workspace: URL, splitAtSentences: Bool = false, pronunciations: PronunciationDictionary? = nil,
+                                  cpuWork: SpeechCPUContext? = nil) async throws -> UUID {
+        guard configuration.workCoordinator === cpuWork?.coordinator else { throw SpeechFailure(.invalidInput) }
+        let original = try await SpeechCPUContext.run(cpuWork) { try store.load(id) }
         guard original.complete, original.plan.utterances.indices.contains(index) else { throw SpeechFailure(.invalidInput) }
         var settings = original.plan.settings; settings.retainReview = nil
         let policy = SpeechPreparationPolicy.selected(settings: settings, requested: original.plan.policy)
@@ -54,7 +63,7 @@ public enum NarrationReviewRepair {
             leaseFile: configuration.inferenceLeaseFile, policy: policy)
         let selected = original.plan.utterances[index]
         do {
-            try await session.prepare()
+            try await session.prepare(forTextPreparation: true)
             let replacements: [PreparedUtterance]
             if let pronunciations {
                 // Undo captured aliases only where the complete range belongs to
@@ -69,7 +78,10 @@ public enum NarrationReviewRepair {
                 }
                 let document = SemanticDocument(title: original.plan.documentTitle,
                     blocks: [.init(kind: .paragraph, text: text, origin: selected.source.origin)], extractorVersion: "explicit-pronunciation-repair-1")
-                let projected = try NarrationPlanner.prepareForSpeech(document, settings: settings, pronunciations: pronunciations, policy: policy)
+                let capturedSettings = settings
+                let projected = try await SpeechCPUContext.run(cpuWork) {
+                    try NarrationPlanner.prepareForSpeech(document, settings: capturedSettings, pronunciations: pronunciations, policy: policy)
+                }
                 let replacementPlan = try await session.prepareSpeech(projected)
                 replacements = replacementPlan.utterances.enumerated().map { index, value in
                     PreparedUtterance(text: value.text, phonemes: value.phonemes, tokenCount: value.tokenCount,
@@ -86,21 +98,27 @@ public enum NarrationReviewRepair {
             let plan = PreparedSpeechPlan(policy: original.plan.policy, settings: original.plan.settings,
                 semanticVersion: original.plan.semanticVersion + "/explicit-repair-1", acousticIdentity: original.plan.acousticIdentity,
                 utterances: utterances, notices: original.plan.notices + ["Explicitly regenerated passage \(index + 1); unchanged PCM reused. Per-passage acoustic identities are retained." + (pronunciations == nil ? "" : " Current pronunciation rules were explicitly applied; this edited passage has no inferred original-coordinate map.")], provenance: original.plan.provenance, documentTitle: original.plan.documentTitle)
-            let take = try store.begin(plan: plan)
+            let take = try await SpeechCPUContext.run(cpuWork) { try store.begin(plan: plan) }
             do {
                 var bytes: Int64 = 0
                 for position in utterances.indices {
                     try Task.checkCancellation()
                     let samples: [Float]
-                    if position < index { samples = try store.samples(id, index: position, record: original) }
+                    if position < index { samples = try await SpeechCPUContext.run(cpuWork) { try store.samples(id, index: position, record: original) } }
                     else if position < index + replacements.count { samples = try await session.renderReviewChunk(replacements[position - index]) }
-                    else { samples = try store.samples(id, index: position - replacements.count + 1, record: original) }
-                    try store.record(take, index: position, samples: samples, plan: plan, existingBytes: bytes)
+                    else { samples = try await SpeechCPUContext.run(cpuWork) { try store.samples(id, index: position - replacements.count + 1, record: original) } }
+                    let existingBytes = bytes
+                    try await SpeechCPUContext.run(cpuWork) { try store.record(take, index: position, samples: samples, plan: plan, existingBytes: existingBytes) }
                     bytes += Int64(samples.count) * 4
                 }
                 await session.close(); try Task.checkCancellation()
                 return take
-            } catch { try? store.remove(take); throw error }
+            } catch {
+                // Cancellation must not cancel cleanup of this newly owned
+                // take. Join it; the original retained take is never removed.
+                _ = await Task.detached { try? store.remove(take) }.value
+                throw error
+            }
         } catch { await session.close(); throw error }
     }
 

@@ -49,6 +49,32 @@ An interrupted run remains `running`, not green. Failure stops dependent steps a
 records them `not-run`; unavailable native prerequisites return 3. Do not call a
 build, fake packaging test or Metal probe a speech/operator acceptance result.
 
+## Build artifact retention and operator candidates
+
+Routine builds reuse `.build/WorkspaceDerivedData`; do not create another full
+DerivedData tree for every implementation slice. Keep validation logs, receipts
+and fingerprints in `.local/validation/`. When an operator needs a separate
+candidate, retain only the complete app bundles and their relevant evidence;
+do not copy or retain an entire build cache as the candidate. Never replace or
+prune a bundle while it is running or under active operator review. Reuse one
+working build cache after review, and remove superseded generated validation
+trees once their evidence has been retained. Keep shared dependency checkouts
+when pruning so the next build can prepare offline without downloading them.
+Source, model storage, user libraries, completed audio and private validation
+inputs/outputs are separate from disposable root build intermediates.
+
+The operator builds validation apps in Xcode with the normal signing configuration
+(confirmed November 3). Automated intermediate test builds remain authorized, but
+handoffs should request that Xcode build, identify the scheme and relevant operator
+checks, and keep ad-hoc artifacts separate from signing-sensitive acceptance.
+
+The November 3 operator-authorized cleanup removes superseded root `.build/`
+validation trees. Older dated records retain their original paths as historical
+evidence, not promises that those generated bundles remain available. The current
+preparation candidate remains intact, shared workspace `SourcePackages` is kept,
+and the accepted codec candidate retains its two Release app bundles only.
+The private cleanup receipt identifies exact retained and removed paths.
+
 ## Native offline gates
 
 Explicit arguments are `--workspace <isolated-prepared-workspace>`,
@@ -79,6 +105,142 @@ then renders/decodes finite nonempty WAVs at each engine's native rate. Its
 `PDFWordJoiningTests` and `PDFLayoutTests` run without models in the full tier.
 
 ### Additional model checks
+
+The explicit VoiceServer VS00 handoff probe uses an opt-in helper mode; normal
+app serving is unchanged. From the repository root, build the existing products
+with prepared/pinned dependencies (no model acquisition):
+
+```sh
+/usr/bin/sandbox-exec -p '(version 1)(allow default)(deny network*)' bash swift-packages/scripts/prepare-dependencies.sh
+swift build --package-path swift-packages -c release --disable-sandbox --skip-update --force-resolved-versions --product NarrationSpeechWorker --jobs 4
+swift build --package-path swift-packages --disable-sandbox --skip-update --force-resolved-versions --product NarrationNativeCheck --jobs 4
+swift-packages/.build/debug/NarrationNativeCheck WORKER WORKSPACE NEW_OUTPUT handoff qwen3
+swift-packages/.build/debug/NarrationNativeCheck WORKER WORKSPACE NEW_OUTPUT handoff kokoro firstSentence
+swift-packages/.build/debug/NarrationNativeCheck WORKER WORKSPACE NEW_OUTPUT handoff qwen3 qwenIncremental
+swift-packages/.build/debug/NarrationNativeCheck LIBRO_WORKER WORKSPACE NEW_OUTPUT reload qwen3 VOICERELAY_WORKER
+swift-packages/.build/debug/NarrationNativeCheck WORKER WORKSPACE NEW_OUTPUT safety qwen3
+```
+
+`WORKER` must be a newly built helper supporting `--handoff-probe` (use
+`swift-packages/.build/release/NarrationSpeechWorker` for Release measurements); `WORKSPACE`
+is an existing isolated prepared-model workspace. `NEW_OUTPUT` must not already
+exist. Select one installed model: `kokoro`, `soprano`, `qwen3`, `chatterbox` or
+`orpheus`. Run serially with both apps/helpers idle and explicit native-probe
+authorization. The harness denies helper networking, discards stderr, monitors
+the existing per-model footprint budget and reaps only its owned process.
+
+The helper acquires the current and legacy inference locks itself before model
+load, retains model-storage protection, and holds exclusion through job join,
+GPU drain and model unload, including parent EOF. Do not wrap this mode in a
+host-owned InferenceLease: that would contend with its own helper. Model/voice
+settings are fixed to the chosen model's default voice at 1× with seed 42. No
+user preferences, private documents or live services are used.
+
+The probe generates a control passage, cancels a new attempt 50 ms after its
+first inference-start event, then regenerates in the same loaded worker. It uses
+the existing semantic/prepared-phoneme paths and owned direct generation calls;
+Soprano's internal token task is explicitly retained/joined by the recorded patch;
+public incremental streams with hidden outer producers are not used. One outstanding PCM
+frame provides backpressure; the final acknowledgement settles before ready.
+Independent WAV decoding checks every delivered Float32 sample without gain.
+
+The optional `firstSentence` mode applies the versioned live-only first-sentence
+policy to the first ordinary window, preserving source/pronunciation mappings and
+indivisible overrides. Normal app/podcast segmentation is unchanged. The
+`qwenIncremental` mode additionally uses the recorded synchronous throwing Qwen
+callback, on the owned producer task, with a 0.5-second decoder interval. It
+checks codec-token/sample coverage, records direct-versus-streaming PCM diagnostics,
+cancels with the first frame unacknowledged, then compares regenerated incremental
+PCM after decoder reset. Either PCM parity failure produces a nonzero gate exit
+and a retained failed receipt after lifecycle/reuse checks finish; valid containers,
+sample counts and fast cancellation cannot make that gate green. The 0.001 maximum
+absolute-difference threshold is a conservative numerical-review check, not a
+listening standard. Silent incremental frames are retained. Both modes also
+record an ordinary paragraph baseline in the same loaded worker; this is a
+sequential local comparison, not a randomized performance benchmark. The ordinary
+baseline includes first-use kernel/preparation costs; do not infer a speedup ratio
+from its comparison with later warm requests.
+
+The `reload` command uses two newly built packaged helpers and one installed
+VoiceRelay-supported model (`soprano` is Libro-only). It observes the new helper
+waiting on the actual current/legacy locks while Libro retains weights, cancels
+and joins Libro, closes its input, observes model unload, then observes VoiceRelay
+acquire the lease and load. The receipt includes acceptance-to-first-WAV across
+helper spawn, lease wait, unload, model load and generation. This driver sequences
+the transfer; it does not implement the production priority scheduler. Private
+probe wire version 4 adds responsive initialization cancellation/EOF and terminal
+`initializationCancelled` acknowledgements; normal SpeechIPC remains version 3.
+
+The `safety` command first checks cancellation and EOF while waiting on the actual
+compatibility locks, at load entry and at the controlled loaded-weight/pre-admission
+barrier, then EOF from loaded idle. Entry cancellation can precede allocation;
+the explicit loaded barrier requires real model references and unload before the
+terminal acknowledgement. Each owned
+helper must settle/reap and release exclusion before the next case. Waiting tests
+deliberately hold a host lease as a blocker without loading a model; other phases
+leave the locks to the helper. The final helper performs nine cancel/reuse cycles
+(three each before start, at inference start and after a stalled first frame), ten
+completed short synthetic requests and supported per-job voice/speed changes with
+default-setting restoration. It records ready/peak footprints, not a claim of
+long-duration stability. Soprano uses Libro's helper and remains Libro-only.
+
+Initialization is an owned task joined before reset/unload, rather than blocking
+the control reader. A cancelled/failed load is terminal for that helper and never
+reports job-ready; compatible demand transfer is still coordinator integration
+work. Concurrent close callers share one bounded exit-handler/reap outcome.
+The decoder CPU regression can be run directly with
+`WORKER --qwen-decoder-probe`; it uses fixed synthetic weights and requires no model.
+
+`receipt.json` records worker/hash/model identity, initialization time, warm
+request-to-first-playable-WAV time, cancellation-to-ready time, bounded-frame
+trace and sampled peak footprint. Seeded control/resumed hash equality is
+informational; stochastic regeneration need not be identical. First playable WAV
+is a local unit-publication metric, separate from HTTP/server TTFA and client
+playback. Changed selections, reference voices, longer memory stability and
+listening remain separate evidence. Probe deadlines
+are not production cancellation or latency policy. The
+[VoiceServer checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md) records results.
+
+The model-free regression seam is included in ordinary fixtures. Its focused
+selection is `LiveSpeechFirstUnitTests|SpeechHandoffProbeTests|VoiceServerProofTests|SpeechWorkAdmissionTests|SpeechAttemptFenceTests|SpeechHostAdmissionTests|SpeechWorkCoordinatorTests|SpeechRenderJournalTests|LibroBatchRecoveryTests|SpeechCPUWorkTests|SpeechWorkWakeupTests|SpeechWorkStatusTests|AudioStreamEncoderTests|PronunciationUITests.testPreviewKeepsTheCapturedAppWorkerOwner|deletionRunsInsideOwnedMaintenanceAndFailurePreservesAssets` under the existing
+quick/shared scope.
+VoiceRelay's `CoordinatedCheckpointTests` under quick/voicerelay adds actual private
+SQLite commit/rollback, pending-validation retry, writer contention and Stop/API
+isolation. Both suites use temporary owned state and fake speech workers. The full
+gate discovers these tests automatically; no live library/model/HTTP access occurs.
+Host/app ownership regressions also run under quick/voicerelay with filter
+`detachedArticlePreparationPreservesRankedHostContext|coordinatedAppQuitJoinsPlatformLeaseAndClosesWorkerOwner`.
+They use a fake title generator and isolated kernel locks, never Vision,
+Foundation Models, local speech recognition or protected input.
+
+The opt-in coordinator/render adapter has a separate installed-assets-only check.
+With both apps/helpers idle, an already prepared workspace, a newly built packaged
+worker and a **fresh, nonexistent** output directory, run from the repository root:
+
+```sh
+swift-packages/.build/debug/NarrationNativeCheck \
+  /path/to/Libro.app/Contents/Helpers/LibroSpeechWorker \
+  /path/to/prepared-workspace /path/to/new-coordinator-evidence coordinator kokoro
+```
+
+Use the helper's actual packaged path as reported by the bundle audit; the example
+path is illustrative. This mode denies helper networking, uses isolated demand
+metadata and retains the global compatibility locks. It checks prepared text,
+bounded generation, same-helper API reuse, resume and owned reap; it records worker
+SHA/revision and private WAV/JSON receipts. It also exercises the native session's
+deferred checkpoint result: cursor stays unchanged until exact Float32 WAV readback
+and receipt commit. The current mode also exports `api-stream.mp3` and raw
+`api-stream.pcm` using each response's persistent encoder, records bytes emitted
+before flush and fingerprints the packaged codec. Compare the MP3 with `api.wav`
+for the operator listening check; raw PCM is mono signed 16-bit little-endian at
+24 kHz with no header. Synthetic codec fixtures independently decode an unfinished
+MP3 prefix, compare arbitrary frame segmentation and verify exact PCM bytes and
+resampler continuity. These are not HTTP first-audio timing measurements.
+The private coordinated/probe wire is now version 6; older helpers are rejected
+before initialization. Normal serving IPC remains version 3.
+It does not exercise a listener, change
+app defaults, download assets or establish listening/long-duration acceptance.
+Run models serially and retain the receipt even on failure.
 
 The default native tier above retains its Kokoro/Soprano corpus. It does not
 implicitly run the much larger model matrix. After building the shared harness,
@@ -118,7 +280,16 @@ full-fixture harness, including VoiceRelay app tests not present in its Xcode te
 target. Build Both Apps is build-only, never Test/Archive.
 
 Release uses command-line ad-hoc overrides only; normal project/team/Keychain
-settings are unchanged. Artifacts stay under ignored workspace DerivedData and
+settings are unchanged. These ad-hoc overrides clear the team and configured
+Keychain entitlements: they are suitable for isolated fixture/GUI checks, but
+cannot exercise VoiceRelay's protected password store, saved-credential Test
+Connection or background Publishing. For those checks, the operator builds/runs
+the normal VoiceRelay scheme with its usual team, provisioning profile and
+`Packaging/VoiceRelay.entitlements`, with no ad-hoc overrides. Command-line builds
+can use the same signing configuration; the signing mode, rather than whether
+Xcode's GUI was used, determines capability. Do not delete saved credentials,
+weaken the Keychain policy or add a file-based fallback for an engineering build.
+Artifacts stay under ignored workspace DerivedData and
 the run's own Archives. Each generated bundle is verified for arm64, private
 worker, helper-only MLX, Metal execution, notices/sample fingerprints, Libro's
 codec and deep/strict signatures. Full fixtures cover encoding behavior; packaging

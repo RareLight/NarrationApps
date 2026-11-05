@@ -288,7 +288,7 @@ struct ProcessingSummary: View {
     var body: some View {
         if model.showsProcessingProgress {
             if let batch = model.batchProgress {
-                BatchProgressView(progress: batch, cancelling: model.cancelling, pendingOverride: model.pendingAdds.count)
+                BatchProgressView(progress: batch, cancelling: model.cancelling, pendingOverride: model.pendingAdds.count, waiting: model.speechWaitingLabel)
             } else if model.progress != nil {
                 VStack(alignment: .leading, spacing: 5) {
                     if let fraction = model.processingFraction { ProgressView(value: fraction) }
@@ -432,6 +432,7 @@ struct BatchProgressView: View {
     let progress: QueueBatchProgress
     var cancelling = false
     var pendingOverride: Int? = nil
+    var waiting: String? = nil
     var body: some View {
         let pending = pendingOverride ?? progress.pendingPreparations
         VStack(alignment: .leading, spacing: 5) {
@@ -447,6 +448,7 @@ struct BatchProgressView: View {
     }
     private var phase: String {
         if cancelling { return "Stopping…" }
+        if let waiting { return waiting }
         if progress.stage == .published && progress.completedArticles < progress.totalArticles {
             return "Verifying generated audio"
         }

@@ -30,13 +30,13 @@ public struct CoverArtwork: Sendable, Equatable {
     public static let maximumStoredBytes = 2 * 1024 * 1024
 
     public init(data: Data, profile: Profile = .book) throws {
-        try Task.checkCancellation()
+        try AudioWorkCheckpoint.check()
         let (source, width, height, alpha) = try Self.source(data)
         if profile == .podcast, width != height || width < 1400 || alpha { throw ArtworkError.podcastRequirements }
         var edge = profile == .podcast ? 3000 : 1200
         let budget = profile == .podcast ? Self.maximumStoredBytes : 120 * 1024
         while edge >= 300 {
-            try Task.checkCancellation()
+            try AudioWorkCheckpoint.check()
             guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
@@ -51,10 +51,12 @@ public struct CoverArtwork: Sendable, Equatable {
             context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
             guard let opaque = context.makeImage() else { throw ArtworkError.invalidImage }
             for quality in [0.85, 0.65, 0.45] {
+                try AudioWorkCheckpoint.check()
                 let output = NSMutableData()
                 guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else { throw ArtworkError.invalidImage }
                 CGImageDestinationAddImage(destination, opaque, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
                 guard CGImageDestinationFinalize(destination) else { throw ArtworkError.invalidImage }
+                try AudioWorkCheckpoint.check()
                 if output.length <= budget {
                     self.data = output as Data; self.width = opaque.width; self.height = opaque.height
                     return
@@ -68,6 +70,7 @@ public struct CoverArtwork: Sendable, Equatable {
 
     /// Read only our already-prepared derivative, without another JPEG conversion.
     public init(preparedData: Data) throws {
+        try AudioWorkCheckpoint.check()
         guard preparedData.count <= Self.maximumStoredBytes else { throw ArtworkError.tooLarge }
         let (source, width, height, _) = try Self.source(preparedData)
         guard CGImageSourceGetType(source) as String? == UTType.jpeg.identifier,
@@ -93,6 +96,7 @@ public struct CoverArtwork: Sendable, Equatable {
     }
 
     public func thumbnailData() throws -> Data {
+        try AudioWorkCheckpoint.check()
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 144] as CFDictionary) else { throw ArtworkError.invalidImage }
         let output = NSMutableData()
@@ -106,6 +110,7 @@ public struct CoverArtwork: Sendable, Equatable {
         try .init(data: boundedRead(url, limit: maximumInputBytes), profile: profile)
     }
     static func boundedRead(_ url: URL, limit: Int) throws -> Data {
+        try AudioWorkCheckpoint.check()
         let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
         let data = try handle.read(upToCount: limit + 1) ?? Data()
         guard data.count <= limit else { throw ArtworkError.tooLarge }
@@ -127,32 +132,43 @@ public struct CoverArtworkStore: Sendable {
         return root.appendingPathComponent(digest + ".jpg")
     }
     public func save(_ artwork: CoverArtwork) throws -> String {
+        try AudioWorkCheckpoint.check()
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try AudioWorkCheckpoint.check()
         try artwork.data.write(to: url(for: artwork.digest), options: .atomic)
         return artwork.digest
     }
     /// Only canonical, byte-confirmed derivatives in this app-owned directory.
     /// Call while the app holds its artwork-edit ownership; originals are never scanned.
     public func removeUnreferenced(keeping digests: Set<String>) throws {
+        try AudioWorkCheckpoint.check()
         guard FileManager.default.fileExists(atPath: root.path),
               (try root.resourceValues(forKeys: [.isSymbolicLinkKey])).isSymbolicLink != true else { return }
         for candidate in try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]) {
-            try Task.checkCancellation()
+            try AudioWorkCheckpoint.check()
             let digest = candidate.deletingPathExtension().lastPathComponent
             guard candidate.pathExtension == "jpg", !digests.contains(digest),
                   (try? url(for: digest)) != nil,
                   let properties = try? candidate.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
-                  properties.isRegularFile == true, properties.isSymbolicLink != true,
-                  let data = try? CoverArtwork.boundedRead(candidate, limit: CoverArtwork.maximumStoredBytes),
-                  SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == digest else { continue }
+                  properties.isRegularFile == true, properties.isSymbolicLink != true else { continue }
+            let data: Data
+            do { data = try CoverArtwork.boundedRead(candidate, limit: CoverArtwork.maximumStoredBytes) }
+            catch is CancellationError { throw CancellationError() }
+            catch let error as any AudioWorkInterruption { throw error }
+            catch { continue }
+            guard SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == digest else { continue }
+            try AudioWorkCheckpoint.check()
             try FileManager.default.removeItem(at: candidate)
         }
     }
     public func load(_ digest: String) throws -> CoverArtwork {
         do {
+            try AudioWorkCheckpoint.check()
             let value = try CoverArtwork(preparedData: CoverArtwork.boundedRead(url(for: digest), limit: CoverArtwork.maximumStoredBytes))
             guard value.digest == digest else { throw ArtworkError.unavailable }
             return value
-        } catch { throw ArtworkError.unavailable }
+        } catch is CancellationError { throw CancellationError() }
+        catch let error as any AudioWorkInterruption { throw error }
+        catch { throw ArtworkError.unavailable }
     }
 }

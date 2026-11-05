@@ -22,6 +22,18 @@ private final class TaskCancellation: @unchecked Sendable {
     func cancel() { lock.withLock { task?.cancel() } }
 }
 
+private final class PreparationPause: @unchecked Sendable {
+    private let lock = NSLock()
+    private var checks = 0, resumed = false
+    func checkpoint() async throws {
+        let pause = lock.withLock { checks += 1; return checks == 2 }
+        if pause {
+            while !lock.withLock({ resumed }) { try await Task.sleep(for: .milliseconds(5)) }
+        }
+    }
+    func resume() { lock.withLock { resumed = true } }
+}
+
 private struct ProcessFixture {
     static var transportSettings: SpeechSettings { .init(model: .soprano, voice: "soprano") }
     let root: URL
@@ -160,7 +172,7 @@ final class SchedulingTests: XCTestCase {
             XCTAssertEqual(values.map(\.sequence), Array(1...values.count))
             XCTAssertTrue(values.allSatisfy { $0.batch == request.id })
             XCTAssertEqual(values.first?.progress.stage, .readingFile)
-            XCTAssertEqual(values.last?.progress.stage, .phonemizing)
+            XCTAssertEqual(values.last?.progress.stage, .tokenizing)
             let firstSpeech = try XCTUnwrap(events.snapshot.firstIndex { event in
                 if case .speech(let value) = event { return value.identity.job == job.id }
                 return false
@@ -822,7 +834,7 @@ final class PreparedSessionTests: XCTestCase {
         let command = WorkerCommand(kind: .prepareText, identity: identity, chunk: 0,
             textWindow: .init(text: String(repeating: "𐐀", count: 1_000), source: source, boundaryAfter: .paragraph))
         XCTAssertLessThan(try SpeechIPC.encode(command).count, SpeechIPC.maximumRecordBytes)
-        XCTAssertEqual(command.protocolVersion, 3)
+        XCTAssertEqual(command.protocolVersion, 4)
         XCTAssertThrowsError(try SpeechIPC.encode(WorkerCommand(kind: .generate, identity: identity, chunk: 0, text: String(repeating: "a", count: 70_000))))
     }
 }
@@ -1014,7 +1026,183 @@ extension SchedulingTests {
         XCTAssertGreaterThan(generated, 1)
         let prepared = records.filter { $0["event"] as? String == "prepareText" }.count
         XCTAssertGreaterThan(prepared, 1)
-        XCTAssertEqual(records.filter { $0["event"] as? String == "launch" }.count, prepared + generated + 1)
+        let cpuInitializations = records.filter { $0["event"] as? String == "initialize" && $0["textPreparationOnly"] as? Bool == true }
+        XCTAssertEqual(cpuInitializations.count, 1)
+        let cpuPID = try XCTUnwrap(cpuInitializations.first?["pid"] as? Int)
+        XCTAssertTrue(records.filter { $0["event"] as? String == "prepareText" }.allSatisfy { $0["pid"] as? Int == cpuPID })
+        // The tokenizer helper promotes in place for the first generation.
+        // Large-model speech helpers still reap after each generated utterance.
+        XCTAssertEqual(records.filter { $0["event"] as? String == "launch" }.count, generated)
+        let lastPreparationTime = try XCTUnwrap(records.last { $0["event"] as? String == "prepareText" }?["time"] as? Double)
+        let speechInitializations = records.filter { ($0["event"] as? String == "initialize" && $0["textPreparationOnly"] as? Bool != true) || $0["event"] as? String == "loadSpeech" }
+        XCTAssertEqual(speechInitializations.count, generated)
+        XCTAssertTrue(speechInitializations.allSatisfy { ($0["time"] as? Double ?? 0) > lastPreparationTime })
         try fixture.assertClean()
     }
+    func testQwenCPUPreparationRequiresExplicitWeightFreeAcknowledgement() async throws {
+        try XCTSkipUnless(SpeechMemoryPolicy.canLoad(.qwen3), "Host support guard")
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let settings = SpeechSettings(model: .qwen3, voice: "Ryan")
+        let session = try NativeSpeechSession(configuration: fixture.configuration("cpuReadyMissing"), workspace: fixture.root, settings: settings)
+        try await session.prepare()
+        let projection = try NarrationPlanner.prepareForSpeech(.init(blocks: [.init(kind: .paragraph, text: "A synthetic passage.")], extractorVersion: "fixture"), settings: settings)
+        do { _ = try await session.prepareSpeech(projection); XCTFail("Unacknowledged helper kept resident") }
+        catch let error as SpeechFailure { XCTAssertEqual(error.code, .incompatibleWorker) }
+        await session.close()
+        let records = try fixture.records()
+        XCTAssertFalse(records.contains { $0["event"] as? String == "prepareText" })
+        XCTAssertEqual(records.filter { $0["event"] as? String == "launch" }.count, 2)
+        try fixture.assertClean()
+    }
+    func testQwenPreparationCapturesWorkerLimitAndCancellationJoinsCPUHelper() async throws {
+        try XCTSkipUnless(SpeechMemoryPolicy.canLoad(.qwen3), "Host support guard")
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        var configuration = fixture.configuration("cpuPreparationStall"); configuration.textPreparationWorkers = 12
+        configuration.requestTimeout = .seconds(30)
+        let settings = SpeechSettings(model: .qwen3, voice: "Ryan")
+        let session = try NativeSpeechSession(configuration: configuration, workspace: fixture.root, settings: settings)
+        try await session.prepare()
+        let projection = try NarrationPlanner.prepareForSpeech(.init(blocks: [.init(kind: .paragraph, text: "A synthetic passage waits for cancellation.")], extractorVersion: "fixture"), settings: settings)
+        let preparation = Task { try await session.prepareSpeech(projection) }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while try !fixture.records().contains(where: { $0["event"] as? String == "prepareText" }) && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        preparation.cancel()
+        do { _ = try await preparation.value; XCTFail("Cancelled CPU preparation completed") } catch is CancellationError {}
+        await session.close()
+        let calls = try fixture.records().filter { $0["event"] as? String == "prepareText" }
+        XCTAssertEqual(calls.count, 1); XCTAssertEqual(calls.first?["textPreparationWorkers"] as? Int, 12)
+        try fixture.assertClean()
+    }
+
+    func testQwenPreparedPlanLoadsSpeechOnlyAtGenerationAndPreservesFrozenText() async throws {
+        try XCTSkipUnless(SpeechMemoryPolicy.canLoad(.qwen3), "Host support guard")
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        let settings = SpeechSettings(model: .qwen3, voice: "Ryan")
+        var configuration = fixture.configuration(); configuration.textPreparationWorkers = 12
+        let session = try NativeSpeechSession(configuration: configuration, workspace: fixture.root, settings: settings)
+        try await session.prepare(forTextPreparation: true)
+        let before = try fixture.records()
+        XCTAssertTrue(before.isEmpty) // No tokenizer or speech weights are needed for a frozen plan.
+        let identity = SpeechAcousticIdentity.make(settings: settings, policy: .nativeText)
+        let text = "A previously prepared public passage."
+        let plan = PreparedSpeechPlan(policy: .nativeText, settings: settings, semanticVersion: "fixture", acousticIdentity: identity,
+            utterances: [.init(text: text, phonemes: nil, tokenCount: 0, source: .init(blockIndices: [0], location: 0, length: text.utf16.count), boundaryAfter: .sentence, acousticIdentity: identity)], notices: [])
+        try await session.render(plan: plan, destination: fixture.destination, identity: .init(batch: UUID(), job: UUID()))
+        await session.close()
+        let records = try fixture.records()
+        XCTAssertFalse(records.contains { $0["event"] as? String == "prepareText" })
+        XCTAssertEqual(records.filter { $0["event"] as? String == "initialize" && $0["textPreparationOnly"] as? Bool != true }.count, 1)
+        try fixture.assertClean()
+    }
+
+    func testAllModelsDeferSpeechWeightsAndPromoteTheSameHelperAtFirstGeneration() async throws {
+        for model in SpeechModel.allCases where SpeechMemoryPolicy.canLoad(model) {
+            let fixture = try ProcessFixture(); defer { fixture.remove() }
+            var configuration = fixture.configuration(); configuration.preparationPolicy = .semantic
+            let settings = SpeechSettings(model: model, voice: model.defaultVoice)
+            let session = try NativeSpeechSession(configuration: configuration, workspace: fixture.root, settings: settings, leaseFile: configuration.inferenceLeaseFile)
+            try await session.prepare(forTextPreparation: true)
+            XCTAssertTrue(try fixture.records().isEmpty, model.rawValue)
+            let projection = try NarrationPlanner.prepareForSpeech(.init(blocks: [.init(kind: .paragraph, text: "A public preparation fixture.")], extractorVersion: "fixture"), settings: settings)
+            let plan = try await session.prepareSpeech(projection)
+            let before = try fixture.records()
+            XCTAssertEqual(before.filter { $0["event"] as? String == "initialize" }.count, 1, model.rawValue)
+            XCTAssertEqual(before.first { $0["event"] as? String == "initialize" }?["textPreparationOnly"] as? Bool, true)
+            XCTAssertFalse(before.contains { ["loadSpeech", "generate", "generatePrepared"].contains($0["event"] as? String ?? "") })
+            XCTAssertEqual(before.filter { $0["event"] as? String == "releasePreparation" }.count, model == .kokoro ? 1 : 0)
+            try await session.render(plan: plan, destination: fixture.destination, identity: .init(batch: UUID(), job: UUID()))
+            await session.close()
+            let records = try fixture.records()
+            XCTAssertEqual(records.filter { $0["event"] as? String == "launch" }.count, 1, model.rawValue)
+            XCTAssertEqual(records.filter { $0["event"] as? String == "loadSpeech" }.count, 1, model.rawValue)
+            let preparation = try XCTUnwrap(records.first { $0["event"] as? String == "prepareText" })
+            let promotion = try XCTUnwrap(records.first { $0["event"] as? String == "loadSpeech" })
+            XCTAssertEqual(preparation["pid"] as? Int, promotion["pid"] as? Int)
+            XCTAssertLessThan(try XCTUnwrap(preparation["time"] as? Double), try XCTUnwrap(promotion["time"] as? Double))
+            try fixture.assertClean()
+            print("TEXT_PREPARATION_LIFECYCLE model=\(model.rawValue) frontendOnly=true speechLoadAfterPreparation=true samePID=true launches=1 reaped=true")
+        }
+    }
+
+    func testCPUTokenPreparationDoesNotWaitForAnotherInferenceOwner() async throws {
+        for model in SpeechModel.allCases where model != .kokoro && SpeechMemoryPolicy.canLoad(model) {
+            let fixture = try ProcessFixture(); defer { fixture.remove() }
+            let configuration = fixture.configuration()
+            let held = try await InferenceLease.acquire(at: try XCTUnwrap(configuration.inferenceLeaseFile))
+            let settings = SpeechSettings(model: model, voice: model.defaultVoice)
+            let session = try NativeSpeechSession(configuration: configuration, workspace: fixture.root, settings: settings, leaseFile: configuration.inferenceLeaseFile)
+            let work = Task {
+                try await session.prepare(forTextPreparation: true)
+                let projection = try NarrationPlanner.prepareForSpeech(.init(blocks: [.init(kind: .paragraph, text: "CPU work while inference is occupied.")], extractorVersion: "fixture"), settings: settings)
+                _ = try await session.prepareSpeech(projection)
+            }
+            do { try await waitForRecord(fixture, name: "prepareText") }
+            catch { work.cancel(); _ = await work.result; await session.close(); throw error }
+            try await work.value
+            withExtendedLifetime(held) {}
+            await session.close()
+            try fixture.assertClean()
+        }
+    }
+
+    func testKokoroPauseUnloadsNeuralFrontendBeforeReleasingAdmissionAndResumesSamePID() async throws {
+        let fixture = try ProcessFixture(); defer { fixture.remove() }
+        var configuration = fixture.configuration(); configuration.preparationPolicy = .semantic
+        let settings = SpeechSettings(model: .kokoro, voice: "af_heart")
+        let session = try NativeSpeechSession(configuration: configuration, workspace: fixture.root, settings: settings, leaseFile: configuration.inferenceLeaseFile)
+        try await session.prepare(forTextPreparation: true)
+        let text = String(repeating: "A bounded public sentence for pronunciation preparation. ", count: 25)
+        let projection = try NarrationPlanner.prepareForSpeech(.init(blocks: [.init(kind: .paragraph, text: text)], extractorVersion: "fixture"), settings: settings)
+        let pause = PreparationPause()
+        let work = Task { try await session.prepareSpeech(projection, checkpoint: { try await pause.checkpoint() }) }
+        do { try await waitForRecord(fixture, name: "releasePreparation") }
+        catch { work.cancel(); _ = await work.result; await session.close(); throw error }
+        let file = try XCTUnwrap(configuration.inferenceLeaseFile)
+        let competitor = Task {
+            let acquired = try await InferenceLease.acquire(at: file, priority: .interactive)
+            withExtendedLifetime(acquired) {}
+        }
+        // A different inference owner must be admitted while the book is paused.
+        try await competitor.value
+        let pausedRecords = try fixture.records()
+        XCTAssertEqual(pausedRecords.filter { $0["event"] as? String == "prepareText" }.count, 1)
+        XCTAssertFalse(pausedRecords.contains { $0["event"] as? String == "loadSpeech" })
+        pause.resume()
+        let plan = try await work.value
+        XCTAssertGreaterThan(plan.utterances.count, 1)
+        let resumed = try fixture.records()
+        XCTAssertEqual(resumed.filter { $0["event"] as? String == "launch" }.count, 1)
+        XCTAssertEqual(resumed.filter { $0["event"] as? String == "loadPreparation" }.count, 1)
+        XCTAssertEqual(resumed.filter { $0["event"] as? String == "releasePreparation" }.count, 2)
+        await session.close()
+        try fixture.assertClean()
+    }
+
+    func testFailedPromotionOrNeuralReleaseReapsBeforeReleasingAdmission() async throws {
+        for mode in ["speechLoadFailure", "releaseReadyMissing"] {
+            let fixture = try ProcessFixture(); defer { fixture.remove() }
+            var configuration = fixture.configuration(mode); configuration.preparationPolicy = .semantic
+            let settings = SpeechSettings(model: .kokoro, voice: "af_heart")
+            let session = try NativeSpeechSession(configuration: configuration, workspace: fixture.root, settings: settings, leaseFile: configuration.inferenceLeaseFile)
+            try await session.prepare(forTextPreparation: true)
+            let projection = try NarrationPlanner.prepareForSpeech(.init(blocks: [.init(kind: .paragraph, text: "A failed frontend transition.")], extractorVersion: "fixture"), settings: settings)
+            do {
+                let plan = try await session.prepareSpeech(projection)
+                try await session.render(plan: plan, destination: fixture.destination, identity: .init(batch: UUID(), job: UUID()))
+                XCTFail("Invalid transition succeeded")
+            } catch is SpeechFailure {}
+            await session.close()
+            let records = try fixture.records()
+            XCTAssertEqual(records.filter { $0["event"] as? String == "prepareText" }.count, 1)
+            XCTAssertEqual(records.filter { $0["event"] as? String == "releasePreparation" }.count, 1)
+            XCTAssertEqual(records.filter { $0["event"] as? String == "loadSpeech" }.count, mode == "speechLoadFailure" ? 1 : 0)
+            let acquired = try await InferenceLease.acquire(at: try XCTUnwrap(configuration.inferenceLeaseFile))
+            withExtendedLifetime(acquired) {}
+            XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+            try fixture.assertClean()
+        }
+    }
+
 }

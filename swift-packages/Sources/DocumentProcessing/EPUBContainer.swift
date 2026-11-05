@@ -48,7 +48,7 @@ final class EPUBContainer {
         guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: Array(keys),
             options: [], errorHandler: { _, error in failure = error; return false }) else { throw EPUBReadError.malformed }
         for case let url as URL in enumerator {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             count += 1
             guard count <= limits.maximumEntries else { throw EPUBReadError.limit }
             let values = try url.resourceValues(forKeys: keys)
@@ -64,7 +64,7 @@ final class EPUBContainer {
         let archive = try Archive(accessMode: .create)
         var expanded = 0
         for url in files.sorted(by: { $0.path < $1.path }) {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             let remaining = min(limits.maximumResourceBytes, limits.maximumExpandedBytes - expanded, 512_000_000)
             let values = try url.resourceValues(forKeys: keys)
             guard values.isSymbolicLink != true, values.isAliasFile != true, values.isRegularFile == true,
@@ -77,7 +77,7 @@ final class EPUBContainer {
             let path = String(url.path.dropFirst(root.path.count + 1))
             try archive.addEntry(with: path, type: .file, uncompressedSize: Int64(bytes.count),
                 modificationDate: Date(timeIntervalSince1970: 315_532_800), compressionMethod: .none) { offset, size in
-                try Task.checkCancellation()
+                try NarrationWorkCheckpoint.check()
                 return bytes.subdata(in: Int(offset)..<min(bytes.count, Int(offset) + size))
             }
             guard (archive.data?.count ?? Int.max) <= 512_000_000 else { throw EPUBReadError.limit }
@@ -98,7 +98,7 @@ final class EPUBContainer {
         catch { throw EPUBReadError.malformed }
         var expanded: UInt64 = 0, count = 0
         for entry in archive {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             count += 1
             guard count <= limits.maximumEntries,
                   entry.uncompressedSize <= UInt64(limits.maximumResourceBytes),
@@ -116,7 +116,7 @@ final class EPUBContainer {
     }
     func contains(_ path: String) -> Bool { entries[path] != nil }
     func read(_ path: String, maximum: Int? = nil) throws -> Data {
-        try Task.checkCancellation()
+        try NarrationWorkCheckpoint.check()
         guard let entry = entries[path] else { throw EPUBReadError.malformed }
         let limit = min(maximum ?? limits.maximumResourceBytes, limits.maximumResourceBytes)
         guard entry.uncompressedSize <= UInt64(max(0, limit)) else { throw EPUBReadError.limit }
@@ -124,7 +124,7 @@ final class EPUBContainer {
         let checksum: CRC32
         do {
             checksum = try archive.extract(entry, bufferSize: 65_536) { buffer in
-                try Task.checkCancellation()
+                try NarrationWorkCheckpoint.check()
                 guard buffer.count <= limit - data.count else { throw EPUBReadError.limit }
                 data.append(buffer)
             }
@@ -192,7 +192,7 @@ private final class EPUBXMLParser: NSObject, XMLParserDelegate {
 }
 
 func parseEPUBXML(_ bytes: Data) throws -> EPUBXMLNode {
-    try Task.checkCancellation()
+    try NarrationWorkCheckpoint.check()
     guard bytes.count <= 4_000_000 else { throw EPUBReadError.limit }
     let parser = XMLParser(data: bytes), delegate = EPUBXMLParser()
     parser.shouldProcessNamespaces = true
@@ -200,7 +200,7 @@ func parseEPUBXML(_ bytes: Data) throws -> EPUBXMLNode {
     parser.externalEntityResolvingPolicy = .never
     parser.delegate = delegate
     guard parser.parse(), !delegate.rejected, let root = delegate.root else {
-        try Task.checkCancellation(); throw EPUBReadError.malformed
+        try NarrationWorkCheckpoint.check(); throw EPUBReadError.malformed
     }
     return root
 }

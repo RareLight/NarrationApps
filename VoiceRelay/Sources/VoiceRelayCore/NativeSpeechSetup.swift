@@ -42,24 +42,29 @@ public enum NativeSpeechSetup {
         let prepared = try? NativePrimaryStore.nativeDirectory(spec, workspace: workspace)
         return [shared, prepared].compactMap { $0 }.contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent("config.json").path) }
     }
-    public static func check(at root: URL, settings: SpeechSettings = .init()) throws {
+    public static func check(at root: URL, settings: SpeechSettings = .init(), workCoordinator: SpeechWorkCoordinator? = nil) throws {
         try NativeOperationBridge().run {
-            try await SpeechSetupCheck.run(configuration: .init(executable: workerExecutable, requestTimeout: .seconds(600), inferencePriority: .background),
+            var configuration = WorkerConfiguration(executable: workerExecutable, requestTimeout: .seconds(600), inferencePriority: .background)
+            configuration.workCoordinator = workCoordinator
+            try await SpeechSetupCheck.run(configuration: configuration,
                                            workspace: root, settings: settings)
         }
     }
     public static func install(at root: URL = managedRoot, settings: SpeechSettings = .init(),
+                               workCoordinator: SpeechWorkCoordinator? = nil,
                                progress: @escaping @Sendable (ModelPreparationProgress) -> Void = { _ in }) throws {
         guard root.isFileURL, root.path != "/", !Files.samePath(root, FileManager.default.homeDirectoryForCurrentUser) else {
             throw RelayError.setup("Choose an app-owned model folder.")
         }
         try NativeModelStorage.prepareRoot(root)
-        let configuration = WorkerConfiguration(executable: workerExecutable, requestTimeout: .seconds(5_400))
+        var captured = WorkerConfiguration(executable: workerExecutable, requestTimeout: .seconds(5_400))
+        captured.workCoordinator = workCoordinator
+        let configuration = captured
         try NativeOperationBridge().run {
             try await ModelPreparation.run(configuration: configuration, workspace: root, settings: settings, progress: progress)
         }
         progress(.init(scope: .primary, phase: .checking, totalBytes: 0))
-        try check(at: root, settings: settings)
+        try check(at: root, settings: settings, workCoordinator: workCoordinator)
     }
 }
 

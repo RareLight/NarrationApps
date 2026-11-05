@@ -57,12 +57,13 @@ public enum InputCollector {
 
     public static func collect(_ selection: [URL], excludingOutput: URL? = nil,
                                progress: @Sendable (Int) -> Void = { _ in }) throws -> IntakeResult {
+        try NarrationWorkCheckpoint.check()
         let manager = FileManager.default
         var result = IntakeResult()
         var folders: [URL] = []
         var loose: [URL] = []
         for original in selection {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             do {
                 guard original.isFileURL else { throw CocoaError(.fileReadUnsupportedScheme) }
                 let values = try original.resourceValues(forKeys: keys)
@@ -107,7 +108,7 @@ public enum InputCollector {
             result.documents.append(InputDocument(source: url, kind: kind, relativePath: relative))
         }
         for folder in folders {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             let recursiveExclusion = excluded.flatMap { isWithin(folder, $0) ? nil : $0 }
             let base = folder.lastPathComponent.isEmpty ? "Folder" : folder.lastPathComponent
             var label = base
@@ -123,7 +124,7 @@ public enum InputCollector {
                 continue
             }
             for case let url as URL in enumerator {
-                try Task.checkCancellation()
+                try NarrationWorkCheckpoint.check()
                 visited += 1
                 if visited % 100 == 0 { progress(visited) }
                 do {
@@ -150,16 +151,17 @@ public enum InputCollector {
                 }
             }
             for url in found.sorted(by: { $0.path < $1.path }) {
-                try Task.checkCancellation()
+                try NarrationWorkCheckpoint.check()
                 let relative = String(url.path.dropFirst(folder.path.count + 1))
                 add(url, relative: label + "/" + relative)
             }
         }
         for url in loose.sorted(by: { $0.path < $1.path }) {
-            try Task.checkCancellation()
+            try NarrationWorkCheckpoint.check()
             visited += 1
             add(url, relative: url.lastPathComponent)
         }
+        try NarrationWorkCheckpoint.check()
         progress(visited)
         return result
     }
