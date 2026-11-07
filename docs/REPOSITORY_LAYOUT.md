@@ -7,6 +7,7 @@ NarrationApps/                    # one Git repository, main
   AGENTS.md  README.md  CONTRIBUTING.md
   DevelopmentBaseline.json       # component paths and tested toolchain
   docs/
+    archive/                     # dated implementation records; see docs/README.md
   scripts/                       # cross-app checks, setup and packaging support
   NarrationApps.xcworkspace/
   swift-packages/                 # SwiftNarration; no nested .git
@@ -21,7 +22,7 @@ NarrationApps/                    # one Git repository, main
   .build/                        # ignored generated build state
 ```
 
-The [monorepo migration record](MONOREPO_MIGRATION.md) describes imported history,
+The [monorepo migration record](archive/MONOREPO_MIGRATION.md) describes imported history,
 privacy filtering, original Git metadata recovery and publication status. Use Git
 from this root or an app directory: all maintained changes belong to the same
 repository. Models, credentials, personal documents, library state and generated

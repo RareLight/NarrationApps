@@ -4,8 +4,8 @@
 > complete. Later work added automatic PDF/EPUB covers and thumbnails, VoiceRelay's
 > default cover, the dedicated Libro Document pane, renamed Footnotes controls,
 > citation choices and progressive previews. “Before this increment” and old UI
-> labels below describe the October 15 baseline. Use [the narration guide](NARRATION_GUIDE.md),
-> [current status](IMPLEMENTATION_STATUS.md) and [operator checklist](OPERATOR_VALIDATION.md)
+> labels below describe the October 15 baseline. Use [the narration guide](../NARRATION_GUIDE.md),
+> [current status](../IMPLEMENTATION_STATUS.md) and [operator checklist](../OPERATOR_VALIDATION.md)
 > for today's behavior and acceptance; do not restart the stages.
 
 Authorized and implemented October 15, 2026. CA0–CA3 and DN1–DN3 are implemented;
@@ -310,12 +310,12 @@ solely to make this stage appear complete.
   Queue preview windows also use the job's captured profile rather than newly
   edited preferences, while retaining the existing URL-based preview workflow.
 
-Automated evidence is consolidated in [current status](IMPLEMENTATION_STATUS.md).
+Automated evidence is consolidated in [current status](../IMPLEMENTATION_STATUS.md).
 The synthetic operator fixture directory is `.build/cover-navigation/fixtures`:
 `navigation-and-notes.epub`, `outline.md`, portrait/square covers, an invalid alpha
 cover, expected narration text for three policies and `validation.json`. These
 are private generated artifacts, not shipped samples or maintained product tools.
-Use [L17–L19 and V17–V19](OPERATOR_VALIDATION.md) for acceptance; no checkbox there
+Use [L17–L19 and V17–V19](../OPERATOR_VALIDATION.md) for acceptance; no checkbox there
 was marked passed by engineering tests.
 
 ## Later candidates after these increments
@@ -346,7 +346,7 @@ Exercise full decode and seeking without FFmpeg or a new external tool dependenc
 Keep model, speech and art workloads bounded; do not start another inference worker.
 
 When implementation lands, add new cases to the existing consolidated
-[operator checklist](OPERATOR_VALIDATION.md), grouped by app. Do not create a
+[operator checklist](../OPERATOR_VALIDATION.md), grouped by app. Do not create a
 second competing checklist or mark B06 and earlier unreported checks accepted.
 Libro checks include choose/remove/relaunch, bulk selection, each tagged format,
 preview navigation, omissions and replacement failure. VoiceRelay checks include

@@ -3,7 +3,7 @@
 Updated after the operator comparison. Every product model now always uses semantic
 phrasing, including older saved settings; the former opt-in control is retired.
 Existing source documents and recordings are retained.
-The [implementation plan](LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md) records scope;
+The [implementation plan](archive/LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md) records scope;
 B09 in the [operator checklist](OPERATOR_VALIDATION.md) owns listening acceptance.
 
 ## Semantic phrasing

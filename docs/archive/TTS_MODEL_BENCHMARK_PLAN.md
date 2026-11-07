@@ -19,7 +19,7 @@ needed to generate the blind web app from the recorded audio.
 
 ## Implementation and evidence
 
-The standalone [Swift utility and commands](../tools/TTSBenchmark/README.md) now
+The standalone [Swift utility and commands](../../tools/TTSBenchmark/README.md) now
 implement the host/worker protocol, explicit asset preparation and verification,
 native model adapters, optional accepted-product reference, durable attempts,
 performance reports, resumable preference bracket and held-out finalist workflow.
@@ -56,7 +56,7 @@ two-hour minimum per profile.
 Fish S2 Pro remains blocked until a licensed reference clip and transcript are
 configured. No human preference has been supplied: Stage 6's bracket ranking,
 blind listening and finalist long-form acceptance remain pending under operator
-case [M01](OPERATOR_VALIDATION.md#model-evaluation-developer-utility). No model-quality
+case [M01](../OPERATOR_VALIDATION.md#model-evaluation-developer-utility). No model-quality
 winner or app-integration decision is inferred from these measurements.
 
 ## Outcome and scope
@@ -88,13 +88,13 @@ Reusable maintained code exists:
 
 | Source | Reuse | Required change |
 | --- | --- | --- |
-| [LongformCheck.swift](../swift-packages/Sources/NarrationNativeCheck/LongformCheck.swift) | Supervised offline worker evaluation, corpus identity, timings, WAV validation/hashes and footprint evidence | It hardcodes three Kokoro voices, two speeds and two repeats. Each repeat prepares a new session, so do not relabel its results as resident-model warm measurements. |
-| [make-longform-report.swift](../swift-packages/scripts/make-longform-report.swift) | Local HTML audio comparison, A/B labels and rating sheets | It expects four specific policy directories and 12 results each. Replace those assumptions with manifest-driven selections. |
-| [Longform fixtures](../swift-packages/Tests/Fixtures/Longform/README.md) | Original synthetic prose and focused pronunciation cases | Retain existing fixtures unchanged; add separately versioned model-comparison cases. |
-| [SpeechSettings.swift](../swift-packages/Sources/NarrationCore/SpeechSettings.swift) | Identify the current Kokoro/Soprano product references | The product enum supports only those two models. Do not expand it merely to run the benchmark. |
-| [SpeechMemoryPolicy.swift](../swift-packages/Sources/NativeSpeech/SpeechMemoryPolicy.swift) | Explain production memory protections | Its approximately 3 GiB footprint ceiling is unsuitable as a universal limit for larger benchmark models. Keep the app policy unchanged. |
+| [LongformCheck.swift](../../swift-packages/Sources/NarrationNativeCheck/LongformCheck.swift) | Supervised offline worker evaluation, corpus identity, timings, WAV validation/hashes and footprint evidence | It hardcodes three Kokoro voices, two speeds and two repeats. Each repeat prepares a new session, so do not relabel its results as resident-model warm measurements. |
+| [make-longform-report.swift](../../swift-packages/scripts/make-longform-report.swift) | Local HTML audio comparison, A/B labels and rating sheets | It expects four specific policy directories and 12 results each. Replace those assumptions with manifest-driven selections. |
+| [Longform fixtures](../../swift-packages/Tests/Fixtures/Longform/README.md) | Original synthetic prose and focused pronunciation cases | Retain existing fixtures unchanged; add separately versioned model-comparison cases. |
+| [SpeechSettings.swift](../../swift-packages/Sources/NarrationCore/SpeechSettings.swift) | Identify the current Kokoro/Soprano product references | The product enum supports only those two models. Do not expand it merely to run the benchmark. |
+| [SpeechMemoryPolicy.swift](../../swift-packages/Sources/NativeSpeech/SpeechMemoryPolicy.swift) | Explain production memory protections | Its approximately 3 GiB footprint ceiling is unsuitable as a universal limit for larger benchmark models. Keep the app policy unchanged. |
 
-The [preparation script](../swift-packages/scripts/prepare-dependencies.sh) pins
+The [preparation script](../../swift-packages/scripts/prepare-dependencies.sh) pins
 MLX-audio-swift at `8d86630ade569728aaea3dc1a29fc44e2efa719b`, with maintained
 project patches. The inspected checkout matches that base revision. It has a
 `SpeechGenerationModel` protocol, local-directory loading through `TTS.loadModel`,
@@ -185,7 +185,7 @@ chunking strategy. Unsupported options must fail explicitly instead of being
 silently ignored. Keep family defaults initially; identical numeric temperatures
 or token ceilings are not equivalent across architectures.
 
-The [utility guide](../tools/TTSBenchmark/README.md) documents implemented commands
+The [utility guide](../../tools/TTSBenchmark/README.md) documents implemented commands
 for inventory/preflight, explicit asset preparation, measured runs, reports,
 preference-bracket progression and blind finalist-pack generation. A shortened
 matrix supplies a separate smoke run; it does not replace the measured campaign.

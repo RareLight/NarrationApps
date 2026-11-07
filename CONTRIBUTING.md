@@ -41,7 +41,7 @@ Check that the optional Metal compiler actually runs with `xcrun metal --version
 `--find metal` alone may return a shim. If missing, use Xcode's component installer
 (`xcodebuild -downloadComponent MetalToolchain`). If an installed component is not
 found by the shim, inspect `xcodebuild -showComponent MetalToolchain -json` and the
-[recorded command-local selection](docs/MONOREPO_MIGRATION.md#validation).
+[recorded command-local selection](docs/archive/MONOREPO_MIGRATION.md#validation).
 Do not change project deployment targets or patch kernels to fix compiler discovery.
 
 Open [NarrationApps.xcworkspace](NarrationApps.xcworkspace), closing separately

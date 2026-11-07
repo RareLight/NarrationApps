@@ -1,7 +1,8 @@
 # Documentation
 
-Reviewed against the monorepo source on October 21, 2026. Start with your task;
-implementation records are background, not additional setup instructions.
+Reviewed against the monorepo source on October 21, 2026; dated records moved to
+`archive/` on November 5, 2026. Start with your task; implementation records are
+background, not additional setup instructions.
 
 ## Use the apps
 
@@ -24,14 +25,12 @@ implementation records are background, not additional setup instructions.
 | Fresh clone, prerequisites, preparation and signing | [Contributing](../CONTRIBUTING.md) |
 | Select quick/full/native/release checks and interpret evidence | [Development gates](DEVELOPMENT.md) |
 | Track development milestones and commit-count builds | [Development versioning](DEVELOPMENT.md#development-versioning), [CHANGELOG.md](../CHANGELOG.md) |
-| Compare TTS models/voices and run a preference bracket | [Swift benchmark utility](../tools/TTSBenchmark/README.md), [design and evidence](TTS_MODEL_BENCHMARK_PLAN.md) |
-| Review Qwen3-TTS, Chatterbox Turbo and Orpheus integration and validation | [Shared model integration plan](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md) |
-| Review VoiceServer design and engineering evidence | [Implementation checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md) |
+| Compare TTS models/voices and run a preference bracket | [Swift benchmark utility](../tools/TTSBenchmark/README.md) |
 | Understand implemented features and current evidence | [Current status](IMPLEMENTATION_STATUS.md) |
 | Find remaining acceptance and proposed work | [Roadmap](IMPLEMENTATION_PLAN.md) |
 | Perform GUI/listening/account checks | [Operator checklist](OPERATOR_VALIDATION.md) |
 | Work as an agent | [Root instructions](../AGENTS.md), then app/package AGENTS.md |
-| Understand layout, Git ownership and original backups | [Repository layout](REPOSITORY_LAYOUT.md), [migration record](MONOREPO_MIGRATION.md) |
+| Understand layout, Git ownership and original backups | [Repository layout](REPOSITORY_LAYOUT.md), [migration record](archive/MONOREPO_MIGRATION.md) |
 | Maintain documentation | [Documentation policy](DOCUMENTATION.md) |
 | Activate CI or plan distribution | [CI](CI.md), [release checklist](../VoiceRelay/docs/RELEASE_CHECKLIST.md) |
 
@@ -50,28 +49,33 @@ implementation records are background, not additional setup instructions.
 | Exact pins, patches, codec/model provenance and licenses | [Dependencies](DEPENDENCIES.md), [source provenance](PROVENANCE.md) |
 | App-specific implementation | [Libro docs](../Libro/docs/README.md), [VoiceRelay architecture](../VoiceRelay/docs/ARCHITECTURE.md) |
 
-## Review fix records
-
-- [Libro and shared-component review fixes](LIBRO_REVIEW_FIX_PLAN.md).
-
 ## Research and implementation history
 
-These records explain decisions and dated evidence. Their original stage commands,
-counts, commit IDs and build paths are historical; use the current guides above.
-Proposals in them do not automatically authorize further implementation.
+Dated records live under [archive/](archive/README.md). They explain decisions and
+dated evidence. Their original stage commands, counts, commit IDs and build paths
+are historical; use the current guides above. Proposals in them do not
+automatically authorize further implementation.
 
-- [Development foundation completion](DEVELOPMENT_FOUNDATION_CHECKLIST.md) and
-  [original handoff](AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md).
-- [Cover/navigation implementation](COVER_ART_AND_NAVIGATION_PLAN.md).
-- [Kokoro longform implementation and listening decision](KOKORO_LONGFORM_IMPLEMENTATION.md).
-- [Normalization research](TEXT_NORMALIZATION_RESEARCH.md) and
-  [text-processing delivery record](TEXT_PROCESSING_IMPROVEMENT_PLAN.md).
-- [Academic PDF evaluation and proposed research](ACADEMIC_PDF_EVALUATION.md).
-- [Swift TTS model benchmark and evidence](TTS_MODEL_BENCHMARK_PLAN.md), prioritizing
+- [Development foundation completion](archive/DEVELOPMENT_FOUNDATION_CHECKLIST.md) and
+  [original handoff](archive/AGENT_HANDOFF_DEVELOPMENT_FOUNDATION.md).
+- [Monorepo migration record](archive/MONOREPO_MIGRATION.md).
+- [Cover/navigation implementation](archive/COVER_ART_AND_NAVIGATION_PLAN.md).
+- [Kokoro longform implementation and listening decision](archive/KOKORO_LONGFORM_IMPLEMENTATION.md).
+- [Long-form quality implementation plan](archive/LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md) and
+  [listening results](archive/LONGFORM_QUALITY_LISTENING_RESULTS.md).
+- [Normalization research](archive/TEXT_NORMALIZATION_RESEARCH.md) and
+  [text-processing delivery record](archive/TEXT_PROCESSING_IMPROVEMENT_PLAN.md).
+- [Academic PDF evaluation and proposed research](archive/ACADEMIC_PDF_EVALUATION.md).
+- [Swift TTS model benchmark and evidence](archive/TTS_MODEL_BENCHMARK_PLAN.md), prioritizing
   native MLX-audio-swift models, measured performance, a model/voice preference
   bracket and blind finalist listening.
   [Benchmark commands and evidence](../tools/TTSBenchmark/README.md).
-- [VoiceRelay whole-app review fix plan](VOICERELAY_REVIEW_FIX_PLAN.md), covering
+- [Shared multi-model TTS integration plan](archive/MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md);
+  current model guidance lives in [Model selection](MODEL_SELECTION.md).
+- [VoiceServer implementation checklist](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md);
+  the current user-facing guide is [VOICESERVER.md](../VoiceRelay/docs/VOICESERVER.md).
+- [Libro and shared-component review fixes](archive/LIBRO_REVIEW_FIX_PLAN.md).
+- [VoiceRelay whole-app review fix plan](archive/VOICERELAY_REVIEW_FIX_PLAN.md), covering
   publishing safety, source identity, captured pauses and transcript references.
 
 Project commands default to the NarrationApps root. A guide must explicitly name

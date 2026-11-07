@@ -124,7 +124,7 @@ This gate never overwrites source assets or downloads models. Listening, pronunc
 quality and both apps' Play Sample UI remain operator acceptance checks.
 
 
-The [longform implementation](KOKORO_LONGFORM_IMPLEMENTATION.md) now carries the
+The [longform implementation](archive/KOKORO_LONGFORM_IMPLEMENTATION.md) now carries the
 exact common spoken projection through helper preparation and rendering. The current
 schema-3 manifest includes actual prepared utterances and readable regional,
 frontend, style and assembly provenance. The prior schema-2 recording set is

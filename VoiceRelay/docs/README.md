@@ -7,6 +7,7 @@
 | Footnotes, PDF cleanup and pronunciation previews | [Shared narration guide](../../docs/NARRATION_GUIDE.md) |
 | Source access, failed pages, archives and image handling | [Source handling](SOURCE_REVIEW.md) |
 | Matching server copies, verification, conflicts and cleanup | [Server recovery](SERVER_RECOVERY.md) |
+| Private speech API setup, client headers and limits | [VoiceServer](VOICESERVER.md) |
 | Build/sign and contribute | [Contributing](../CONTRIBUTING.md), [root setup](../../CONTRIBUTING.md) |
 | Work as an agent | [Scoped instructions](../AGENTS.md) |
 | Understand the application | [Architecture](ARCHITECTURE.md), [native speech adapter](KOKORO_PROVIDER.md) |

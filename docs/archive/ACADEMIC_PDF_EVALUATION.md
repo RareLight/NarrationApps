@@ -1,6 +1,6 @@
 # Difficult academic PDFs: evaluation and next steps
 
-Evaluation performed October 19, 2026; current-scope notes reviewed October 21. This expands the [scientific narration](SCIENTIFIC_NARRATION.md)
+Evaluation performed October 19, 2026; current-scope notes reviewed October 21. This expands the [scientific narration](../SCIENTIFIC_NARRATION.md)
 review with five public papers. Downloaded papers, extracted prose, renders and
 model/settings exports stay in ignored `.local/academic-corpus/`; third-party full
 texts are not bundled as fixtures. Its `audit.json` records versions, input hashes,
@@ -75,7 +75,7 @@ article, so availability alone is insufficient. arXiv explicitly describes its
 The subsequent narration policy prioritizes inset text flow and readable prose
 over reconstructing table grids. It also limits complex-equation speech to one
 document-level source reference; advanced equation transcription is deferred.
-See [current defaults](SCIENTIFIC_NARRATION.md). The broader options below remain
+See [current defaults](../SCIENTIFIC_NARRATION.md). The broader options below remain
 research, rather than a requirement to add advanced mathematical support.
 
 1. **Preserve article structure before flattening.** Add a scientific HTML/MathML

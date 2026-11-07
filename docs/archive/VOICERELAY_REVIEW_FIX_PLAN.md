@@ -3,8 +3,8 @@
 Implementation plan, October 26, 2026. This work addresses the eight VoiceRelay
 findings from the whole-app review. The standalone benchmark and the subsequent
 Libro/shared-component review are separate scopes. Current behavior and evidence
-belong in [architecture](../VoiceRelay/docs/ARCHITECTURE.md) and
-[implementation status](IMPLEMENTATION_STATUS.md).
+belong in [architecture](../../VoiceRelay/docs/ARCHITECTURE.md) and
+[implementation status](../IMPLEMENTATION_STATUS.md).
 
 ## Stage 1 — Safe publishing and retirement
 
@@ -55,7 +55,7 @@ belong in [architecture](../VoiceRelay/docs/ARCHITECTURE.md) and
 - Update current user/developer documentation and the status record with actual
   results and evidence paths. Do not commit, push, install or launch candidates.
 - GUI, listening, protected Safari, real Keychain/WebDAV and player behavior remain
-  in [operator validation](OPERATOR_VALIDATION.md). A passing build does not close
+  in [operator validation](../OPERATOR_VALIDATION.md). A passing build does not close
   those checks.
 
 ## Completion record
@@ -64,7 +64,7 @@ Stages 1–4 are complete. Final October 27 validation covers all eight findings
 app-level source-retarget cancellation/reassociation and transcript-only retirement
 visibility, with the full fixture gate, isolated Debug/Release builds and four
 bundle audits passing. The final evidence locations and
-remaining manual boundaries are recorded in [implementation status](IMPLEMENTATION_STATUS.md).
+remaining manual boundaries are recorded in [implementation status](../IMPLEMENTATION_STATUS.md).
 The final full fixture run is
 `.local/validation/full-0F216836-5CB5-47F8-8A04-E9E1113F9997/`, including 328
 VoiceRelay core tests, 166 app tests and the shared/Libro suites. Existing opt-in

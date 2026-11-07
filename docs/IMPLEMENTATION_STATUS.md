@@ -1,13 +1,54 @@
 # Current implementation status
 
-Current-state documentation updated November 4, 2026. Feature-specific engineering
+Current-state documentation updated November 5, 2026. Feature-specific engineering
 evidence is dated below. NarrationApps is one repository containing Libro,
 VoiceRelay, SwiftNarration, AppPresentation and the combined Xcode workspace.
 The containing commit identifies all maintained source. See
-[monorepo migration](MONOREPO_MIGRATION.md), [architecture](ARCHITECTURE.md),
+[monorepo migration](archive/MONOREPO_MIGRATION.md), [architecture](ARCHITECTURE.md),
 [remaining work](IMPLEMENTATION_PLAN.md) and [operator validation](OPERATOR_VALIDATION.md).
 Private document reviews and their input-specific results are retained locally;
 they are excluded from the publication history. Synthetic fixtures remain maintained.
+
+## Publishing reconciliation gate, VoiceServer setup flow and documentation archive — November 5, 2026
+
+VoiceRelay now defers article admission — automatic and manual — and audio
+generation until enabled Publishing completes a reconciliation check against the
+current feed folder. `AppModel.deliveryServerChecked` compares the normalized
+configured destination with durable `DeliveryLedger` reconciliation evidence;
+already-published server work is recovered instead of regenerated or
+re-uploaded. Changing the destination clears destination-scoped evidence
+(reconcile timestamp, feed snapshot/ETag, audio proofs, reconciled queue IDs,
+blocked/preserved items) while preserving unsafe-feed and retry-backoff state.
+Completing a check during library refresh re-triggers automatic admission even
+without a catalog change. The user guide documents the ordering.
+
+The VoiceServer Settings pane now opens with a launcher card until an access
+mode is chosen; **Set Up VoiceServer…** presents a single sheet covering private
+access, interface addresses, response mode and explicit API-key generation, with
+an enable action gated by `setupReady`. The full settings return once configured,
+and the sheet remains reachable afterward. Passive 10-second monitor refreshes no
+longer mark the model busy, removing periodic disabled-state flicker on Start,
+Stop, Refresh and key controls; only user-initiated operations set `busy`.
+
+The status-item popover now activates the app on show and releases activation on
+close, restoring immediate keyboard focus for the menu-bar UI under the accessory
+policy. Activation release is skipped when a menu action opens a scene window.
+
+Documentation was consolidated: 15 dated implementation records moved to
+`docs/archive/` with Git history preserved, the index now routes readers by task
+and labels records as background, and a documentation-policy rule records when a
+document is archived. `VOICESERVER.md` gained an explicit client-header contract
+(`Authorization: Bearer vs_<key>`, exact Content-Type, HTTP/1.1, connection and
+compression limits) and states that `tailscale serve` is not required.
+
+Verification: all 383 VoiceRelay core and 185 app fixtures pass with the
+documented fixture-worker invocation; the quick gate (static, tooling,
+app-versioning) passes; `check-docs.swift` reports zero broken local links across
+root, app and tool documentation scopes. An operator-authenticated live request
+against a running Tailscale-bound listener returned `GET /v1/models` 200 and a
+real MP3 from `POST /v1/audio/speech`. Menu focus and setup-sheet flow were
+operator-observed; broader GUI/listening/live acceptance remains under
+[operator validation](OPERATOR_VALIDATION.md).
 
 ## VoiceServer API and production coordination — November 4, 2026
 
@@ -225,7 +266,7 @@ Default constructors still supply nil; recovery/file-access UI, retention/repair
 remaining preparation/review coverage, HTTP, credentials, service Settings and
 Tailscale are pending. No app was launched, no earlier operator candidate was
 replaced, and no archive, commit or push was performed. Detailed decisions remain
-in the [continuation record](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#maintenance-cpu-admission-wakeups-and-streaming-codecs--november-3-2026).
+in the [continuation record](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md#maintenance-cpu-admission-wakeups-and-streaming-codecs--november-3-2026).
 
 ## VoiceServer host admission and app ownership — November 2, 2026
 
@@ -242,7 +283,7 @@ now has a genuine initialize-only operation: a registered session alone is not
 model readiness. Default constructors still supply no coordinator. CPU loops/hashes,
 maintenance, wakeups/status and explicit recovery UI/retention remain activation
 prerequisites; HTTP/Settings/Tailscale remain pending. See the
-[host-admission record](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#host-inference-and-app-ownership-bindings--november-2-2026).
+[host-admission record](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md#host-inference-and-app-ownership-bindings--november-2-2026).
 
 Ten new synthetic cases pass alongside the earlier 85 feature cases. Full fixtures
 pass in `.local/validation/full-56FED339-53F8-4236-88DF-6CC22B53511E/`, including
@@ -271,7 +312,7 @@ Eighty-five feature-focused synthetic cases pass: 80 shared and five VoiceRelay
 adapter cases. The apps' default coordinator injection remains nil. Lifecycle,
 setup/preview/OCR admission, waiting status, explicit recovery/file-access UI and
 retention/repair remain activation prerequisites. HTTP/Settings/Tailscale are not
-enabled. See the [persistence record](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#persistence-adapters-and-captured-batch-recovery--november-2-2026)
+enabled. See the [persistence record](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md#persistence-adapters-and-captured-batch-recovery--november-2-2026)
 for scope; prior candidate/native receipts below remain separately dated evidence.
 
 Final full fixtures pass in
@@ -302,7 +343,7 @@ Both apps keep their current defaults: coordinator injection is nil. VoiceRelay'
 final database checkpoint fence, Libro batch/source/destination recovery, app
 lifecycle/manual controls and waiting status still need integration before
 activation. No HTTP, Settings or Tailscale feature is enabled. See the
-[coordinated-render record](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#coordinated-render-and-recovery-seam--november-2-2026)
+[coordinated-render record](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md#coordinated-render-and-recovery-seam--november-2-2026)
 for scope, provisional bounds and evidence. Earlier native safety receipts below
 remain separate from validation of the new host/helper path.
 
@@ -361,7 +402,7 @@ the native SafetyGate candidates/receipts are preserved separately.
 These shared primitives remain unwired to app coordinators, VoiceRelay persistence
 and durable Libro recovery. App serving/scheduling priorities remain unchanged;
 HTTP, Settings and Tailscale integration are still pending. The
-[checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#initialization-safety-decoder-correction-and-shared-foundations--november-2-2026)
+[checklist](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md#initialization-safety-decoder-correction-and-shared-foundations--november-2-2026)
 records the native matrix, scope and next integration work.
 
 ## VoiceServer live first-unit and reload proof — November 1, 2026
@@ -395,7 +436,7 @@ four audits pass, preserving prior candidates and installed bundles. The full ru
 `.local/validation/full-600AF0BE-7C33-433F-921B-101F8CEF4EF5/` passes all 24 cases,
 other shared/Libro suites and 183 VoiceRelay app tests, and remains red on the same
 three unchanged VoiceRelay core assertions below. No commit/push or archive.
-The [checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#live-first-unit-incremental-and-reload-gate--authorized-november-1-2026)
+The [checklist](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md#live-first-unit-incremental-and-reload-gate--authorized-november-1-2026)
 records the evidence, revised initial capability policy and remaining initialization,
 decoder-parity and broader native safety gates before scheduler integration.
 
@@ -429,7 +470,7 @@ owned incremental Qwen output and actual cross-app reload cost were still open;
 the follow-up above records their implementation and partial acceptance. Broader
 cancellation positions/settings and listening remain open. Chatterbox's regenerated hashes differ; deterministic
 real-model regeneration is not required. The
-[checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#native-feasibility-gate--authorized-november-1-2026)
+[checklist](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md#native-feasibility-gate--authorized-november-1-2026)
 records the full table, preserved failed attempts and revised design.
 
 Patched full fixtures in
@@ -449,7 +490,7 @@ API > Libro > Podcasts, epoch rollback, same-app reuse, cross-app unload-before-
 FIFO API work, complete-file yielding, pause/Stop, requester loss and orphan drain.
 Checkpoint hashes survive suspension/reopening; an independent trace audit checks
 exclusive residency/generation and quiescence/reset ordering. The
-[checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md#vs00-proof-results-and-design-refinements--november-1-2026)
+[checklist](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md#vs00-proof-results-and-design-refinements--november-1-2026)
 records the trace, reproduction and design refinements.
 
 All ten focused proof tests pass and pass again within
@@ -557,7 +598,7 @@ installed apps replaced or live services used.
 ## Long-form narration quality — October 30
 
 Operator paired listening is now recorded in the
-[listening results](LONGFORM_QUALITY_LISTENING_RESULTS.md): semantic phrasing was
+[listening results](archive/LONGFORM_QUALITY_LISTENING_RESULTS.md): semantic phrasing was
 preferred for Kokoro/Heart; all four other pairs were rated Same. Contextual
 read/lead, selected unit/time pronunciations, paragraph timing and Ryan's pacing
 remain follow-up issues. This supports considering Kokoro-only activation on
@@ -565,7 +606,7 @@ this evidence; the initial import did not change defaults. The subsequent operat
 decision above activates it for Kokoro. B09 remains partial because GUI,
 recognition and broader pronunciation acceptance were not reported.
 
-The authorized [implementation plan](LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md) is
+The authorized [implementation plan](archive/LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md) is
 implemented across the shared packages and both apps. Semantic phrasing is now
 mandatory for every model, including saved legacy/nil planning values, previews,
 resume/review repair and direct native sessions; the former opt-in control and
@@ -831,7 +872,7 @@ Shared queue admission validates names/collisions once; safety boundaries valida
 the current target while refreshing source and inode protections, avoiding repeated
 whole-batch planning and quadratic path-prefix comparisons.
 
-The [implementation plan](LIBRO_REVIEW_FIX_PLAN.md) records the scope. The full
+The [implementation plan](archive/LIBRO_REVIEW_FIX_PLAN.md) records the scope. The full
 fixture gate passes, including 38 LibroCore, 328 VoiceRelay core and 166 app tests,
 shared/static/packaging checks and the new source/publication/import regressions.
 Existing private-document/native opt-ins remain skips. Evidence is
@@ -854,7 +895,7 @@ pause assembly after helper/checkpoint reuse, and public transcript-link remappi
 Encoding version 3 rebuilds unfinished scratch from compatible lossless checkpoints;
 completed and verified already-placed recordings stay unchanged.
 
-The [implementation plan](VOICERELAY_REVIEW_FIX_PLAN.md) records stages and evidence.
+The [implementation plan](archive/VOICERELAY_REVIEW_FIX_PLAN.md) records stages and evidence.
 Focused regressions cover migration, source identity, pauses and disablement.
 The October 27 follow-up also keeps failed
 transcript-only removals visible and preserves their error in either deletion
@@ -1102,7 +1143,7 @@ Large helpers are reaped between utterances under the existing admission lease;
 reload and hash-validation overhead exceeds warm benchmark-call costs. Chatterbox
 now preserves raw vocoder PCM by disabling inherited SDK normalization/fade;
 original benchmark recordings retain their old processing and bytes. See the
-[integration record](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md) for design and evidence.
+[integration record](archive/MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md) for design and evidence.
 Long-form linguistic quality, GUI/accessibility, actual documents, normal-signed
 installed apps and live delivery/player checks remain operator-owned.
 
@@ -1110,7 +1151,7 @@ installed apps and live delivery/player checks remain operator-owned.
 
 On October 27 the operator reported Qwen3-TTS 1.7B / Ryan as the top bracket
 choice, Chatterbox Turbo / default as runner-up, and Kokoro / Heart plus Orpheus
-3B / leah as contenders. The [shared integration record](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md)
+3B / leah as contenders. The [shared integration record](archive/MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md)
 covers all supported preset voices of the selected checkpoints, shared setup/UI,
 native adapters, resource admission and both app workflows. The implementation
 is described below. This records the supplied ranking without inventing or importing
@@ -1137,7 +1178,7 @@ region mismatch was fixed, tested and rerun separately; the derived report keeps
 the original failure, source receipts and both builds' evidence. All WAV hashes,
 12 unique bracket entrants, empty preference history and page audio links were
 verified. Fish S2 Pro remains blocked for a licensed reference clip/transcript.
-The [design/evidence record](TTS_MODEL_BENCHMARK_PLAN.md) identifies local reports
+The [design/evidence record](archive/TTS_MODEL_BENCHMARK_PLAN.md) identifies local reports
 and measurement limits. No operator ranking was recorded at that benchmark run's
 creation. The later reported ranking is recorded above; operator
 [M01](OPERATOR_VALIDATION.md#model-evaluation-developer-utility) still requires
@@ -1270,7 +1311,7 @@ ragged grids and uncertain OCR get conservative cues. Optional bounded native OC
 can recover image-table text while preserving the native page. Native extraction,
 MathML handling and complex layout still have limits. See
 [scientific narration](SCIENTIFIC_NARRATION.md) and
-[academic PDF findings](ACADEMIC_PDF_EVALUATION.md).
+[academic PDF findings](archive/ACADEMIC_PDF_EVALUATION.md).
 
 ## Citation choices and PDF narration reconstruction
 
@@ -1331,7 +1372,7 @@ Printed-word joining is opt-in and defaults off. It uses local line geometry,
 structural exclusions and platform dictionary evidence; ambiguous cases abstain.
 Discretionary soft-hyphen cleanup remains separate. Original source text and mappings
 are preserved. The Readium adaptation's BSD notice and provenance are retained.
-See [text processing](TEXT_PROCESSING_IMPROVEMENT_PLAN.md) and
+See [text processing](archive/TEXT_PROCESSING_IMPROVEMENT_PLAN.md) and
 [provenance](PROVENANCE.md).
 
 ## Accepted policies and engineering gates
@@ -1345,7 +1386,7 @@ The October 20 monorepo validation established the migration baseline:
 full synthetic fixtures, Debug and Release workspace builds and all four bundle
 audits passed. Those audits include
 ad-hoc signatures and offline packaged Metal probes. Migration-specific results
-are recorded in [the migration record](MONOREPO_MIGRATION.md).
+are recorded in [the migration record](archive/MONOREPO_MIGRATION.md).
 Build/fixture evidence does not establish GUI, listening, private-document,
 Keychain, live-server or distribution acceptance. The consolidated
 [operator checklist](OPERATOR_VALIDATION.md) retains those gates.

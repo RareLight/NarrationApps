@@ -113,7 +113,7 @@ errors. AppPresentation remains independent of narration, documents and audio.
 
 ## Model-selection guidance
 
-The [multi-model integration plan](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md#model-selection-guidance-speed-and-quality-meters)
+The [multi-model integration plan](archive/MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md#model-selection-guidance-speed-and-quality-meters)
 specifies the common static generation-speed and narration-quality meters, text tiers and
 model details to both apps. Model descriptions and meters live in the trailing ⓘ
 popover beside the compact picker/download row, with no size, deletion or inline stats

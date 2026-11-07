@@ -3,8 +3,8 @@
 October 27, 2026. This plan covers the five substantive findings in the whole-app
 review and the related import-scanner ownership improvement. The completed
 [VoiceRelay fixes](VOICERELAY_REVIEW_FIX_PLAN.md) remain intact. Current contracts
-and validation are recorded in [architecture](ARCHITECTURE.md),
-[development gates](DEVELOPMENT.md) and [implementation status](IMPLEMENTATION_STATUS.md).
+and validation are recorded in [architecture](../ARCHITECTURE.md),
+[development gates](../DEVELOPMENT.md) and [implementation status](../IMPLEMENTATION_STATUS.md).
 
 ## 1. Protect sources and outputs
 
@@ -52,7 +52,7 @@ and validation are recorded in [architecture](ARCHITECTURE.md),
   evidence. Preserve VoiceRelay changes, model assets, real preferences, completed
   recordings, original documents and private data. Do not commit or push.
 - GUI/Canvas, real documents, listening, signing accounts and provider-specific
-  acceptance remain in the [operator checklist](OPERATOR_VALIDATION.md).
+  acceptance remain in the [operator checklist](../OPERATOR_VALIDATION.md).
 
 ## Completion record
 

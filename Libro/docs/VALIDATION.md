@@ -10,7 +10,7 @@ previews, the Document Settings pane and the shared narration policies. See the
 
 The latest recorded product gate is the October 20 monorepo validation: the full
 isolated suite, combined Debug/Release workspace builds and all four bundle audits
-passed. [Migration validation](../../docs/MONOREPO_MIGRATION.md#validation) identifies
+passed. [Migration validation](../../docs/archive/MONOREPO_MIGRATION.md#validation) identifies
 the source commit, summaries, signing class and local Metal selection. This page
 and later documentation checks do not constitute another product build or GUI pass.
 

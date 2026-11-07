@@ -3,9 +3,9 @@
 Current-state review: October 21, 2026. The DF stages below were implemented during
 the October 16 foundation work and updated for the October 20 monorepo migration.
 This is a completion record, not an instruction to restart those stages. Use
-[CONTRIBUTING.md](../CONTRIBUTING.md) and [DEVELOPMENT.md](DEVELOPMENT.md) for current
-commands, [status](IMPLEMENTATION_STATUS.md) for evidence and the
-[roadmap](IMPLEMENTATION_PLAN.md) for remaining work.
+[CONTRIBUTING.md](../../CONTRIBUTING.md) and [DEVELOPMENT.md](../DEVELOPMENT.md) for current
+commands, [status](../IMPLEMENTATION_STATUS.md) for evidence and the
+[roadmap](../IMPLEMENTATION_PLAN.md) for remaining work.
 
 ## Stage completion and current equivalents
 
@@ -54,7 +54,7 @@ failure evidence and CI path classification using isolated local fixtures.
 
 The operator's October 16 build/run confirmation accepts basic launch smoke only.
 GUI, real-document/OCR quality, listening, Keychain/WebDAV, restore and signing/
-distribution checks remain in [OPERATOR_VALIDATION.md](OPERATOR_VALIDATION.md).
+distribution checks remain in [OPERATOR_VALIDATION.md](../OPERATOR_VALIDATION.md).
 The documentation review does not rerun or accept those tests.
 
 ## Historical source references

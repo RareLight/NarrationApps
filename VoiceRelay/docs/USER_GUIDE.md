@@ -249,7 +249,7 @@ word joining are also available, off by default. See the
 apply to newly queued articles with explicit source semantics. Without citation stripping, bibliographies
 and unclassified prose remain, source omissions are visible, and existing queued
 articles keep their captured preferences. Shared implementation is recorded in the
-[cover/navigation stages](../../docs/COVER_ART_AND_NAVIGATION_PLAN.md).
+[cover/navigation stages](../../docs/archive/COVER_ART_AND_NAVIGATION_PLAN.md).
 
 Pasted URLs normalize on commit: whitespace, missing HTTPS, spaces/percent escapes,
 redundant slashes, dot segments, default ports and trailing slashes are handled.
@@ -405,7 +405,7 @@ See [pronunciation](../../docs/PRONUNCIATION.md) and
 [sample regeneration](../../docs/VOICE_SAMPLES.md).
 
 The accepted Kokoro pacing is implemented. Explicit kilograms, temperatures, AM/PM times and letter-A labels have shared
-spoken-form corrections. Ambiguous forms and contextual homographs remain [known frontend limitations](../../docs/TEXT_NORMALIZATION_RESEARCH.md);
+spoken-form corrections. Ambiguous forms and contextual homographs remain [known frontend limitations](../../docs/archive/TEXT_NORMALIZATION_RESEARCH.md);
 changing speed or voice is not a general correction for those cases.
 
 ## If something goes wrong

@@ -73,6 +73,9 @@ private struct UnusedServerRenderer: VoiceServerRenderer {
     }
     let v6 = try VoiceServerBinding(address: "::1", port: 8_080)
     #expect(v6.baseURL?.absoluteString == "http://[::1]:8080/v1")
+    #expect(v6.speechURL?.absoluteString == "http://[::1]:8080/v1/audio/speech")
+    let v4 = try VoiceServerBinding(address: "100.71.35.40", port: 4_242)
+    #expect(v4.speechURL?.absoluteString == "http://100.71.35.40:4242/v1/audio/speech")
     #expect(throws: VoiceServerError.self) { try VoiceServerBinding(address: "127.0.0.1", port: 0) }
 }
 

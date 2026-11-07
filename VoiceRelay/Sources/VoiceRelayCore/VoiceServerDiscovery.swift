@@ -53,9 +53,12 @@ public struct VoiceServerTailscaleStatus: Sendable, Equatable {
         }
         return .init(connected: !addresses.isEmpty, addresses: Array(Set(addresses)).sorted(), magicDNS: dns)
     }
-    public func baseURL(port: Int) -> URL? {
+    public func baseURL(port: Int) -> URL? { url(port: port, path: "/v1") }
+    /// Full speech route for the self MagicDNS name.
+    public func speechURL(port: Int) -> URL? { url(port: port, path: "/v1/audio/speech") }
+    private func url(port: Int, path: String) -> URL? {
         guard connected, let magicDNS, (1...65_535).contains(port) else { return nil }
-        var parts = URLComponents(); parts.scheme = "http"; parts.host = magicDNS; parts.port = port; parts.path = "/v1"
+        var parts = URLComponents(); parts.scheme = "http"; parts.host = magicDNS; parts.port = port; parts.path = path
         return parts.url
     }
 }

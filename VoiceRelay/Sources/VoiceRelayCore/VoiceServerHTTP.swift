@@ -13,8 +13,11 @@ public struct VoiceServerBinding: Sendable, Equatable, Hashable {
               (try? SocketAddress(ipAddress: address, port: port)) != nil else { throw VoiceServerError.failed }
         self.address = address; self.port = port
     }
-    public var baseURL: URL? {
-        var parts = URLComponents(); parts.scheme = "http"; parts.host = address.contains(":") ? "[\(address)]" : address; parts.port = port; parts.path = "/v1"
+    public var baseURL: URL? { url(path: "/v1") }
+    /// Full speech route advertised for client configuration.
+    public var speechURL: URL? { url(path: "/v1/audio/speech") }
+    private func url(path: String) -> URL? {
+        var parts = URLComponents(); parts.scheme = "http"; parts.host = address.contains(":") ? "[\(address)]" : address; parts.port = port; parts.path = path
         return parts.url
     }
 }

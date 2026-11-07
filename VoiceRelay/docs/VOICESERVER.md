@@ -9,18 +9,28 @@ captured selection; changing settings affects later requests.
 
 ## Start and connect
 
-1. Open **Settings → VoiceServer** and choose **Access** explicitly. **This Mac
-   only** binds IPv4 and IPv6 loopback. **Tailscale** also binds only the local
-   Tailscale addresses you select. **Other private VPN (advanced)** accepts only
-   selected addresses currently present on this Mac; verify they belong to your
-   intended private interface.
-2. Choose a port and **Generate Key**. The bearer key is stored in VoiceRelay's
-   Keychain item. **Copy Key** places it on the clipboard; configure it as your
-   client's API key. Never put the key in a URL.
-3. Turn on **Enable VoiceServer**. Copy an **API base URL**, which ends in `/v1`.
-   The speech route is `/v1/audio/speech`. For a client with a configurable
-   OpenAI-compatible base URL, use model `voicerelay` and voice `default`.
-4. Install or repair the selected speech model in **Voice Model** when needed.
+1. Open **Settings → VoiceServer** and choose **Set Up VoiceServer…**. Until an
+   access mode is chosen the pane shows only the setup launcher; afterwards the
+   full settings appear and the same button returns to setup.
+2. In setup, choose **Access** explicitly. **This Mac only** binds IPv4 and
+   IPv6 loopback. **Tailscale** also binds only the local Tailscale addresses
+   you select. **Other private VPN (advanced)** accepts only selected addresses
+   currently present on this Mac; verify they belong to your intended private
+   interface. Choose a port.
+3. Choose **Generate Key**. The bearer key is stored in VoiceRelay's Keychain
+   item. **Copy Key** places the complete key on the clipboard — it always begins
+   `vs_` followed by the secret. Configure the whole `vs_…` string as your
+   client's API key; a partial copy cannot authenticate. Never put the key in a
+   URL.
+4. Choose **Enable VoiceServer** to finish. The pane lists labeled **Speech
+   endpoint** rows — this Mac, Tailscale and Tailscale MagicDNS (IPv6 loopback
+   is bound but not listed). **Copy** places the full `/v1/audio/speech` URL;
+   metadata routes `/v1/models` and `/v1/audio/voices` share the same host and
+   port. For a client with a configurable OpenAI-compatible base URL, use model
+   `voicerelay` and voice `default`. Tailscale needs no `tailscale serve`; the
+   listener binds the Tailscale interface directly and the tailnet itself
+   carries the traffic.
+5. Install or repair the selected speech model in **Voice Model** when needed.
    Listener status and model readiness are separate. Metadata remains available
    with a valid key; speech returns a setup error if the model is unavailable.
 
@@ -37,9 +47,31 @@ name. Missing, disconnected or inaccessible CLI status is shown as unavailable.
 Only the actual self MagicDNS name is displayed when available. Interface changes
 close affected listeners and connections; no replacement LAN address is selected.
 
+## Client request headers
+
+Send exactly these request headers; anything else is optional or rejected.
+
+| Header | Required value |
+| --- | --- |
+| `Authorization` | `Bearer vs_<key>` — the complete generated key, which begins `vs_`. Send exactly one header; multiple, partial or missing headers return `401 invalid_api_key`. |
+| `Content-Type` | POST `/v1/audio/speech` only: `application/json`, optionally `; charset=utf-8` (quoted or unquoted). Omit on GET routes — other types or multiple headers return `415`. |
+| `Content-Length` | Optional; if sent it must fit within the request size limit. Metadata GETs must not send a body. |
+| `Expect` | Optional; `100-continue` is the only supported expectation (the server answers `100` before the body). Any other value returns `417`. |
+| `Host` | Sent automatically by your HTTP client. |
+
+Rules that reject requests outright:
+
+- HTTP/1.1 only, one request per connection — the response ends with
+  `Connection: close`, so open a new connection for the next request.
+- Do not send `Content-Encoding` (compressed request bodies are not supported)
+  or request trailers.
+- Never put the API key in a URL. The request header block is limited to 8 KiB.
+- Responses carry `Cache-Control: no-store` and either a `Content-Length` or
+  chunked streaming audio.
+
 ## Requests and formats
 
-All three routes require `Authorization: Bearer <your key>` and return
+All three routes require `Authorization: Bearer vs_<your key>` and return
 `Cache-Control: no-store`:
 
 | Route | Result |

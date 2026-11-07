@@ -250,7 +250,7 @@ the existing PDFKit layout and UTF-16 projection pipeline. The exact upstream
 earlier inspected copy (SHA-256
 `c8a9d84010b551793867cde67bc467a09e2ce6f54d2bc3d359d3a7f4085bea64`).
 The original license and adaptation details are retained in
-[Readium notices](../swift-packages/ThirdPartyNotices/Readium/README.md).
+[Readium notices](../../swift-packages/ThirdPartyNotices/Readium/README.md).
 
 `NarrationOptions.experimentalPDFWordJoining` defaults false, is omitted when
 encoding false for legacy identity compatibility, and is exposed by both apps'
@@ -279,8 +279,8 @@ verified within-column joins on supported multi-column pages. The option remains
 experimental and off by default; it is not arbitrary OCR spelling repair.
 
 Focused and native evidence is maintained in
-[current status](IMPLEMENTATION_STATUS.md); actual-document and matched listening
-remain [operator B07](OPERATOR_VALIDATION.md). The broader Readium iterator,
+[current status](../IMPLEMENTATION_STATUS.md); actual-document and matched listening
+remain [operator B07](../OPERATOR_VALIDATION.md). The broader Readium iterator,
 sentence/search/locator service and EPUB FXL integration are outside this increment.
 
 ### Primary sources consulted

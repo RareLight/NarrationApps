@@ -3,14 +3,14 @@
 > Historical request, not current instructions. DF engineering is complete; the
 > apps now share one monorepo and DevelopmentBaseline schema 2. Old checkout/pin,
 > branch/tag and publication statements below describe October 16 only. Use
-> [CONTRIBUTING.md](../CONTRIBUTING.md), [the completion crosswalk](DEVELOPMENT_FOUNDATION_CHECKLIST.md)
-> and [the current roadmap](IMPLEMENTATION_PLAN.md). Do not execute this prompt
+> [CONTRIBUTING.md](../../CONTRIBUTING.md), [the completion crosswalk](DEVELOPMENT_FOUNDATION_CHECKLIST.md)
+> and [the current roadmap](../IMPLEMENTATION_PLAN.md). Do not execute this prompt
 > again or restore the old repository layout.
 
 Original implementation request, retained as provenance. Current completion,
 evidence and external blockers are owned by
 [the checklist](DEVELOPMENT_FOUNDATION_CHECKLIST.md) and
-[status](IMPLEMENTATION_STATUS.md); do not restart completed stages from this prompt.
+[status](../IMPLEMENTATION_STATUS.md); do not restart completed stages from this prompt.
 
 Implement the remaining stages in
 `/path/to/NarrationApps/docs/DEVELOPMENT_FOUNDATION_CHECKLIST.md`.

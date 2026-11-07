@@ -1,6 +1,6 @@
 # Standalone Swift narration benchmark
 
-Follow ../../AGENTS.md and ../../docs/TTS_MODEL_BENCHMARK_PLAN.md. This is developer
+Follow ../../AGENTS.md and ../../docs/archive/TTS_MODEL_BENCHMARK_PLAN.md. This is developer
 tooling. Keep the host/fixture tier free of MLX; models run in an offline owned
 worker, serially, using the shared background inference lease. No product settings,
 catalogs, workers, defaults or production memory budgets change here.

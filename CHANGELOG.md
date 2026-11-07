@@ -20,6 +20,17 @@ history only - they are not release or distribution acceptance.
 - MP3 preparation preserves explicit unity scale through LAME's preset
   initialization, removing inherited preset attenuation from future encodes.
   Existing recordings are unchanged. Both apps embed/sign the pinned native codec.
+- VoiceRelay article admission and audio generation now wait until enabled
+  Publishing completes a reconciliation check against the current feed folder,
+  so existing server audio is recovered instead of regenerated or re-uploaded.
+  Changing the destination invalidates the recorded check.
+- VoiceServer Settings gains a guided first-run setup sheet covering access,
+  addresses, response mode, explicit key generation and enablement; passive
+  status refreshes no longer flicker its controls. The menu-bar popover
+  activates the app on show so the menu takes keyboard focus immediately.
+- Project documentation was consolidated: dated implementation records moved to
+  `docs/archive/`, the index routes by task, and the VoiceServer guide documents
+  the exact client HTTP header contract.
 
 ## Libro 0.3.0 / VoiceRelay 0.2.0 - November 4, 2026
 

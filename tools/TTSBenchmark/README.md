@@ -2,7 +2,7 @@
 
 Standalone developer tooling for local narration model/voice comparisons on Apple
 Silicon. It does not change Libro or VoiceRelay settings, model catalogs or audio.
-Start with the [design and checklist](../../docs/TTS_MODEL_BENCHMARK_PLAN.md).
+Start with the [design and checklist](../../docs/archive/TTS_MODEL_BENCHMARK_PLAN.md).
 
 As of October 27, new Chatterbox runs disable the pinned SDK's inherited output
 peak normalization and fade, matching the apps' raw-PCM policy. The measurement's

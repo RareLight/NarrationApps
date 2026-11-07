@@ -22,7 +22,7 @@ Current features include:
 
 - Shared Qwen3-TTS 1.7B CustomVoice, Chatterbox Turbo and Orpheus adapters,
   complete preset coverage, immutable optional reference voices, model-aware setup
-  and captured selections. See the [integration record](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md)
+  and captured selections. See the [integration record](archive/MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md)
   for engineering evidence and remaining operator acceptance.
 
 - Text/Markdown/RTF/PDF and DRM-free EPUB intake, bounded OCR/image descriptions,
@@ -65,7 +65,7 @@ request for model downloads or live tests by the development agent.
 
 The following retains the dated implementation sequence and its earlier gates.
 
-The agreed [VoiceServer implementation checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md)
+The agreed [VoiceServer implementation checklist](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md)
 covers a native Swift private TTS endpoint using existing model/voice selection,
 with per-user priority TTS API > Libro > Podcasts. Both apps share suspension,
 checkpoint and recovery primitives; streaming API demand cancels unfinished
@@ -139,7 +139,7 @@ operator's Xcode build and actual-book timing gate.
 ## Remaining operator acceptance
 
 October 30 long-form preparation work is detailed in the authorized
-[quality implementation plan](LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md). Its
+[quality implementation plan](archive/LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md). Its
 Kokoro semantic activation is approved and implemented; other models retain their
 optional experiment. Compound-flow retesting, broader paired listening and review
 controls require B09. Contextual homograph inference and automatic
@@ -170,9 +170,9 @@ These are candidates requiring an explicit scope decision, not unfinished steps
 of an already completed implementation:
 
 - Context-sensitive homographs and broader written-to-spoken forms; see
-  [normalization research](TEXT_NORMALIZATION_RESEARCH.md).
+  [normalization research](archive/TEXT_NORMALIZATION_RESEARCH.md).
 - Better scientific structure/MathML, region-based review and advanced mathematical
-  speech; see [academic PDF evaluation](ACADEMIC_PDF_EVALUATION.md). Current prose
+  speech; see [academic PDF evaluation](archive/ACADEMIC_PDF_EVALUATION.md). Current prose
   insets and the single complex-equation reference notice are already implemented.
 - Unsupported complex/rotated layouts, chaptered audio exports and broader
   annotation scheduling. Current authored Contents navigation is implemented.

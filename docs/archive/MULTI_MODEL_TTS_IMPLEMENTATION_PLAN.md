@@ -622,7 +622,7 @@ do not relabel a build, tone fixture or EOS check as listening acceptance.
 | Native style/speed APIs differ | Expose only supported validated controls, keep speaker and instructions separate, preserve old per-model choices |
 
 The design above is now implemented. See the completion record and
-[current status](IMPLEMENTATION_STATUS.md) for measured engineering evidence,
+[current status](../IMPLEMENTATION_STATUS.md) for measured engineering evidence,
 conservative resource tradeoffs and remaining operator-owned acceptance.
 
 
@@ -632,7 +632,7 @@ Stages 1–7 are implemented through shared product paths: pinned primary and
 auxiliary inventories, complete presets/languages, explicit installation/offline
 checking, native-text adapters and clean-EOS guards, protocol version 3, model-aware
 memory/deadlines, immutable queue settings and acoustic identities, shared controls,
-reference profiles and 47 bundled samples. See [model selection](MODEL_SELECTION.md)
+reference profiles and 47 bundled samples. See [model selection](../MODEL_SELECTION.md)
 for current behavior. The full fixture gate passes, recorded in
 `.local/validation/full-EB8A4A13-7243-4038-9C97-B2E0E7854A74/`; packaged and
 extended native evidence is recorded below. Stage 9 updates the
@@ -676,7 +676,7 @@ working tree based on `c10135f`. The archives are ad-hoc engineering candidates,
 not installed or normal-team-signed acceptance builds. The standalone benchmark's
 26 isolated tests and final build also pass. Its original recordings and votes
 are unchanged. Current candidate paths and remaining manual cases are in the
-[operator checklist](OPERATOR_VALIDATION.md).
+[operator checklist](../OPERATOR_VALIDATION.md).
 
 Final network-denied preparation and multi-paragraph narration pass through
 **both archived helpers** for Qwen Ryan, Chatterbox default and Orpheus leah.

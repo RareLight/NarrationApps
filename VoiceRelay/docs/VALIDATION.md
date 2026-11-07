@@ -11,8 +11,8 @@ The October 27 review-fix gate passes full shared/Libro fixtures and 328 VoiceRe
 core tests plus 166 app tests, with existing opt-in skips. See
 [current evidence](../../docs/IMPLEMENTATION_STATUS.md#voicerelay-whole-app-review-fixes)
 for the final build/audit results and retained logs, and the
-[fix plan](../../docs/VOICERELAY_REVIEW_FIX_PLAN.md) for scope and regressions.
-[Migration validation](../../docs/MONOREPO_MIGRATION.md#validation) retains its
+[fix plan](../../docs/archive/VOICERELAY_REVIEW_FIX_PLAN.md) for scope and regressions.
+[Migration validation](../../docs/archive/MONOREPO_MIGRATION.md#validation) retains its
 historical evidence and command-local Metal selection. Fixture/build results do
 not establish live-service behavior or operator signoff.
 

@@ -2,8 +2,8 @@
 
 New native settings use **Heart (`af_heart`) at 1.0×**, with the operator-accepted
 longform pause profile. Existing explicit voice/speed settings and active jobs are
-preserved. Libro presents 28 English Kokoro voices plus Soprano's single voice;
-VoiceRelay presents its smaller supported Kokoro subset.
+preserved. Both apps present the shared 28 English Kokoro voices through the
+common catalog; Soprano's single voice remains Libro-only.
 
 Names, overall grades, ranking and recommendations are owned by shared
 `NativeSpeech.VoiceCatalogPresentation`. This is bundled metadata from the recorded
@@ -13,7 +13,7 @@ Libro recommends Heart, Bella, Emma and Nicole, uses friendly names/stars and ke
 the actual voice ID in requests. No normalization or gain is used to make voices match.
 
 The accepted Heart/Michael/Emma comparisons, exact profile and final sample
-provenance are in [the longform record](../../docs/KOKORO_LONGFORM_IMPLEMENTATION.md).
+provenance are in [the longform record](../../docs/archive/KOKORO_LONGFORM_IMPLEMENTATION.md).
 All 29 current samples use the common phrase selected after listening; they do not
 introduce each voice by name. Samples play at recorded 1.0× without a model and do
 not apply current speed/dictionary edits. Pronunciation Play is a separate live render.

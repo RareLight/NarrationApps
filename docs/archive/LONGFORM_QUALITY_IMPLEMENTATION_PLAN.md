@@ -12,7 +12,7 @@ Kokoro pacing remain intact.
 only preparation path, without a user-facing toggle. Compound hyphens are protected
 from dash pauses and utterance splits. Other models retain the opt-in experiment.
 The original staged activation plan below records the comparison's development;
-see [current behavior](LONGFORM_QUALITY.md).
+see [current behavior](../LONGFORM_QUALITY.md).
 
 Implement one shared versioned candidate, with the accepted policy retained for
 comparison and old jobs. New controls are opt-in until paired listening validates
@@ -131,8 +131,8 @@ workers, new model families and waveform mastering are outside this iteration.
   output cap, retaining the declared hard ceiling and existing safety guards.
 
 Exact evidence and remaining B09 acceptance are in
-[current status](IMPLEMENTATION_STATUS.md#long-form-narration-quality--october-30)
-and the [single operator checklist](OPERATOR_VALIDATION.md). The operator's
+[current status](../IMPLEMENTATION_STATUS.md#long-form-narration-quality--october-30)
+and the [single operator checklist](../OPERATOR_VALIDATION.md). The operator's
 [October 30 paired listening](LONGFORM_QUALITY_LISTENING_RESULTS.md) preferred
 semantic phrasing for Kokoro only; the remaining pairs were ties. Production
 activation was subsequently approved for Kokoro only; GUI/recognition and the

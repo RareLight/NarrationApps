@@ -6,7 +6,7 @@ explicit recovery/access/Resume/retention UI. VoiceServer now has bounded HTTP
 routes, bearer credentials, streaming/complete audio, Settings, private listener
 selection and self-only Tailscale CLI discovery. It defaults off. New API fixtures
 and shared recovery/ownership cases pass; final integration evidence is recorded in
-[current status](IMPLEMENTATION_STATUS.md). Native listening, signed GUI/Keychain,
+[current status](../IMPLEMENTATION_STATUS.md). Native listening, signed GUI/Keychain,
 client streaming and live-network/sleep acceptance remain operator-owned.
 
 The full gate `full-89690433-8A7A-4A1E-ABAE-6C62550ECFFD` passes, including 383
@@ -35,8 +35,8 @@ opt-in helper/native-check seam is implemented. Normal app scheduling, serving
 IPC and HTTP remain unchanged. Bounded native reuse/first-unit evidence is recorded
 below; production streaming and listening acceptance remain open. The pre-feature source
 baseline is `e81a994`. Checked boxes describe only their stated fixture scope.
-Current test commands live in [Development](DEVELOPMENT.md); manual
-acceptance is recorded only in [Operator validation](OPERATOR_VALIDATION.md).
+Current test commands live in [Development](../DEVELOPMENT.md); manual
+acceptance is recorded only in [Operator validation](../OPERATOR_VALIDATION.md).
 
 ## Agreed contract
 
@@ -298,7 +298,7 @@ The existing helper and NarrationNativeCheck now have explicit opt-in
 `--handoff-probe` / `handoff` modes. The default `--serve` path and its existing
 terminal cancellation behavior are unchanged. No app launches, listeners,
 settings changes, model acquisition or new dependencies are included. Reproduction
-and prerequisites live in [Development](DEVELOPMENT.md#additional-model-checks).
+and prerequisites live in [Development](../DEVELOPMENT.md#additional-model-checks).
 
 The shared `SpeechProbeServer` owns a single cancellable producer and joins it
 before the backend drains GPU work and acknowledges ready. Commands/events are
@@ -642,23 +642,23 @@ separate ad-hoc candidates in
 
 Primary code seams:
 
-- [Worker supervision](../swift-packages/Sources/ProcessingPipeline/SpeechWorkerProcess.swift)
-  and [native session](../swift-packages/Sources/ProcessingPipeline/NativeSpeechSession.swift).
-- [Helper generation](../swift-packages/Sources/NativeSpeechEngine/NativeSpeechWorker.swift)
-  and [versioned IPC](../swift-packages/Sources/NarrationCore/SpeechIPC.swift).
-- [Queue lifecycle](../VoiceRelay/Sources/VoiceRelayCore/SpeechQueue.swift),
-  [worker ownership](../VoiceRelay/Sources/VoiceRelayCore/SpeechPipeline.swift),
-  [checkpoint execution](../VoiceRelay/Sources/VoiceRelayCore/FixtureCoordinator.swift)
-  and [native adapter](../VoiceRelay/Sources/VoiceRelayCore/NativeMLXBackend.swift).
-- [Audio processing](../VoiceRelay/Sources/VoiceRelayCore/Audio.swift),
-  [MP3 encoder](../swift-packages/Sources/AudioOutput/MP3Encoder.swift)
-  and [shared admission](../swift-packages/Sources/NarrationCore/InferenceLease.swift).
-- [Libro batch execution](../swift-packages/Sources/ProcessingPipeline/QueueCoordinator.swift),
-  [manual queue control](../swift-packages/Sources/ProcessingPipeline/BatchQueueControl.swift)
-  and [shared rendering](../swift-packages/Sources/ProcessingPipeline/ChunkScheduler.swift).
-- [Settings](../VoiceRelay/Sources/VoiceRelayApp/SettingsViews.swift),
-  [app lifecycle](../VoiceRelay/Sources/VoiceRelayApp/VoiceRelayApp.swift)
-  and [credential patterns](../VoiceRelay/Sources/VoiceRelayCore/Delivery.swift).
+- [Worker supervision](../../swift-packages/Sources/ProcessingPipeline/SpeechWorkerProcess.swift)
+  and [native session](../../swift-packages/Sources/ProcessingPipeline/NativeSpeechSession.swift).
+- [Helper generation](../../swift-packages/Sources/NativeSpeechEngine/NativeSpeechWorker.swift)
+  and [versioned IPC](../../swift-packages/Sources/NarrationCore/SpeechIPC.swift).
+- [Queue lifecycle](../../VoiceRelay/Sources/VoiceRelayCore/SpeechQueue.swift),
+  [worker ownership](../../VoiceRelay/Sources/VoiceRelayCore/SpeechPipeline.swift),
+  [checkpoint execution](../../VoiceRelay/Sources/VoiceRelayCore/FixtureCoordinator.swift)
+  and [native adapter](../../VoiceRelay/Sources/VoiceRelayCore/NativeMLXBackend.swift).
+- [Audio processing](../../VoiceRelay/Sources/VoiceRelayCore/Audio.swift),
+  [MP3 encoder](../../swift-packages/Sources/AudioOutput/MP3Encoder.swift)
+  and [shared admission](../../swift-packages/Sources/NarrationCore/InferenceLease.swift).
+- [Libro batch execution](../../swift-packages/Sources/ProcessingPipeline/QueueCoordinator.swift),
+  [manual queue control](../../swift-packages/Sources/ProcessingPipeline/BatchQueueControl.swift)
+  and [shared rendering](../../swift-packages/Sources/ProcessingPipeline/ChunkScheduler.swift).
+- [Settings](../../VoiceRelay/Sources/VoiceRelayApp/SettingsViews.swift),
+  [app lifecycle](../../VoiceRelay/Sources/VoiceRelayApp/VoiceRelayApp.swift)
+  and [credential patterns](../../VoiceRelay/Sources/VoiceRelayCore/Delivery.swift).
 
 ### Coordinated render and recovery seam — November 2, 2026
 
@@ -717,7 +717,7 @@ Focused logs are retained in `.local/validation/voiceserver-coordinator-20261102
 The explicit installed-assets `NarrationNativeCheck coordinator` gate checks the
 new host/helper seam separately; it does not replace the earlier cancellation,
 continuity/listening or cross-app latency gates. Current reproduction commands
-live in [Development](DEVELOPMENT.md#additional-model-checks).
+live in [Development](../DEVELOPMENT.md#additional-model-checks).
 
 Final full fixtures pass in
 `.local/validation/full-8BA606D4-E5E5-42D1-95D8-73AA5313A802/`, including all
@@ -807,7 +807,7 @@ Do not enable partial scheduling or claim GUI, protected-file, listening or serv
 acceptance from these adapter tests. The native `coordinator` check now also
 exercises `NativeSpeechSession.generateForCheckpoint`, verifies no early cursor
 advance, independently reads back Float32 WAV and commits its deferred receipt.
-Reproduction remains in [Development](DEVELOPMENT.md#additional-model-checks).
+Reproduction remains in [Development](../DEVELOPMENT.md#additional-model-checks).
 
 Final full fixtures pass in
 `.local/validation/full-53916B16-AC23-4AF0-8178-6BE2996ED767/`, including
@@ -983,7 +983,7 @@ the completed VoiceServer activation will warrant a deliberate minor milestone.
 The MP3 correction and staged work are recorded under Unreleased in CHANGELOG.md.
 HTTP, Keychain, Tailscale, service Settings and default app activation are unwired.
 Explicit recovery/file-access UI and retention/repair remain required. Review
-listening through the single [operator checklist](OPERATOR_VALIDATION.md#voiceserver-staged-acceptance)
+listening through the single [operator checklist](../OPERATOR_VALIDATION.md#voiceserver-staged-acceptance)
 before accepting continuous playback quality. The operator subsequently reported
 “Audio is all good” on November 3 for the linked offline bounded-unit WAV/MP3 pairs.
 That acceptance does not cover raw incremental Qwen, long-duration streaming or
@@ -1080,7 +1080,7 @@ progress-label and stale-toolchain attempts are retained separately.
 Three repeated synthetic 200-window BPE runs measure median 1.412 s for the
 frozen original and 0.734 s with 12 workers, about 1.9×. This is tokenizer-fixture
 evidence, not an actual-book/model throughput claim. The operator
-owns [L21](OPERATOR_VALIDATION.md#libro), using their normally signed Xcode build,
+owns [L21](../OPERATOR_VALIDATION.md#libro), using their normally signed Xcode build,
 installed models and disposable inputs. No app launch, voice-model inference,
 private-book processing, archive, commit or push was performed for this slice.
 
@@ -1109,8 +1109,8 @@ All 49 focused cases, the full fixture gate, both Debug/Release workspace builds
 and all four bundle audits pass. Evidence is indexed in
 `.local/validation/voiceserver-intake-metadata-20261103/gate-result.json`;
 the final full/build gates and operator-owned
-[VS01b](OPERATOR_VALIDATION.md#voiceserver-staged-acceptance) are tracked in
-[current status](IMPLEMENTATION_STATUS.md). No GUI app or real voice model was run;
+[VS01b](../OPERATOR_VALIDATION.md#voiceserver-staged-acceptance) are tracked in
+[current status](../IMPLEMENTATION_STATUS.md). No GUI app or real voice model was run;
 archives, commits and pushes were unrequested. Remaining legacy metadata reads,
 cold frontend residency in the coordinated path, recovery/file-access UI,
 retention/repair and HTTP/service setup remain activation gates.

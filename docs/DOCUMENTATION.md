@@ -29,7 +29,13 @@ superseded it and where current commands live. Preserve dated observations as da
 observations. Original prompts, old commit IDs, test totals and generated build
 paths are not current prerequisites or instructions to restart finished work.
 Older original Git IDs may exist only in private migration backups after filtering;
-see [migration provenance](MONOREPO_MIGRATION.md).
+see [migration provenance](archive/MONOREPO_MIGRATION.md).
+
+Completed implementation records, dated research and one-time migration records
+live under [archive/](archive/README.md). Move a document there once its work is
+finished and a current guide covers the behavior; update the index link and fix
+inbound references in the same change. Never move a document readers still need
+for setup, current behavior or pending acceptance.
 
 Do not label an arbitrary old build “latest”. Record the source, configuration,
 signing class and verification date. Distinguish an automated build from an app

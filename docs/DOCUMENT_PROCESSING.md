@@ -91,7 +91,7 @@ gutter/band reconstruction changes only the spoken projection; ambiguous layouts
 retain native order. Optional map/evidence budget
 exhaustion retains affected text; mandatory intake budgets remain enforced. Old
 snapshots lacking geometry are preserved without refetching or re-extraction.
-See [implemented scope and evidence](TEXT_PROCESSING_IMPROVEMENT_PLAN.md#delivery-b-paragraph-and-pdf-flow-evidence)
+See [implemented scope and evidence](archive/TEXT_PROCESSING_IMPROVEMENT_PLAN.md#delivery-b-paragraph-and-pdf-flow-evidence)
 and operator B06 before accepting actual-document quality.
 
 **Join split words in PDFs (experimental)** in Libro Settings → Document or
@@ -113,7 +113,7 @@ English dictionary checks now preserve recognized compound hyphens (`well-` /
 also supports within-column joins on multi-column pages. The platform spelling
 service provides validation; there is no new model, external dictionary or Readium
 runtime dependency. Review and listen before using it for a book. See the
-[adaptation and source provenance](TEXT_NORMALIZATION_RESEARCH.md#readium-adaptation-implemented-october-17-2026).
+[adaptation and source provenance](archive/TEXT_NORMALIZATION_RESEARCH.md#readium-adaptation-implemented-october-17-2026).
 
 ## Text encodings
 
@@ -199,7 +199,7 @@ behavior are operator gates in the [single checklist](OPERATOR_VALIDATION.md).
 Apps use the same semantic/prepared-speech boundary; avoid another parser, G2P pass
 or app-owned normalization algorithm. Shared dictionary rules are captured once
 for the owning job. Kokoro's mapped quantity/temperature/AM-PM spoken forms and remaining pronunciation
-limitations are in [the research record](TEXT_NORMALIZATION_RESEARCH.md). Automatic
+limitations are in [the research record](archive/TEXT_NORMALIZATION_RESEARCH.md). Automatic
 changes remain in NarrationCore, after captured overrides and before native G2P;
 no second encoding detector or document parser is added. Libro and VoiceRelay
 previews display aggregated change notices, using the captured voice/dictionary.

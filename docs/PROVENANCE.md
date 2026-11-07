@@ -43,7 +43,7 @@ The November 1 VoiceServer feasibility work adds the recorded
 `soprano-owned-producer.patch` at the same MLX Audio revision. It retains and joins
 the internal token-generation task before decode or cancellation returns; it
 changes no model math, weights, sampling or audio levels. Existing upstream
-licenses/notices remain intact. The [checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md)
+licenses/notices remain intact. The [checklist](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md)
 separates opt-in native evidence from product integration and listening acceptance.
 The following first-unit gate adds `qwen-owned-audio-callback.patch` at that same
 pin: it exposes the existing incremental decoder synchronously on the owned

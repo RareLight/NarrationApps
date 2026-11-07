@@ -14,7 +14,7 @@ or authorization recorded as production-default activation.
 mandatory semantic phrasing for Kokoro, removal of its switch and correction of
 compound-word pauses. This is now implemented; the other engines retain their
 optional experiments. The table below preserves the original listening evidence.
-See [current behavior](LONGFORM_QUALITY.md).
+See [current behavior](../LONGFORM_QUALITY.md).
 
 | Pair | Model / voice | Choice | Operator observation |
 | --- | --- | --- | --- |
@@ -74,5 +74,5 @@ separation. These are proposed experiments, not new accepted pause durations.
    do not silently time-stretch speech or infer a model-wide quality verdict.
 
 See the [implementation plan](LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md),
-[quality guide](LONGFORM_QUALITY.md) and B09 in the
-[operator checklist](OPERATOR_VALIDATION.md) for the remaining acceptance boundary.
+[quality guide](../LONGFORM_QUALITY.md) and B09 in the
+[operator checklist](../OPERATOR_VALIDATION.md) for the remaining acceptance boundary.

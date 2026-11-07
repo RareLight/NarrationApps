@@ -190,7 +190,7 @@ committed/uncertain/replaced files, and optional review retention follows accept
 outside the writer/fence. Explicit Stop closes its podcast context and retains
 independent API demand. Receipts are excluded from checkpoint Codable data and
 never restore live requests. Normal default scheduling remains unchanged; see the
-[shared checklist](../../docs/VOICESERVER_IMPLEMENTATION_CHECKLIST.md) for activation gates.
+[shared checklist](../../docs/archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md) for activation gates.
 
 New admissions capture General's default-on timed-transcript choice in the episode
 profile. Missing choices on historical profiles remain disabled. NativeAudio's
@@ -276,7 +276,10 @@ Automatic reconciliation uses exact episode/retained-link evidence, not titles o
 orphan filenames. Matching verified server media can restore history without speech
 or media PUT. Longer valid copies win under comparable settings; ties favor server
 copies and replacements preserve prior media. Unsafe feed-wide state blocks mutation;
-per-item errors preserve membership and let unrelated work proceed. See
+per-item errors preserve membership and let unrelated work proceed. Admission and
+generation both gate on a completed check for the current normalized destination;
+editing the destination discards that destination-scoped evidence so the new
+server is reconciled before work resumes. See
 [server reconciliation](SERVER_RECOVERY.md) for limits and conflict rules.
 
 App-owned temporary audio is released only after verified publication and committed,

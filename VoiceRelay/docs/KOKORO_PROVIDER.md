@@ -26,7 +26,7 @@ user mode. Shared mapped spoken forms now correct explicit kilograms, Celsius/
 Fahrenheit quantities and 12-hour AM/PM times, with source preservation and preview
 notices, including capital-A labels. Delivery A matched listening is accepted;
 unreported app-preview checks remain separate, and contextual homographs remain
-[follow-up work](../../docs/TEXT_NORMALIZATION_RESEARCH.md).
+[follow-up work](../../docs/archive/TEXT_NORMALIZATION_RESEARCH.md).
 
 Native podcast audio is mono AAC-LC 64 kbps/24 kHz, with original levels/dynamics
 and no normalization, gain, limiter or DRC. VoiceRelay's saved gap preference is a

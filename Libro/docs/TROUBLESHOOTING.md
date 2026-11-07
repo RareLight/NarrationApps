@@ -43,7 +43,7 @@ an installation problem. Source pins/patches are maintained in the
 The preparation stage can reject unsupported/overlong text explicitly rather than
 silently truncating it. Explicit kilograms, temperatures, AM/PM times and capital-A labels have mapped
 corrections. Ambiguous forms and contextual homographs remain
-[known frontend limits](../../docs/TEXT_NORMALIZATION_RESEARCH.md),
+[known frontend limits](../../docs/archive/TEXT_NORMALIZATION_RESEARCH.md),
 not a reason to change accepted pacing or normalize audio levels.
 
 Contents pages with dotted leaders exposed a native subtoken-range bug fixed on
@@ -61,7 +61,7 @@ memory pressure and whether it settles after completion/Stop. For a true UI free
 capture Activity Monitor's Sample Process for the affected process. Keep private
 inputs/logs local. Model allocator thresholds and sampled worker limits are not hard
 caps; Apple OCR/Intelligence can also allocate in system services. Historical synthetic
-mixed-input measurements are in [the longform record](../../docs/KOKORO_LONGFORM_IMPLEMENTATION.md);
+mixed-input measurements are in [the longform record](../../docs/archive/KOKORO_LONGFORM_IMPLEMENTATION.md);
 they do not close the original private-document GUI retest.
 
 ## Diagnostics and output safety

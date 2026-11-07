@@ -4,8 +4,8 @@
 > later work also added supported columns, outlines, citation controls and dictionary-
 > constrained PDF word joining. The “deferred” list and old execution recipes below
 > describe this plan's original scope, not the present backlog. Current commands
-> are in [DEVELOPMENT.md](DEVELOPMENT.md), behavior in [DOCUMENT_PROCESSING.md](DOCUMENT_PROCESSING.md),
-> and remaining work in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+> are in [DEVELOPMENT.md](../DEVELOPMENT.md), behavior in [DOCUMENT_PROCESSING.md](../DOCUMENT_PROCESSING.md),
+> and remaining work in [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
 
 October 15, 2026. **Delivery A listening, including the letter-A correction, is
 operator accepted. The user authorized the next stages; Delivery B (TP4–TP7) is
@@ -31,12 +31,12 @@ reproduce the working snapshot. No reset, commit, publication or asset download
 was performed for Delivery A.
 
 Follow root and scoped AGENTS.md and the current shared
-[architecture](ARCHITECTURE.md), [status](IMPLEMENTATION_STATUS.md) and
-[roadmap](IMPLEMENTATION_PLAN.md). This draft elaborates proposed text work; it
+[architecture](../ARCHITECTURE.md), [status](../IMPLEMENTATION_STATUS.md) and
+[roadmap](../IMPLEMENTATION_PLAN.md). This draft elaborates proposed text work; it
 does not supersede their contracts or authorize deferred features.
 
 Current implementation belongs to the single monorepo in
-[the NarrationApps layout](REPOSITORY_LAYOUT.md). The original external
+[the NarrationApps layout](../REPOSITORY_LAYOUT.md). The original external
 comparison is complete; no TextExtractor checkout or Python tooling is needed.
 
 ## Delivery boundaries
@@ -133,11 +133,11 @@ routine isolated workload remains explicit and proportionate.
 
 ## TP2. Add only the mapping needed for the first spoken-form rules
 
-Starting points: [semantic contracts](../swift-packages/Sources/NarrationCore/SemanticDocument.swift),
-[planner](../swift-packages/Sources/NarrationCore/NarrationPlanner.swift),
-[existing ranges](../swift-packages/Sources/NarrationCore/PreparedSpeech.swift),
-[windowing](../swift-packages/Sources/NarrationCore/SpeechTextWindows.swift) and
-[pronunciation applications](../swift-packages/Sources/Pronunciation/PronunciationDictionary.swift).
+Starting points: [semantic contracts](../../swift-packages/Sources/NarrationCore/SemanticDocument.swift),
+[planner](../../swift-packages/Sources/NarrationCore/NarrationPlanner.swift),
+[existing ranges](../../swift-packages/Sources/NarrationCore/PreparedSpeech.swift),
+[windowing](../../swift-packages/Sources/NarrationCore/SpeechTextWindows.swift) and
+[pronunciation applications](../../swift-packages/Sources/Pronunciation/PronunciationDictionary.swift).
 These paths must be reconfirmed after EPUB completion.
 
 - [x] **TP2.1** Specify block-local extracted UTF-16 coordinates separately from spoken
@@ -233,8 +233,8 @@ encoding changes or a measurable unjustified no-change-path regression.
 
 ## TP5. Prototype and retain bounded PDF layout evidence
 
-Starting points: [PDF extraction](../swift-packages/Sources/DocumentProcessing/PDFDocumentExtractor.swift)
-and [structured OCR](../swift-packages/Sources/DocumentProcessing/StructuredDocumentOCR.swift).
+Starting points: [PDF extraction](../../swift-packages/Sources/DocumentProcessing/PDFDocumentExtractor.swift)
+and [structured OCR](../../swift-packages/Sources/DocumentProcessing/StructuredDocumentOCR.swift).
 This is an evidence/feasibility stage, not permission to build a layout engine.
 
 - [x] **TP5.1** Use synthetic digital/scanned/mixed PDFs to verify PDFKit line/selection
@@ -448,7 +448,7 @@ DerivedData/SwiftPM workspace state into these directories.
 
 ### Operator and final-diff acceptance
 
-Use the [consolidated operator checklist](OPERATOR_VALIDATION.md), not a second
+Use the [consolidated operator checklist](../OPERATOR_VALIDATION.md), not a second
 competing manual checklist. Extend the relevant entries when behavior is implemented.
 Provide short synthetic before/after cases, selected voices/settings and expected
 outcomes. The user owns GUI, private-document/OCR quality, listening, protected
@@ -587,7 +587,7 @@ separately; initialization and expected-rejection restarts are separate costs.
 The six synthetic AAC-LC clips use Heart/Michael/Emma at 1.0×, mono 64 kbps/24 kHz,
 with original levels and current structural pauses. They are local operator fixtures,
 not regenerated bundled samples or finished recordings. Use **B05** in the
-[consolidated checklist](OPERATOR_VALIDATION.md); EPUB L15/L16 remain separate.
+[consolidated checklist](../OPERATOR_VALIDATION.md); EPUB L15/L16 remain separate.
 The operator reports significant listening improvement; all three voices read
 the A label as an article. A narrow `spoken-forms-2` correction now changes capital
 A to “ay” only after explicit label nouns, preserving source coordinates, user
@@ -708,7 +708,7 @@ No bundled voice samples, finished audio, private document or live service chang
 
 ## Current operator handoff
 
-Use **B06** in the [consolidated checklist](OPERATOR_VALIDATION.md) for Delivery B
+Use **B06** in the [consolidated checklist](../OPERATOR_VALIDATION.md) for Delivery B
 preview, actual-document flow, cancellation/progress and listening acceptance.
 Earlier unreported EPUB/encoding/GUI/live-service gates remain separate. No deferred
 column engine, caption scheduling, outline, citation or pronunciation feature is

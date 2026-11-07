@@ -75,7 +75,7 @@ Soprano retains its native frontend and numeric forms. Common `text-flow-1` adds
 mapped discretionary hyphens and source-preserving document flow to both engines;
 acoustic packing/pause/audio policy is unchanged. Underlying raw G2P
 and contextual homographs retain the limitations in the
-[research record](TEXT_NORMALIZATION_RESEARCH.md). Phoneme/reference equality is
+[research record](archive/TEXT_NORMALIZATION_RESEARCH.md). Phoneme/reference equality is
 not operator listening acceptance.
 
 Optional PDFTextLayout values retain bounded native line evidence; optional
@@ -278,7 +278,7 @@ remain until resumed/discarded. Verified-complete records are cleaned only after
 joined work; damaged/unavailable records are retained. Fixture
 coverage is separate from installed-assets,
 GUI, listening and long-duration acceptance.
-See [the checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md) for evidence and
+See [the checklist](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md) for evidence and
 [development gates](DEVELOPMENT.md#additional-model-checks) for explicit invocation.
 
 ## Shared model cache and deletion
@@ -363,7 +363,7 @@ rename. Tagging does not re-encode or level audio. Cover inputs remain host-side
 packaging identity is separate from acoustic preparation. Libro owns per-document
 choices; VoiceRelay owns channel-art configuration and verified publication.
 Episode artwork remains an independent external publisher URL. See the
-[implemented cover/navigation stages](COVER_ART_AND_NAVIGATION_PLAN.md).
+[implemented cover/navigation stages](archive/COVER_ART_AND_NAVIGATION_PLAN.md).
 
 ## Recovery and shared UI
 
@@ -482,4 +482,4 @@ server state and transcript references are never changed by review. Explicit new
 WAV exports recompute segment frame intervals from actual PCM and inserted exact
 zeros; ASR cannot provide authoritative text or word timestamps. See
 [quality behavior and limits](LONGFORM_QUALITY.md) and its
-[implementation plan](LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md).
+[implementation plan](archive/LONGFORM_QUALITY_IMPLEMENTATION_PLAN.md).

@@ -160,7 +160,7 @@ product PCM policy, so re-listening is appropriate when comparing loudness.
 All new models produce 24 kHz mono output; Soprano retains 32 kHz native output.
 Existing WAV/AAC/MP3 export and podcast encoding/transcript rules still apply.
 
-See [implementation and validation](MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md),
+See [implementation and validation](archive/MULTI_MODEL_TTS_IMPLEMENTATION_PLAN.md),
 [architecture](ARCHITECTURE.md) and [operator checks](OPERATOR_VALIDATION.md).
 
 ## Narration preparation

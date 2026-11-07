@@ -1,10 +1,10 @@
 # Kokoro longform implementation record
 
 > Dated implementation/listening record. LF0–LF7 are complete; later document
-> projection and monorepo changes are in [current status](IMPLEMENTATION_STATUS.md).
+> projection and monorepo changes are in [current status](../IMPLEMENTATION_STATUS.md).
 > Old repository revisions, build paths, test counts and candidate commands below
-> reproduce those stages only. Current setup/checks use [CONTRIBUTING.md](../CONTRIBUTING.md)
-> and [DEVELOPMENT.md](DEVELOPMENT.md); no sample regeneration is implied.
+> reproduce those stages only. Current setup/checks use [CONTRIBUTING.md](../../CONTRIBUTING.md)
+> and [DEVELOPMENT.md](../DEVELOPMENT.md); no sample regeneration is implied.
 
 Implementation authorized October 15, 2026, after Settings automated validation.
 The plan is [KOKORO_LONGFORM_PLAN.md](KOKORO_LONGFORM_IMPLEMENTATION.md). Automated evidence
@@ -80,7 +80,7 @@ No seed is claimed: the actual native path exposes no configured random seed.
   voice and explicitly Install Speech Model to acquire/update them. Generation and
   checking never download them; failures give a specific install/update action.
 
-Exact pins, provenance and narrow adaptations are in [DEPENDENCIES.md](DEPENDENCIES.md).
+Exact pins, provenance and narrow adaptations are in [DEPENDENCIES.md](../DEPENDENCIES.md).
 Lexical parity does not resolve every homograph, name or unit abbreviation. Those
 remain listening cases, with the existing user dictionary available; there is no
 new global homograph substitution or LLM fallback.

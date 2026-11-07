@@ -199,7 +199,7 @@ is a local unit-publication metric, separate from HTTP/server TTFA and client
 playback. Changed selections, reference voices, longer memory stability and
 listening remain separate evidence. Probe deadlines
 are not production cancellation or latency policy. The
-[VoiceServer checklist](VOICESERVER_IMPLEMENTATION_CHECKLIST.md) records results.
+[VoiceServer checklist](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md) records results.
 
 The model-free regression seam is included in ordinary fixtures. Its focused
 selection is `LiveSpeechFirstUnitTests|SpeechHandoffProbeTests|VoiceServerProofTests|SpeechWorkAdmissionTests|SpeechAttemptFenceTests|SpeechHostAdmissionTests|SpeechWorkCoordinatorTests|SpeechRenderJournalTests|LibroBatchRecoveryTests|SpeechCPUWorkTests|SpeechWorkWakeupTests|SpeechWorkStatusTests|AudioStreamEncoderTests|PronunciationUITests.testPreviewKeepsTheCapturedAppWorkerOwner|deletionRunsInsideOwnedMaintenanceAndFailurePreservesAssets` under the existing

@@ -114,7 +114,7 @@ Headless text/preparation comparisons are separate from GUI and listening
 acceptance. Unreliable source encodings, detailed notation and image-table OCR
 quality remain visible limitations, not claimed scientific transcription accuracy.
 
-The [broader academic PDF evaluation](ACADEMIC_PDF_EVALUATION.md) adds public papers,
+The [broader academic PDF evaluation](archive/ACADEMIC_PDF_EVALUATION.md) adds public papers,
 OCR/structured-HTML comparisons and an implementation recommendation. It also
 protects wrapped URL queries and prevents overlapping equation fragments from
 being asserted as complete linear expressions.

@@ -79,6 +79,7 @@ private func awaitServerState(_ predicate: () async -> Bool) async throws {
     let status = try VoiceServerTailscaleStatus.parse(Data(#"{"BackendState":"Running","Self":{"TailscaleIPs":["100.64.0.4","fd7a:115c:a1e0::4"],"DNSName":"anna.example.ts.net."},"Peer":{"private":"must not be retained"}}"#.utf8))
     #expect(status.connected && status.addresses.count == 2 && status.magicDNS == "anna.example.ts.net")
     #expect(status.baseURL(port: 8080)?.absoluteString == "http://anna.example.ts.net:8080/v1")
+    #expect(status.speechURL(port: 8080)?.absoluteString == "http://anna.example.ts.net:8080/v1/audio/speech")
     for json in [#"{"BackendState":"Stopped","Self":{"TailscaleIPs":["100.64.0.4"]}}"#,
                  #"{"BackendState":"NeedsLogin"}"#, #"{}"#] {
         #expect(try VoiceServerTailscaleStatus.parse(Data(json.utf8)) == .unavailable)

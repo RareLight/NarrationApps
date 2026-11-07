@@ -6,7 +6,7 @@ their original dates. This is the single current operator checklist for Libro
 and VoiceRelay. Earlier UI, beta, Settings, pronunciation and longform handoffs
 are consolidated here; their implementation/build evidence remains in the
 [implementation status](IMPLEMENTATION_STATUS.md) and
-[longform record](KOKORO_LONGFORM_IMPLEMENTATION.md).
+[longform record](archive/KOKORO_LONGFORM_IMPLEMENTATION.md).
 
 The operator confirmed both apps build and run on October 16, 2026. Basic
 relocation/build/launch smoke is accepted; individual feature, quality, data and
@@ -58,14 +58,14 @@ separate from automated fixture tests.
   and `.build/LibroReviewFixes-20261027/Build/Products/Release/VoiceRelay.app`.
   Debug products are in the parallel `Debug` folder. Both configurations passed
   bundle/signature/resource/offline Metal checks; GUI, listening and account
-  acceptance are unperformed. See the [fix record](LIBRO_REVIEW_FIX_PLAN.md).
+  acceptance are unperformed. See the [fix record](archive/LIBRO_REVIEW_FIX_PLAN.md).
   The earlier October 23 title-recovery ad-hoc products
   are `.build/TitleRecoveryValidation-20261023/Build/Products/Release/Libro.app` and
   `.build/TitleRecoveryValidation-20261023/Build/Products/Release/VoiceRelay.app`, relative to the
   monorepo root. Local generated products may be absent on another machine.
   Select an operator candidate explicitly; preserve any earlier bundle already
   under active review. See the [title-recovery status](IMPLEMENTATION_STATUS.md#voicerelay-article-title-recovery)
-  and earlier [migration record](MONOREPO_MIGRATION.md#validation) for evidence scope.
+  and earlier [migration record](archive/MONOREPO_MIGRATION.md#validation) for evidence scope.
   Rebuild/re-archive changed source before
   attributing results to it. Use the combined workspace for both apps.
 - Use a separate output folder and disposable test articles. Keep existing models,
@@ -88,7 +88,7 @@ separate from automated fixture tests.
   AM/PM times. Delivery A matched listening, including letter A, is accepted;
   use B05 for remaining app-preview checks. Contextual `lead`/`read`
   and unsupported/ambiguous forms remain limitations. See the
-  [normalization record](TEXT_NORMALIZATION_RESEARCH.md).
+  [normalization record](archive/TEXT_NORMALIZATION_RESEARCH.md).
 
 ## Libro
 
@@ -550,7 +550,7 @@ separate from automated fixture tests.
   available. Listen with both supported engines in Libro; no inferred formulas,
   units, values or scientific conclusions should be presented as source facts.
   See [scope and limits](SCIENTIFIC_NARRATION.md) and the
-  [expanded corpus findings](ACADEMIC_PDF_EVALUATION.md); automated preparation passes
+  [expanded corpus findings](archive/ACADEMIC_PDF_EVALUATION.md); automated preparation passes
   do not establish mathematical transcription, GUI or listening acceptance.
 
 ## Model evaluation (developer utility)
@@ -561,7 +561,7 @@ separate from automated fixture tests.
   **Partial listening result, October 30:** the operator preferred semantic
   phrasing for Kokoro/Heart and rated the other four pairs Same. Pronunciation
   and model-specific pacing issues remain; see the
-  [recorded results](LONGFORM_QUALITY_LISTENING_RESULTS.md). GUI, recognition and
+  [recorded results](archive/LONGFORM_QUALITY_LISTENING_RESULTS.md). GUI, recognition and
   broader acceptance remain unconfirmed. The operator subsequently approved
   semantic phrasing as Kokoro's only preparation path. Retest compound flow
   (“behind-the-scenes”, “state-of-the-art”) after the hyphen correction.
@@ -625,9 +625,10 @@ separate from automated fixture tests.
 
 ## VoiceServer staged acceptance
 
-The VoiceServer owner/adapters remain opt-in; normal app constructors still supply
-no coordinator and there is no HTTP listener or service Settings pane yet.
-Synthetic fixtures/builds do not complete these operator checks. Use the matching
+The VoiceServer Settings pane, listener and coordinated scheduling are wired in
+production builds; the checks below remain manual because synthetic fixtures and
+ad-hoc builds cannot exercise real Keychain, network reachability, listening or
+live clients. Use the matching
 candidate/evidence identified in [current status](IMPLEMENTATION_STATUS.md).
 The ad-hoc candidate is for fixture/GUI work only: use a normally team/profile-
 signed VoiceRelay build for Save Password, Test Connection and live Publishing.
@@ -681,8 +682,9 @@ acceptance of the server or credential policy.
   authentication/rotation, selected VPN addresses and sleep/wake behavior.
   Keep request text and credentials out of shared reports. HTTP/Keychain/Tailscale
   acceptance is not established by offline helper/codec evidence.
-  Start from **Settings → VoiceServer**, choose access explicitly and generate a
-  Keychain key. Verify 80%, 100% and 200% Settings sizing; disabled-by-default
+  Start from **Settings → VoiceServer → Set Up VoiceServer…**, choose access
+  explicitly and generate a Keychain key. Verify 80%, 100% and 200% Settings
+  sizing; disabled-by-default
   behavior, startup/wake, manual Stop and app Quit. Check first spoken audio and
   sustained playback separately, for idle/same-app warm reuse and cross-app reload.
   Use the [API guide](../VoiceRelay/docs/VOICESERVER.md) for supported fields and limits.
