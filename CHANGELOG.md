@@ -7,6 +7,11 @@ history only - they are not release or distribution acceptance.
 
 ## Unreleased
 
+- VoiceServer accepts `response_format: "json"`, a complete-file
+  `application/json` envelope (`{"audio": "<base64>", "content_type":
+  "audio/mpeg"}`) for clients whose stacks cannot consume binary bodies;
+  verified end to end from a scripted client. Existing mp3/wav/pcm
+  responses and rejection behavior are unchanged.
 - Shared development versioning: Version.xcconfig milestones, commit-count
   build numbers stamped at build time, and native About metadata in both apps.
 - Coordinated preparation now includes document extraction/previews and optional
