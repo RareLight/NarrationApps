@@ -92,11 +92,16 @@ fields and mismatches are rejected, rather than ignored. Input text is not saved
 | `mp3` or omitted | Streaming | One continuous mono 24 kHz MP3 stream |
 | `pcm` | Streaming | Raw mono signed 16-bit little-endian, 24 kHz; no header |
 | `wav` | Complete file | Mono Float32 WAV at the selected model's native rate |
+| `json` | Complete file | `application/json` envelope `{"audio":"<base64 mp3>","content_type":"audio/mpeg"}` |
 
 `stream_format: "audio"` is accepted; SSE is rejected. Set `stream: false` for
 a complete MP3 or PCM response. WAV is complete-file only; explicit streaming WAV
-is rejected. Orpheus currently requires complete-file output. Settings must keep
-at least one response mode enabled; disabled modes produce an explicit error.
+is rejected. `json` is likewise complete-file only; explicit streaming is
+rejected. The `json` envelope exists for clients that cannot consume raw binary
+response bodies: `audio` is the same MP3 payload base64-encoded, so the body is
+~33% larger than the `mp3` response. Orpheus currently requires complete-file
+output. Settings must keep at least one response mode enabled; disabled modes
+produce an explicit error.
 No normalization, leveling, limiting or gain is applied. PCM conversion rejects
 out-of-range samples rather than clipping them.
 

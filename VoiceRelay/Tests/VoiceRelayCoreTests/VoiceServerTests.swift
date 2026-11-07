@@ -26,6 +26,8 @@ private func speechBody(_ extra: [String: Any] = [:], input: String = "Exact aut
     #expect(!wav.streaming && wav.delivery == .file)
     let buffered = try VoiceServerSpeechRequest.decode(speechBody(["stream": false]), selection: serverSelection())
     #expect(!buffered.streaming && buffered.format == .mp3)
+    let json = try VoiceServerSpeechRequest.decode(speechBody(["response_format": "json"]), selection: serverSelection())
+    #expect(json.format == .json && json.codec == .mp3 && !json.streaming && json.delivery == .file)
 }
 
 @Test func voiceServerRejectsUnsupportedOrMismatchedOptionsBeforeWork() throws {
@@ -33,7 +35,8 @@ private func speechBody(_ extra: [String: Any] = [:], input: String = "Exact aut
     for fields: [String: Any] in [
         ["model": "remote-model"], ["voice": "other"], ["speed": 2],
         ["stream_format": "sse"], ["response_format": "aac"],
-        ["response_format": "wav", "stream": true], ["instructions": "private instruction"],
+        ["response_format": "wav", "stream": true], ["response_format": "json", "stream": true],
+        ["instructions": "private instruction"],
         ["reference_audio": "/private/reference.wav"], ["stream": "true"]
     ] {
         #expect(throws: VoiceServerError.self) { try VoiceServerSpeechRequest.decode(speechBody(fields), selection: selection) }
@@ -161,7 +164,7 @@ private final class ServerSink: VoiceServerAudioSink, @unchecked Sendable {
     let renderer = NativeVoiceServerRenderer(coordinator: c, mp3Library: codec, responseRoot: output)
     let selection = VoiceServerSelection(settings: .init(), workspace: root, modelReady: true)
     do {
-        for format in ["pcm", "wav", "mp3"] {
+        for format in ["pcm", "wav", "mp3", "json"] {
             let request = try VoiceServerSpeechRequest.decode(speechBody(["response_format": format], input: "First complete sentence.\n\nSecond complete paragraph."), selection: selection)
             let control = VoiceServerRequestControl(), sink = ServerSink()
             let job = try await c.openJob(identity: .init(batch: UUID(), job: UUID()), settings: selection.settings,
@@ -169,7 +172,15 @@ private final class ServerSink: VoiceServerAudioSink, @unchecked Sendable {
             try await renderer.render(request, selection: selection, job: job, control: control, sink: sink)
             let result = sink.result
             #expect(!result.0.isEmpty && result.1 && result.2 == 1)
-            #expect(format == "wav" ? result.3 == UInt64(result.0.count) : result.3 == nil)
+            if format == "json" {
+                #expect(result.3 == UInt64(result.0.count))
+                let envelope = try #require(JSONSerialization.jsonObject(with: result.0) as? [String: Any])
+                #expect(envelope["content_type"] as? String == "audio/mpeg" && Set(envelope.keys) == ["audio", "content_type"])
+                let audio = try #require((envelope["audio"] as? String).flatMap { Data(base64Encoded: $0) })
+                #expect(!audio.isEmpty)
+            } else {
+                #expect(format == "wav" ? result.3 == UInt64(result.0.count) : result.3 == nil)
+            }
             #expect(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty)
             await c.closeJob(job)
         }

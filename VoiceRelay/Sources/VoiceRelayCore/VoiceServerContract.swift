@@ -4,10 +4,21 @@ import NativeSpeech
 import Pronunciation
 
 public enum VoiceServerFormat: String, Codable, Sendable, CaseIterable {
-    case mp3, wav, pcm
+    /// `json` is a complete-file transport envelope (`{"audio": "<base64>",
+    /// "content_type": …}`) for clients that cannot consume binary bodies;
+    /// the enclosed audio codec is always mp3.
+    case mp3, wav, pcm, json
     public var contentType: String {
-        switch self { case .mp3: "audio/mpeg"; case .wav: "audio/wav"; case .pcm: "audio/pcm" }
+        switch self { case .mp3: "audio/mpeg"; case .wav: "audio/wav"; case .pcm: "audio/pcm"; case .json: "application/json" }
     }
+}
+
+/// Complete-file JSON transport for speech responses, sent with Content-Type
+/// application/json. `audio` is the base64-encoded complete codec payload;
+/// `content_type` names the enclosed audio media type (always audio/mpeg).
+struct VoiceServerJSONEnvelope: Encodable {
+    let audio: String
+    let content_type: String
 }
 
 public struct VoiceServerLimits: Sendable {
@@ -82,6 +93,8 @@ public struct VoiceServerSpeechRequest: Sendable {
     public let input: String
     public let format: VoiceServerFormat
     public let streaming: Bool
+    /// Audio codec actually rendered; the json envelope always carries mp3.
+    public var codec: VoiceServerFormat { format == .json ? .mp3 : format }
     public var inputBytes: Int { input.utf8.count }
     public var delivery: SpeechWorkDelivery { streaming ? .streaming : .file }
 
@@ -125,14 +138,17 @@ public struct VoiceServerSpeechRequest: Sendable {
             throw VoiceServerError(400, code: "speed_mismatch", message: "Explicit speed must match the speed selected in VoiceRelay.", parameter: "speed")
         }
         guard let format = VoiceServerFormat(rawValue: body.response_format ?? "mp3") else {
-            throw VoiceServerError(400, code: "unsupported_format", message: "Choose mp3, wav or pcm.", parameter: "response_format")
+            throw VoiceServerError(400, code: "unsupported_format", message: "Choose mp3, wav, pcm or json.", parameter: "response_format")
         }
         guard body.stream_format == nil || body.stream_format == "audio" else {
             throw VoiceServerError(400, code: "unsupported_stream_format", message: "Only binary audio streaming is supported.", parameter: "stream_format")
         }
-        let streaming = body.stream ?? (format != .wav)
+        let streaming = body.stream ?? (format != .wav && format != .json)
         guard !streaming || format != .wav else {
             throw VoiceServerError(400, code: "unsupported_streaming_wav", message: "WAV requires complete-file output; omit stream or set it to false.", parameter: "stream")
+        }
+        guard !streaming || format != .json else {
+            throw VoiceServerError(400, code: "unsupported_streaming_json", message: "The JSON envelope is complete-file only; omit stream or set it to false.", parameter: "stream")
         }
         guard modes.isValid, streaming ? modes.streaming : modes.completeFiles else {
             throw VoiceServerError(503, code: "response_mode_disabled", message: "This response mode is disabled in VoiceServer settings.")

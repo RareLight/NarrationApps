@@ -113,18 +113,18 @@ final class VoiceServerResponseAudio: @unchecked Sendable {
         self.request = request; self.sampleRate = sampleRate; self.limits = limits; self.control = control; self.sink = sink
         _ = try? SpeechScratchLease.sweep(parent.resolvingSymlinksInPath(), prefix: "VoiceRelay-API-")
         directory = parent.resolvingSymlinksInPath().appendingPathComponent("VoiceRelay-API-\(UUID())")
-        file = directory.appendingPathComponent("response." + request.format.rawValue)
+        file = directory.appendingPathComponent("response." + request.codec.rawValue)
         guard mkdir(directory.path, 0o700) == 0 else { throw SpeechFailure(.storage) }
         do {
             scratch = try SpeechScratchLease(directory: directory, create: true)
-            if request.format == .wav { wav = try AtomicAudioWriter(destination: file) }
+            if request.codec == .wav { wav = try AtomicAudioWriter(destination: file) }
             else {
                 if !request.streaming {
                     let fd = open(file.path, O_CREAT | O_EXCL | O_NOFOLLOW | O_WRONLY | O_CLOEXEC, 0o600)
                     guard fd >= 0 else { throw SpeechFailure(.storage) }
                     handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
                 }
-                encoder = try AudioStreamEncoder(format: request.format == .mp3 ? .mp3 : .pcm, inputSampleRate: sampleRate,
+                encoder = try AudioStreamEncoder(format: request.codec == .mp3 ? .mp3 : .pcm, inputSampleRate: sampleRate,
                     mp3Library: mp3Library, maximumOutputBytes: limits.maximumOutputBytes) { [weak self] bytes in
                         guard let self else { throw CancellationError() }
                         try self.control.check()
@@ -175,10 +175,25 @@ final class VoiceServerResponseAudio: @unchecked Sendable {
             try handle?.synchronize(); try handle?.close(); handle = nil
             let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
             guard size > 0, UInt64(size) <= limits.maximumOutputBytes else { throw AudioStreamFailure.outputLimit }
-            let input = try FileHandle(forReadingFrom: file); defer { try? input.close() }
-            try sink.begin(format: request.format, contentLength: UInt64(size)); began = true
-            while let bytes = try input.read(upToCount: 16_384), !bytes.isEmpty {
-                try control.check(); try AudioWorkCheckpoint.check(); try sink.write(bytes)
+            if request.format == .json {
+                // Base64 is a text transport: audio reaches clients whose
+                // stacks cannot hand raw binary bodies to scripts.
+                let audio = try Data(contentsOf: file)
+                let envelope = try JSONEncoder().encode(VoiceServerJSONEnvelope(audio: audio.base64EncodedString(),
+                                                                              content_type: request.codec.contentType))
+                try sink.begin(format: .json, contentLength: UInt64(envelope.count)); began = true
+                var offset = 0
+                while offset < envelope.count {
+                    try control.check(); try AudioWorkCheckpoint.check()
+                    let end = min(envelope.count, offset + 16_384)
+                    try sink.write(envelope.subdata(in: offset..<end)); offset = end
+                }
+            } else {
+                let input = try FileHandle(forReadingFrom: file); defer { try? input.close() }
+                try sink.begin(format: request.format, contentLength: UInt64(size)); began = true
+                while let bytes = try input.read(upToCount: 16_384), !bytes.isEmpty {
+                    try control.check(); try AudioWorkCheckpoint.check(); try sink.write(bytes)
+                }
             }
         }
         guard began else { throw AudioOutputError.empty }
