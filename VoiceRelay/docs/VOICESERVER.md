@@ -23,8 +23,9 @@ captured selection; changing settings affects later requests.
    client's API key; a partial copy cannot authenticate. Never put the key in a
    URL.
 4. Choose **Enable VoiceServer** to finish. The pane lists labeled **Speech
-   endpoint** rows — this Mac, Tailscale and Tailscale MagicDNS (IPv6 loopback
-   is bound but not listed). **Copy** places the full `/v1/audio/speech` URL;
+   endpoint** rows for this Mac and any selected private interfaces, with
+   Tailscale MagicDNS when available in Tailscale mode. The **this Mac** row
+   shows the IPv4 loopback address. **Copy** places the full `/v1/audio/speech` URL;
    metadata routes `/v1/models` and `/v1/audio/voices` share the same host and
    port. For a client with a configurable OpenAI-compatible base URL, use model
    `voicerelay` and voice `default`. Tailscale needs no `tailscale serve`; the
@@ -78,7 +79,7 @@ All three routes require `Authorization: Bearer vs_<your key>` and return
 | --- | --- |
 | `GET /v1/models` | Stable model alias `voicerelay` |
 | `GET /v1/audio/voices` | Alias `default`, selected voice identifier and model readiness |
-| `POST /v1/audio/speech` | Binary speech audio; JSON request body required |
+| `POST /v1/audio/speech` | Binary audio or a JSON-wrapped MP3, selected by `response_format`. The request body is JSON. |
 
 The minimal speech body is `{"input":"Read this sentence."}`. Optional supported
 fields are `model`, `voice`, `speed`, `response_format`, `stream` and
@@ -97,11 +98,11 @@ fields and mismatches are rejected, rather than ignored. Input text is not saved
 `stream_format: "audio"` is accepted; SSE is rejected. Set `stream: false` for
 a complete MP3 or PCM response. WAV is complete-file only; explicit streaming WAV
 is rejected. `json` is likewise complete-file only; explicit streaming is
-rejected. The `json` envelope exists for clients that cannot consume raw binary
-response bodies: `audio` is the same MP3 payload base64-encoded, so the body is
-~33% larger than the `mp3` response. Orpheus currently requires complete-file
-output. Settings must keep at least one response mode enabled; disabled modes
-produce an explicit error.
+rejected. For clients that need JSON, decode `audio` from base64 to obtain the
+MP3 bytes. The response is about one third larger than the binary MP3. The
+**Complete MP3, WAV and PCM files** toggle also controls the JSON envelope.
+Orpheus requires complete-file output. Keep at least one response mode enabled.
+Requests for disabled modes return an explicit error.
 No normalization, leveling, limiting or gain is applied. PCM conversion rejects
 out-of-range samples rather than clipping them.
 

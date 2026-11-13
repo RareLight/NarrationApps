@@ -49,8 +49,11 @@ public enum CoordinatorError: Error, LocalizedError {
 /// cancellation while its task is awaiting workers; another run is rejected.
 public actor QueueCoordinator {
     private let configuration: WorkerConfiguration
+    private let summaryGenerator: DocumentSummaryGenerator.Generate?
     private var active: Task<BatchSummary, Error>?
-    public init(configuration: WorkerConfiguration) { self.configuration = configuration }
+    public init(configuration: WorkerConfiguration, summaryGenerator: DocumentSummaryGenerator.Generate? = nil) {
+        self.configuration = configuration; self.summaryGenerator = summaryGenerator
+    }
 
     public func run(_ request: BatchRequest, debugLog: DebugLog? = nil, control: BatchQueueControl? = nil,
                     recovery: LibroBatchRecovery? = nil, events: @escaping @Sendable (BatchEvent) -> Void = { _ in }) async throws -> BatchSummary {
@@ -161,6 +164,7 @@ public actor QueueCoordinator {
                 let projection: NarrationPlan?
                 if restored != nil { projection = nil }
                 else {
+                    let summaryGenerator = self.summaryGenerator
                     let preparation = Task.detached(priority: .userInitiated) {
                         let semantic = try await InferenceLease.$hostAdmission.withValue(sessionConfiguration.workCoordinator?.hostAdmission) {
                             try await InferenceLease.withPriority(sessionConfiguration.inferencePriority, at: sessionConfiguration.inferenceLeaseFile) {
@@ -170,10 +174,24 @@ public actor QueueCoordinator {
                             }
                         }
                         updates.report(.init(stage: .planningNarration))
-                        return try await SpeechCPUContext.run(cpuContext) {
+                        var plan = try await SpeechCPUContext.run(cpuContext) {
                             try NarrationPlanner.prepareForSpeech(semantic, settings: request.settings, pronunciations: pronunciations, policy: sessionConfiguration.preparationPolicy, options: request.narrationOptions,
                                 checkpoint: { try AudioWorkCheckpoint.check() })
                         }
+                        if request.outputFormat != .wav, request.narrationOptions.generateSummary, summaryGenerator != nil {
+                            let text = try await SpeechCPUContext.run(cpuContext) {
+                                semantic.blocks.filter { $0.origin != .generated }.map(\.text).joined(separator: "\n")
+                            }
+                            let summary = try await InferenceLease.$hostAdmission.withValue(sessionConfiguration.workCoordinator?.hostAdmission) {
+                                try await InferenceLease.withPriority(sessionConfiguration.inferencePriority, at: sessionConfiguration.inferenceLeaseFile) {
+                                    try await DocumentSummaryGenerator.generate(sourceText: text, using: summaryGenerator)
+                                }
+                            }
+                            var notes = plan.showNotes ?? .init()
+                            notes.summary = summary
+                            plan = plan.with(showNotes: notes)
+                        }
+                        return plan
                     }
                     projection = try await withTaskCancellationHandler { try await preparation.value }
                         onCancel: { preparation.cancel() }

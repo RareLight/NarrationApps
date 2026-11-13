@@ -5,6 +5,7 @@
 | Get started | [App overview](../README.md) |
 | Automation, Publishing, covers, credentials, privacy and backups | [User guide](USER_GUIDE.md) |
 | Footnotes, PDF cleanup and pronunciation previews | [Shared narration guide](../../docs/NARRATION_GUIDE.md) |
+| Chapter markers, source links and optional summaries | [Chapters and show notes](../../docs/CHAPTERS_AND_NOTES.md) |
 | Source access, failed pages, archives and image handling | [Source handling](SOURCE_REVIEW.md) |
 | Matching server copies, verification, conflicts and cleanup | [Server recovery](SERVER_RECOVERY.md) |
 | Private speech API setup, client headers and limits | [VoiceServer](VOICESERVER.md) |

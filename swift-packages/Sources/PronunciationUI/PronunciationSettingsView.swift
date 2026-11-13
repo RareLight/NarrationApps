@@ -20,7 +20,7 @@ public struct PronunciationSettingsView: View {
     public var body: some View {
         ScrollView {
         VStack(alignment: .leading, spacing: 12) {
-            SettingsSectionHeader(title: "Pronunciation", explanation: "Matches whole words in any capitalization. New narration only; sources and existing recordings stay unchanged.")
+            SettingsSectionHeader(title: "Pronunciation", explanation: "Matches whole words, ignoring capitalization. English spellings use letters, spaces, hyphens and apostrophes; advanced phonemes require Kokoro. Word/spelling limits: 120/160 characters. New narration only; sources and recordings stay unchanged.")
             Text("Enter a word and how it should sound using English letters, for example, “SQLite” → “sequel lite”. The dictionary is shared by Libro and VoiceRelay.")
             VStack(spacing: 12) {
             List(selection: $selection) {
@@ -111,7 +111,8 @@ public struct PronunciationSettingsView: View {
             }
             .containerRelativeFrame(.horizontal) { width, _ in width * 0.75 }
             .frame(maxWidth: .infinity)
-            if let error = editor.error ?? editor.validationMessage { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+            if let error = editor.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+            else if let error = editor.validationError, (error as? PronunciationError) != .invalidEntry { Text(error.localizedDescription).foregroundStyle(.red).textSelection(.enabled) }
             else { Text(!editor.loaded ? "Loading dictionary…" : editor.saving ? "Saving…" : (editor.dirty ? "Unsaved changes" : "Saved locally. Valid changes save automatically.")).foregroundStyle(.secondary) }
             if let error = preview.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
             if let unavailableReason { Text(unavailableReason).foregroundStyle(.secondary) }

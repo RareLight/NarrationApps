@@ -1,13 +1,133 @@
 # Current implementation status
 
-Current-state documentation updated November 5, 2026. Feature-specific engineering
+Current-state documentation updated November 12, 2026. Feature-specific engineering
 evidence is dated below. NarrationApps is one repository containing Libro,
 VoiceRelay, SwiftNarration, AppPresentation and the combined Xcode workspace.
-The containing commit identifies all maintained source. See
+The containing commit identifies committed source. The November 10–12 entries
+describe worktree changes based on `8723c9e`. See
 [monorepo migration](archive/MONOREPO_MIGRATION.md), [architecture](ARCHITECTURE.md),
 [remaining work](IMPLEMENTATION_PLAN.md) and [operator validation](OPERATOR_VALIDATION.md).
 Private document reviews and their input-specific results are retained locally;
 they are excluded from the publication history. Synthetic fixtures remain maintained.
+
+## Hostname-only URL narration — November 12, 2026
+
+All voices share hostname-only speech for recognized HTTP(S) and `www.` URLs.
+The source text, source mappings and link metadata retain the complete address.
+The NarrationCore suite passed 156 XCTest and 19 Swift Testing cases, including
+preview and speech preparation across all five models. Listening remains part of
+B05 in the [operator checklist](OPERATOR_VALIDATION.md#both-apps-together).
+
+## Libro fresh PDF OCR and initial Kokoro web address handling — November 12, 2026
+
+Libro's per-PDF **Force Fresh OCR** option uses Apple Vision for page text in
+preview and export. Batch recovery retains each PDF's choice. Kokoro expands
+recognized HTTP(S) and `www.` addresses into spoken components with source
+mappings. See [document intake](DOCUMENT_PROCESSING.md#intake-and-ocr) and
+[pronunciation](PRONUNCIATION.md#matching-and-narration).
+
+On an M2 Max, reading embedded text from 12 synthetic pages took a median of
+16 ms. Rendering those pages at a 2,200-pixel long edge and reading Vision's
+recognition output took a median of 2.22 s. These timings cover the extraction
+primitives and exclude document opening, layout projection and speech. Local
+measurement details are in `.local/validation/pdf-ocr-and-web-addresses-20261112/`.
+The final shared run passed 173 tests, and Libro's five preview tests passed.
+Debug and Release workspace builds and all four ad-hoc bundle audits passed in
+`.local/validation/release-84B42872-4EFB-4905-A203-BB1D606A1707/`. Actual archival
+OCR and spoken cadence are operator checks L06 and B05.
+
+## Concurrent Server Audio removal — November 12, 2026
+
+Completed episodes can be removed while later articles generate. A read-only
+refresh exposes newly completed episodes during the run. Queued and finalizing
+episodes stay protected. A single list stays mounted as accepted selections
+disappear together. Pending removals stay hidden through refreshes, and only
+failed or unfinished items return with a **Deletion failed** badge and retry.
+See the [user guide](../VoiceRelay/docs/USER_GUIDE.md#understand-removal-actions).
+
+The active coordinator shares its existing library lease with completed-audio
+removal. Retirement and feed replacement use the metadata writer. File identity
+checks and unlink run outside that writer, and final bookkeeping revalidates the
+retired record. Publication updates recheck the episode under the same writer so
+late delivery, transcript and cleanup results cannot revive a retired item.
+See [VoiceRelay architecture](../VoiceRelay/docs/ARCHITECTURE.md#publishing-recovery-and-cleanup).
+
+The full VoiceRelay package run passed 396 core and 188 app tests before the
+final atomicity changes. After those changes, 33 focused core and 12 app tests
+passed, including writer contention and deletion during held generation. Local
+evidence is in `.local/chapter-notes-tests/concurrent-server-audio-full.log` and
+`concurrent-server-audio-review.log` in the same directory. The November 10
+workspace builds predate these changes. GUI and server acceptance remain open
+under [V14](OPERATOR_VALIDATION.md#voicerelay).
+
+The follow-up for successive single-row clicks keeps the Server Audio footer and
+row heights stable through cleanup, moves transient publishing checks into the
+footer, and disables automatic scroll-offset adjustment for list updates.
+Fourteen focused app tests passed, including layout at 100% and 200% text size,
+survivor order and overlapping removals. Evidence is in
+`.local/chapter-notes-tests/server-audio-stable-layout-final.log`. The Debug and
+Release workspace builds and four ad-hoc bundle audits passed in
+`.local/validation/release-858FBE96-CCFF-4A45-87F7-07243DB8EE7C/`. V14 covers
+pointer and scroll behavior in the running app.
+
+## Pronunciation entry help — November 12, 2026
+
+Both apps use the shared Pronunciation info popover for entry format rules.
+Incomplete or malformed drafts stay unsaved while the last saved dictionary
+remains active. Duplicate entries, conflicts, storage errors and preview errors
+remain visible. The focused PronunciationUI run recorded 10 passes and one
+opt-in native-render skip in `.local/chapter-notes-tests/pronunciation-help.log`.
+GUI and listening acceptance remain under [L04, V04 and B01](OPERATOR_VALIDATION.md).
+
+## Chapters and show notes — November 10–11, 2026
+
+Shared structural chapter selection and measured render timelines now feed native
+M4A/M4B chapter tracks and MP3 ID3 CHAP/CTOC metadata. Libro uses the main authored
+contents level; VoiceRelay uses article sections/PDF outlines. Source links and
+optional, bounded Foundation Models summaries are retained as host-side metadata,
+not narration or acoustic identity. VoiceRelay descriptions use standard RSS
+HTML and survive same-audio persistence and safe recovery. Existing recordings,
+WAV output and VoiceServer responses are unchanged. See
+[chapters and show notes](CHAPTERS_AND_NOTES.md).
+
+Engineering validation on November 10, 2026:
+
+- Synthetic M4A/M4B chapter readback includes Unicode titles, unchanged compressed
+  AAC packets and a byte-identical decoded original-audio prefix. MP3 tests
+  independently verify chapter frames, ordered contents, cover preservation and
+  unchanged MPEG bytes. Native AAC header rewriting may expose less than one
+  packet of pre-existing tail padding; this limitation is documented.
+- End-to-end Libro queue/recovery and VoiceRelay source/encode/retry fixtures
+  preserve notes and measured chapter positions without repeating summary
+  generation or completed synthesis. Disabled/unavailable/oversized summaries
+  still allow output.
+- The full fixture run passed shared/Libro, static and tooling checks, then found
+  VoiceRelay feed-recovery regressions. Those were fixed upstream: generated and
+  legacy notes now round-trip byte-identically without unnecessary feed rewrites.
+  The full VoiceRelay suite subsequently passed (394 core and 185 app tests),
+  including unchanged startup-probe and feed-before-delete safety assertions.
+  The entire root full tier was not repeated.
+- The November 10 repository quick gate and native packaging fixtures passed.
+  Both apps built in Debug and Release; all four ad-hoc bundle audits passed.
+  Isolated products are under `.local/chapter-notes-build/DerivedData`; no
+  operator installation was replaced and no archives were produced.
+- On November 11, all nine focused audio metadata writer tests passed after
+  the switch to the current AVFoundation sample-buffer append API. Evidence is
+  in `.local/chapter-notes-tests/compiler-warning-fix.log`.
+
+Local logs are in `.local/chapter-notes-tests` and `.local/chapter-notes-build`.
+Player/device, GUI, signing-account and summary-quality acceptance remain
+operator-owned in [operator validation](OPERATOR_VALIDATION.md#chapters-and-show-notes).
+
+## VoiceServer endpoints and JSON responses — November 7, 2026
+
+Settings displays labeled, copyable speech endpoints for the available bindings.
+Each URL ends in `/v1/audio/speech`. The authenticated speech route also accepts
+`response_format: "json"` for complete-file MP3 wrapped as base64 with an
+`audio/mpeg` content type field. The changelog records scripted-client verification
+of that envelope. See the [API guide](../VoiceRelay/docs/VOICESERVER.md#requests-and-formats)
+and [VS03](OPERATOR_VALIDATION.md#voiceserver-staged-acceptance) for broader client
+and lifecycle checks.
 
 ## Publishing reconciliation gate, VoiceServer setup flow and documentation archive — November 5, 2026
 

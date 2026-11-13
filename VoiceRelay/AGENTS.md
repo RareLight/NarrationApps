@@ -113,7 +113,8 @@ old-host deletes to a new destination. Failures use sanitized status text.
 Current UX direction: a compact SwiftUI menu in a native NSStatusItem/NSPopover host
 (the same popover opens on left- and right-click) and one sidebar library window
 (Articles with All Articles/Queue scopes, Upload Queue, Server Audio). Settings uses native pane navigation for
-General, Voice Model, Pronunciation, Publishing and Troubleshooting, with no global Cancel. Generate/Stop
+General, Voice Model, Pronunciation, Publishing, VoiceServer and Troubleshooting,
+with no global Cancel. Generate/Stop
 live with audio work.
 Voice Model owns model/voice selection, download when missing,
 on-demand details/meters, samples, downloaded-model
@@ -132,12 +133,10 @@ belongs to navigation/control chrome, not content backgrounds. Remove retired
 active UI, state, callbacks, scene wiring and previews; retain core fixture
 coverage. Remove abandoned prototypes rather than bundling inactive executables.
 
-Current storage/UI direction: General, Voice Model, Pronunciation, Publishing and Troubleshooting share one
-resizable
-540×680-ideal Settings window (360×540 minimum) switched by a centered compact icon-navigation strip
-(492×46 selector — five 92pt tiles plus spacing, 16pt SF symbols, 12pt labels,
-the selected tile using a real
-SwiftUI glassEffect); selection state is the glass tile, and keyboard focus is
+The six Settings panes share a resizable 640×680-ideal window (360×540 minimum).
+Shared SettingsNavigation uses centered icon tiles and falls back to a menu at
+narrow widths or larger text sizes. The selected tile uses SwiftUI glassEffect
+when Reduce Transparency is off. Keyboard focus is
 shown by a rounded keyboard-only focus cue, not a persistent tinted box. All visible app text
 is 12pt or larger (system tooltips excepted); explanatory prose lives behind
 ⓘ help controls on section headers, not inline footnotes. Keep macOS27
@@ -223,7 +222,11 @@ retain pending server removals durably until confirmed. Accepted removals disapp
 from the list immediately without animation; a serial owned drain accepts further
 clicks while cleanup runs. The footer reports pending work. Restore failed or
 deferred items without changing the user's remaining selection; refreshes must not
-resurrect still-active removals. Upload New Items appears only
+resurrect still-active removals. Completed audio can be removed during generation
+using the coordinator's existing library lease. Preserve queue and finalization
+checks, read-only refresh during generation, and feed snapshot/write serialization.
+Clear cached text and unfinished work after Safari source removal while retaining
+finished audio and its server history. Upload New Items appears only
 for pending audio/publication, disables during delivery and hides after confirmation.
 Show in Finder remains only for legacy local audio. Server Audio normally reflects recorded confirmations. Sync Now and enabled
 Publishing automatically reconcile bounded authenticated feed/media before queued

@@ -33,6 +33,7 @@ public final class AtomicAudioWriter {
     private let mp3Library: URL?
     private let coverArtwork: CoverArtwork?
     private var artworkFinalized = false
+    private var encodingFinished = false
     private let bitRate: Int
     private var published = false
     private var aborted = false
@@ -67,7 +68,7 @@ public final class AtomicAudioWriter {
             guard (frames + UInt64(samples.count)) * 4 <= UInt64(UInt32.max) - 65_536 else { throw AudioOutputError.riffLimit }
         }
         if let expected = self.sampleRate, expected != sampleRate { throw AudioOutputError.inconsistentFormat }
-        guard !published, !aborted else { throw AudioOutputError.storage }
+        guard !published, !aborted, !encodingFinished else { throw AudioOutputError.storage }
         if AudioWorkCheckpoint.current != nil, samples.count > 16_384 {
             var offset = 0
             while offset < samples.count {
@@ -118,8 +119,7 @@ public final class AtomicAudioWriter {
         guard coverArtwork == nil || format == .mp3 || artworkFinalized else { throw ArtworkError.metadata }
         do {
             try AudioWorkCheckpoint.check()
-            try mp3?.finish(); mp3 = nil
-            audioFile = nil // Finalize the native container/encoder before fsync.
+            try finishEncoding()
             let handle = try FileHandle(forWritingTo: temporary)
             defer { try? handle.close() }
             if let mode = previousMode, fchmod(handle.fileDescriptor, mode) != 0 { throw AudioOutputError.storage }
@@ -153,12 +153,24 @@ public final class AtomicAudioWriter {
     /// Finish the asynchronous metadata step before transferring sole writer
     /// ownership to an admitted CPU queue for validation and atomic publication.
     public func prepareArtwork() async throws {
+        try finishEncoding()
         if let coverArtwork, !artworkFinalized, format == .m4a || format == .m4b {
             guard frames > 0, !published, !aborted else { throw AudioOutputError.empty }
             audioFile = nil
             try await AudioArtworkMetadata.addAAC(coverArtwork, to: temporary)
             artworkFinalized = true
         }
+    }
+
+    /// Close encoders before reading or rewriting their container metadata.
+    public func finishEncoding() throws {
+        guard frames > 0, !published, !aborted else { throw AudioOutputError.empty }
+        guard !encodingFinished else { return }
+        try AudioWorkCheckpoint.check()
+        try mp3?.finish()
+        mp3 = nil
+        audioFile = nil
+        encodingFinished = true
     }
 
     public func abort() {

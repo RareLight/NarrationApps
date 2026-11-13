@@ -1177,6 +1177,20 @@ extension FixtureCoordinator {
         }
         return changed
     }
+    // A removal can retire an episode while its delivery attempt is still in flight.
+    // Mutations land on the record current under the metadata writer only; a stale
+    // snapshot never resurrects a retired episode or drops durable remote-delete intent.
+    func savePublishedMutation(store: PipelineStore, id: String,
+                               _ mutate: (inout Episode) -> Void) throws -> Bool {
+        try store.writing { writer in
+            guard let raw = try writer.query("SELECT record FROM episodes WHERE id=?", [id]).first?.first else { return false }
+            var current = try JSONDecoder().decode(Episode.self, from: Data(raw.utf8))
+            guard current.stage == .published else { return false }
+            mutate(&current)
+            try writer.save(current)
+            return true
+        }
+    }
     /// Ordered drain: confirmed media uploads → feed.xml → remote deletes. Each episode
     /// transition commits as a short write so a crash resumes without resynthesis.
     @discardableResult
@@ -1221,16 +1235,17 @@ extension FixtureCoordinator {
         if ledger.settingsHash != settingsHash || force {
             // Explicit upload retries also recover saved size-verification failures and
             // password changes, which never enter the settings hash.
-            for var episode in try store.published()
+            for episode in try store.published()
                 where episode.localAudioDiscarded != true && episode.delivery?.status == .failed && ledger.blockedServerIDs?.contains(episode.id) != true
                     && ((force && episode.delivery?.verificationFailed == true)
                         || [DeliveryError.authNotice, DeliveryError.permissionNotice, DeliveryError.verificationNotice].contains(episode.delivery?.lastError ?? "")) {
-                episode.delivery?.status = .pending
-                episode.delivery?.attempts = 0
-                episode.delivery?.lastError = nil
-                episode.delivery?.verificationFailed = nil
-                episode.delivery?.nextAttemptAt = nil
-                try store.save(episode)
+                _ = try savePublishedMutation(store: store, id: episode.id) {
+                    $0.delivery?.status = .pending
+                    $0.delivery?.attempts = 0
+                    $0.delivery?.lastError = nil
+                    $0.delivery?.verificationFailed = nil
+                    $0.delivery?.nextAttemptAt = nil
+                }
             }
             ledger.settingsHash = settingsHash
             ledger.lastError = nil
@@ -1285,22 +1300,23 @@ extension FixtureCoordinator {
             default: notice = nil
             }
             if let notice {
-                for var episode in try store.published() where episode.localAudioDiscarded != true && episode.delivery?.status == .pending {
-                    episode.delivery?.status = .failed
-                    episode.delivery?.lastError = notice
-                    episode.delivery?.lastAttemptAt = now
-                    try store.save(episode)
+                for episode in try store.published() where episode.localAudioDiscarded != true && episode.delivery?.status == .pending {
+                    _ = try savePublishedMutation(store: store, id: episode.id) {
+                        $0.delivery?.status = .failed
+                        $0.delivery?.lastError = notice
+                        $0.delivery?.lastAttemptAt = now
+                    }
                     result.failed += 1
                 }
             }
             return result
         }
         // Media uploads first; the remote feed only references confirmed bytes.
-        for var episode in try store.published() {
+        for episode in try store.published() {
             try Task.checkCancellation()
             if episode.localAudioDiscarded == true {
                 if episode.delivery?.status == .uploaded && episode.delivery?.destinationURL != settings.feedFolderURL {
-                    episode.delivery?.status = .pending; try store.save(episode)
+                    _ = try savePublishedMutation(store: store, id: episode.id) { $0.delivery?.status = .pending }
                 }
                 continue
             }
@@ -1317,8 +1333,7 @@ extension FixtureCoordinator {
             // before the request, including partially uploaded copies that fail verification.
             delivery.remotePath = expectedPath
             delivery.destinationURL = settings.feedFolderURL
-            episode.delivery = delivery
-            try store.save(episode)
+            guard try savePublishedMutation(store: store, id: episode.id, { $0.delivery = delivery }) else { continue }
             guard force || delivery.nextAttemptAt == nil || delivery.nextAttemptAt! <= now else { continue }
             delivery.attempts += 1
             delivery.lastAttemptAt = now
@@ -1375,8 +1390,7 @@ extension FixtureCoordinator {
                 delivery.uploadedByteLength = episode.info?.byteLength
                 delivery.lastError = nil
                 delivery.nextAttemptAt = nil
-                episode.delivery = delivery
-                try store.save(episode)
+                _ = try savePublishedMutation(store: store, id: episode.id) { $0.delivery = delivery }
                 ledger.remoteFeedPending = true
                 result.uploadedMedia += 1
                 progress?(UploadProgress(episode: episode, phase: .publishing))
@@ -1407,8 +1421,7 @@ extension FixtureCoordinator {
                     delivery.nextAttemptAt = nil
                     result.failed += 1
                 }
-                episode.delivery = delivery
-                try store.save(episode)
+                _ = try savePublishedMutation(store: store, id: episode.id) { $0.delivery = delivery }
                 ledger.remoteFeedPending = true
                 ledger.lastError = delivery.lastError
             } catch {
@@ -1416,9 +1429,8 @@ extension FixtureCoordinator {
                 delivery.status = .pending
                 delivery.lastError = "One media copy could not be synchronized; other items continued."
                 delivery.nextAttemptAt = now + Self.deliveryBackoff(delivery.attempts)
-                episode.delivery = delivery; try store.save(episode)
                 delivery.verificationFailed = verificationStage.verifying
-                episode.delivery = delivery; try store.save(episode)
+                _ = try savePublishedMutation(store: store, id: episode.id) { $0.delivery = delivery }
                 ledger.lastError = delivery.lastError; result.retrying += 1
             }
             if delivery.lastError != nil { progress?(UploadProgress(episode: episode, phase: delivery.verificationFailed == true ? .verificationFailed : .failed)) }

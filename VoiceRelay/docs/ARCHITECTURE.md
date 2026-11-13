@@ -1,6 +1,16 @@
 # VoiceRelay architecture
 
-Current application contract reviewed October 21, 2026. Shared processing lives
+New episodes carry host-side structural chapter targets, captured summaries and
+safe source links through source preparation and narration replans. Final chapter
+times use the encoded artifact frame timeline after resampling and actual gap
+insertion. Native QuickTime chapter tracks and descriptions are written before
+audio integrity hashes and publication; RSS emits escaped HTML descriptions and
+`content:encoded`. Episode notes remain tied to their recording hash, survive
+same-audio stale saves, and safe standard descriptions survive server recovery.
+No separate chapter upload or new remote-deletion authority is introduced.
+See [chapters and show notes](../../docs/CHAPTERS_AND_NOTES.md).
+
+Current application contract reviewed November 12, 2026. Shared processing lives
 in the monorepo's [SwiftNarration packages](../../docs/ARCHITECTURE.md).
 VoiceRelay owns Safari discovery, source authorization, retained identity/text,
 SQLite queue/recovery, Publishing/Keychain, backup and GUI lifecycle.
@@ -23,6 +33,7 @@ Listener enablement remains off until explicitly configured.
 The bundle now embeds/signs the same pinned LAME library as Libro for the shared
 non-seeking MP3 response encoder. PCM responses use native stateful conversion to
 24 kHz signed 16-bit little-endian samples and reject unrepresentable levels.
+Complete-file JSON responses wrap MP3 bytes as base64.
 VoiceServerService admits bounded FIFO requests to that same coordinator;
 VoiceServerHTTP uses pinned SwiftNIO HTTP/1 parsing and bounded synchronous writes
 only on the request's CPU queue. Every route checks a Keychain bearer grant.
@@ -144,7 +155,12 @@ policy is separate from conservative audio-conflict recovery.
 
 ## Speech, finalization and lifecycle
 
-A per-library lease owns processing; short metadata transactions remain available.
+A per-library lease owns processing. The coordinator registers its active drain
+by resolved library root so completed Server Audio removal can share that lease.
+Another coordinator or process must acquire the library lease independently.
+Removal checks queue membership and finalization again under the metadata writer
+before retiring a record. A read-only cache refresh makes completed episodes
+visible during generation. Destructive library sweeps wait for the drain to end.
 NativeMLXBackend adapts the shared NativeSpeechSession to PreparedTTSBackend.
 Captured dictionary rules and semantic projection are prepared before freezing
 acoustic totals. Final chunks carry prepared phonemes/source mappings and synthesize
@@ -254,15 +270,26 @@ backoff, proof expiry, conditional requests and per-item failure isolation.
 Destination changes invalidate old proofs/delete intentions and preserve old-host
 copies. Server retirement removes feed membership before media deletion and retains
 unfinished removal state until confirmed. The Server Audio list optimistically
-hides accepted removals, while canonical episode records and retirement intent
-remain unchanged until coordinator confirmation. A serial app-owned local-removal
-queue accepts rapid clicks without replacing the owned task. A view-only ID set
+hides accepted removals together in an animation-disabled transaction. A serial
+app-owned local-removal queue accepts further requests while cleanup runs. A view-only ID set
 keeps those rows hidden across library refreshes and delivery snapshots; each
 completed delivery attempt reveals any remaining failed/deferred targets from that
 attempt, without revealing newer requests waiting for its follow-up. Missing IDs
-are pruned from the view-only set. Cancellation/quit restores unprocessed requests
-and joins owned work. Row transitions disable animations; cleanup progress lives in
-the workspace footer. Upload-copy discard retains its exclusive mutation gate.
+are pruned from the view-only set. Cancellation and Quit restore unprocessed
+requests and join owned work. The list remains mounted when empty, and the footer
+reserves the same space during deletion, publishing checks and idle. Server Audio uses
+stable row heights and disables automatic scroll-offset adjustment on list updates.
+Verification and removal details are available on hover and to VoiceOver. Failed
+or unfinished rows return with per-item retry detail. Upload-copy discard retains
+its exclusive mutation gate.
+
+The retrying metadata writer serializes the local feed's published-membership
+snapshot, render, atomic replacement and hash bookkeeping. Hashing and unlinking
+audio happen outside the writer. Final bookkeeping validates the retired record's
+identity and preserves delivery fields written in the meantime. Delivery,
+transcript and temporary-cleanup updates check `.published` under the writer
+before saving, so a late result cannot revive a retired episode.
+
 Retirement records only paths belonging to the ledger's exact recorded destination.
 Every drain also discards stale unowned deletion intent before network operations.
 Successful deletion uses a path-to-owner index and targeted record reads/writes,
@@ -291,7 +318,8 @@ Durable outbox/history/proofs survive transient UI filters and relaunch.
 
 The native library stays at
 `~/Library/Application Support/VoiceRelayPrototype/SpeechLibrary`; the compatibility
-path is intentional. Models default to the shared Hugging Face cache, with an explicit General settings override; library storage stays independent.
+path is intentional. Models default to the shared Hugging Face cache. The folder
+override is in Voice Model → Downloaded models. Library storage is independent.
 Preferences are app-owned UserDefaults; credentials remain Keychain-owned. SQLite
 WAL and short transactions preserve identities, saved dates and known fields in
 stale worker saves. Backups include retained text/bookkeeping, not audio, models,
@@ -303,7 +331,8 @@ audio, process and transport work belong off the UI actor. Owned tasks have stor
 handles, cancellation and join paths; revision guards reject late results after
 removal, destination edits or restore. Common Settings/typography live in
 AppPresentation and NarrationUI; the app owns General, Voice Model, Pronunciation,
-Publishing and Troubleshooting, window/Dock presence and Help topics. Help is inert/offline.
+Publishing, VoiceServer and Troubleshooting, window/Dock presence and Help topics.
+Help is inert and offline.
 
 Use [CONTRIBUTING.md](../CONTRIBUTING.md) for safe checks,
 [VALIDATION.md](VALIDATION.md) for current evidence and the

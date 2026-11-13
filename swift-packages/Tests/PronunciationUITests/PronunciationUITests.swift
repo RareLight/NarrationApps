@@ -95,6 +95,41 @@ import ProcessingPipeline
         XCTAssertNotNil(second.validationMessage)
         XCTAssertEqual(try store.load().dictionary.entries.first?.spelling, "sequel lite")
     }
+    func testIncompleteDraftStaysUnsavedWithoutVisibleError() async throws {
+        let store = PronunciationStore(file: try root().appendingPathComponent("overrides.json"))
+        let editor = PronunciationEditor(store: store)
+        await editor.reload()
+        let id = editor.add()
+        editor.update(.init(id: id, word: "SQLite")); editor.save()
+        XCTAssertEqual(editor.validationError as? PronunciationError, .invalidEntry)
+        XCTAssertNotNil(editor.validationMessage)
+        XCTAssertNil(editor.dictionary)
+        XCTAssertNil(editor.error); XCTAssertTrue(editor.dirty)
+        XCTAssertTrue(try store.load().dictionary.entries.isEmpty)
+        editor.update(.init(id: id, word: "SQLite", spelling: "sikw\u{0259}l")); editor.save()
+        XCTAssertEqual(editor.validationError as? PronunciationError, .invalidEntry)
+        XCTAssertNil(editor.error); XCTAssertTrue(editor.dirty)
+        XCTAssertTrue(try store.load().dictionary.entries.isEmpty)
+        editor.update(.init(id: id, word: "SQLite", spelling: "sequel lite")); editor.save()
+        try await settle { !editor.saving && !editor.dirty }
+        XCTAssertNil(editor.error)
+        XCTAssertEqual(try store.load().dictionary.entries.first?.spelling, "sequel lite")
+    }
+    func testDuplicateEntryBlocksSaveWithVisibleError() async throws {
+        let store = PronunciationStore(file: try root().appendingPathComponent("overrides.json"))
+        let editor = PronunciationEditor(store: store)
+        await editor.reload()
+        let first = editor.add()
+        editor.update(.init(id: first, word: "SQLite", spelling: "sequel lite")); editor.save()
+        try await settle { !editor.saving && !editor.dirty }
+        let second = editor.add()
+        editor.update(.init(id: second, word: "SQLITE", spelling: "seek lite"))
+        XCTAssertEqual(editor.validationError as? PronunciationError, .duplicateWord)
+        editor.save()
+        XCTAssertNotNil(editor.error); XCTAssertTrue(editor.dirty)
+        let saved = try store.load().dictionary.entries
+        XCTAssertEqual(saved.count, 1); XCTAssertEqual(saved.first?.word, "SQLite")
+    }
     func testPreviewCancellationAndFailureJoinOwnedRenderWithoutPlayback() async throws {
         let started = expectation(description: "Preview render started")
         let cancelled = expectation(description: "Preview render cancelled")

@@ -150,6 +150,9 @@ public actor FixtureCoordinator {
     func setBeforeAudioProcessing(_ hook: (@Sendable (SpeechTimingStage, URL) throws -> Void)?) { beforeAudioProcessing = hook }
     var activeDrainRoots: Set<String> = []
     var activeDeliveryRoots: Set<String> = []
+    /// The single speech pipeline each drain owns, keyed by resolved library root.
+    /// Audio removal borrows the same worker lease instead of competing for it.
+    var activeSpeechPipelines: [String: SingleWorkerSpeechPipeline] = [:]
     var beforeEnqueueCommit: (@Sendable () -> Void)?
     func setBeforeEnqueueCommit(_ hook: (@Sendable () -> Void)?) { beforeEnqueueCommit = hook }
     var beforeOwnedAudioUnlink: (@Sendable (URL) -> Void)?
@@ -542,7 +545,8 @@ public actor FixtureCoordinator {
                 if native != nil, let oldData = try? Data(contentsOf: narrationFile),
                    let old = try? JSONDecoder().decode(NarrationPlan.self, from: oldData), old.version != narration.version {
                     narration = NarrationPlan(version: narration.version, chunks: narration.chunks,
-                        notices: narration.notices + ["Unfinished narration was prepared with the current speech pipeline. Completed and published audio is preserved."], omissions: narration.omissions)
+                        notices: narration.notices + ["Unfinished narration was prepared with the current speech pipeline. Completed and published audio is preserved."],
+                        omissions: narration.omissions, documentTitle: narration.documentTitle, showNotes: narration.showNotes)
                 }
                 try Files.write(try Files.json(document.article), to: articleFile)
                 try Files.write(try Files.json(narration), to: narrationFile)
@@ -690,12 +694,29 @@ public actor FixtureCoordinator {
                 try await handoffSpeech()
                 e.stage = .encoding; try store.save(e); progress(.encoding, plan.chunks.count, plan.chunks.count)
                 let capturedArtifacts = artifacts
-                let (info, timeline, encodedHash) = try await SpeechCPUContext.run(backend.cpuWork(for: e.id)) {
+                let (originalInfo, timeline) = try await SpeechCPUContext.run(backend.cpuWork(for: e.id)) {
                     var timeline: [AudioOutput.AudioSegmentTiming] = []
                     let (_, info) = try processor.encode(capturedArtifacts, in: directory) { timeline = $0 }
-                    return (info, timeline, try Files.hash(encoded, description: "encoded audio"))
+                    return (info, timeline)
+                }
+                let (chapters, chapterNotice) = try EpisodeChapters.make(plan: plan, artifactCounts: transcriptArtifactCounts, timeline: timeline)
+                if let notes = plan.showNotes {
+                    var body = ShowNotesText.plainText(summary: notes.summary, sourceTitle: article.sourceName,
+                        sourceURL: (article.archivedCopy == nil ? (article.canonicalURL ?? article.finalURL) : article.originalURL).absoluteString,
+                        chapters: chapters.map { ($0.title, $0.startTime) }, links: notes.links)
+                    if let chapterNotice, body.utf8.count + chapterNotice.utf8.count + 2 <= ShowNotesText.maximumBytes {
+                        body += "\n\n" + chapterNotice
+                    }
+                    try await AudioMetadataWriter.finalize(url: encoded, format: "m4a",
+                        metadata: .init(title: article.title, notes: body, chapters: chapters), duration: originalInfo.duration)
+                }
+                let (info, encodedHash) = try await SpeechCPUContext.run(backend.cpuWork(for: e.id)) {
+                    let info = try processor.probe(encoded, final: true)
+                    try processor.decode(encoded)
+                    return (info, try Files.hash(encoded, description: "encoded audio"))
                 }
                 e.info = info; e.encodedHash = encodedHash
+                e.showNotes = plan.showNotes; e.chapters = chapters; e.showNotesAudioHash = encodedHash
                 e.transcript = p.publishTranscripts == true ? try EpisodeTranscript.make(texts: transcriptTexts,
                     artifactCounts: transcriptArtifactCounts, timeline: timeline, language: p.language, audioHash: e.encodedHash!) : nil
                 e.transcriptReferences = nil
@@ -753,10 +774,8 @@ public actor FixtureCoordinator {
             ledger.settingsHash = Files.hash(try Files.json(delivery))
             try ledger.save(stateRoot: root)
         }
-        let feed = try RSS.render(store.published(), settings: p)
-        if (try? Data(contentsOf: p.feed)) != feed { try Files.write(feed, to: p.feed) }
-        try boundary(.feedReplaced)
-        try store.markFeed(Files.hash(feed)); progress(.published, plan.chunks.count, plan.chunks.count)
+        try store.rebuildLocalFeed(settings: p) { try boundary(.feedReplaced) }
+        progress(.published, plan.chunks.count, plan.chunks.count)
         if storage != nil {
             e.audioFinalizationComplete = true
             try store.save(e)

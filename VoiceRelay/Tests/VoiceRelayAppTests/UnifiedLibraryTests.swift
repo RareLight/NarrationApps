@@ -1,3 +1,5 @@
+import AppKit
+import AppPresentation
 import Foundation
 import SwiftUI
 import Testing
@@ -613,6 +615,66 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     model.savedEpisodes.removeAll { $0.id == "tie-a" }
     #expect(model.visibleServerAudio.map(\.id) == ["latest", "tie-z", "old", "undated-a", "undated-z"])
     #expect(model.savedAudioOrigin(episodes[0]).savedDateText == nil) // No generation-date substitute.
+}
+
+@Test @MainActor func serverAudioRowAndFooterHeightsStayStableAcrossCleanupUpdates() {
+    let model = AppModel(preview: true)
+    model.workspaceSection = .savedAudio
+    model.deliverySettings.feedFolderURL = URL(string: "https://upload.example/podcast/")
+    model.deliverySettings.publicFolderURL = URL(string: "https://public.example/podcast/")
+    model.deliverySettings.enabled = true
+    model.deliveryPasswordChecked = true; model.deliveryPasswordStored = true
+    var settings = PrototypeProfile.fixture(at: URL(fileURLWithPath: "/synthetic"))
+    settings.temporaryAudio = true
+    let episode = Episode(id: "sample", title: "Short title", stage: .published, settings: settings)
+    var pending = episode
+    pending.title = String(repeating: "Long synthetic episode title ", count: 8)
+    pending.originalSourceHost = "articles.example"
+    pending.readingListSavedAt = .distantPast
+    pending.stage = .expired
+    var failed = pending
+    failed.delivery = DeliveryState(status: .failed, remotePath: "", lastError: "Synthetic removal error.")
+    var discarded = episode
+    discarded.localAudioDiscarded = true // Carries a detail that would otherwise add lines.
+
+    for percent in [100, 200] {
+        let textSize = AppTextSize(percent: percent)
+        func rowHeight(_ episode: Episode) -> CGFloat {
+            NSHostingView(rootView: ServerAudioRow(model: model, episode: episode)
+                .appTextSizing(textSize).frame(width: 480)).fittingSize.height
+        }
+        func footerHeight() -> CGFloat {
+            NSHostingView(rootView: WorkspaceActivityView(model: model, reservesSpace: true)
+                .appFont(.body).appTextSizing(textSize).frame(width: 480)).fittingSize.height
+        }
+        func readinessHeight() -> CGFloat {
+            NSHostingView(rootView: WorkspaceReadinessView(model: model)
+                .appFont(.body).appTextSizing(textSize).frame(width: 480)).fittingSize.height
+        }
+        let normalHeight = rowHeight(episode)
+        #expect(normalHeight > 0)
+        for (status, updated) in [("pending", pending), ("failed", failed), ("discarded", discarded)] {
+            #expect(abs(rowHeight(updated) - normalHeight) < 0.5, "\(status) row changed height at \(percent)%")
+        }
+        let idleHeight = footerHeight()
+        let idleReadinessHeight = readinessHeight()
+        #expect(idleHeight > 0)
+        model.audioMutationBusy = true
+        #expect(abs(footerHeight() - idleHeight) < 0.5)
+        model.audioMutationBusy = false
+        model.deliveryBusy = true
+        model.deliveryPreflightBusy = true
+        #expect(model.publishingReadiness == .checking)
+        #expect(abs(readinessHeight() - idleReadinessHeight) < 0.5)
+        #expect(abs(footerHeight() - idleHeight) < 0.5)
+        model.deliveryPreflightBusy = false
+        #expect(abs(footerHeight() - idleHeight) < 0.5)
+        model.processingSpeech = true
+        #expect(abs(footerHeight() - idleHeight) < 0.5)
+        model.deliveryBusy = false
+        model.processingSpeech = false
+        #expect(abs(footerHeight() - idleHeight) < 0.5)
+    }
 }
 
 @Test @MainActor func audioSearchAndFiltersTrackChangingRecordsWithoutSourceInventoryOrStaleMetadata() throws {

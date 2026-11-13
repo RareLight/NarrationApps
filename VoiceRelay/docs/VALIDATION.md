@@ -1,20 +1,10 @@
 # VoiceRelay validation
 
-Updated October 27, 2026. VoiceRelay includes the shared narration policies,
-optional login startup, background-safe credential reads, default podcast cover,
-source/queue workflows, outbox and server reconciliation. Behavior and limits are
-in the [user guide](USER_GUIDE.md) and [architecture](ARCHITECTURE.md).
+Behavior and limits are in the [user guide](USER_GUIDE.md) and
+[architecture](ARCHITECTURE.md). Dated test and build evidence is in
+[implementation status](../../docs/IMPLEMENTATION_STATUS.md).
 
 ## Automated evidence
-
-The October 27 review-fix gate passes full shared/Libro fixtures and 328 VoiceRelay
-core tests plus 166 app tests, with existing opt-in skips. See
-[current evidence](../../docs/IMPLEMENTATION_STATUS.md#voicerelay-whole-app-review-fixes)
-for the final build/audit results and retained logs, and the
-[fix plan](../../docs/archive/VOICERELAY_REVIEW_FIX_PLAN.md) for scope and regressions.
-[Migration validation](../../docs/archive/MONOREPO_MIGRATION.md#validation) retains its
-historical evidence and command-local Metal selection. Fixture/build results do
-not establish live-service behavior or operator signoff.
 
 From the NarrationApps root, after explicit dependency setup:
 
@@ -34,20 +24,8 @@ Offline native speech with prepared models is a separate explicit gate.
 
 ## Manual acceptance and candidates
 
-The [operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay) owns V01–V22,
-shared B01–B08 and conditional distribution checks. Use a consistently normal-signed
-build for Keychain, provisioning and live Publishing. Ad-hoc signatures cannot
-establish those behaviors. The October 16 launch/build smoke and accepted Delivery A
-listening do not close unreported service, UI, source-quality, restore or reboot checks.
-
-Review-fix engineering candidates are under
-`.build/VoiceRelayReviewFixes-20261026/Build/Products/{Debug,Release}/VoiceRelay.app` relative to
-NarrationApps. Select the operator candidate explicitly and preserve earlier bundles
-already under review; local generated products are not guaranteed in a fresh clone.
-Do not treat an old per-feature path or historical test count as today's release.
-
-Podcast-cover publication, per-episode images, Contents and captured narration
-choices are covered by V17–V19. Library backup excludes Publishing artwork/configuration.
-Restoration must use a disposable test library, never the live one. The
-[release checklist](RELEASE_CHECKLIST.md) separates engineering artifacts from
-account, clean-Mac, notarization and public distribution acceptance.
+Follow the [operator checklist](../../docs/OPERATOR_VALIDATION.md#voicerelay) for
+build selection and manual checks. Build the **VoiceRelay** scheme in
+`NarrationApps.xcworkspace` with your normal signing configuration for Keychain,
+Publishing and VoiceServer testing. Use a disposable library for restore tests.
+Use the [release checklist](RELEASE_CHECKLIST.md) for distribution work.

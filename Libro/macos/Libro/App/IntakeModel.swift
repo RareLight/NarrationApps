@@ -3,6 +3,7 @@ import AppPresentation
 import PronunciationUI
 import NarrationUI
 import ProcessingPipeline
+import DocumentProcessing
 import AppKit
 import UniformTypeIdentifiers
 import LibroCore
@@ -349,7 +350,7 @@ final class IntakeModel {
         var worker = WorkerConfiguration(executable:
             Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/LibroSpeechWorker"), inferencePriority: .interactive, pronunciationStore: .init())
         worker.workCoordinator = speechWorkCoordinator
-        coordinator = QueueCoordinator(configuration: worker)
+        coordinator = QueueCoordinator(configuration: worker, summaryGenerator: DocumentSummaryGenerator.generateOnDevice)
         voices = [settings.voice]
         output = preferences.load(.output)
         let oldDefault = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Libro/SpeechRuntime")
@@ -428,7 +429,7 @@ final class IntakeModel {
             defer { ProcessInfo.processInfo.endActivity(activity) }
             return try await SpeechCPUContext.run(cpuWork) {
                 let result = try InputCollector.collect(selection, excludingOutput: excluded) { count in
-                    Task { @MainActor in
+                    Task<Void, Never> { @MainActor in
                         guard recipient.operation == token else { return }
                         recipient.scanCount = count
                     }
@@ -457,7 +458,8 @@ final class IntakeModel {
                 let discovered = result.documents.filter { !removed.contains($0.source.path) }.map {
                     InputDocument(source: $0.source, kind: $0.kind, relativePath: $0.relativePath,
                                   id: existing[$0.source.path]?.id ?? $0.id,
-                                  textEncoding: existing[$0.source.path]?.textEncoding ?? .automatic)
+                                  textEncoding: existing[$0.source.path]?.textEncoding ?? .automatic,
+                                  forcePDFOCR: existing[$0.source.path]?.forcePDFOCR ?? false)
                 }
                 let discoveredPaths = Set(discovered.map { $0.source.path })
                 let retainedActive = activeBatch?.documents.map(\.input).filter { !discoveredPaths.contains($0.source.path) } ?? []
@@ -743,6 +745,23 @@ final class IntakeModel {
         if outcomes[document.id] != nil { retryQueued.insert(document.id) }
         states[document.id] = "Ready · \(encoding.label)"
         status = "Text encoding set to \(encoding.label). Preview the document to check its text."
+        replan()
+    }
+
+    func canSetPDFOCR(_ document: InputDocument) -> Bool {
+        document.kind == .pdf && !busy && !activeIDs.contains(document.id)
+            && (outcomes[document.id]?.state != .published || retryQueued.contains(document.id))
+    }
+
+    func setPDFOCR(_ enabled: Bool, for document: InputDocument) {
+        guard canSetPDFOCR(document), let index = documents.firstIndex(where: { $0.id == document.id }),
+              documents[index].forcePDFOCR != enabled else { return }
+        documents[index].forcePDFOCR = enabled
+        skippedExisting.remove(document.id)
+        if preview?.id == document.id { preview = nil }
+        if outcomes[document.id] != nil { retryQueued.insert(document.id) }
+        states[document.id] = enabled ? "Ready · Fresh OCR" : "Ready"
+        status = enabled ? "Fresh OCR selected. Preview the PDF to check its text." : "Automatic PDF text extraction selected."
         replan()
     }
 

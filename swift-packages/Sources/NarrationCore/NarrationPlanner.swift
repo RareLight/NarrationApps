@@ -35,7 +35,7 @@ public enum NarrationPlanner {
         // Mandatory Kokoro packing is versioned in the prepared acoustic policy,
         // not in source-only plans shared with non-native backends. Its former
         // optional setting no longer changes the preparation.
-        return spoken + (settings.model == .kokoro ? "" : settings.effectivePlanning.map { "/" + $0.rawValue } ?? "") +
+        return spoken + SpokenWebAddresses.versionSuffix + (settings.model == .kokoro ? "" : settings.effectivePlanning.map { "/" + $0.rawValue } ?? "") +
             (settings.model != .kokoro && settings.expandSpokenForms == true && settings.effectiveLanguage == "English" ? "/experimental-" + SpokenFormNormalizer.version + "-" + SpokenFormNormalizer.locale(settings) : "")
     }
     // These upgrades omit separators and duplicate placeholders. Identical text, index,
@@ -274,6 +274,7 @@ public enum NarrationPlanner {
         do {
             if normalizer.discretionaryCount > 0 { notices.append("Discretionary soft hyphens removed from \(normalizer.discretionaryCount) spoken spans; original source text is preserved.") }
             if normalizer.count > 0 { notices.append("Spoken forms expanded for \(normalizer.count) quantities, temperatures, explicit times or letter labels (\(normalizer.locale)); original source text is preserved.") }
+            if normalizer.webAddressCount > 0 { notices.append("Web addresses are read as hostnames. The original links are preserved.") }
             if normalizer.codeProtected { notices.append("Automatic spoken forms left paragraphs containing inline code unchanged.") }
             if normalizer.skipped { notices.append("Some automatic spoken-form changes were skipped because their original source spans could not be verified.") }
         }

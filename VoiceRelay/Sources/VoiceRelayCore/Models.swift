@@ -1,6 +1,7 @@
 import Foundation
 import NarrationCore
 import DocumentProcessing
+import AudioOutput
 
 public enum RelayError: Error, LocalizedError, Sendable, Equatable {
     case setup(String), extraction(String), artifact(String), storage(String), tool(String), interrupted, writerBusy
@@ -35,6 +36,9 @@ public struct SemanticArticle: Codable, Sendable, Equatable {
     public var previewImageURL: URL? = nil
     public var archivedCopy: ArchivedArticleCopy? = nil
     public var outline: [NarrationCore.DocumentOutlineEntry]? = nil
+    public var links: [DocumentSourceLink]? = nil
+    public var summary: String? = nil
+    public var summaryAttempted: Bool? = nil
 }
 
 public typealias NarrationChunk = NarrationCore.NarrationChunk
@@ -108,6 +112,14 @@ public struct Episode: Codable, Sendable {
     public var transcript: EpisodeTranscript? = nil
     /// Published references, including those retained from a reconciled server feed.
     public var transcriptReferences: [PodcastTranscriptReference]? = nil
+    /// Captured notes and measured chapter times belong to one audio hash.
+    public var showNotes: DocumentShowNotes? = nil
+    public var chapters: [AudioOutput.AudioChapter]? = nil
+    public var showNotesAudioHash: String? = nil
+    public var recoveredShowNotesHTML: String? = nil
+    /// Whether the server item actually carried content:encoded; recovery
+    /// must never invent the block a legacy description-only feed lacked.
+    public var recoveredShowNotesHasEncoded: Bool? = nil
     public var delivery: DeliveryState? = nil
     public var settings: PrototypeProfile
     public var guid: String { id }

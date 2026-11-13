@@ -106,11 +106,14 @@ public struct PreparedSpeechPlan: Codable, Equatable, Sendable {
     public let notices: [String]
     public let provenance: [String: String]?
     public let documentTitle: String?
+    /// Host-only show-notes enrichment persisted with the prepared plan;
+    /// excluded from acousticIdentity and worker payloads.
+    public let showNotes: DocumentShowNotes?
     public init(policy: SpeechPreparationPolicy, settings: SpeechSettings, semanticVersion: String,
-                acousticIdentity: String, utterances: [PreparedUtterance], notices: [String], provenance: [String: String]? = nil, documentTitle: String? = nil) {
+                acousticIdentity: String, utterances: [PreparedUtterance], notices: [String], provenance: [String: String]? = nil, documentTitle: String? = nil, showNotes: DocumentShowNotes? = nil) {
         version = 1; self.policy = policy; self.settings = settings; self.semanticVersion = semanticVersion
         self.acousticIdentity = acousticIdentity; self.utterances = utterances; self.notices = notices; self.provenance = provenance
-        self.documentTitle = documentTitle
+        self.documentTitle = documentTitle; self.showNotes = showNotes
     }
 }
 
@@ -282,7 +285,20 @@ public extension NarrationPlanner {
                                  pronunciations: PronunciationDictionary = .empty,
                                  policy: SpeechPreparationPolicy = .current, options: NarrationOptions = .init(),
                                  checkpoint: @Sendable () throws -> Void = { try NarrationWorkCheckpoint.check() }) throws -> NarrationPlan {
-        return try prepare(document, settings: settings, profile: profile, pronunciations: pronunciations,
+        let plan = try prepare(document, settings: settings, profile: profile, pronunciations: pronunciations,
                            purpose: .speechPreparation, options: options, checkpoint: checkpoint)
+        // Capture structural chapter targets + authored links once per plan.
+        // Summary stays nil here; it is filled once at admission.
+        return plan.with(showNotes: DocumentShowNotes.make(document: document,
+            narrated: Set(plan.chunks.flatMap(\.blockIndices)), style: .book))
+    }
+}
+
+public extension NarrationPlan {
+    /// Returns a copy with replaced show-notes enrichment (metadata only).
+    func with(showNotes: DocumentShowNotes?) -> NarrationPlan {
+        let extra = showNotes?.chapterNotice.flatMap { notices.contains($0) ? nil : $0 }
+        return .init(version: version, chunks: chunks, notices: notices + (extra.map { [$0] } ?? []), omissions: omissions,
+              documentTitle: documentTitle, showNotes: showNotes)
     }
 }

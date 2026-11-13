@@ -12,6 +12,8 @@ Libro supports text, Markdown, RTF, PDF and DRM-free EPUB, with WAV, M4A, M4B an
 MP3 exports. VoiceRelay reads articles, generates local narration and publishes
 through your HTTPS/WebDAV server. It runs in the menu bar and can optionally start
 at login. Both apps share pronunciation editing and document narration controls.
+Supported audio formats include seekable source-derived chapters and show notes,
+with optional brief on-device Apple Intelligence summaries and source links.
 
 ## Using the apps
 
@@ -20,7 +22,8 @@ folder. **Play Sample** works before model installation. Model installation is a
 explicit download; ordinary startup and narration do not download missing models.
 
 Read the [narration guide](docs/NARRATION_GUIDE.md) for voice previews, footnotes,
-citations, PDF word joining, cover art and document-quality limits. Narration
+citations, PDF word joining, cover art and document-quality limits, and
+[chapters and show notes](docs/CHAPTERS_AND_NOTES.md) for player support. Narration
 choices preserve original documents and existing recordings. Audio is never
 normalized, levelled, limited or given gain.
 
@@ -55,7 +58,7 @@ opened projects/packages before opening the combined workspace.
 
 Shared implementation lives in `swift-packages/`; app workflows remain in
 `Libro/` and `VoiceRelay/`. MLX is linked only into private speech helpers, with one
-worker per app and Libro priority at safe boundaries. Native inference uses pinned
+worker per app. Speech priority is VoiceServer, then Libro, then podcasts. Native inference uses pinned
 [mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift) dependencies.
 
 The source is [AGPL-3.0](LICENSE). Dependency/model licenses remain applicable;

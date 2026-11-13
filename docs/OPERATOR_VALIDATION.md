@@ -1,8 +1,7 @@
 # Consolidated app validation checklist
 
-Current instructions reviewed October 21, 2026; title-recovery cases added
-October 23, 2026. Prior operator results retain
-their original dates. This is the single current operator checklist for Libro
+Current instructions reviewed November 12, 2026. Prior operator results retain
+their original dates. This is the shared operator checklist for Libro
 and VoiceRelay. Earlier UI, beta, Settings, pronunciation and longform handoffs
 are consolidated here; their implementation/build evidence remains in the
 [implementation status](IMPLEMENTATION_STATUS.md) and
@@ -26,8 +25,16 @@ archived originals to test current source.
 For new operator validation, build and run in Xcode with the normal signing team
 and configuration. The operator owns this build (confirmed November 3); automated
 ad-hoc builds are intermediate engineering checks and must not be substituted for
-Keychain, Publishing or other signing-sensitive acceptance. Earlier candidate paths
-below are dated evidence and may have been pruned.
+Keychain, Publishing or other signing-sensitive acceptance. Choose the **Libro**
+or **VoiceRelay** scheme. Record the build and source snapshot with the results.
+The November 10 engineering bundles predate the latest pronunciation and Server
+Audio changes. Preserve any bundle already under review. Earlier build paths and
+their verification scope are in [implementation status](IMPLEMENTATION_STATUS.md).
+
+For the November 10–12 changes, use **V14** for Server Audio removal during
+generation, **L04**, **V04** and **B01** for pronunciation, and **CN01–CN04** for
+chapters and show notes. Use **VS03** for VoiceServer client coverage, including
+the JSON response added November 7.
 
 Earlier feature validation used synthetic generated fixtures at
 `.build/cover-navigation/fixtures` (EPUB notes/appendix/bibliography/duplicate
@@ -36,38 +43,8 @@ maintained Swift fixtures/tests remain. Use equivalent disposable documents and
 artwork for the operator checks below. Actual-document/player acceptance remains
 separate from automated fixture tests.
 
-- Quit older copies of each app. Current October 28 model-layout/cache candidates
-  are `.build/WorkspaceDerivedData/Build/Products/Release/Libro.app` and
-  `.build/WorkspaceDerivedData/Build/Products/Release/VoiceRelay.app`, with parallel
-  Debug products. Both configurations and four bundle audits passed in
-  `.local/validation/release-DBD0321A-79CD-4A41-8565-751307F17B1D/`; these ad-hoc
-  products have not replaced the running apps. Archive checks were omitted for
-  this final snapshot; create normal release archives manually when needed.
-  GUI/listening/account acceptance remains open.
-  The earlier October 28 multi-model engineering candidates
-  are in `.local/validation/release-CF376C4F-5242-41A5-8105-B4247F18C718/`:
-  `Libro.xcarchive/Products/Applications/Libro.app` and
-  `VoiceRelay.xcarchive/Products/Applications/VoiceRelay.app`. Both archives and
-  Debug/Release workspace builds passed bundle audits for the working tree based
-  on `c10135f`; they are ad-hoc signed and have not been installed or launched.
-  GUI/listening/account acceptance is open. These ignored local candidates may be
-  absent on another machine; build from maintained source using the development
-  gates rather than copying caches.
-  The earlier October 27 Libro review-fix engineering
-  products are `.build/LibroReviewFixes-20261027/Build/Products/Release/Libro.app`
-  and `.build/LibroReviewFixes-20261027/Build/Products/Release/VoiceRelay.app`.
-  Debug products are in the parallel `Debug` folder. Both configurations passed
-  bundle/signature/resource/offline Metal checks; GUI, listening and account
-  acceptance are unperformed. See the [fix record](archive/LIBRO_REVIEW_FIX_PLAN.md).
-  The earlier October 23 title-recovery ad-hoc products
-  are `.build/TitleRecoveryValidation-20261023/Build/Products/Release/Libro.app` and
-  `.build/TitleRecoveryValidation-20261023/Build/Products/Release/VoiceRelay.app`, relative to the
-  monorepo root. Local generated products may be absent on another machine.
-  Select an operator candidate explicitly; preserve any earlier bundle already
-  under active review. See the [title-recovery status](IMPLEMENTATION_STATUS.md#voicerelay-article-title-recovery)
-  and earlier [migration record](archive/MONOREPO_MIGRATION.md#validation) for evidence scope.
-  Rebuild/re-archive changed source before
-  attributing results to it. Use the combined workspace for both apps.
+- Quit older copies before running the selected Xcode build. Use the combined
+  workspace for both apps.
 - Use a separate output folder and disposable test articles. Keep existing models,
   finished audio and the live library intact. For fresh-install tests, use a
   separate macOS user/test installation rather than deleting working caches.
@@ -153,6 +130,10 @@ separate from automated fixture tests.
   previews: reading order, paragraphs, lists, notes,
   beginnings/endings, and visible table/code omissions. An unusable PDF should
   fail clearly without discarding other documents. Footnotes follow the preview's policy.
+  For a PDF with an embedded OCR layer, compare the same pages with **Force Fresh
+  OCR** off and on in its row menu. Check that the badge, preview and next export
+  use the selected mode, and that another PDF still uses its own choice. Compare
+  names, line endings and column order against the page image.
 - [ ] **L07 — Preparation progress.** On a longer mixed PDF, check file/structure,
   page/native-layout/OCR counters and the separate image-review pass when available. Pronunciation
   preparation reports passages before the final speech count. Cancel during a
@@ -237,9 +218,9 @@ separate from automated fixture tests.
 - [ ] **L18 — Contents and source.** Preview the synthetic EPUB/Markdown and an
   authored-bookmark PDF. Contents should navigate the correct Original Source
   section/page, retain nesting and explain page precision. Switch back to Narration;
-  chapter order remains unchanged. No inferred plaintext chapters or audio chapter
-  markers are promised. Compare the adjacent duplicate heading with its visible
-  omission and retained original source.
+  chapter order remains unchanged. Compare the adjacent duplicate heading with its
+  visible omission and retained original source. Check exported chapter markers in
+  [CN02](#chapters-and-show-notes).
 - [ ] **L19 — Document settings.** In Settings → Document (between General and
   Models), compare Read with the text, Read at the end and Do not read for
   Footnotes. Immediately below are Strip inline citations and
@@ -297,7 +278,7 @@ separate from automated fixture tests.
   and successful dismissal. Automatic validation works offline; startup/checking must
   not silently download. Check the British voice resource-install path when needed.
 - [ ] **V02 — Settings and presentation.** Visit General, Voice Model, Pronunciation,
-  Publishing and Troubleshooting. Confirm model/voice selectors, download/delete, size, details/meters,
+  Publishing, VoiceServer and Troubleshooting. Confirm model/voice selectors, download/delete, size, details/meters,
   Play Sample, downloaded-model storage and setup checks are in Voice Model and
   absent from Articles. Check 80%/100%/200%, ⌘+/⌘−/⌘0, small/large windows, keyboard,
   VoiceOver and appearance/accessibility options. Open/close Settings and Help during
@@ -381,14 +362,28 @@ separate from automated fixture tests.
   relaunch, healthy items continue, retry succeeds once and progress does not call
   100% sent “published.” Filters/counts and per-item actions stay current.
 - [ ] **V14 — Removal and destination changes (disposable test data only).**
+  Use a disposable library with Publishing enabled and reconciled against a test
+  destination so Generate Audio is available.
   Distinguish Queue removal, Safari-source removal, local upload-copy discard and
   Server Audio removal. Published copies survive source/queue/local-only removal;
   server deletion retires feed membership first and stays pending until confirmed.
-  Click Server Audio × repeatedly on different rows: each accepted row disappears
-  immediately without resizing/animating first, while other actions and the
-  remaining selection stay usable. The lower status bar shows cleanup progress.
-  A slow server/polling refresh must not reinsert active deletions; local, feed or
-  server-delete failure restores only the affected pending items for retry.
+  Start Generate Audio with several disposable articles. While it runs, open
+  Server Audio and remove a completed episode with **×**. Confirm generation
+  continues, newly completed episodes appear, and queued or still-finalizing
+  episodes cannot be deleted. Try **Remove Selections** on multiple eligible
+  rows. They should disappear together immediately, without an animation, and
+  other rows and selections should remain usable. When the last row disappears,
+  the list area should stay in place as the empty state appears. The lower status
+  bar shows cleanup progress.
+  Scroll to the middle and then the bottom of a longer list. Click **×** on several
+  rows one at a time, including as an earlier deletion finishes. Confirm each
+  clicked row closes up immediately and the remaining delete buttons hold their
+  positions as successful cleanup, footer updates and refreshes finish. Repeat
+  with short and wrapped titles and at 200% text size.
+  During a slow refresh, confirm pending rows stay hidden. In a disposable setup
+  with a failed cleanup, only affected rows should return with **Deletion failed**
+  and a reason available on hover and to VoiceOver. Deleting the row again should
+  retry cleanup.
   Changing to a test destination preserves old-host copies and avoids old-host deletes.
 - [ ] **V15 — Backup/restore (dedicated test library).** Back up while idle, then
   restore through Troubleshooting and review Articles/Queue/Server Audio. Identity,
@@ -455,9 +450,13 @@ separate from automated fixture tests.
 
 ## Both apps together
 
-- [ ] **B01 — Shared dictionary.** In both apps, check that matching/preservation
-  prose is hidden behind the Pronunciation ⓘ control and opens with keyboard or
-  mouse. Check the centered list's gray rounded background, row selection, scrolling
+- [ ] **B01 — Shared dictionary.** In both apps, open the Pronunciation ⓘ with
+  keyboard and mouse. Check the matching and format rules, including accepted
+  English characters and length limits. Leave a draft incomplete, then try an
+  invalid spelling such as `sequel 2`. Confirm the last saved rule stays active
+  and the format issue produces no inline error. Fix the draft and confirm it
+  saves. Duplicate entries, conflicts, and storage or preview errors still give
+  visible feedback. Check the centered list's gray rounded background, row selection, scrolling
   and keyboard focus in light/dark appearance. Save a pronunciation change in one
   app and confirm it appears in the other.
   Try competing edits: Reload/conflict handling
@@ -488,8 +487,11 @@ separate from automated fixture tests.
   `9 oh 5 p.m.`, `12:00 pm` → `12 p.m.`. Check change notices, US/British voice
   context and a temporary user override (which must win). Fresh markup previews
   capture inline-code protection; older retained markup without this metadata
-  may abstain with a notice. URLs/code/equations
-  and Soprano should retain their existing behavior. Matched Heart/Michael/Emma
+  may abstain with a notice. In Kokoro and a native-text voice, compare
+  `https://archive.example.org/vol-2?page=12#notes` with “archive dot example dot
+  org.” Confirm the full address remains in the source and the preview speaks
+  only the hostname. Try a URL inside inline code and an explicit pronunciation
+  override. Matched Heart/Michael/Emma
   listening at 1.0× is accepted; check app-generated equivalents: numbers, sign,
   unit, AM/PM and sentence cadence must be clear, without level changes. Restore
   temporary overrides afterward. Delivery B is already implemented; this item
@@ -677,7 +679,10 @@ acceptance of the server or credential policy.
   confirm that only **Resume** starts speech. Check explicit checkpoint discard
   and retained damaged records without changing source or completed audio.
 - [ ] **VS03 — Live API/private access.** Use an ordinary
-  configurable client for default MP3/PCM streaming and explicit buffered WAV;
+  configurable client for default MP3/PCM streaming and buffered WAV. With
+  complete-file responses enabled, request `response_format: "json"`, decode the
+  `audio` field as MP3, and verify `content_type` is `audio/mpeg`. Confirm an
+  explicit `stream: true` request for JSON is rejected. For streaming,
   confirm first speech, continuous playback, slow-reader/disconnect cleanup,
   authentication/rotation, selected VPN addresses and sleep/wake behavior.
   Keep request text and credentials out of shared reports. HTTP/Keychain/Tailscale
@@ -688,6 +693,23 @@ acceptance of the server or credential policy.
   behavior, startup/wake, manual Stop and app Quit. Check first spoken audio and
   sustained playback separately, for idle/same-app warm reuse and cross-app reload.
   Use the [API guide](../VoiceRelay/docs/VOICESERVER.md) for supported fields and limits.
+
+## Chapters and show notes
+
+Use newly prepared synthetic sources, not completed personal recordings. These
+checks are separate from compilation/container roundtrip fixtures. See
+[format support and limits](CHAPTERS_AND_NOTES.md).
+
+| ID | Check | Expected |
+| --- | --- | --- |
+| CN01 | Publish a new VoiceRelay article with section headings; open its episode in Overcast on iOS | Chapter titles appear in the player's chapter list; tapping seeks to the corresponding spoken heading, including after the opening narration |
+| CN02 | Export a Libro book with nested authored contents to M4B and MP3; inspect in compatible players | Main chapter structure, rather than every nested heading; names and seeks match the work; artwork remains present |
+| CN03 | Enable Generate brief summaries for a short source with Apple Intelligence available, then test unavailable/disabled and oversized sources | Short on-device summary is at most 50 words in 1-3 sentences and is not spoken; skipped summaries do not prevent export; assess factual quality separately |
+| CN04 | Use source links and a PDF with bookmarks, then pause/resume work | Safe URLs appear as bulleted links in podcast notes; existing metadata survives recovery; unresolved PDF bookmarks are omitted or page-level as documented |
+
+Existing completed/remote media must remain unchanged. Do not replace an app
+bundle already under testing. Keep source documents, private URLs and generated
+notes out of shared reports.
 
 ## Reporting results
 

@@ -92,6 +92,14 @@ explain what these options can and cannot change.
 
 For incorrectly decoded text/Markdown, right-click its row → **Text Encoding**,
 choose the encoding and preview again. Source bytes are never converted on disk.
+
+For a PDF with an inaccurate searchable text layer, right-click its row and turn
+on **Force Fresh OCR**, then open **Preview Text**. Libro reads the visible pages
+with Apple Vision and uses that text for the preview and the next export of this
+PDF. Turn the option off to use automatic PDF extraction again. The PDF itself
+stays intact. For a finished row, choose **Queue Again** before changing its
+extraction mode. [Document intake and OCR](../docs/DOCUMENT_PROCESSING.md#intake-and-ocr)
+
 Outputs cannot be placed inside a selected unpacked book folder. If another
 file arrives at an unapproved output path during generation, Libro keeps that
 file and reports the conflict for review.
@@ -112,9 +120,15 @@ in a PDF/EPUB context menu restores document-derived art.
 
 WAV preserves native Float32 audio and does not embed a cover. M4A and M4B use
 AAC-LC; M4B is an audiobook container. MP3 provides another widely supported
-format. MP3/M4A/M4B can embed cover art. Authored Contents navigation in a preview
-does not create chaptered audio exports. Audio levels are never normalized or
-adjusted. See [audio details](../docs/ARCHITECTURE.md#audio).
+format. MP3/M4A/M4B embed cover art and source-derived, seekable chapter markers.
+Libro prefers the main authored contents level rather than every subsection.
+Supported outputs also include show notes with source links and, when available,
+a brief on-device Apple Intelligence summary. Under **Settings → Document**,
+**Generate brief summaries** controls summaries. Sources over 1,500 words or 8,000 UTF-8
+bytes are skipped. WAV is unchanged. Existing recordings are not retagged.
+Audio levels are never normalized or adjusted. See
+[chapters and show notes](../docs/CHAPTERS_AND_NOTES.md) and
+[audio details](../docs/ARCHITECTURE.md#audio).
 
 ## Settings, storage and troubleshooting
 

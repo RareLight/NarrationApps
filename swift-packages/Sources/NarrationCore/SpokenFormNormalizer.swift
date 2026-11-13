@@ -12,6 +12,7 @@ final class SpokenFormNormalizer {
     private static let discretionaryHyphens = try! NSRegularExpression(pattern: #"(?<=[\p{L}\p{M}])\u00ad[ ]*(?=[\p{L}\p{M}])"#)
     private let usesSpokenForms: Bool
     var discretionaryCount = 0
+    var webAddressCount = 0
     let locale: String
     var count = 0
     var skipped = false
@@ -32,7 +33,10 @@ final class SpokenFormNormalizer {
         formatters[fractionDigits] = value
         return value
     }
-    init(settings: SpeechSettings) { locale = Self.locale(settings); usesSpokenForms = settings.model == .kokoro || (settings.expandSpokenForms == true && settings.effectiveLanguage == "English") }
+    init(settings: SpeechSettings) {
+        locale = Self.locale(settings)
+        usesSpokenForms = settings.model == .kokoro || (settings.expandSpokenForms == true && settings.effectiveLanguage == "English")
+    }
     struct Result {
         let text: String
         let applications: [PronunciationApplication]
@@ -99,11 +103,15 @@ final class SpokenFormNormalizer {
         candidates.sort { $0.range.location < $1.range.location }
         try NarrationWorkCheckpoint.check()
         if exceeded { throw NarrationError.invalidInput("Spoken-form candidate budget exceeded. No text was truncated.") }
-        guard !candidates.isEmpty else { return try unchanged() }
-        let protected = try protectedRegions(in: application.text)
-        var protectedIndex = 0, userIndex = 0, edits: [ProjectionEdit] = []
+        let used = count + discretionaryCount + webAddressCount
+        let links = try block?.containsInlineCode != true ? SpokenWebAddresses.edits(in: application, remaining: 100_000 - used) : []
+        guard !candidates.isEmpty || !links.isEmpty else { return try unchanged() }
+        let protected = try candidates.isEmpty ? [] : protectedRegions(in: application.text)
+        var protectedIndex = 0, userIndex = 0, linkIndex = 0, edits = links
         for match in candidates {
             try NarrationWorkCheckpoint.check()
+            while linkIndex < links.count && NSMaxRange(links[linkIndex].range) <= match.range.location { linkIndex += 1 }
+            if linkIndex < links.count && NSIntersectionRange(links[linkIndex].range, match.range).length > 0 { continue }
             while protectedIndex < protected.count && NSMaxRange(protected[protectedIndex]) <= match.range.location { protectedIndex += 1 }
             while userIndex < application.applications.count && application.applications[userIndex].spokenLocation + application.applications[userIndex].spokenLength <= match.range.location { userIndex += 1 }
             if protectedIndex < protected.count && NSIntersectionRange(protected[protectedIndex], match.range).length > 0 { continue }
@@ -147,7 +155,7 @@ final class SpokenFormNormalizer {
                 rule = "explicit-time-1"
             }
             edits.append(.init(range: range, replacement: replacement, rule: rule))
-            guard count + discretionaryCount + edits.count <= 100_000 else { throw NarrationError.invalidInput("Too many spoken-form changes to prepare safely. No text was truncated.") }
+            guard used + edits.count <= 100_000 else { throw NarrationError.invalidInput("Too many spoken-form changes to prepare safely. No text was truncated.") }
         }
         guard !edits.isEmpty else { return try unchanged() }
         if block?.containsInlineCode == true {
@@ -162,10 +170,12 @@ final class SpokenFormNormalizer {
             mapped = try mapped.applying(application.applications.map { .init(range: NSRange(location: $0.sourceLocation, length: $0.sourceLength), replacement: $0.spelling, rule: "pronunciation-1") })
         }
         guard mapped.text == application.text else { throw NarrationError.invalidInput("Spoken-form source alignment failed. No text was truncated.") }
+        edits.sort { $0.range.location < $1.range.location }
         mapped = try mapped.applying(edits)
         let discretionary = edits.filter { $0.rule == "discretionary-hyphen-1" }.count
         discretionaryCount += discretionary
-        count += edits.count - discretionary
+        webAddressCount += links.count
+        count += edits.count - discretionary - links.count
         // Existing dictionary source offsets retain their documented normalized
         // pre-dictionary coordinates. Only the spoken offsets shift here.
         var editIndex = 0, delta = 0

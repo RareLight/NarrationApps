@@ -228,6 +228,13 @@ final class NativeStore {
                 if current.audioHash != nil && current.audioHash == saved.audioHash {
                     saved.transcriptReferences = saved.transcriptReferences ?? current.transcriptReferences
                 }
+                if let hash = current.showNotesAudioHash, hash == (saved.encodedHash ?? saved.audioHash) {
+                    saved.showNotes = saved.showNotes ?? current.showNotes
+                    saved.chapters = saved.chapters ?? current.chapters
+                    saved.showNotesAudioHash = saved.showNotesAudioHash ?? hash
+                    saved.recoveredShowNotesHTML = saved.recoveredShowNotesHTML ?? current.recoveredShowNotesHTML
+                    saved.recoveredShowNotesHasEncoded = saved.recoveredShowNotesHasEncoded ?? current.recoveredShowNotesHasEncoded
+                }
                 // Source removal intent also survives results captured before the source refresh.
                 if current.readingListRemoved == true {
                     saved.readingListRemoved = true
@@ -351,7 +358,7 @@ final class PipelineStore: Sendable {
     private func reading<T>(_ body: (NativeStore) throws -> T) throws -> T {
         try body(NativeStore(url: databaseURL, readOnly: true))
     }
-    private func writing<T>(_ body: (NativeStore) throws -> T) throws -> T {
+    func writing<T>(_ body: (NativeStore) throws -> T) throws -> T {
         let deadline = ProcessInfo.processInfo.systemUptime + 2
         while true {
             do { return try body(NativeStore(url: databaseURL)) }
@@ -448,6 +455,16 @@ final class PipelineStore: Sendable {
     }
     func markFeed(_ hash: String) throws {
         try writing { try $0.markFeed(hash) }
+    }
+    /// Snapshot published membership, atomically replace the local feed file and mark its
+    /// hash under one metadata writer, serializing feed publication with other short writers.
+    func rebuildLocalFeed(settings: PrototypeProfile, afterReplacement: () throws -> Void = {}) throws {
+        try writing { store in
+            let feed = try RSS.render(store.published(), settings: settings)
+            if (try? Data(contentsOf: settings.feed)) != feed { try Files.write(feed, to: settings.feed) }
+            try afterReplacement()
+            try store.markFeed(Files.hash(feed))
+        }
     }
 }
 

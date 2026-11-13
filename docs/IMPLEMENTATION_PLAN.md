@@ -1,10 +1,8 @@
 # Current implementation and remaining work
 
-Reviewed October 28, 2026. This roadmap separates implemented behavior, remaining
-acceptance and research proposals. Detailed technical contracts live in
-[architecture](ARCHITECTURE.md); engineering evidence lives in
-[current status](IMPLEMENTATION_STATUS.md). Historical stage plans do not schedule
-new work by themselves.
+Reviewed November 12, 2026. The current handoff has no open implementation task.
+[Architecture](ARCHITECTURE.md) covers the technical contracts, and
+[implementation status](IMPLEMENTATION_STATUS.md) records engineering evidence.
 
 ## Implemented baseline
 
@@ -33,10 +31,17 @@ Current features include:
 - Shared footnote/auxiliary choices, off-by-default citation stripping and
   experimental dictionary-constrained PDF word joining; conservative margin,
   column and typography cleanup; simple scientific text/table narration.
-- Shared pronunciation editing/live previews and 47 bundled voice samples and shared model speed/quality guidance.
+- Shared pronunciation editing and live previews, with entry format guidance in
+  the Pronunciation info popover. Both apps share 47 bundled voice samples and
+  model speed/quality guidance.
 - VoiceRelay automatic discovery/generation/publishing, Sync Now, Uploads and Server
   Audio, bounded reconciliation, background-safe credentials, default show art and
   default-on login startup for fresh configurations, controlled only in General Settings.
+- Concurrent removal of completed Server Audio episodes while generation continues.
+  Queued and finalizing episodes stay protected, and failed removals stay retryable.
+- Source-derived chapters and show notes in supported new MP3/M4A/M4B output,
+  with measured seek positions, source links and optional on-device summaries.
+  See [chapters and show notes](CHAPTERS_AND_NOTES.md).
 - Default-on timed WebVTT transcripts for newly queued VoiceRelay articles,
   verified sidecar upload and standard RSS transcript references; segment timing
   and player-specific acceptance are separate from word-level alignment.
@@ -47,84 +52,25 @@ Current features include:
 
 New Kokoro settings use Heart at 1.0× with the accepted pacing profile. Delivery A
 spoken-form listening, including capital-A labels, is accepted. Soprano keeps its
-native frontend. One worker per app, helper-only MLX, safe Libro priority,
+native frontend. One worker per app, helper-only MLX, API > Libro > podcasts,
 source/finished-recording preservation and unchanged audio levels remain invariants.
 
 ## VoiceServer implementation and remaining acceptance
 
-As of November 4, the native API, Keychain authentication, response modes,
-bounded HTTP/FIFO work, Settings/private bindings and Tailscale self discovery
-are wired. Both production app factories now provide coordinated scheduling;
-Libro exposes explicit file-access restoration and Resume, and ownership locks
-protect orphan scratch cleanup. See [current status](IMPLEMENTATION_STATUS.md)
-and the [API guide](../VoiceRelay/docs/VOICESERVER.md). Full synthetic and
-Debug/Release/four-audit verification passes. Remaining work is operator acceptance
-of actual models, GUI/Keychain,
-client playback, private-network reachability and sleep/wake; it is not another
-request for model downloads or live tests by the development agent.
+VoiceServer provides authenticated private HTTP with binary MP3/PCM streaming
+and complete-file MP3, PCM, WAV and JSON-wrapped MP3. Settings displays copyable
+speech endpoints for the available bindings. Orpheus is complete-file only, and
+raw incremental Qwen remains a development probe. Both apps use coordinated
+scheduling. Libro's Interrupted Batches workflow restores access and requires an
+explicit **Resume**. See the [API guide](../VoiceRelay/docs/VOICESERVER.md) and
+[implementation status](IMPLEMENTATION_STATUS.md) for feature and build evidence.
 
-The following retains the dated implementation sequence and its earlier gates.
+Remaining operator checks cover actual models, signed Keychain access, client
+playback, private-network reachability, sleep/wake and coordinated recovery.
+See [VS01a–VS03](OPERATOR_VALIDATION.md#voiceserver-staged-acceptance).
 
-The agreed [VoiceServer implementation checklist](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md)
-covers a native Swift private TTS endpoint using existing model/voice selection,
-with per-user priority TTS API > Libro > Podcasts. Both apps share suspension,
-checkpoint and recovery primitives; streaming API demand cancels unfinished
-lower-priority inference and resumes it from verified checkpoints. Compatible
-same-app handoffs retain resident weights. The proposed initial cross-app policy
-unloads before loading in the new owner to avoid duplicate residency; shared code
-alone cannot transfer live model allocations between helpers.
-The design review adds a feasibility gate before broad scheduler changes,
-SDK-compatible streaming defaults, speech/library ownership separation and
-CLI-first Tailscale discovery. The first bounded proof uses isolated Swift clients,
-fake workers and synthetic checkpoints to verify cross-process ordering, rollback
-and recovery. The user authorized that proof on November 1; it is implemented
-with ten focused cases. Results require helper-owned exclusion through orphan
-drain/idle residency, job-plus-epoch fencing and a final atomic launch recheck.
-The separately authorized next gate now implements an opt-in native helper/control
-and first-unit WAV probe. All five selected adapters pass bounded same-worker
-cancellation/reuse; Orpheus's measured resumed pipeline RTF is 2.05, so initial
-Orpheus streaming is gated as unavailable. Complete-file operation remains planned.
-The next authorized slice implements a versioned smaller live first unit, owned
-incremental Qwen callback and actual two-helper reload probe. Kokoro/Chatterbox
-resumed first WAV takes 0.13/0.57 s; Libro-to-VoiceRelay Kokoro/Qwen transfers take
-2.75/4.09 s including reload. First-inference cancellation takes 1.45–1.65 s in
-those transfers, unlike warm millisecond reuse. Qwen incremental reuse/coverage
-passes at 0.19 s first WAV; the following November 2 decoder correction reduces
-direct/stream PCM difference from 0.2604 to 0.00000276 and preserves identical
-reset output. Raw incremental output remains probe-only pending continuity/
-listening acceptance; initial Qwen streaming uses bounded complete utterances.
-Initialization cancellation/EOF, loaded-weight cleanup and repeated native safety
-now pass for all five adapters. The three VoiceRelay stale assertions are fixed
-and full fixtures pass. Shared three-rank admission, nonblocking compatibility-lock
-handoff and job/epoch commit fences are implemented and tested. An opt-in app-owned
-coordinator now connects bounded preparation/generation to the shared render session,
-retains its writer through suspension, and journals verified PCM for reconstruction
-without inference. Seventy-three focused cases cover this seam and earlier contracts;
-full fixtures, Debug/Release builds and four bundle audits pass. All five installed
-adapters pass offline prepared transfer, idle API handoff/resume and owned reap
-through the new coordinator, using fingerprint-matched packaged Release helpers.
-The following adapter gate now binds VoiceRelay's actual final SQLite commit,
-preserves the existing validation overlap and retries rejected results without a
-failed row. Libro captures batch/source/destination/consent and restores verified
-plans/PCM without repeating preparation. Eighty-five feature-focused cases cover
-these opt-in paths. The next gate adds app-owned constructor/Quit bindings,
-initialize-only setup, preview reuse and ranked host OCR/title/image admission,
-including explicit context across detached source tasks. Defaults remain nil.
-The following opt-in slice implements maintenance, admitted CPU/hash operations,
-notification wakeups and transient waiting status. Non-seeking MP3/PCM codecs and
-VoiceRelay's explicit native MP3 packaging are implemented. The November 3 full
-fixture, both-configuration/four-audit and all-five-model offline gates pass, including
-the correction for inherited MP3 preset attenuation. The operator accepted the
-linked offline WAV/MP3 comparisons on November 3. The following slice expands
-admitted document/preview/review work, separates active OCR/image/title budgets
-from admission waits, and cancels/joins pending article preparation with final
-snapshot revalidation. The following slice admits Libro intake/cover operations
-and VoiceRelay queue-title/chunk-count preparation, rejecting stale results after
-admission waits. Those legacy metadata, explicit recovery/file-access/retention
-and authenticated HTTP/Settings/Tailscale paths are now integrated as described
-above; their operator playback/GUI validation remains separate.
-The checklist retains measurements, failed attempts and remaining native/manual
-limits. Earlier stage statements about nil defaults/unwired service are historical.
+The [VoiceServer implementation checklist](archive/VOICESERVER_IMPLEMENTATION_CHECKLIST.md)
+retains the dated design, probes and staged engineering results.
 
 Normal-serving narration now prepares with lightweight frontends and defers cold
 speech weights for all five models. Libro captures a bounded CPU token-counting
@@ -150,13 +96,17 @@ cases remain open; successful builds or document planning do not mark them passe
 
 | Area | Remaining acceptance |
 | --- | --- |
-| Libro UI, queue, settings and lifecycle | Relevant L01–L20 interactions, larger text, output dialogs and cancellation |
+| Libro UI, queue, settings and lifecycle | Larger text, output dialogs and cancellation |
 | Original document freeze and quality | L06/L08/L10 plus private-document OCR/layout/caption review |
 | Covers, navigation and captured choices | L17–L19 and V17–V19; real exported-player/feed behavior |
 | Progressive previews | L20; actual-document latency, scrolling, completion and close/reopen behavior |
+| Deferred speech loading and CPU preparation | L21; actual-book preparation and memory behavior |
 | PDF flow, word joins and scientific text | B06–B08; source comparison and matched listening |
 | Cross-app operation | Shared dictionary edits, worker priority, waiting/cancellation and playback |
+| Pronunciation entry help | L04, V04 and B01; format guidance, incomplete drafts and error feedback |
 | VoiceRelay services and recovery | Protected Safari, normal-signed Keychain, WebDAV/readback, podcast playback and disposable-library restore |
+| Concurrent Server Audio removal | V14; completed, queued and finalizing episodes during generation, including retry |
+| Chapters and show notes | CN01–CN04; player display and seeking, summary quality and metadata recovery |
 | Installation/distribution | D01/D02 only when a clean test environment or release route is available |
 | Narrator model selection | M01; blind local-web bracket, then held-out and long-form finalist listening |
 
@@ -166,16 +116,14 @@ make a difficult document pass. Preserve previous operator builds and actual dat
 
 ## Proposed research and release work
 
-These are candidates requiring an explicit scope decision, not unfinished steps
-of an already completed implementation:
+These candidates require a scope decision before implementation.
 
 - Context-sensitive homographs and broader written-to-spoken forms; see
   [normalization research](archive/TEXT_NORMALIZATION_RESEARCH.md).
 - Better scientific structure/MathML, region-based review and advanced mathematical
   speech; see [academic PDF evaluation](archive/ACADEMIC_PDF_EVALUATION.md). Current prose
   insets and the single complex-equation reference notice are already implemented.
-- Unsupported complex/rotated layouts, chaptered audio exports and broader
-  annotation scheduling. Current authored Contents navigation is implemented.
+- Better support for complex or rotated layouts and broader annotation scheduling.
 - CI provider/action review, runner setup and explicit activation. Source
   publication does not activate the [CI template](CI.md).
 - Signed public app distribution and independent package/registry releases. Local

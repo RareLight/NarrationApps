@@ -1,8 +1,7 @@
 # Documentation
 
-Reviewed against the monorepo source on October 21, 2026; dated records moved to
-`archive/` on November 5, 2026. Start with your task; implementation records are
-background, not additional setup instructions.
+Reviewed against the monorepo source on November 12, 2026. Start with the guide
+for your task. The archive retains dated implementation and validation records.
 
 ## Use the apps
 
@@ -13,6 +12,7 @@ background, not additional setup instructions.
 | Connect a private client to local speech | [VoiceServer API](../VoiceRelay/docs/VOICESERVER.md) |
 | Choose a model, interpret speed/quality meters and use reference voices | [Model selection](MODEL_SELECTION.md) |
 | Choose voice previews, footnotes, citations and PDF cleanup | [Narration guide](NARRATION_GUIDE.md) |
+| Understand seekable chapters, brief summaries and source links | [Chapters and show notes](CHAPTERS_AND_NOTES.md) |
 | Correct a word or name | [Pronunciation](PRONUNCIATION.md) |
 | Compare phrase boundaries, review names or check retained narration | [Long-form quality](LONGFORM_QUALITY.md) |
 | Diagnose Libro setup, encoding, output or package errors | [Libro troubleshooting](../Libro/docs/TROUBLESHOOTING.md) |

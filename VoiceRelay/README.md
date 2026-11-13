@@ -4,6 +4,11 @@ VoiceRelay turns Safari Reading List articles into a private podcast on Apple
 Silicon Macs running macOS 27.0 or later. It generates speech locally with Kokoro, Qwen3-TTS, Chatterbox Turbo or Orpheus
 and publishes to your HTTPS/WebDAV server. Safari entries are read-only.
 
+New episodes include source-derived chapter markers for compatible players such
+as Overcast, plus show notes with source links and optional brief on-device Apple
+Intelligence summaries. See [chapters and show notes](../docs/CHAPTERS_AND_NOTES.md)
+for limits and existing-recording behavior.
+
 ## Get started
 
 1. Open VoiceRelay and install its speech model when prompted, or defer setup.
@@ -35,9 +40,9 @@ existing startup choices are preserved.
 | Upload Queue | Finished local audio awaiting publication or verification/cleanup attention |
 | Server Audio | Durable episode history and pending server removals |
 
-Queue removal, local-audio discard, Safari source removal and server removal have
-different consequences. The [user guide](docs/USER_GUIDE.md) explains them along
-with automation, searches, covers, credentials and private backups.
+Removing a Safari source leaves published episodes on the server. Remove
+completed episodes from **Server Audio**, including while generation continues.
+See the [removal actions](docs/USER_GUIDE.md#understand-removal-actions).
 
 **Podcast Cover** starts with the bundled VoiceRelay artwork. You can replace it
 or remove it. Per-episode artwork remains separate. **Pronunciation** edits the

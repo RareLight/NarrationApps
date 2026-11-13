@@ -1,6 +1,6 @@
 # Shared architecture
 
-Current contract reviewed November 4, 2026. Product boundaries and package installation
+Current contract reviewed November 12, 2026. Product boundaries and package installation
 are in [PACKAGE_BOUNDARIES.md](PACKAGE_BOUNDARIES.md); the app directories own
 GUI/workflow, preferences, source authorization and app-specific persistence.
 
@@ -9,8 +9,9 @@ GUI/workflow, preferences, source authorization and app-specific persistence.
 VoiceRelay's disabled-by-default VoiceServer accepts only authenticated model/voice
 metadata and speech routes through SwiftNIO 2.95.0. It captures existing selections
 and runs bounded FIFO jobs through the app's same coordinator. The response owns
-one sequential MP3/PCM encoder or complete Float32 WAV writer; private response
-scratch is outside podcast/history/review storage. Synchronous bounded socket
+one sequential MP3/PCM encoder or complete Float32 WAV writer. JSON is a
+complete-file wrapper for base64-encoded MP3. Private response scratch is outside
+podcast/history/review storage. Synchronous bounded socket
 writes run only on admitted CPU queues, never UI/event-loop/GPU callbacks. A
 directory ownership lock survives parent failure until actual helper/writer exit;
 orphan cleanup requires the versioned marker and an exclusive lock. Settings owns
@@ -59,8 +60,11 @@ degree-Celsius/Fahrenheit quantities and valid 12-hour AM/PM times before its na
 frontend. Foundation MeasurementFormatter retains the provided unit and numeric
 precision; the frontend still owns number/currency spelling. Explicit negative
 quantities say “minus”; `9:05 pm` becomes `9 oh 5 p.m.`, and `12:00 pm` becomes
-`12 p.m.`. URLs, code, paths, equations, identifiers, ambiguous forms and captured
-user replacements are protected. Native Markdown/HTML/EPUB retain an optional
+`12 p.m.`. Code, paths, equations, identifiers, ambiguous forms and captured user
+replacements are protected. The shared `web-addresses-2` projection uses
+Foundation link detection for explicit HTTP(S) and `www.` addresses and supplies
+only the hostname as separated words and spoken punctuation to every frontend.
+It retains the full original source span and link metadata. Native Markdown/HTML/EPUB retain an optional
 inline-code flag: affected paragraphs stay unchanged. Legacy markup with neither
 that metadata nor authored/OCR provenance abstains; no implicit refetch occurs.
 Unverifiable source alternatives also abstain.
@@ -333,6 +337,14 @@ inside an owned attempt before helper access. Missing references never fall back
 to default conditioning. See [the model guide](MODEL_SELECTION.md).
 
 ## Audio
+
+New MP3/M4A/M4B exports support source-derived embedded chapters and show notes.
+Chapter positions use actual rendered frames, including existing-zero gap
+compensation; metadata finalization happens before publication/hashing without
+transcoding completed audio. Optional Foundation Models summaries are host-side,
+bounded, generated on-device and excluded from acoustic identity. See
+[chapters and show notes](CHAPTERS_AND_NOTES.md) for formats, source-size limits,
+privacy and recovery behavior.
 
 The structural target gaps are continuation 0, sentence 0.12 s, paragraph 0.28 s,
 heading 0.45 s and footnote transition 0.20 s. Only exactly zero edge frames count

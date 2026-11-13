@@ -283,6 +283,7 @@ extension FixtureCoordinator {
                                    debugLog: DeliveryDebugLog? = nil,
                                    describeImages: Bool = true,
                                    generateMissingTitles: Bool = false, titleGenerator: DocumentTitles.Generate? = nil,
+                                   generateSummaries: Bool = false, summaryGenerator: DocumentSummaryGenerator.Generate? = nil,
                                    shouldCommit: @escaping @Sendable () async -> Bool = { true },
                                    admissionControl: QueueAdmissionControl? = nil,
                                    hostAdmission: SpeechHostAdmission? = nil, cpuExecutor: (any NarrationCPUExecutor)? = nil) async throws -> SpeechQueueItem {
@@ -292,6 +293,7 @@ extension FixtureCoordinator {
                 try await self.enqueueReadingListSource(entryID, storage: storage, preferences: preferences, fetch: fetch,
                     useArchives: useArchives, archiveFetch: archiveFetch, debugLog: debugLog, describeImages: describeImages,
                     generateMissingTitles: generateMissingTitles, titleGenerator: titleGenerator,
+                    generateSummaries: generateSummaries, summaryGenerator: summaryGenerator,
                     shouldCommit: shouldCommit, admissionControl: admissionControl, hostAdmission: hostAdmission)
             }
         }
@@ -302,6 +304,7 @@ extension FixtureCoordinator {
         fetch: (@Sendable (URL) async throws -> FetchedPage)?, useArchives: Bool,
         archiveFetch: ArticleSourceLoader.ArchiveFetch?, debugLog: DeliveryDebugLog?, describeImages: Bool,
         generateMissingTitles: Bool, titleGenerator: DocumentTitles.Generate?,
+        generateSummaries: Bool, summaryGenerator: DocumentSummaryGenerator.Generate?,
         shouldCommit: @Sendable () async -> Bool, admissionControl: QueueAdmissionControl?,
         hostAdmission: SpeechHostAdmission?) async throws -> SpeechQueueItem {
         try Task.checkCancellation(); try preferences.validate(); try storage.validate()
@@ -334,6 +337,7 @@ extension FixtureCoordinator {
                         archiveFetch: archiveFetch, debugLog: debugLog, describeImages: describeImages,
                         speechSettings: preferences.modelSelection, narrationOptions: preferences.effectiveNarrationOptions,
                         sourceTitle: candidate.title, generateMissingTitles: generateMissingTitles, titleGenerator: titleGenerator,
+                        generateSummaries: generateSummaries, summaryGenerator: summaryGenerator,
                         hostAdmission: hostAdmission)
                         .load(candidate.url, savedAt: candidate.addedAt, chunkLimit: storage.profile.chunkMaxCharacters)
                 } catch is CancellationError { throw CancellationError() }
@@ -869,8 +873,12 @@ extension FixtureCoordinator {
         // Refuse interrupted membership before allowing our own two in-flight stages.
         let initial = try await waitingBatch(stateRoot: storage.stateRoot, cpuExecutor: cpuExecutor, onQueueChange: onQueueChange)
         let pipeline = SingleWorkerSpeechPipeline(database: storage.profile.database, debugLog: debugLog, audioObserver: beforeAudioProcessing)
+        activeSpeechPipelines[root.path] = pipeline
         let start = ProcessInfo.processInfo.systemUptime
-        defer { pipeline.close(); pipeline.diagnostics.record(.queue, seconds: ProcessInfo.processInfo.systemUptime - start) }
+        defer {
+            activeSpeechPipelines.removeValue(forKey: root.path)
+            pipeline.close(); pipeline.diagnostics.record(.queue, seconds: ProcessInfo.processInfo.systemUptime - start)
+        }
         let progress = SpeechDrainProgress(callback: onProgress)
         var failed = initial.failed
         var last: FixtureResult?

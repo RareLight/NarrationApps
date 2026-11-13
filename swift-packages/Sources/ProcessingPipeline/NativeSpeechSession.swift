@@ -314,7 +314,7 @@ public actor NativeSpeechSession {
             if workerPreparationUsesInference { try await releasePreparationResources(); lease = nil }
             guard !closed, !Task.isCancelled else { throw CancellationError() }
             return try await captureReview(.init(policy: policy, settings: settings, semanticVersion: projection.version,
-                acousticIdentity: acousticIdentity, utterances: utterances, notices: projection.notices, provenance: SpeechAcousticIdentity.provenance(settings: settings, policy: policy), documentTitle: projection.documentTitle))
+                acousticIdentity: acousticIdentity, utterances: utterances, notices: projection.notices, provenance: SpeechAcousticIdentity.provenance(settings: settings, policy: policy), documentTitle: projection.documentTitle, showNotes: projection.showNotes))
         } catch { await close(); throw error }
     }
 
@@ -357,6 +357,12 @@ public actor NativeSpeechSession {
             if configuration.workCoordinator == nil, configuration.inferencePriority == .interactive {
                 lease = try await InferenceLease.acquire(at: leaseFile, priority: .interactive)
             }
+            // Measured render timeline for chapter mapping: actual inserted
+            // frames (ZeroFrameAudioAssembler compensates leading/trailing
+            // silence), not requested gap seconds. Same path for restored PCM.
+            let renderRate = Double(settings.model.capabilities.sampleRate)
+            var framesBefore: UInt64 = 0
+            var utteranceStarts: [(blocks: Set<Int>, start: Double)] = []
             for (index, utterance) in plan.utterances.enumerated() {
                 if let checkpoint {
                     lease = nil
@@ -387,9 +393,16 @@ public actor NativeSpeechSession {
                 await retainReviewSamples(utterance, samples: samples)
                 let gap = index > 0 && policy.usesStructuralPauses
                     ? NarrationPausePolicy.seconds(after: plan.utterances[index - 1].boundaryAfter, explicitGap: explicitGap) : 0
+                let framesPre = cpuState.assembler.insertedFrames
                 if let workJob {
                     try await SpeechCPUWork.run(job: workJob) { try cpuState.assembler.append(samples: samples, gapBeforeSeconds: gap) }
                 } else { try assembler.append(samples: samples, gapBeforeSeconds: gap) }
+                // First utterance of a chapter measures the leading inserted
+                // gap too: actual audio starts after the inserted gap frames.
+                let gapFrames = cpuState.assembler.insertedFrames - framesPre
+                let utteranceStart = Double(framesBefore + gapFrames) / renderRate
+                framesBefore += UInt64(samples.count) + gapFrames
+                utteranceStarts.append((Set(utterance.source.blockIndices), utteranceStart))
                 if configuration.inferencePriority == .background { lease = nil }
                 progress(.init(identity: progressIdentity, phase: .chunkWritten,
                     completedChunks: index + 1, totalChunks: plan.utterances.count))
@@ -405,6 +418,46 @@ public actor NativeSpeechSession {
             try await writer.prepareArtwork()
             try Task.checkCancellation()
             guard !closed else { throw CancellationError() }
+            // Embed chapters/show notes on the owned scratch BEFORE publish so a
+            // container failure fails prepublication and preserves the existing
+            // destination. Artwork runs above because export drops text tracks.
+            if outputFormat != .wav, let notes = plan.showNotes {
+                // Map each chapter target to the first actually spoken utterance
+                // containing its block; unmapped targets carry no marker.
+                let totalSeconds = Double(framesBefore) / renderRate
+                var resolved: [(title: String, start: Double)] = []
+                var lastStart = -Double.infinity
+                for chapter in notes.chapters {
+                    guard let hit = utteranceStarts.first(where: { $0.blocks.contains(chapter.blockIndex) }),
+                          hit.start > lastStart else { continue }
+                    resolved.append((chapter.title, hit.start)); lastStart = hit.start
+                }
+                // If a measured opening marker would overflow capacity, the
+                // whole list is omitted: a text track starting >0 is never
+                // written. The limitation surfaces in the embedded notes.
+                var chapterLimitNotice: String? = nil
+                if let first = resolved.first, first.start > 0 {
+                    if resolved.count < AudioMetadataWriter.maximumChapters {
+                        resolved.insert((plan.documentTitle ?? "Opening", 0), at: 0)
+                    } else {
+                        resolved = []
+                        chapterLimitNotice = "Chapter list omitted: \(AudioMetadataWriter.maximumChapters + 1) chapter targets exceed the \(AudioMetadataWriter.maximumChapters) chapter limit."
+                    }
+                }
+                let audioChapters = resolved.enumerated().map { i, c in
+                    AudioChapter(title: c.title, startTime: c.start,
+                                 endTime: i + 1 < resolved.count ? resolved[i + 1].start : totalSeconds)
+                }
+                var body = ShowNotesText.plainText(summary: notes.summary, sourceTitle: plan.documentTitle,
+                    sourceURL: nil, chapters: audioChapters.map { ($0.title, $0.startTime) }, links: notes.links)
+                if let chapterLimitNotice, body.utf8.count + chapterLimitNotice.utf8.count + 2 <= ShowNotesText.maximumBytes {
+                    body += "\n\n" + chapterLimitNotice
+                }
+                try await AudioMetadataWriter.finalize(url: cpuState.writer.temporary,
+                    format: outputFormat.rawValue,
+                    metadata: .init(title: plan.documentTitle, notes: body.isEmpty ? nil : body, chapters: audioChapters),
+                    duration: totalSeconds)
+            }
             let publish: @Sendable () throws -> Void = {
                 try cpuState.writer.publish(replaceExisting: replaceExisting) {
                     try beforePublication()

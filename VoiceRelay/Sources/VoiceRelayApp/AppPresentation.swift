@@ -83,6 +83,10 @@ struct GenerateAudioControl: View {
 struct WorkspaceReadinessView: View {
     @Bindable var model: AppModel
     @Environment(\.openSettings) private var openSettings
+    private var uploadsNeedAttention: Bool {
+        guard model.workspaceSection == .savedAudio else { return model.uploadsNeedAttention }
+        return model.uploadItems.contains { $0.phase.needsAttention && !model.hiddenServerAudioRemovalIDs.contains($0.id) }
+    }
     var body: some View {
         if model.libraryReviewRequired {
             notice("Review the restored library", detail: "Processing, publishing and cleanup wait until you finish the library review.",
@@ -99,7 +103,8 @@ struct WorkspaceReadinessView: View {
                 notice("Speech model needs repair", detail: detail,
                        symbol: "wrench.and.screwdriver", action: "Open Voice Model Settings", pane: .voiceModel)
             }
-            if model.publishingReadiness == .checking {
+            // Server Audio reports transient checks in its fixed footer.
+            if model.publishingReadiness == .checking, model.workspaceSection != .savedAudio {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(PublishingReadiness.checking.title)
@@ -110,7 +115,7 @@ struct WorkspaceReadinessView: View {
                     symbol: readiness == .needsAttention ? "exclamationmark.triangle" : "gearshape",
                     action: readiness.action, pane: .delivery)
             }
-            if model.uploadsNeedAttention {
+            if uploadsNeedAttention {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Upload Queue needs attention", systemImage: "exclamationmark.triangle").appFont(.headline)
                     Text("Review the affected files and their verification details in Upload Queue.").appFont(.secondary).foregroundStyle(.secondary)
@@ -137,21 +142,44 @@ struct WorkspaceReadinessView: View {
 
 struct WorkspaceActivityView: View {
     @Bindable var model: AppModel
+    var reservesSpace = false
+    private var deliveryStatus: String? {
+        if model.audioMutationBusy || !model.hiddenServerAudioRemovalIDs.isEmpty {
+            let pending = model.hiddenServerAudioRemovalIDs.union(model.mutatingSavedAudioIDs).count
+            return "Removing audio… · \(pending) pending"
+        }
+        if model.deliveryBusy {
+            if reservesSpace, model.deliveryPreflightBusy { return PublishingReadiness.checking.title }
+            return "Publishing… · \(model.deliveryPendingCount) server operations pending"
+        }
+        return nil
+    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if model.showsProcessingProgress { ProcessingSummary(model: model) }
-            if model.audioMutationBusy || !model.hiddenServerAudioRemovalIDs.isEmpty {
+        Group {
+            if reservesSpace {
+                // Keep the list viewport the same height as background work starts and settles.
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Removing audio… · \(model.hiddenServerAudioRemovalIDs.union(model.mutatingSavedAudioIDs).count) pending").monospacedDigit()
+                    ProgressView().controlSize(.small).hidden()
+                    Text(" ").hidden()
+                }.frame(maxWidth: .infinity, alignment: .leading).overlay(alignment: .leading) {
+                    HStack(spacing: 12) {
+                        if let deliveryStatus { activity(deliveryStatus) }
+                        if model.showsProcessingProgress { activity(model.processingStatusLine) }
+                    }.lineLimit(1)
                 }
-            } else if model.deliveryBusy {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Publishing… · \(model.deliveryPendingCount) server operations pending").monospacedDigit()
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    if model.showsProcessingProgress { ProcessingSummary(model: model) }
+                    if let deliveryStatus { activity(deliveryStatus) }
                 }
             }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
+    }
+    private func activity(_ status: String) -> some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(status).monospacedDigit().help(status)
+        }
     }
 }
 
@@ -342,9 +370,15 @@ struct WorkspaceView: View {
             case .uploads: UploadsView(model: model)
             case .savedAudio: LibraryView(model: model)
             }
-            if model.showsWorkspaceActivity {
+            if section == .savedAudio || model.showsWorkspaceActivity {
                 Divider()
-                WorkspaceActivityView(model: model)
+                WorkspaceActivityView(model: model, reservesSpace: section == .savedAudio)
+            }
+        }
+        .transaction { transaction in
+            if section == .savedAudio {
+                transaction.animation = nil
+                transaction.disablesAnimations = true
             }
         }
         .navigationTitle(section == .articles && model.articleScope == .queue ? "Articles — Queue" : section.rawValue)
@@ -492,12 +526,20 @@ struct AudioStateFilterControl: View {
 
 struct AudioVerificationIndicator: View {
     let item: UploadItem
+    var showsDetailInline = true
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label(item.phase.title, systemImage: symbol)
+            let label = Label(item.phase.title, systemImage: symbol)
                 .appFont(.secondary)
                 .foregroundStyle(item.phase.needsAttention ? Color.orange : item.phase == .published ? Color.green : Color.secondary)
-            if let detail = item.detail { Text(detail).appFont(.secondary).foregroundStyle(.secondary).textSelection(.enabled) }
+            if let detail = item.detail {
+                if showsDetailInline {
+                    label
+                    Text(detail).appFont(.secondary).foregroundStyle(.secondary).textSelection(.enabled)
+                } else {
+                    label.help(detail).accessibilityHint(detail)
+                }
+            } else { label }
         }
     }
     private var symbol: String {
@@ -575,48 +617,81 @@ struct UploadsView: View {
     }
 }
 
+struct ServerAudioRow: View {
+    let model: AppModel
+    let episode: Episode
+    var body: some View {
+        let failure = model.savedAudioRemovalFailure(episode)
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(episode.title).appFont(.headline).lineLimit(2, reservesSpace: true)
+                detailLine { ArticleOriginLine(metadata: model.savedAudioOrigin(episode)) }
+                Text(model.savedAudioMeta(episode) ?? "Speech ready")
+                    .appFont(.secondary).foregroundStyle(.secondary).lineLimit(1)
+                detailLine {
+                    if let failure {
+                        Label("Deletion failed", systemImage: "exclamationmark.triangle.fill")
+                            .appFont(.secondary).foregroundStyle(.orange)
+                            .help(failure)
+                            .accessibilityLabel("Deletion failed for \(episode.title)")
+                            .accessibilityHint(failure)
+                    } else if let removal = model.savedAudioRemovalStatus(episode) {
+                        Label(removal, systemImage: "clock").appFont(.secondary).foregroundStyle(.secondary)
+                    } else {
+                        AudioVerificationIndicator(item: model.audioState(episode), showsDetailInline: false)
+                    }
+                }
+            }
+            Spacer()
+            if episode.settings.temporaryAudio != true && episode.localAudioReleased != true {
+                Button("Show in Finder", action: reveal).disabled(model.preview)
+                    .buttonStyle(.borderless).help("Show local audio in Finder")
+            }
+            RowRemovalButton(accessibilityLabel: failure != nil ? "Retry deleting \(episode.title) audio" : "Delete \(episode.title) audio",
+                help: failure != nil ? "Retry deleting the episode and its audio" : "Remove episode and delete its audio",
+                isEnabled: model.canRemoveSavedAudio(episode)) {
+                model.removeSavedAudio(ids: [episode.id])
+            }
+        }
+    }
+    private func detailLine<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        // Status symbols and optional metadata share the same text-height slot.
+        Text(" ").appFont(.secondary).hidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .leading) { content().lineLimit(1) }
+    }
+    private func reveal() {
+        let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
+        if FileManager.default.fileExists(atPath: file.path) { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+        else { model.error = "The temporary audio file is unavailable; published episodes remain on the server." }
+    }
+}
+
 struct LibraryView: View {
     @Bindable var model: AppModel
     @Environment(\.openSettings) private var openSettings
     @State private var confirmingReset = false
     @State private var capturedResetIDs: [String] = []
     var body: some View {
-        Group {
-            if model.visibleServerAudio.isEmpty {
-                ContentUnavailableView(model.serverAudioListEpisodes.isEmpty ? "No Server Audio" : "No Matching Episodes", systemImage: "waveform",
-                                       description: Text(model.serverAudioListEpisodes.isEmpty ? "Add selected articles to the queue, then choose Generate Audio." : "Try another search or state filter."))
-            } else {
-                List(selection: $model.savedAudioSelection) {
-                    ForEach(model.visibleServerAudio, id: \.id) { episode in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(episode.title).appFont(.headline).lineLimit(2)
-                            ArticleOriginLine(metadata: model.savedAudioOrigin(episode))
-                            let meta = model.savedAudioMeta(episode)
-                            let removal = model.savedAudioRemovalStatus(episode)
-                            Text(removal.map { "\($0)\(meta.map { " · " + $0 } ?? "")" }
-                                 ?? meta ?? "Speech ready").appFont(.secondary).foregroundStyle(.secondary).lineLimit(1)
-                            if removal == nil {
-                                AudioVerificationIndicator(item: model.audioState(episode))
-                            }
-                        }
-                        Spacer()
-                        if episode.settings.temporaryAudio != true && episode.localAudioReleased != true {
-                        Button("Show in Finder") { reveal(episode) }.disabled(model.preview)
-                            .buttonStyle(.borderless).help("Show local audio in Finder")
-                        }
-                        RowRemovalButton(accessibilityLabel: "Delete \(episode.title) audio",
-                            help: "Remove episode and delete its audio",
-                            isEnabled: model.canRemoveSavedAudio(episode)) {
-                            model.removeSavedAudio(ids: [episode.id])
-                        }
-                    }
-                    .tag(episode.id)
-                    }
-                }
+        let episodes = model.visibleServerAudio
+        List(selection: $model.savedAudioSelection) {
+            ForEach(episodes, id: \.id) { episode in
+                ServerAudioRow(model: model, episode: episode).tag(episode.id)
             }
         }
-        .transaction { transaction in transaction.animation = nil; transaction.disablesAnimations = true }
+        .overlay {
+            if episodes.isEmpty {
+                ContentUnavailableView(model.serverAudioListEpisodes.isEmpty ? "No Server Audio" : "No Matching Episodes", systemImage: "waveform",
+                                       description: Text(model.serverAudioListEpisodes.isEmpty ? "Add selected articles to the queue, then choose Generate Audio." : "Try another search or state filter."))
+                    .allowsHitTesting(false)
+            }
+        }
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+            // Cleanup and refresh must not anchor the list to a different row.
+            transaction.scrollContentOffsetAdjustmentBehavior = .disabled
+        }
         .searchable(text: $model.serverAudioSearchText, placement: .toolbar, prompt: "Search Server Audio")
         .onChange(of: model.serverAudioSearchText) {
             model.savedAudioSelection.formIntersection(Set(model.visibleServerAudio.map(\.id)))
@@ -694,11 +769,6 @@ struct LibraryView: View {
     private func removeSelection() {
         guard canRemoveSelection else { return }
         model.removeSavedAudio(ids: model.visibleServerAudio.filter { model.savedAudioSelection.contains($0.id) }.map(\.id))
-    }
-    private func reveal(_ episode: Episode) {
-        let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
-        if FileManager.default.fileExists(atPath: file.path) { NSWorkspace.shared.activateFileViewerSelecting([file]) }
-        else { model.error = "The temporary audio file is unavailable; published episodes remain on the server." }
     }
 }
 

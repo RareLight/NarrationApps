@@ -73,6 +73,8 @@ final class AppModel {
     var mutatingSavedAudioIDs: Set<String> = []
     /// Presentation only: durable retirement and server confirmation stay in the coordinator.
     private(set) var hiddenServerAudioRemovalIDs: Set<String> = []
+    /// Per-item removal failure detail for rows returned after an unfinished delete.
+    private(set) var serverAudioRemovalFailures: [String: String] = [:]
     private var drainingServerAudioRemovals = false
     var savedAudioSelection: Set<String> = []
     var uploadsFilter: AudioStateFilter = .all
@@ -148,6 +150,7 @@ final class AppModel {
                     let force = pendingDeliveryForce ?? false; pendingDeliveryForce = nil
                     let check = pendingDeliveryCheck; pendingDeliveryCheck = false
                     triggerDelivery(force: force, reconcileNow: check)
+                    restoreUndrainedServerAudioRemovals()
                 }
             }
             do {
@@ -617,13 +620,15 @@ final class AppModel {
                 deliveryTask = nil; deliveryBusy = false; deliveryPreflightBusy = false; refreshDeliveryCredentialState()
                 // A finished attempt must not leave failed/deferred removals hidden.
                 // New requests added during this drain belong to the follow-up attempt.
-                hiddenServerAudioRemovalIDs.subtract(removalIDs.subtracting(mutatingSavedAudioIDs))
+                restoreFailedServerAudioRemovals(ids: removalIDs.subtracting(mutatingSavedAudioIDs),
+                    message: deliveryError ?? "Server removal could not finish. Try deleting this item again.", preferRecordedError: true)
                 reconcileServerAudioRemovalVisibility()
                 audioLibraryRevision = UUID()
                 refreshLibrary(allowDelivery: false)
                 let again = pendingDeliveryForce; pendingDeliveryForce = nil
                 let checkAgain = pendingDeliveryCheck; pendingDeliveryCheck = false
                 if let again { triggerDelivery(force: again, reconcileNow: checkAgain) }
+                restoreUndrainedServerAudioRemovals()
             }
             do {
                 let needsPreflight: Bool
@@ -650,8 +655,6 @@ final class AppModel {
                         deliveryConnectionVerified = true
                     }
                 }
-                // Refresh the outbox even while the inference worker is busy.
-                if let episodes = try? await coordinator.savedAudio(storage: storage) { savedEpisodes = episodes }
                 uploadRunID = UUID(); uploadProgress = [:]
                 deliveryStatus = Self.deliveryStatusText(result, hasError: deliveryError != nil)
                 if deliveryError == nil { notices.reset(key: "delivery") }
@@ -672,6 +675,9 @@ final class AppModel {
                     deliveryPendingCount = summary.pendingMedia + summary.pendingTranscripts + summary.pendingRemoteDeletes
                 }
             }
+            // Refresh the outbox on every attempt outcome so the defer can tell
+            // confirmed removals from still-present failures against the latest cache.
+            if let episodes = try? await coordinator.savedAudio(storage: storage) { savedEpisodes = episodes }
         }
     }
     private static func deliveryStatusText(_ result: DeliveryResult, hasError: Bool = false) -> String {
@@ -1128,7 +1134,8 @@ final class AppModel {
                     let item = try await coordinator.enqueueReadingList(entry.id, storage: next.storage, preferences: next.preferences,
                         fetch: fetch, useArchives: useArchivedArticles && (storageOverride == nil || archiveFetchOverride != nil),
                         archiveFetch: archiveFetchOverride, debugLog: deliveryDebugLog,
-                        describeImages: describeArticleImages, generateMissingTitles: generateMissingTitles, shouldCommit: { [self] in
+                        describeImages: describeArticleImages, generateMissingTitles: generateMissingTitles,
+                        generateSummaries: !preview && storageOverride == nil && backendOverride == nil, shouldCommit: { [self] in
                             await MainActor.run { !self.stopping && self.pendingTokens[entry.id] == next.token }
                         }, admissionControl: next.control, hostAdmission: speechWorkCoordinator?.hostAdmission, cpuExecutor: cpuWork)
                     admissionQueue.removeAll { $0.token == next.token }
@@ -1358,6 +1365,14 @@ final class AppModel {
                 self.triggerDelivery()
                 guard self.progressID == token else { return }
                 self.result = outcome
+                // A completed article becomes manageable while later ones still generate:
+                // read-only recheck only; destructive refresh/sweeps stay blocked while running.
+                let revision = self.audioLibraryRevision
+                if let episodes = try? await self.coordinator.savedAudio(storage: storage) {
+                    guard self.audioLibraryRevision == revision, !self.stopping else { return }
+                    self.savedEpisodes = episodes
+                    self.audioLibraryRevision = UUID()
+                }
             }
         }
         pronunciationPreview.stop()
@@ -1521,13 +1536,15 @@ final class AppModel {
         triggerDelivery(force: true)
     }
     var canDeleteSavedAudio: Bool {
-        !preview && !stopping && !libraryMaintenanceBusy && !libraryReviewRequired && !processingSpeech && !cancelling
+        !preview && !stopping && !libraryMaintenanceBusy && !libraryReviewRequired
             && (!audioMutationBusy || drainingServerAudioRemovals)
             && !sourceReview.maintenanceSuspended && !savedEpisodes.isEmpty
     }
     func canRemoveSavedAudio(_ episode: Episode) -> Bool {
         canDeleteSavedAudio && !mutatingSavedAudioIDs.contains(episode.id) && !hiddenServerAudioRemovalIDs.contains(episode.id)
             && !(episode.stage == .expired && deliveryBusy)
+            // Generation-owned records stay protected: queued rows and unfinished finalization.
+            && episode.audioFinalizationComplete != false && !queueItems.contains { $0.id == episode.id }
     }
     func finishLibraryReview() {
         guard canManageLibrary, libraryReviewRequired else { return }
@@ -1535,10 +1552,37 @@ final class AppModel {
         libraryBackupStatus = "Review complete. Automatic processing and delivery stay off until you enable them."
         refreshLibrary(allowDelivery: false)
     }
+    func savedAudioRemovalFailure(_ episode: Episode) -> String? {
+        if let failure = serverAudioRemovalFailures[episode.id] { return failure }
+        guard episode.manualAudioDeletionRequested == true || episode.stage == .expired else { return nil }
+        return episode.delivery?.lastError
+    }
     func savedAudioRemovalStatus(_ episode: Episode) -> String? {
+        if savedAudioRemovalFailure(episode) != nil { return "Removal needs retry" }
         if mutatingSavedAudioIDs.contains(episode.id) || (episode.stage == .expired && deliveryBusy) { return "Removing from server…" }
         if episode.stage == .expired || episode.manualAudioDeletionRequested == true { return deliveryError == nil ? "Server removal pending" : "Removal needs retry" }
         return nil
+    }
+    /// Expose rows whose removal could not finish, with a per-item failure mark.
+    /// IDs already absent from the authoritative cache succeeded and simply stay gone.
+    private func restoreFailedServerAudioRemovals(ids: Set<String>, message: String, preferRecordedError: Bool = false) {
+        guard !ids.isEmpty else { return }
+        var transaction = Transaction()
+        transaction.animation = nil; transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            for episode in savedEpisodes where ids.contains(episode.id) {
+                serverAudioRemovalFailures[episode.id] = preferRecordedError ? (episode.delivery?.lastError ?? message) : message
+            }
+            hiddenServerAudioRemovalIDs.subtract(ids)
+        }
+    }
+    /// No drain can run: return undrained removals with actionable guidance instead of
+    /// leaving durable pending work hidden forever. An active metadata-removal batch
+    /// owns its IDs and resolves them in its own defer.
+    private func restoreUndrainedServerAudioRemovals() {
+        guard deliveryTask == nil, !preparingDefaultPodcastCover, !drainingServerAudioRemovals, !audioMutationBusy else { return }
+        restoreFailedServerAudioRemovals(ids: hiddenServerAudioRemovalIDs.subtracting(mutatingSavedAudioIDs),
+            message: "Check Publishing settings, then try deleting this item again.")
     }
     func removeSavedAudio(ids: [String]) {
         guard canDeleteSavedAudio, !ids.isEmpty else { return }
@@ -1546,33 +1590,37 @@ final class AppModel {
         let targets = savedEpisodes.filter { requested.contains($0.id) && canRemoveSavedAudio($0) }
         guard !targets.isEmpty else { return }
         let targetIDs = targets.map(\.id)
-        notices.reset(key: "audio"); notices.reset(key: "global")
-        hiddenServerAudioRemovalIDs.formUnion(targetIDs)
-        savedAudioSelection.subtract(targetIDs)
-        serverAudioRemovalRequests.append(targetIDs)
-        serverAudioRemovalRetryIDs.formUnion(targets.filter { $0.stage == .expired }.map(\.id))
-        mutatingSavedAudioIDs.formUnion(targetIDs)
-        audioLibraryRevision = UUID()
-        guard !drainingServerAudioRemovals else { return }
+        let shouldDrain = !drainingServerAudioRemovals
+        var transaction = Transaction()
+        transaction.animation = nil; transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            // Every accepted target hides before any work or other presentation reset.
+            hiddenServerAudioRemovalIDs.formUnion(targetIDs)
+            savedAudioSelection.subtract(targetIDs)
+            for id in targetIDs { serverAudioRemovalFailures.removeValue(forKey: id) }
+            serverAudioRemovalRequests.append(targetIDs)
+            serverAudioRemovalRetryIDs.formUnion(targets.filter { $0.stage == .expired }.map(\.id))
+            mutatingSavedAudioIDs.formUnion(targetIDs)
+            audioLibraryRevision = UUID()
+            if shouldDrain { drainingServerAudioRemovals = true; audioMutationBusy = true }
+        }
+        guard shouldDrain else { return }
         let storage = speechStorage
-        drainingServerAudioRemovals = true
-        audioMutationBusy = true
         audioMutationTask = Task {
             defer {
-                hiddenServerAudioRemovalIDs.subtract(serverAudioRemovalRequests.flatMap { $0 })
+                let leftovers = Set(serverAudioRemovalRequests.flatMap { $0 })
                 serverAudioRemovalRequests = []
                 let retry = savedEpisodes.contains { $0.stage == .expired && serverAudioRemovalRetryIDs.contains($0.id) }
                 serverAudioRemovalRetryIDs = []
                 drainingServerAudioRemovals = false
                 audioMutationTask = nil; audioMutationBusy = false; mutatingSavedAudioIDs = []
+                restoreFailedServerAudioRemovals(ids: leftovers, message: "Server removal was interrupted. Try deleting this item again.")
                 reconcileServerAudioRemovalVisibility()
                 audioLibraryRevision = UUID()
                 refreshLibrary()
                 // A pending removal's explicit Retry overrides delivery backoff.
                 triggerDelivery(force: retry)
-                // Publishing may be off/unconfigured. Keep durable pending work
-                // accessible rather than hiding it forever without an active drain.
-                if deliveryTask == nil { hiddenServerAudioRemovalIDs = [] }
+                restoreUndrainedServerAudioRemovals()
             }
             while !serverAudioRemovalRequests.isEmpty, !Task.isCancelled {
                 let ids = serverAudioRemovalRequests.removeFirst()
@@ -1580,12 +1628,14 @@ final class AppModel {
                     _ = try await coordinator.removeSavedAudio(ids: ids, storage: storage)
                     savedEpisodes = try await coordinator.savedAudio(storage: storage)
                 } catch is CancellationError {
-                    hiddenServerAudioRemovalIDs.subtract(ids)
+                    if let episodes = try? await coordinator.savedAudio(storage: storage) { savedEpisodes = episodes }
+                    restoreFailedServerAudioRemovals(ids: Set(ids), message: "Server removal was interrupted. Try deleting this item again.")
                     break
                 } catch {
-                    hiddenServerAudioRemovalIDs.subtract(ids)
                     if let episodes = try? await coordinator.savedAudio(storage: storage) { savedEpisodes = episodes }
-                    self.error = (error as? RelayError)?.localizedDescription ?? "The server audio could not be removed."
+                    let message = (error as? RelayError)?.localizedDescription ?? "The server audio could not be removed."
+                    restoreFailedServerAudioRemovals(ids: Set(ids), message: message)
+                    self.error = message
                 }
                 mutatingSavedAudioIDs.subtract(ids)
                 reconcileServerAudioRemovalVisibility()
@@ -1593,7 +1643,11 @@ final class AppModel {
         }
     }
     private func reconcileServerAudioRemovalVisibility() {
-        hiddenServerAudioRemovalIDs.formIntersection(Set(savedEpisodes.map(\.id)).union(mutatingSavedAudioIDs))
+        // In-flight removals/drains own the hidden set; a transient snapshot must not clear it.
+        guard !drainingServerAudioRemovals, deliveryTask == nil, !preparingDefaultPodcastCover else { return }
+        let present = Set(savedEpisodes.map(\.id))
+        hiddenServerAudioRemovalIDs.formIntersection(present.union(mutatingSavedAudioIDs))
+        serverAudioRemovalFailures = serverAudioRemovalFailures.filter { present.contains($0.key) }
     }
     func canDiscardLocalUpload(_ item: UploadItem) -> Bool {
         canDeleteSavedAudio && !audioMutationBusy && !running && !deliveryBusy && !deliveryTesting && !deliveryPreflightBusy

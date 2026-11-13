@@ -25,14 +25,15 @@ enum ImageNarration {
             { @Sendable url in guard eligible(url) else { throw SourceFetchError.invalidURL }; return try await transport(url) }
         }
         let enriched = try await DocumentImages.enrich(.init(title: input.title, author: input.author, blocks: input.blocks,
-                                                             warnings: input.warnings, extractorVersion: input.extractorVersion, outline: input.outline),
+                                                             warnings: input.warnings, extractorVersion: input.extractorVersion, outline: input.outline, links: input.links),
                                                        pdfData: review.page.contentType == "application/pdf" ? review.page.bytes : nil,
                                                        enabled: nativeEnabled || caption != nil, fetch: guarded, caption: caption)
         return try await NarrationPreparationWork.run {
             var article = input
             article = SemanticArticle(title: input.title, originalURL: input.originalURL, finalURL: input.finalURL, canonicalURL: input.canonicalURL,
                                       author: input.author, blocks: enriched.blocks, warnings: enriched.warnings, extractorVersion: input.extractorVersion,
-                                      sourceName: input.sourceName, previewImageURL: input.previewImageURL, archivedCopy: input.archivedCopy, outline: enriched.outline)
+                                      sourceName: input.sourceName, previewImageURL: input.previewImageURL, archivedCopy: input.archivedCopy, outline: enriched.outline,
+                                      links: enriched.links, summary: input.summary, summaryAttempted: input.summaryAttempted)
             article.titleOrigin = input.titleOrigin
             return ReviewedSource(page: review.page, document: .init(article: article, cleanedHTML: document.cleanedHTML),
                          narration: try Narration.prepare(article, limit: chunkLimit, pronunciations: pronunciations, settings: settings, options: options), issue: review.issue, archiveRecoveryFailed: review.archiveRecoveryFailed)

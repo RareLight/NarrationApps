@@ -1,7 +1,7 @@
 # Canonical regression corpus
 
-Inventory reviewed October 21, 2026. Fixtures stay with the implementation/tests
-that own their expectations. No duplicate corpus was moved or deleted. All
+Inventory reviewed November 12, 2026. Fixtures stay with the implementation/tests
+that own their expectations. All
 authored fixture prose is synthetic; generated PDF/EPUB/audio files are created
 in owned temporary directories. Upstream phoneme expectations retain their pinned
 provenance and notices. Expected values are reviewed, never silently regenerated.
@@ -27,9 +27,14 @@ The root full tier runs all mandatory suites; quick scopes allow focused tests.
 | Worker protocol/prepared spool ownership and cleanup | `NativeSpeechTests/PreparedSpeechTransferTests.swift`, `ProcessingPipelineTests/SchedulingTests.swift`, `ModelPreparationTests.swift`; limits, invalid messages, joins, timeouts, ordered generation and atomic preservation |
 | Original audio levels and final output safety | `AudioOutputTests/AtomicAudioWriterTests.swift`, `ZeroFrameAudioAssemblerTests.swift`, `NativeAudioTests.swift`, `ProcessingPipelineTests/AudioOutputFormatTests.swift`; exact Float32 including values outside ±1, no gain/clipping, podcast AAC/rates, cancellation preserves previous output |
 | Art tagging without re-encoding | `AudioOutputTests/CoverArtworkTests.swift`; encoded packets/PCM, bounded derivatives and invalid cover preservation |
+| Chapters and show notes | `NarrationCoreTests/ShowNotesSelectionTests.swift`, `DocumentProcessingTests/SourceLinkExtractionTests.swift` and `DocumentSummariesTests.swift`, `AudioOutputTests/AudioMetadataWriterTests.swift`; structural targets, safe links, bounded summaries, Unicode tags and encoded-audio preservation |
+| Chapter export and recovery | `ProcessingPipelineTests/ChapterExportIntegrationTests.swift` and `VoiceRelay/Tests/VoiceRelayCoreTests/ChapterExportIntegrationTests.swift` and `ChapterShowNotesTests.swift`; measured seek positions, notes persistence and retry without redoing completed speech |
 | Dictionary persistence and preferences | `PronunciationTests/PronunciationTests.swift`, `Libro/macos/LibroCore/Tests/LibroCoreTests/`; old/current saved values, explicit options and cover persistence |
+| Pronunciation drafts | `PronunciationUITests/PronunciationUITests.swift`; incomplete and malformed drafts preserve saved rules, duplicate entries and concurrent edits surface errors |
 | Retained snapshots, library/episode/settings compatibility | `VoiceRelay/Tests/VoiceRelayCoreTests/`; Store, SpeechQueue, LibraryBackup, AudioRetention, NativeSpeechAdapter, SourceReview and Delivery tests; synthetic SQLite, injected transports and old optional fields |
 | Inert app lifecycle, Sync/setup, event ordering | `VoiceRelay/Tests/VoiceRelayAppTests/`; storage-injected models, cancellation/join, stale event protection, no live Safari/Keychain/server |
+| Concurrent Server Audio retirement | `VoiceRelay/Tests/VoiceRelayAppTests/ProcessingTests.swift` and `VoiceRelay/Tests/VoiceRelayCoreTests/CoreTests.swift` and `DeliveryTests.swift`; held generation, protected queue/finalization, immediate hide and selective retry, writer contention and feed-before-delete ordering |
+| VoiceServer response formats | `VoiceRelay/Tests/VoiceRelayCoreTests/VoiceServerTests.swift`; request defaults and rejection, streamed audio and complete-file response handling with a synthetic worker |
 | Helper-only MLX, independent presentation, compatible locks | Root `scripts/check-contracts.swift`; parsed package graphs plus actual Xcode GUI products; transitive checks, six separately owned locks |
 
 Libro's `QueueIntakePolicyTests.swift` covers explicit re-addition without

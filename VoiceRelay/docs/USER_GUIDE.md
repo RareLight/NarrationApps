@@ -1,13 +1,32 @@
 # VoiceRelay user guide
 
 VoiceRelay turns Safari Reading List articles into a private podcast using local
-local native speech and WebDAV publishing. While the macOS app runs, it discovers
+native speech and WebDAV publishing. While the macOS app runs, it discovers
 articles, prepares saved text, processes the queue and publishes episodes according
 to your preferences. Failed items remain available for manual Retry. Safari
 bookmarks and Reading List flags are never modified.
 
 Requires Apple Silicon and macOS 27.0 or later. For building/signing, use
 [contributor instructions](../CONTRIBUTING.md#signed-builds).
+
+## Chapters and show notes
+
+New podcast recordings embed seekable chapters from article headings or PDF
+outlines. Compatible players, including Overcast, can display titles and seek to
+their measured positions. PDF bookmarks without an exact text match mark the
+start of narrated content on the destination page.
+
+Episode notes include source attribution, chapter timecodes and a bulleted list
+of source links. Under **Settings → General → Document Narration**, **Generate
+brief summaries** adds an on-device Apple Intelligence summary of one to three
+sentences and at most 50 words.
+It defaults on; sources over 1,500 words or 8,000 UTF-8 bytes, unavailable models
+and unsuccessful summaries are skipped without blocking audio. Summaries may
+contain mistakes, are not spoken, and never use a cloud fallback.
+
+Existing recordings and server media are not automatically rewritten or
+re-uploaded. See [chapters and show notes](../../docs/CHAPTERS_AND_NOTES.md) for
+format support, source-link privacy and recovery behavior.
 
 ## First launch and startup
 
@@ -96,10 +115,10 @@ returns to menu-bar-only operation. Closing windows does not stop work.
    every five minutes, when Articles appears or the source changes, and on
    Articles' pull-down gesture. Newest saved items appear first; ties keep discovery
    order and undated entries come last. Automatic admission and processing are
-   controlled by the General preferences; enqueuing and processing — automatic
-   or manual — wait until enabled Publishing finishes checking the existing
-   server audio at the current destination, so already-published work is
-   reconciled rather than regenerated or re-uploaded.
+   controlled by the General preferences. Adding to Queue and Generate Audio,
+   whether automatic or manual, require Publishing to be enabled, configured and
+   reconciled at the current destination. The check recovers already-published
+   work before the queue can generate it again.
    If an entry's address changes, refresh removes its old queued work and cached
    source text once no current entry refers to that address. Published episodes remain.
 
@@ -277,11 +296,19 @@ read back through authenticated WebDAV and its exact contents confirmed.
 **Server Audio** is durable episode history. **Published** means current-destination
 media bytes and feed membership are confirmed. **Upload New Items** appears only
 while shown episodes need upload/publication. Removing an episode retires feed
-membership before remote media deletion. Clicking **×** removes the row immediately,
-without a deletion animation; cleanup continues in the background and the lower
-status bar reports progress. You can delete other items while it runs. Failed
-cleanup returns the affected item with its retry/error state. If Publishing is off
-or unavailable, unfinished server cleanup stays listed rather than remaining hidden.
+membership before remote media deletion. Clicking **×** — or removing a
+selection — makes every accepted target disappear together immediately, without
+a deletion animation; cleanup continues in the background and the lower status
+bar reports progress. Rows stay hidden through refreshes and while cleanup
+finishes. When deleting one at a time, the rows close up as you click. The status
+bar keeps its space as cleanup starts and finishes, and status changes fit on a
+single line in each row. Hover a status for its details. Completed episodes can
+also be deleted while Generate Audio is working. Newly completed episodes appear
+while later articles generate. Queued episodes and those still finishing stay
+protected. If cleanup fails or cannot finish, the affected item returns with an orange
+**Deletion failed** badge with the reason available on hover and to VoiceOver.
+Deleting that row again retries removal. If Publishing is off or unavailable,
+unfinished server cleanup stays listed.
 **Reset Server Audio…** requires confirmation. Source entries and retained text
 are preserved. **Show in Finder** applies only to older remaining local copies.
 

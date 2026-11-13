@@ -132,7 +132,7 @@ public final class NativeMLXBackend: PreparedTTSBackend, Sendable {
                     return .init(index: $0.offset, text: $0.element.text, blockIndices: $0.element.source.blockIndices,
                         boundaryAfter: $0.element.boundaryAfter, origin: $0.element.source.origin,
                         preparedUtterance: $0.element, sourceMappings: $0.element.source.sourceMappings)
-                }, notices: plan.notices, omissions: projection.omissions, documentTitle: projection.documentTitle)
+                }, notices: plan.notices, omissions: projection.omissions, documentTitle: projection.documentTitle, showNotes: projection.showNotes)
             }
         }
     }

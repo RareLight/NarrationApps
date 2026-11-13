@@ -61,6 +61,10 @@ struct ServerFeedItem: Sendable {
     let voice: String?
     let speed: Double?
     var transcripts: [PodcastTranscriptReference] = []
+    var showNotesHTML: String? = nil
+    /// True only when the server item carried a real content:encoded block;
+    /// recovered descriptions must not invent one on re-render.
+    var showNotesHasEncoded: Bool = false
 }
 
 /// Bounded, namespace-aware RSS parser. No external entities, DTDs, title matching,
@@ -76,6 +80,7 @@ final class ServerFeedParser: NSObject, XMLParserDelegate {
     private var channelCount = 0
     private var items: [ServerFeedItem] = []
     private var invalid = false
+    private var encoded: String?
     static func parse(_ data: Data) throws -> [ServerFeedItem] {
         guard data.count <= 4 * 1024 * 1024, let xml = String(data: data, encoding: .utf8),
               !xml.uppercased().contains("<!DOCTYPE"), !xml.uppercased().contains("<!ENTITY") else { throw failure }
@@ -89,7 +94,7 @@ final class ServerFeedParser: NSObject, XMLParserDelegate {
     static var failure: DeliveryError { .fatal("The server feed cannot be safely reconciled. Its files and the local library are unchanged.") }
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?, attributes: [String: String]) {
         path.append(elementName); text = ""
-        if path == ["rss", "channel", "item"] { fields = [:]; enclosure = [:]; identity = [:]; artwork = nil; transcripts = [] }
+        if path == ["rss", "channel", "item"] { fields = [:]; enclosure = [:]; identity = [:]; artwork = nil; transcripts = []; encoded = nil }
         if path == ["rss", "channel", "item", "transcript"], namespaceURI == PodcastTranscriptReference.namespace {
             if let raw = attributes["url"], let url = URL(string: raw), let type = attributes["type"] {
                 let reference = PodcastTranscriptReference(url: url, type: type, language: attributes["language"], rel: attributes["rel"])
@@ -111,11 +116,21 @@ final class ServerFeedParser: NSObject, XMLParserDelegate {
         if path.count == 2 && elementName != "channel" { invalid = true }
     }
     func parser(_ parser: XMLParser, foundCharacters string: String) { text += string }
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) { text += String(decoding: CDATABlock, as: UTF8.self) }
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName: String?) {
         if path.count == 4, path.prefix(3) == ["rss", "channel", "item"],
-           ["guid", "title", "link", "pubDate", "duration", "creator"].contains(elementName) {
+           ["guid", "title", "link", "pubDate", "duration", "creator", "description"].contains(elementName) {
             if fields[elementName] != nil { invalid = true }
             fields[elementName] = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        // Only a real content:encoded child (purl.org content namespace)
+        // marks an item as having an encoded block; impostor namespaces are
+        // ignored, duplicates of the valid element invalidate the item.
+        if path.count == 4, path.prefix(3) == ["rss", "channel", "item"],
+           elementName == "encoded",
+           namespaceURI == "http://purl.org/rss/1.0/modules/content/" {
+            if encoded != nil { invalid = true }
+            encoded = text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         if path == ["rss", "channel", "item"] {
             do { items.append(try item()); if items.count > 10_000 { invalid = true } }
@@ -155,7 +170,9 @@ final class ServerFeedParser: NSObject, XMLParserDelegate {
         if artwork != nil && art == nil { throw Self.failure }
         return ServerFeedItem(id: id, title: title, source: source, date: date, length: length, enclosureURL: url,
             duration: duration, originalIdentity: key, audioHash: hash, savedAt: saved, publishedAt: published, origin: identity["origin"], author: fields["creator"], artwork: art,
-            voice: identity["voice"], speed: speed, transcripts: transcripts)
+            voice: identity["voice"], speed: speed, transcripts: transcripts,
+            showNotesHTML: RecoveredShowNotes.sanitize(encoded ?? fields["description"]),
+            showNotesHasEncoded: encoded != nil)
     }
     func parser(_ parser: XMLParser, foundInternalEntityDeclarationWithName: String, value: String?) { invalid = true; parser.abortParsing() }
     func parser(_ parser: XMLParser, foundExternalEntityDeclarationWithName: String, publicID: String?, systemID: String?) { invalid = true; parser.abortParsing() }
@@ -411,6 +428,12 @@ extension FixtureCoordinator {
                 var references = item.transcripts
                 for reference in episode.transcriptReferences ?? [] where !references.contains(reference) { references.append(reference) }
                 episode.transcriptReferences = references
+                if episode.showNotesAudioHash != proof.hash {
+                    episode.showNotes = nil; episode.chapters = nil
+                }
+                episode.recoveredShowNotesHTML = item.showNotesHTML
+                episode.recoveredShowNotesHasEncoded = item.showNotesHasEncoded
+                episode.showNotesAudioHash = proof.hash
                 episode.audioHash = proof.hash; episode.encodedHash = proof.hash; episode.info = proof.info
                 episode.localAudioReleased = local?.audioHash != proof.hash || !FileManager.default.fileExists(atPath: episode.settings.audio.appendingPathComponent(episode.id + ".m4a").path)
                 episode.audioFinalizationComplete = true

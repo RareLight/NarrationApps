@@ -56,6 +56,10 @@ what changed, and Original Source to inspect retained text.
 
 ## PDF analysis and split words
 
+If a Libro PDF has poor embedded OCR, right-click its queue row, enable **Force
+Fresh OCR**, and open **Preview Text**. The next export uses the same extraction
+choice. [Document intake and OCR](DOCUMENT_PROCESSING.md#intake-and-ocr)
+
 Libro shows a readable PDF preview early while analysis continues. The initial
 page target is rounded-up 5%, capped at five pages; a scanned or empty opening may
 still take time. Closing the preview cancels remaining analysis. Partial results
@@ -99,8 +103,13 @@ Libro exports WAV, M4A, M4B or MP3. VoiceRelay publishes mono AAC-LC/M4A at
 dynamic range compression. Lossy encoding and sample-rate conversion are distinct
 from level adjustment; WAV retains original Float32 samples at the model rate.
 
-A cover choice changes artwork for future output, not existing audio. Preview
-Contents uses authored document navigation; it does not create audiobook chapters.
+A cover choice changes artwork for future output, not existing audio. New
+MP3/M4A/M4B outputs also embed source-derived chapter markers and show notes.
+Libro uses the main authored contents level; VoiceRelay uses article sections.
+Optional **Generate brief summaries** adds an on-device summary for sources no
+larger than 1,500 words and 8,000 UTF-8 bytes. It is metadata, not spoken text;
+unavailable summaries do not prevent export. See
+[chapters and show notes](CHAPTERS_AND_NOTES.md) for formats, limits and privacy.
 No DRM removal, universal PDF layout correction or automatic homograph correction
 is provided.
 

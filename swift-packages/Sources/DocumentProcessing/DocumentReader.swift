@@ -29,14 +29,15 @@ public enum DocumentReader {
         let semantic: SemanticDocument
         switch document.kind {
         case .pdf:
-            semantic = try await PDFDocumentExtractor.extract(data: data, title: title, recognize: recognize,
+            semantic = try await PDFDocumentExtractor.extract(data: data, title: title, forceOCR: document.forcePDFOCR, recognize: recognize,
                 preview: pdfPreview, progress: progress)
         case .epub:
             return try await EPUBDocumentExtractor.extract(data: data, title: title, describeImages: describeImages, progress: progress)
         case .text:
             semantic = try await NarrationPreparationWork.run {
                 let decoded = try DocumentTextDecoder.decode(data, choice: document.textEncoding)
-                return .init(title: title, blocks: try plainTextBlocks(decoded.text), warnings: decoded.warnings, extractorVersion: "Foundation-text-3/encoding-1/paragraphs-1")
+                return .init(title: title, blocks: try plainTextBlocks(decoded.text), warnings: decoded.warnings, extractorVersion: "Foundation-text-3/encoding-1/paragraphs-1",
+                             links: SourceLinks.sanitize(SourceLinks.visibleURLs(in: decoded.text)))
             }
         case .markdown:
             semantic = try await NarrationPreparationWork.run {
@@ -44,13 +45,29 @@ public enum DocumentReader {
                 let text = decoded.text
                 let parsed = try AttributedString(markdown: text, options: .init(interpretedSyntax: .full, failurePolicy: .throwError),
                                                   baseURL: document.source.deletingLastPathComponent())
-                return .init(title: title, blocks: try markdownBlocks(parsed, checkpoint: { try NarrationWorkCheckpoint.check() }), warnings: decoded.warnings, extractorVersion: "Foundation-Markdown-semantic-2/encoding-1/inline-code-1")
+                // Authored link labels win over bare-URL duplicates in sanitize.
+                var linkCandidates: [(label: String, url: String)] = []
+                for run in parsed.runs {
+                    if let url = run.link { linkCandidates.append((String(parsed[run.range].characters), url.absoluteString)) }
+                }
+                linkCandidates += SourceLinks.visibleURLs(in: text)
+                return .init(title: title, blocks: try markdownBlocks(parsed, checkpoint: { try NarrationWorkCheckpoint.check() }), warnings: decoded.warnings, extractorVersion: "Foundation-Markdown-semantic-2/encoding-1/inline-code-1",
+                             links: SourceLinks.sanitize(linkCandidates))
             }
         case .rtf:
             semantic = try await NarrationPreparationWork.run {
                 guard data.starts(with: Data(#"{\rtf"#.utf8)) else { throw DocumentReadError.malformed }
                 let attributed = try NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
-                return .init(title: title, blocks: [.init(kind: .paragraph, text: attributed.string.replacingOccurrences(of: "\u{fffc}", with: ""), origin: .authored)], extractorVersion: "Foundation-RTF-1")
+                var linkCandidates: [(label: String, url: String)] = []
+                attributed.enumerateAttribute(.link, in: NSRange(attributed.string.startIndex..., in: attributed.string)) { value, range, _ in
+                    guard let value else { return }
+                    let label = String(attributed.string[Range(range, in: attributed.string)!])
+                    if let url = value as? URL { linkCandidates.append((label, url.absoluteString)) }
+                    else if let str = value as? String { linkCandidates.append((label, str)) }
+                }
+                linkCandidates += SourceLinks.visibleURLs(in: attributed.string)
+                return .init(title: title, blocks: [.init(kind: .paragraph, text: attributed.string.replacingOccurrences(of: "\u{fffc}", with: ""), origin: .authored)], extractorVersion: "Foundation-RTF-1",
+                             links: SourceLinks.sanitize(linkCandidates))
             }
         }
         guard semantic.blocks.contains(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { throw DocumentReadError.emptyText }

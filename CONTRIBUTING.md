@@ -108,8 +108,9 @@ The containing commit identifies all components; no app SHA pins need updating.
 Each build graph retains its owned manifest and lockfile; see
 [dependency maintenance](docs/DEPENDENCIES.md#maintenance-procedure-and-ownership).
 
-Use native Swift/Apple APIs. Keep MLX helper-only, one worker per app and safe
-Libro priority. Preserve original text/mappings, settings and finished audio.
+Use native Swift/Apple APIs. Keep MLX helper-only and one worker per app. Speech
+priority is VoiceServer, then Libro, then podcasts. Preserve original text/mappings,
+settings and finished audio.
 Never normalize, level, limit or apply gain to audio. Keep models, credentials,
 personal inputs, logs, signing material and recordings out of Git, including its
 history. Use synthetic fixtures. Source publication, service/account operations

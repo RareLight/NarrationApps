@@ -55,13 +55,53 @@ public enum PDFDocumentExtractor {
         // A small first prefix, then doubling prefixes: less than 3 full-document
         // equivalents of provisional planning, with backpressure from the reader.
         var nextPreviewPage = min(5, max(1, (pageCount + 19) / 20))
+        // URL annotations (PDFKit .link actions) plus visible HTTP(S) URLs in
+        // extracted text; never fetch or resolve remote hosts. Scan is
+        // admitted CPU work, cancellable per page, and stops once enough
+        // unique safe URLs exist rather than accumulating the whole book.
+        // Only sanitized UNIQUE candidates are retained; the scan stops as soon
+        // as the link bound is reached rather than accumulating unsafe raw
+        // candidates. Cancellation is checked per page and periodically per
+        // annotation run.
+        let pdfLinkCandidates = try await NarrationPreparationWork.run {
+            var candidates: [(label: String, url: String)] = []
+            var seen = Set<String>()
+            outer: for pageIndex in 0..<owned.document.pageCount {
+                try NarrationWorkCheckpoint.check()
+                for (count, annotation) in (owned.document.page(at: pageIndex)?.annotations ?? []).enumerated() {
+                    if count % 64 == 63 { try NarrationWorkCheckpoint.check() }
+                    guard annotation.type == "Link",
+                          let url = (annotation.action as? PDFActionURL)?.url,
+                          let safe = SourceLinks.sanitize([(url.host ?? "", url.absoluteString)]).first,
+                          seen.insert(safe.url.absoluteString).inserted else { continue }
+                    candidates.append((safe.label, safe.url.absoluteString))
+                    if candidates.count >= SourceLinks.maximumLinks { break outer }
+                }
+            }
+            return candidates
+        }
+        func boundedLinkCandidates() -> [(label: String, url: String)] {
+            guard pdfLinkCandidates.count < SourceLinks.maximumLinks else { return pdfLinkCandidates }
+            var candidates = pdfLinkCandidates
+            var seen = Set(candidates.map(\.url))
+            for block in blocks {
+                for link in SourceLinks.visibleURLs(in: block.text) {
+                    guard seen.insert(link.url).inserted else { continue }
+                    candidates.append(link)
+                    if candidates.count >= SourceLinks.maximumLinks { return candidates }
+                }
+            }
+            return candidates
+        }
         func snapshot(outline: [DocumentOutlineEntry]? = nil, warnings: [String] = []) -> SemanticDocument {
             .init(title: metadataTitle ?? title, author: author, blocks: blocks,
                 warnings: warnings + ["Complex PDF reading order should be reviewed."] +
+                    (forceOCR ? ["Fresh OCR was selected for this PDF. Embedded page text was ignored."] : []) +
                     (ocrPages > 0 ? ["Includes OCR text; review recognition accuracy."] : []) +
                     (tableRecognitionIncomplete ? ["Some image-table content could not be recognized within the analysis limits; narration identifies the original table."] : []) +
                     (geometrySkipped.isEmpty ? [] : ["Layout evidence unavailable for \(geometrySkipped.count) PDF pages; uncertain text is preserved."]),
-                extractorVersion: version, outline: outline)
+                extractorVersion: forceOCR ? version + "/forced-ocr-1" : version, outline: outline,
+                links: SourceLinks.sanitize(boundedLinkCandidates()))
         }
         var ocrElapsed: TimeInterval = 0
         func recognizeImage(_ image: CGImage, context: DocumentPreparationProgress) async throws -> [ContentBlock] {
@@ -81,6 +121,7 @@ public enum PDFDocumentExtractor {
             progress(.init(stage: .extractingText, completed: index, total: pageCount, currentPage: index + 1))
             let (page, text, needsOCR, hasImage, tableGeometry) = try await NarrationPreparationWork.run {
                 guard let page = owned.document.page(at: index) else { throw DocumentReadError.malformed }
+                if forceOCR { return (OwnedPDFPage(page), "", true, false, false) }
                 var text = (page.string ?? "").replacingOccurrences(of: "\u{fffc}", with: "")
                 let authored = alternatives[index] ?? []
                 let authoredKeys = Set(authored.map(NarrationText.normalizeWhitespace))
@@ -89,7 +130,7 @@ public enum PDFDocumentExtractor {
                 let usable = scalars.filter { CharacterSet.alphanumerics.contains($0) }.count
                 let broken = scalars.filter { $0.value == 0xfffd || ($0.value < 32 && !CharacterSet.whitespacesAndNewlines.contains($0)) }.count
                 let image = PDFImageMetadata.hasImage(page)
-                let needsOCR = forceOCR || usable == 0 || (image && usable < 80) || broken * 20 > max(scalars.count, 1)
+                let needsOCR = usable == 0 || (image && usable < 80) || broken * 20 > max(scalars.count, 1)
                 return (OwnedPDFPage(page), text, needsOCR, image,
                         page.rotation == 0 && page.bounds(for: .cropBox) == page.bounds(for: .mediaBox))
             }

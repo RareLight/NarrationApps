@@ -7,6 +7,24 @@ history only - they are not release or distribution acceptance.
 
 ## Unreleased
 
+- Libro can force fresh Apple Vision OCR for individual queued PDFs, including
+  searchable scans with an inaccurate embedded layer.
+- All voices read just the hostname of supported web addresses while retaining
+  the full links and source mappings.
+- VoiceRelay can remove completed Server Audio episodes during generation. Queued
+  and finalizing episodes stay protected. Accepted rows disappear together, and
+  unfinished removals return with a retry badge. The list uses stable row and
+  footer heights so background cleanup does not shift the next delete target.
+- Both apps put pronunciation entry format guidance in the shared info popover.
+  Incomplete and malformed drafts stay unsaved. Duplicate, conflict, storage and
+  preview errors remain visible.
+
+- Libro 0.4.0 / VoiceRelay 0.3.0 development milestone: MP3/M4A/M4B exports and
+  VoiceRelay podcasts gain source-derived embedded chapters
+  with measured audio positions, show notes and safe bulleted source links.
+  Optional on-device Apple Intelligence summaries are limited to 1-3 sentences
+  and 50 words; oversized sources are skipped. Existing recordings are unchanged.
+
 - VoiceServer accepts `response_format: "json"`, a complete-file
   `application/json` envelope (`{"audio": "<base64>", "content_type":
   "audio/mpeg"}`) for clients whose stacks cannot consume binary bodies;

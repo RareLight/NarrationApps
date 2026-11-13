@@ -156,6 +156,9 @@ private struct DeliveryTestBackend: TTSBackend {
     let settings = deliverySettings()
     let result = try await publishReview(storage: storage, delivery: settings)
     var episode = result.episode
+    // Exercises the LEGACY source-fallback description: strip captured notes.
+    episode.showNotes = nil; episode.chapters = nil; episode.showNotesAudioHash = nil
+    episode.recoveredShowNotesHTML = nil; episode.recoveredShowNotesHasEncoded = nil
     let source = URL(string: "https://articles.example/report?one=1&two=two%20words#section")!
     episode.sourceURL = source
     episode.sourceName = "Ars   Technica"
@@ -183,6 +186,8 @@ private struct DeliveryTestBackend: TTSBackend {
     for unsafe in ["file:///private/var/secret.pdf", "javascript:alert(1)", "data:text/html,hi",
                    "not-absolute", "https://user:password@articles.example/secret?token=abc"] {
         var episode = result.episode
+        episode.showNotes = nil; episode.chapters = nil; episode.showNotesAudioHash = nil
+        episode.recoveredShowNotesHTML = nil; episode.recoveredShowNotesHasEncoded = nil
         episode.sourceURL = URL(string: unsafe)
         episode.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/\(episode.id).m4a",
                                         uploadedByteLength: episode.info!.byteLength)
@@ -194,6 +199,8 @@ private struct DeliveryTestBackend: TTSBackend {
         #expect(!feed.contains(unsafe) && !feed.contains("password"))
     }
     var missing = result.episode
+    missing.showNotes = nil; missing.chapters = nil; missing.showNotesAudioHash = nil
+    missing.recoveredShowNotesHTML = nil; missing.recoveredShowNotesHasEncoded = nil
     missing.sourceURL = nil
     missing.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/\(missing.id).m4a",
                                     uploadedByteLength: missing.info!.byteLength)
@@ -209,6 +216,8 @@ private struct DeliveryTestBackend: TTSBackend {
     let channel = try RemoteChannel(settings: settings)
     func noteFor(_ url: String, name: String?) throws -> String {
         var episode = result.episode
+        episode.showNotes = nil; episode.chapters = nil; episode.showNotesAudioHash = nil
+        episode.recoveredShowNotesHTML = nil; episode.recoveredShowNotesHasEncoded = nil
         episode.sourceURL = URL(string: url)
         episode.sourceName = name
         episode.delivery = DeliveryState(status: .uploaded, remotePath: "remote.php/dav/files/user/Podcast Feed/audio/\(episode.id).m4a",
@@ -2181,9 +2190,12 @@ private func transcriptReview(_ path: String, storage: ManagedSpeechStorage, ena
                               interruptAfter: FixtureBoundary? = nil) async throws -> FixtureResult {
     let coordinator = FixtureCoordinator(), review = try deliveryReview(path)
     var preferences = SpeechPreferences(); preferences.timedTranscriptsEnabled = enabled
-    _ = try await coordinator.enqueue(review, storage: storage, preferences: preferences)
-    return try await coordinator.runReviewed(root: storage.stateRoot, review: review, backend: DeliveryTestBackend(),
+    let item = try await coordinator.enqueue(review, storage: storage, preferences: preferences)
+    let result = try await coordinator.runReviewed(root: storage.stateRoot, review: review, backend: DeliveryTestBackend(),
         interruptAfter: interruptAfter, storage: storage, delivery: deliverySettings())
+    // runReviewed bypasses queue admission; consume the row as a completed claim would.
+    try await coordinator.removeFromQueue(item.id, stateRoot: storage.stateRoot)
+    return result
 }
 
 @Test func timedTranscriptCapturesPreferenceSurvivesEncodingResumeAndBackup() async throws {

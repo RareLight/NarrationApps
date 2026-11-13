@@ -47,6 +47,8 @@ public struct ArticleSourceLoader: Sendable {
     private let describeImages: Bool
     private let generateMissingTitles: Bool
     private let titleGenerator: DocumentTitles.Generate?
+    private let generateSummaries: Bool
+    private let summaryGenerator: DocumentSummaryGenerator.Generate?
     private let sourceTitle: String?
     private let narrationOptions: NarrationOptions
     private let speechSettings: SpeechSettings
@@ -57,6 +59,7 @@ public struct ArticleSourceLoader: Sendable {
                 debugLog: DeliveryDebugLog? = nil, imageFetch: ImageFetch? = nil, imageCaption: ImageCaption? = nil,
                 describeImages: Bool = true, speechSettings: SpeechSettings = .init(), pronunciations: PronunciationDictionary = .empty, narrationOptions: NarrationOptions = .init(),
                 sourceTitle: String? = nil, generateMissingTitles: Bool = false, titleGenerator: DocumentTitles.Generate? = nil,
+                generateSummaries: Bool = false, summaryGenerator: DocumentSummaryGenerator.Generate? = nil,
                 hostAdmission: SpeechHostAdmission? = nil, cpuExecutor: (any NarrationCPUExecutor)? = nil) {
         self.hostAdmission = hostAdmission; self.cpuExecutor = cpuExecutor
         self.limits = limits; self.useArchives = useArchives; self.fetch = fetch; self.archiveFetch = archiveFetch
@@ -65,6 +68,7 @@ public struct ArticleSourceLoader: Sendable {
         self.narrationOptions = narrationOptions
         self.describeImages = describeImages; self.speechSettings = speechSettings; self.pronunciations = pronunciations
         self.sourceTitle = sourceTitle; self.generateMissingTitles = generateMissingTitles; self.titleGenerator = titleGenerator
+        self.generateSummaries = generateSummaries; self.summaryGenerator = summaryGenerator
     }
     public func load(_ url: URL, savedAt: Date? = nil, chunkLimit: Int) async throws -> ReviewedSource {
         try await NarrationPreparationWork.$executor.withValue(cpuExecutor ?? NarrationPreparationWork.executor) {
@@ -144,7 +148,25 @@ public struct ArticleSourceLoader: Sendable {
                 }
             }
         }
-        let result = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+        var result = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+        if generateSummaries, narrationOptions.generateSummary, let document = result.document, document.article.summaryAttempted != true {
+            let provider: DocumentSummaryGenerator.Generate? = summaryGenerator ??
+                (fetch == nil && archiveFetch == nil ? DocumentSummaryGenerator.generateOnDevice : nil)
+            let text = try await NarrationPreparationWork.run {
+                document.article.blocks.filter { $0.origin != .generated }.map(\.text).joined(separator: "\n")
+            }
+            let summary = try await DocumentSummaryGenerator.generate(sourceText: text, using: provider)
+            let article: SemanticArticle = {
+                var updated = document.article
+                updated.summary = summary; updated.summaryAttempted = true
+                return updated
+            }()
+            let narration = try await NarrationPreparationWork.run {
+                try Narration.prepare(article, limit: chunkLimit, pronunciations: pronunciations, settings: speechSettings, options: narrationOptions)
+            }
+            result = .init(page: result.page, document: .init(article: article, cleanedHTML: document.cleanedHTML),
+                narration: narration, issue: result.issue, archiveRecoveryFailed: result.archiveRecoveryFailed)
+        }
         try Task.checkCancellation()
         return try await ImageNarration.enrich(result, chunkLimit: chunkLimit,
             nativeEnabled: describeImages && fetch == nil && archiveFetch == nil,

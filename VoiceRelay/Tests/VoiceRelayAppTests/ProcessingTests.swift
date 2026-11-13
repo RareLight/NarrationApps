@@ -1107,20 +1107,117 @@ private final class CommitProbe: @unchecked Sendable {
     #expect(episode.stage == .expired)
 }
 
-@Test @MainActor func savedAudioRemovalBlockedDuringSpeech() async throws {
+@Test @MainActor func completedServerAudioDeletesDuringHeldGeneration() async throws {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let coordinator = FixtureCoordinator()
-    let published = try await coordinator.runReviewed(root: storage.stateRoot, review: article(),
+    let published = try await coordinator.runReviewed(root: storage.stateRoot, review: article("old"),
                                                       backend: SyntheticProvider(), storage: storage)
-    let model = AppModel(storage: storage)
+    let first = try await coordinator.enqueue(article("first"), storage: storage, preferences: SpeechPreferences())
+    let second = try await coordinator.enqueue(article("second"), storage: storage, preferences: SpeechPreferences())
+    let extra = try await coordinator.enqueue(article("extra"), storage: storage, preferences: SpeechPreferences())
+    let provider = GateProvider()
+    let transport = StubDeliveryTransport()
+    let model = AppModel(storage: storage, backend: { episode -> any TTSBackend in
+        episode.id == second.id ? provider : SyntheticProvider()
+    }, deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    try await markPublishingChecked(model, storage: storage)
+    model.queueItems = [first, second, extra]
+    model.refreshLibrary()
+    await model.waitForLibraryRefresh()
+    #expect(model.savedEpisodes.map(\.id) == [published.episode.id])
+    // The refresh-triggered delivery drain must finish before Generate is eligible.
+    await model.waitForDelivery()
+    model.runQueue()
+    #expect(try await awaitMainActor { provider.synthesizeEntered })
+    #expect(model.running && model.processingSpeech)
+    // A completed article becomes manageable while the next one is still synthesizing.
+    #expect(try await awaitMainActor { model.savedEpisodes.contains { $0.id == first.id } })
+    let firstAudio = storage.audioDirectory.appendingPathComponent(first.id + ".m4a")
+    #expect(FileManager.default.fileExists(atPath: firstAudio.path))
+    // Ready queue rows stay removable during the held generation.
+    model.queueSelection = [.episode(extra.id)]
+    model.removeSelectedQueueItems()
+    #expect(try await awaitMainActor { !model.queueItems.contains { $0.id == extra.id } })
+    // Completed episodes delete immediately while synthesis is still blocked.
+    model.savedAudioSelection = [published.episode.id, first.id]
+    model.removeSavedAudio(ids: [published.episode.id, first.id])
+    #expect(model.visibleServerAudio.isEmpty && model.savedAudioSelection.isEmpty)
+    await model.waitForAudioMutation(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    #expect(!provider.finished && model.running && model.processingSpeech)
+    #expect(!FileManager.default.fileExists(atPath: published.audioURL.path))
+    #expect(!FileManager.default.fileExists(atPath: firstAudio.path))
+    #expect(model.error == nil && model.hiddenServerAudioRemovalIDs.isEmpty && model.serverAudioRemovalFailures.isEmpty)
+    provider.openGate()
+    await model.waitForProcessing(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    #expect(provider.finished && !model.running)
+    #expect(model.error == nil)
+    let feed = String(decoding: try Data(contentsOf: storage.profile.feed), as: UTF8.self)
+    #expect(!feed.contains(published.episode.id) && !feed.contains(first.id) && feed.contains(second.id))
+    #expect(try await coordinator.queue(stateRoot: storage.stateRoot).isEmpty)
+    // Retained source text survives the audio removal.
+    let reader = try NativeStore(url: storage.profile.database, readOnly: true)
+    #expect(try reader.snapshot(articleID: published.episode.id) != nil)
+    await model.shutdown()
+}
+
+@Test @MainActor func serverAudioRemovalReturnsFailedRowDuringHeldGeneration() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    let published = try await coordinator.runReviewed(root: storage.stateRoot, review: article("old"),
+                                                      backend: SyntheticProvider(), storage: storage)
+    let gated = try await coordinator.enqueue(article("gated"), storage: storage, preferences: SpeechPreferences())
+    let provider = GateProvider()
+    let model = AppModel(storage: storage, backend: { episode -> any TTSBackend in
+        episode.id == gated.id ? provider : SyntheticProvider()
+    })
+    try await markPublishingChecked(model, storage: storage)
+    model.queueItems = [gated]
+    model.runQueue()
+    #expect(try await awaitMainActor { provider.synthesizeEntered })
+    try Data("Replaced file; do not delete".utf8).write(to: published.audioURL)
+    // refreshLibrary refuses while running; seed the cached row directly.
     model.savedEpisodes = [published.episode]
-    model.processingSpeech = true
-    #expect(!model.canDeleteSavedAudio)
     model.removeSavedAudio(ids: [published.episode.id])
-    #expect(!model.audioMutationBusy)
-    #expect(FileManager.default.fileExists(atPath: published.audioURL.path))
-    model.processingSpeech = false
-    #expect(model.canDeleteSavedAudio)
+    #expect(model.visibleServerAudio.isEmpty)
+    await model.waitForAudioMutation(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    // The substituted file blocks deletion and returns the row while generation continues.
+    #expect(!provider.finished && model.running && model.processingSpeech)
+    #expect(model.error != nil && model.hiddenServerAudioRemovalIDs.isEmpty)
+    let restored = try #require(model.savedEpisodes.first { $0.id == published.episode.id })
+    #expect(model.savedAudioRemovalFailure(restored) != nil && model.savedAudioRemovalStatus(restored) == "Removal needs retry")
+    #expect(try Data(contentsOf: published.audioURL) == Data("Replaced file; do not delete".utf8))
+    provider.openGate()
+    await model.waitForProcessing(); await model.waitForLibraryRefresh()
+    #expect(provider.finished && !model.running)
+    #expect(try Data(contentsOf: published.audioURL) == Data("Replaced file; do not delete".utf8))
+    await model.shutdown()
+}
+
+@Test @MainActor func serverAudioRemovalGuardsQueuedAndUnfinalizedRows() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    let done = try await coordinator.runReviewed(root: storage.stateRoot, review: article("done"),
+                                                 backend: SyntheticProvider(), storage: storage)
+    let other = try await coordinator.runReviewed(root: storage.stateRoot, review: article("other"),
+                                                  backend: SyntheticProvider(), storage: storage)
+    // Even a published-looking record is protected while it occupies a queue row.
+    try NativeStore(url: storage.profile.database).saveQueueItem(
+        SpeechQueueItem(id: done.episode.id, title: done.episode.title))
+    var unfinalized = other.episode; unfinalized.audioFinalizationComplete = false
+    let model = AppModel(storage: storage)
+    model.queueItems = [SpeechQueueItem(id: done.episode.id, title: done.episode.title)]
+    model.savedEpisodes = [done.episode, unfinalized]
+    #expect(!model.canRemoveSavedAudio(done.episode) && !model.canRemoveSavedAudio(unfinalized))
+    model.removeSavedAudio(ids: [done.episode.id, unfinalized.id])
+    #expect(!model.audioMutationBusy && model.hiddenServerAudioRemovalIDs.isEmpty)
+    #expect(model.visibleServerAudio.count == 2 && model.error == nil)
+    #expect(FileManager.default.fileExists(atPath: done.audioURL.path))
+    #expect(FileManager.default.fileExists(atPath: other.audioURL.path))
+    // Without queue membership and once finalized, the same rows are deletable.
+    model.queueItems = []
+    model.savedEpisodes = [done.episode, other.episode]
+    #expect(model.canRemoveSavedAudio(done.episode) && model.canRemoveSavedAudio(other.episode))
+    await model.shutdown()
 }
 
 @Test @MainActor func queuePreviewResolvesSavedSnapshotURL() async throws {
@@ -1469,6 +1566,8 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let coordinator = FixtureCoordinator()
     _ = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
+    _ = try await coordinator.runReviewed(root: storage.stateRoot, review: article("pub"),
+                                        backend: SyntheticProvider(), storage: storage)
     let model = AppModel(storage: storage, enqueueFetch: { _ in throw RelayError.setup("inert test fetch") })
     try await markPublishingChecked(model, storage: storage)
     let notices = model.notices
@@ -1488,7 +1587,7 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     notices.dismiss(message: "Audio cleanup could not finish.", key: "audio")
     notices.dismiss(message: "any failure", key: "global")
     model.savedEpisodes = try await coordinator.library(storage: storage)
-    if let first = model.savedEpisodes.first { model.removeSavedAudio(ids: [first.id]) }
+    if let first = model.savedEpisodes.first(where: { $0.stage == .published }) { model.removeSavedAudio(ids: [first.id]) }
     #expect(notices.isVisible(message: "Audio cleanup could not finish.", key: "audio"))
     #expect(notices.isVisible(message: "any failure", key: "global"))
     await model.waitForAudioMutation()
@@ -2762,8 +2861,10 @@ private actor ServerDeletionGate: DeliveryTransport {
     private var armed = false
     private var held = false
     private var failure = false
+    private var failingDeleteIDs: Set<String> = []
     private var continuation: CheckedContinuation<Void, Never>?
     func arm(failure: Bool) { armed = true; self.failure = failure }
+    func failDeletes(for ids: Set<String>) { failingDeleteIDs.formUnion(ids.map { $0.uppercased() }) }
     func request(_ method: String, url: URL, body: Data?, file: URL?, headers: [String: String]) async throws -> DeliveryResponse {
         if armed && !held && method == "DELETE" {
             held = true
@@ -2774,6 +2875,11 @@ private actor ServerDeletionGate: DeliveryTransport {
             timeout.cancel(); try Task.checkCancellation()
         }
         if method == "DELETE" && failure { return DeliveryResponse(status: 503) }
+        // Match the canonical UUID prefix of the filename so an episode's audio
+        // and transcript deletes fail together.
+        if method == "DELETE", failingDeleteIDs.contains(String(url.deletingPathExtension().lastPathComponent.prefix(36)).uppercased()) {
+            return DeliveryResponse(status: 503)
+        }
         return try await base.request(method, url: url, body: body, file: file, headers: headers)
     }
     func waitUntilHeld() async throws {
@@ -2782,7 +2888,7 @@ private actor ServerDeletionGate: DeliveryTransport {
         guard continuation != nil else { throw RelayError.tool("Synthetic server deletion did not start.") }
     }
     func release() { continuation?.resume(); continuation = nil }
-    func clearFailure() { failure = false }
+    func clearFailure() { failure = false; failingDeleteIDs = [] }
 }
 
 @Test(arguments: [false, true]) @MainActor func serverAudioRemovalHidesImmediatelyAndRestoresOnlyFailures(failDeletion: Bool) async throws {
@@ -2816,12 +2922,13 @@ private actor ServerDeletionGate: DeliveryTransport {
         let failed = try #require(model.savedEpisodes.first)
         #expect(model.visibleServerAudio.map(\.id) == ids && model.hiddenServerAudioRemovalIDs.isEmpty)
         #expect(model.savedAudioRemovalStatus(failed) == "Removal needs retry" && model.canRemoveSavedAudio(failed))
+        #expect(model.savedAudioRemovalFailure(failed) != nil)
         await transport.clearFailure()
         model.removeSavedAudio(ids: ids)
-        #expect(model.visibleServerAudio.isEmpty)
+        #expect(model.visibleServerAudio.isEmpty && model.serverAudioRemovalFailures[failed.id] == nil)
         await model.waitForAudioMutation(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
     }
-    #expect(model.savedEpisodes.isEmpty && model.error == nil)
+    #expect(model.savedEpisodes.isEmpty && model.error == nil && model.serverAudioRemovalFailures.isEmpty)
     model.removeSavedAudio(ids: ids) // Simulate a stale action after the row is removed.
     #expect(model.error == nil && !model.audioMutationBusy)
     await model.shutdown()
@@ -2831,47 +2938,56 @@ private actor ServerDeletionGate: DeliveryTransport {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let coordinator = FixtureCoordinator()
     var results: [FixtureResult] = []
-    for tag in ["one", "two", "three"] {
+    for tag in ["one", "two", "three", "four"] {
         results.append(try await coordinator.runReviewed(root: storage.stateRoot, review: article(tag), backend: SyntheticProvider(), storage: storage))
     }
     let model = AppModel(storage: storage)
     model.savedEpisodes = results.map(\.episode)
     let first = results[0].episode, second = results[1].episode, third = results[2].episode
-    model.savedAudioSelection = [first.id, second.id, third.id]
+    let fourth = results[3].episode
+    let survivors = model.visibleServerAudio.map(\.id).filter { $0 != first.id && $0 != second.id }
+    model.savedAudioSelection = [first.id, second.id, third.id, fourth.id]
     let gate = PublishingPreflightGate(); defer { gate.open() }
     await model.coordinator.setBeforeAudioRemovalLease { if !gate.entered { gate.hold() } }
     model.removeSavedAudio(ids: [first.id])
     try await waitUntil("audio retirement started off the main actor") { gate.entered }
     #expect(!gate.ranOnMainThread && model.canRemoveSavedAudio(second))
     #expect(!model.canDiscardLocalUpload(model.audioState(second)))
-    #expect(Set(model.visibleServerAudio.map(\.id)) == [second.id, third.id])
+    #expect(Set(model.visibleServerAudio.map(\.id)) == [second.id, third.id, fourth.id])
     let heartbeat = Task { @MainActor in true }
     #expect(await heartbeat.value)
     model.removeSavedAudio(ids: [second.id])
     model.removeSavedAudio(ids: [first.id]) // A stale/double click does not enqueue twice.
-    #expect(model.visibleServerAudio.map(\.id) == [third.id])
-    #expect(model.savedAudioSelection == [third.id] && model.mutatingSavedAudioIDs == [first.id, second.id])
+    #expect(model.visibleServerAudio.map(\.id) == survivors)
+    #expect(model.savedAudioSelection == [third.id, fourth.id] && model.mutatingSavedAudioIDs == [first.id, second.id])
     gate.open()
     await model.waitForAudioMutation(); await model.waitForLibraryRefresh()
-    #expect(model.visibleServerAudio.map(\.id) == [third.id] && model.error == nil)
-    #expect(model.savedAudioSelection == [third.id] && model.hiddenServerAudioRemovalIDs.isEmpty)
+    #expect(model.visibleServerAudio.map(\.id) == survivors && model.error == nil)
+    #expect(model.savedAudioSelection == [third.id, fourth.id] && model.hiddenServerAudioRemovalIDs.isEmpty)
     #expect(!FileManager.default.fileExists(atPath: results[0].audioURL.path))
     #expect(!FileManager.default.fileExists(atPath: results[1].audioURL.path))
     #expect(FileManager.default.fileExists(atPath: results[2].audioURL.path))
+    #expect(FileManager.default.fileExists(atPath: results[3].audioURL.path))
     await model.shutdown()
 }
 
 @Test @MainActor func serverAudioRemovalRestoresAnItemWhenLocalOwnershipValidationFails() async throws {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let result = try await FixtureCoordinator().runReviewed(root: storage.stateRoot, review: article(), backend: SyntheticProvider(), storage: storage)
+    var episode = result.episode
+    episode.delivery = DeliveryState(status: .failed, remotePath: "", lastError: "Earlier upload failed.")
+    try NativeStore(url: storage.profile.database).save(episode)
     try Data("Replaced file; do not delete".utf8).write(to: result.audioURL)
     let model = AppModel(storage: storage)
-    model.savedEpisodes = [result.episode]
-    model.removeSavedAudio(ids: [result.episode.id])
+    model.savedEpisodes = [episode]
+    model.removeSavedAudio(ids: [episode.id])
     #expect(model.visibleServerAudio.isEmpty)
     await model.waitForAudioMutation(); await model.waitForLibraryRefresh()
-    #expect(model.visibleServerAudio.map(\.id) == [result.episode.id])
+    #expect(model.visibleServerAudio.map(\.id) == [episode.id])
     #expect(model.error != nil && model.hiddenServerAudioRemovalIDs.isEmpty)
+    let restored = try #require(model.savedEpisodes.first)
+    // The failure detail is the actual deletion reason, not the stale upload error.
+    #expect(model.savedAudioRemovalFailure(restored) == model.error && model.savedAudioRemovalFailure(restored) != "Earlier upload failed.")
     #expect(try Data(contentsOf: result.audioURL) == Data("Replaced file; do not delete".utf8))
     await model.shutdown()
 }
@@ -2906,6 +3022,53 @@ private actor ServerDeletionGate: DeliveryTransport {
     await model.shutdown()
 }
 
+@Test @MainActor func serverAudioBulkRemovalStaysHiddenThroughSnapshotsAndRestoresOnlyFailures() async throws {
+    let (root, original) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let storage = ManagedSpeechStorage(audioDirectory: original.audioDirectory, stateRoot: original.stateRoot,
+        temporaryRoot: original.temporaryRoot, temporaryAudio: true)
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let settings = appDeliverySettings(), transport = ServerDeletionGate(), coordinator = FixtureCoordinator()
+    var episodes: [Episode] = []
+    for tag in ["first", "second", "keep"] {
+        episodes.append(try await coordinator.runReviewed(root: storage.stateRoot, review: article(tag), backend: SyntheticProvider(), storage: storage, delivery: settings).episode)
+    }
+    let model = AppModel(storage: storage, defaults: defaults, deliveryTransport: { transport }, credentialStore: RecordingCredentials(password: "pw"))
+    model.deliverySettings = settings; model.triggerDelivery()
+    await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    let targetIDs = [episodes[0].id, episodes[1].id]
+    await transport.arm(failure: false)
+    await transport.failDeletes(for: [episodes[1].id])
+    defer { Task { await transport.release() } }
+    model.savedAudioSelection = Set(episodes.map(\.id))
+    model.removeSavedAudio(ids: targetIDs)
+    // Synchronous: both accepted targets hidden, unrelated row and selection intact.
+    #expect(model.visibleServerAudio.map(\.id) == [episodes[2].id])
+    #expect(model.savedAudioSelection == [episodes[2].id])
+    await model.waitForAudioMutation(); try await transport.waitUntilHeld()
+    model.refreshLibrary(); await model.waitForLibraryRefresh()
+    #expect(model.visibleServerAudio.map(\.id) == [episodes[2].id])
+    // Transient presentation snapshots must not lose in-flight removal intent.
+    let cache = model.savedEpisodes
+    model.savedEpisodes = []
+    #expect(model.hiddenServerAudioRemovalIDs == Set(targetIDs))
+    model.savedEpisodes = cache
+    #expect(model.visibleServerAudio.map(\.id) == [episodes[2].id])
+    await transport.release(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    // The confirmed removal never returns; the failed one does, marked; the bystander is unaffected.
+    #expect(Set(model.visibleServerAudio.map(\.id)) == Set([episodes[1].id, episodes[2].id]))
+    #expect(!model.savedEpisodes.contains { $0.id == episodes[0].id })
+    let failed = try #require(model.savedEpisodes.first { $0.id == episodes[1].id })
+    #expect(model.savedAudioRemovalFailure(failed) != nil && model.savedAudioRemovalStatus(failed) == "Removal needs retry")
+    let bystander = try #require(model.savedEpisodes.first { $0.id == episodes[2].id })
+    #expect(model.savedAudioRemovalFailure(bystander) == nil && model.savedAudioRemovalStatus(bystander) == nil)
+    await transport.clearFailure()
+    model.removeSavedAudio(ids: [episodes[1].id])
+    #expect(model.visibleServerAudio.map(\.id) == [episodes[2].id] && model.serverAudioRemovalFailures[episodes[1].id] == nil)
+    await model.waitForAudioMutation(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
+    #expect(model.savedEpisodes.map(\.id) == [episodes[2].id] && model.serverAudioRemovalFailures.isEmpty)
+    await model.shutdown()
+}
+
 @Test(arguments: [false, true]) @MainActor func serverAudioRemovalRestoresPendingRowWhenPublishingCannotFinish(publishingDisabled: Bool) async throws {
     let (root, original) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let storage = ManagedSpeechStorage(audioDirectory: original.audioDirectory, stateRoot: original.stateRoot,
@@ -2923,6 +3086,7 @@ private actor ServerDeletionGate: DeliveryTransport {
     await model.waitForAudioMutation(); await model.waitForDelivery(); await model.waitForLibraryRefresh()
     #expect(model.visibleServerAudio.map(\.id) == [result.episode.id])
     #expect((publishingDisabled || model.deliveryError != nil) && model.hiddenServerAudioRemovalIDs.isEmpty)
+    #expect(model.savedAudioRemovalFailure(try #require(model.savedEpisodes.first)) != nil)
     #expect(!transport.calls.contains { $0.method == "DELETE" })
     await model.shutdown()
 }

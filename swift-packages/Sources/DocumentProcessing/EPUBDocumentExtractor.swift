@@ -30,6 +30,7 @@ public enum EPUBDocumentExtractor {
         var queue = try package.spine.map { (try package.readable($0.id), false) }
         var scheduled = Set(queue.map { $0.0.path }), read = Set<String>()
         var warnings: [String] = [], textBytes = 0, position = 0
+        var externalLinkCandidates: [(label: String, url: String)] = []
         if package.spine.contains(where: \.auxiliary) {
             warnings.append("Includes auxiliary spine sections in their declared order; review narration placement.")
         }
@@ -83,6 +84,11 @@ public enum EPUBDocumentExtractor {
             }
             for link in try section.select("a[href]") {
                 let href = try link.attr("href")
+                // Retain authored external links only; epub-internal resources
+                // are rewritten to fragment anchors and never captured.
+                if href.lowercased().hasPrefix("http://") || href.lowercased().hasPrefix("https://") {
+                    externalLinkCandidates.append(((try? link.text()) ?? "", href))
+                }
                 if let reference = try? EPUBContainer.reference(href, relativeTo: item.path) {
                     if let fragment = reference.fragment {
                         if try isNoteReference(link), !scheduled.contains(reference.path) {
@@ -130,7 +136,8 @@ public enum EPUBDocumentExtractor {
         catch { warnings.append("The book outline could not be read; narration retains spine order.") }
         let uniqueWarnings = warnings.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
         return .init(document: .init(title: package.title?.isEmpty == false ? package.title : title, author: package.author,
-                                    blocks: blocks, warnings: uniqueWarnings, extractorVersion: version, outline: outline), images: images)
+                                    blocks: blocks, warnings: uniqueWarnings, extractorVersion: version, outline: outline,
+                                    links: SourceLinks.sanitize(externalLinkCandidates + blocks.flatMap { SourceLinks.visibleURLs(in: $0.text) })), images: images)
     }
 
     private static func svgText(_ xml: String) throws -> String {

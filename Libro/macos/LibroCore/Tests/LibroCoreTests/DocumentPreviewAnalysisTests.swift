@@ -89,6 +89,34 @@ final class DocumentPreviewAnalysisTests: XCTestCase {
         XCTAssertFalse(values[0].isComplete)
     }
 
+    func testForcedOCRReplacesUsableEmbeddedTextInPreviewAndSharedReader() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var input = try pdf(3, at: root)
+        let original = try Data(contentsOf: input.source)
+        let automatic = try await DocumentReader.readSemantic(input, recognize: { _ in
+            XCTFail("Automatic extraction should use the embedded text"); return []
+        })
+        XCTAssertTrue(automatic.blocks.contains { $0.text.contains("comfortable hotel") })
+        input.forcePDFOCR = true
+        let recognized: PDFDocumentExtractor.Recognition = { image in
+            XCTAssertGreaterThan(image.width, 0)
+            return [.init(kind: .paragraph, text: "Fresh synthetic recognition.", origin: .ocr)]
+        }
+        let updates = PreviewUpdates()
+        try await DocumentPreviewAnalysis.run(input, describeImages: false, settings: .init(),
+            pronunciations: .empty, options: .init(), recognize: recognized, update: { await updates.append($0) })
+        let previews = await updates.values
+        XCTAssertEqual(previews.first?.completedPages, 1)
+        let result = try await DocumentReader.readSemantic(input, recognize: recognized)
+        XCTAssertEqual(previews.last?.document, result)
+        XCTAssertEqual(result.blocks.map(\.text), Array(repeating: "Fresh synthetic recognition.", count: 3))
+        XCTAssertEqual(result.blocks.compactMap(\.pdfPageIndex), [0, 1, 2])
+        XCTAssertTrue(result.blocks.allSatisfy { $0.origin == .ocr })
+        XCTAssertTrue(result.warnings.contains { $0.contains("Embedded page text was ignored") })
+        XCTAssertEqual(try Data(contentsOf: input.source), original)
+    }
+
     func testLaterFailureCannotPublishACompletePreview() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

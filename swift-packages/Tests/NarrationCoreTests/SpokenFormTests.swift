@@ -25,7 +25,7 @@ extension SpokenFormTests {
         .init(blocks: [.init(kind: kind, text: text, origin: .authored, resourcePath: "EPUB/chapter.xhtml")], extractorVersion: "fixture")
     }
     func testAdversarialNonmatchesAndSopranoStayUnchanged() throws {
-        for text in ["https://example.org/2kg", "version2.4kg", "2kg/day", "x = 2 kg", "2 kg = x", "x × 2kg", "1/2kg", "1,2kg", "18C", "18 °Celsius", "1e3kg", "1.2.3kg", "12:75 am", "00:30 pm", "13:30 am", "9:30", "`2 kg`", "reader@2kg.example", #"C:\books\2kg"#, "2 kg + 3 kg", "x * 2kg"] {
+        for text in ["version2.4kg", "2kg/day", "x = 2 kg", "2 kg = x", "x × 2kg", "1/2kg", "1,2kg", "18C", "18 °Celsius", "1e3kg", "1.2.3kg", "12:75 am", "00:30 pm", "13:30 am", "9:30", "`2 kg`", "reader@2kg.example", #"C:\books\2kg"#, "2 kg + 3 kg", "x * 2kg"] {
             let plan = try NarrationPlanner.prepareForSpeech(document(text), settings: .init())
             XCTAssertEqual(plan.chunks.map(\.text).joined(separator: " "), text, text)
             XCTAssertNil(plan.chunks.first?.sourceMappings)
@@ -168,7 +168,7 @@ extension SpokenFormTests {
         }
     }
     func testLetterLabelsAbstainInArticlesIdentifiersCodeAndUserOverrides() throws {
-        for source in ["A car and a book.", "A quiet ordinary paragraph.", "I package a book.", "Package Apple.", "Package AB.", "Package A1.", "Package A-file.", "Package A.B.", "Package A.1.", "Package A's contents.", "Repackage A.", "`Package A`", "https://example.org/Package A", "x = Package A"] {
+        for source in ["A car and a book.", "A quiet ordinary paragraph.", "I package a book.", "Package Apple.", "Package AB.", "Package A1.", "Package A-file.", "Package A.B.", "Package A.1.", "Package A's contents.", "Repackage A.", "`Package A`", "x = Package A"] {
             let speech = try NarrationPlanner.prepareForSpeech(document(source), settings: .init())
             XCTAssertEqual(speech.chunks[0].text, source)
             XCTAssertNil(speech.chunks[0].sourceMappings)
@@ -186,5 +186,47 @@ extension SpokenFormTests {
         for locale in ["en_US", "en_GB"] {
             XCTAssertEqual(NarrationPlanner.chunkFingerprintVersion(NarrationPlanner.version + "/spoken-forms-1-" + locale), NarrationPlanner.chunkFingerprintVersion(NarrationPlanner.version + "/spoken-forms-2-" + locale))
         }
+        let current = NarrationPlanner.version(settings: .init())
+        let previous = current.replacingOccurrences(of: SpokenWebAddresses.versionSuffix, with: "")
+        let pathReading = current.replacingOccurrences(of: SpokenWebAddresses.versionSuffix, with: "/web-addresses-1")
+        XCTAssertEqual(NarrationPlanner.chunkFingerprintVersion(current), NarrationPlanner.chunkFingerprintVersion(previous))
+        XCTAssertEqual(NarrationPlanner.chunkFingerprintVersion(current), NarrationPlanner.chunkFingerprintVersion(pathReading))
+        XCTAssertEqual(NarrationOptions.acousticCompatibleVersion(current), NarrationOptions.acousticCompatibleVersion(previous))
+    }
+
+    func testAllModelsReadOnlyWebHostsAndRetainFullURLSourceRanges() throws {
+        let address = "https://archive.example.org:8443/vol-2?page=12#notes"
+        let text = "See \(address). Then visit www.example.org/readMore."
+        let original = document(text)
+        let expected = "See archive dot example dot org. Then visit double you double you double you dot example dot org."
+        let selections = SpeechModel.allCases.map { SpeechSettings(model: $0, voice: $0.defaultVoice) }
+            + [.init(voice: "bf_emma"), .init(model: .qwen3, voice: "Vivian", language: "Chinese")]
+        for settings in selections {
+            let plan = try NarrationPlanner.prepareForSpeech(original, settings: settings)
+            XCTAssertTrue(plan.version.contains(SpokenWebAddresses.versionSuffix))
+            let chunk = try XCTUnwrap(plan.chunks.first)
+            XCTAssertEqual(chunk.text, expected)
+            let mapping = try XCTUnwrap(chunk.sourceMappings?.first { $0.rule == SpokenWebAddresses.rule })
+            let source = try XCTUnwrap(mapping.source)
+            XCTAssertEqual((text as NSString).substring(with: NSRange(location: source.location, length: source.length)), address)
+            XCTAssertEqual(try NarrationPlanner.prepare(original, settings: settings).chunks.map(\.text).joined(separator: " "), expected)
+        }
+        XCTAssertEqual(original.blocks[0].text, text)
+        XCTAssertEqual(try NarrationPlanner.prepareForSpeech(document("HTTPS://MEDIA-2.Example.ORG/Vol2"), settings: .init()).chunks[0].text,
+                       "media dash two dot example dot org")
+        XCTAssertEqual(try NarrationPlanner.prepareForSpeech(document("Read https://user:pass@example.org/path."), settings: .init()).chunks[0].text,
+                       "Read example dot org.")
+        let longPath = String(repeating: "segment/", count: 80)
+        XCTAssertEqual(try NarrationPlanner.prepareForSpeech(document("https://example.org/\(longPath)"), settings: .init()).chunks[0].text,
+                       "example dot org")
+    }
+
+    func testWebAddressRulesLeaveCodeAndPronunciationOverridesAlone() throws {
+        for text in ["`https://example.org/read`", "Read reader@example.org."] {
+            XCTAssertEqual(try NarrationPlanner.prepareForSpeech(document(text), settings: .init()).chunks[0].text, text)
+        }
+        let dictionary = try PronunciationDictionary(entries: [.init(word: "https://example.org", spelling: "the example site")])
+        XCTAssertEqual(try NarrationPlanner.prepareForSpeech(document("See https://example.org."), settings: .init(), pronunciations: dictionary).chunks[0].text, "See the example site.")
+        XCTAssertEqual(try NarrationPlanner.prepareForSpeech(document("https://example.org/Package A"), settings: .init()).chunks[0].text, "example dot org A")
     }
 }

@@ -29,9 +29,12 @@ final class PDFMarginTests: XCTestCase {
     }
     func testLegalNoticesAndURLsRemainEvenWhenRepeatedInMargins() throws {
         for header in ["Copyright 2026 Example", "© All rights reserved", "License terms apply", "https://example.org/book", "Contact reader@example.org"] {
-            let plan = try NarrationPlanner.prepare(document(headers: Array(repeating: header, count: 6)))
+            let original = document(headers: Array(repeating: header, count: 6))
+            let plan = try NarrationPlanner.prepare(original)
             XCTAssertFalse(plan.omissions?.contains { $0.reason == "recurring PDF header" } == true)
-            XCTAssertTrue(plan.chunks.contains { $0.text.contains(header) })
+            let spoken = header.hasPrefix("https://") ? "example dot org" : header
+            XCTAssertTrue(plan.chunks.contains { $0.text.contains(spoken) })
+            XCTAssertTrue(original.blocks.allSatisfy { $0.text.hasPrefix(header) })
         }
     }
     func testUniqueHeadersShortDocumentsAndLegacyProseAbstain() throws {

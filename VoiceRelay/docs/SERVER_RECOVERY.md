@@ -56,6 +56,12 @@ Retiring an old-destination episode after a host/folder change cannot authorize 
 DELETE on the new destination; stale foreign intent from earlier versions is
 discarded during reconciliation. Unrelated remote files remain untouched.
 
+Removing a Safari source clears its cached text and unfinished work after a
+successful refresh. Server copies, feed entries and finished audio awaiting
+upload remain available. Use **Server Audio** to retire a completed episode and
+remove its owned server files after feed confirmation. See the
+[removal actions](USER_GUIDE.md#understand-removal-actions).
+
 ## Failure isolation and efficiency
 
 Each uncertain article gets a sanitized diagnostic and stays available for Retry;

@@ -6,6 +6,7 @@
 | --- | --- |
 | [Libro guide](../README.md) | First run, Start/Pause/Skip/Stop, previews, covers and exports |
 | [Narration settings](../../docs/NARRATION_GUIDE.md) | Voice previews, footnotes, citations, PDF cleanup and limits |
+| [Chapters and show notes](../../docs/CHAPTERS_AND_NOTES.md) | Export formats, chapter selection and optional summaries |
 | [Troubleshooting](TROUBLESHOOTING.md) | Model, encoding, output, memory and Xcode package errors |
 | [Voice selection](native-kokoro-voices.md) | Shared voice metadata, default and sample behavior |
 

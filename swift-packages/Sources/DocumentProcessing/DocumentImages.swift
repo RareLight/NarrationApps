@@ -15,7 +15,7 @@ public enum DocumentImages {
         var blocks = document.blocks, warnings = document.warnings
         var outline = document.outline
         guard caption != nil || ImageDescriptions.available else {
-            return .init(title: document.title, author: document.author, blocks: blocks, warnings: warnings + ["On-device image descriptions are unavailable; authored text is retained."], extractorVersion: document.extractorVersion, outline: outline)
+            return .init(title: document.title, author: document.author, blocks: blocks, warnings: warnings + ["On-device image descriptions are unavailable; authored text is retained."], extractorVersion: document.extractorVersion, outline: outline, links: document.links)
         }
         var seenURLs = Set<URL>(), seenBytes = Set<SHA256.Digest>()
         var attempts = 0, bytesUsed = 0, added = 0, failed = 0
@@ -125,6 +125,6 @@ public enum DocumentImages {
         }
         if added > 0 { warnings.append("Generated image descriptions may contain mistakes; review before narration.") }
         if failed > 0 { warnings.append("Some images could not be described; source text is retained.") }
-        return .init(title: document.title, author: document.author, blocks: blocks, warnings: warnings, extractorVersion: document.extractorVersion, outline: outline)
+        return .init(title: document.title, author: document.author, blocks: blocks, warnings: warnings, extractorVersion: document.extractorVersion, outline: outline, links: document.links)
     }
 }

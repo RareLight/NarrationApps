@@ -18,7 +18,8 @@ public enum ArticleExtractor {
             let article = result.article
             return .init(article: SemanticArticle(title: article.title, originalURL: article.originalURL, finalURL: article.finalURL,
                          canonicalURL: article.canonicalURL, author: article.author, blocks: article.blocks, warnings: article.warnings,
-                         extractorVersion: article.extractorVersion, sourceName: article.sourceName, previewImageURL: article.previewImageURL),
+                         extractorVersion: article.extractorVersion, sourceName: article.sourceName, previewImageURL: article.previewImageURL,
+                         links: article.links),
                          cleanedHTML: result.cleanedHTML)
         } catch { throw RelayError.extraction(error.localizedDescription) }
     }
@@ -42,9 +43,15 @@ public enum Narration {
     public static func prepare(_ article: SemanticArticle, limit: Int, pronunciations: PronunciationDictionary = .empty, settings: SpeechSettings? = nil, purpose: NarrationPlanPurpose = .preview, options: NarrationOptions = .init()) throws -> NarrationPlan {
         let host = article.finalURL.host ?? article.originalURL.host ?? "Unknown source"
         let source = ArticleExtractor.normalize(article.sourceName ?? host)
-        do { return try NarrationPlanner.prepare(.init(title: article.title, blocks: article.blocks, warnings: article.warnings,
-                                                   extractorVersion: article.extractorVersion, outline: article.outline), limit: limit, settings: settings ?? .init(),
-                                            profile: .article(title: article.title, source: source.isEmpty ? host : source), pronunciations: pronunciations, purpose: purpose, options: options)
+        do {
+            let document = SemanticDocument(title: article.title, blocks: article.blocks, warnings: article.warnings,
+                extractorVersion: article.extractorVersion, outline: article.outline, links: article.links)
+            let plan = try NarrationPlanner.prepare(document, limit: limit, settings: settings ?? .init(),
+                profile: .article(title: article.title, source: source.isEmpty ? host : source),
+                pronunciations: pronunciations, purpose: purpose, options: options)
+            var notes = DocumentShowNotes.make(document: document, narrated: Set(plan.chunks.flatMap(\.blockIndices)), style: .article) ?? .init()
+            notes.summary = options.generateSummary ? article.summary : nil
+            return plan.with(showNotes: notes)
         } catch let error as NarrationError { throw RelayError.extraction(error.localizedDescription) }
     }
 }

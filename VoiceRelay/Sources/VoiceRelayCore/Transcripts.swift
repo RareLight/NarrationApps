@@ -1,5 +1,43 @@
 import Foundation
 import AudioOutput
+import NarrationCore
+
+enum EpisodeChapters {
+    /// Artifact positions are measured after resampling and silence compensation.
+    static func make(plan: NarrationPlan, artifactCounts: [Int], timeline: [AudioSegmentTiming]) throws -> (chapters: [AudioChapter], notice: String?) {
+        guard artifactCounts.count == plan.chunks.count, artifactCounts.allSatisfy({ $0 > 0 && $0 <= timeline.count }),
+              artifactCounts.reduce(0, +) == timeline.count,
+              let last = timeline.last, last.sampleRate > 0 else {
+            throw RelayError.artifact("Chapter timing is incomplete.")
+        }
+        var starts: [Int: Double] = [:], position = 0
+        for (chunk, count) in zip(plan.chunks, artifactCounts) {
+            let point = timeline[position]
+            guard point.sampleRate == last.sampleRate, point.endFrame > point.startFrame else { throw RelayError.artifact("Chapter timing is invalid.") }
+            for block in chunk.blockIndices where starts[block] == nil {
+                starts[block] = Double(point.startFrame) / Double(point.sampleRate)
+            }
+            position += count
+        }
+        var entries: [(String, Double)] = []
+        for chapter in plan.showNotes?.chapters ?? [] {
+            guard let time = starts[chapter.blockIndex], time > (entries.last?.1 ?? -1) else { continue }
+            entries.append((chapter.title, time))
+        }
+        guard !entries.isEmpty else { return ([], nil) }
+        if entries[0].1 > 0 { entries.insert((plan.documentTitle ?? "Opening", 0), at: 0) }
+        // If the measured opening would push the list past capacity, the whole
+        // chapter track is omitted: a list whose first marker starts >0 is
+        // never written. The notice belongs to the recording/feed notes.
+        guard entries.count <= AudioMetadataWriter.maximumChapters else {
+            return ([], "Chapter list omitted: \(entries.count) chapter targets exceed the \(AudioMetadataWriter.maximumChapters) chapter limit.")
+        }
+        let end = Double(last.endFrame) / Double(last.sampleRate)
+        return (entries.enumerated().map { index, entry in
+            .init(title: entry.0, startTime: entry.1, endTime: index + 1 < entries.count ? entries[index + 1].1 : end)
+        }, nil)
+    }
+}
 
 /// Standard RSS metadata only. Recovery retains references without fetching
 /// arbitrary transcript URLs or treating them as server-deletion authority.
@@ -170,7 +208,9 @@ extension FixtureCoordinator {
             }
             copy.destinationURL = settings.feedFolderURL; copy.attempts += 1; copy.lastAttemptAt = now
             transcript.delivery = copy; episode.transcript = transcript
-            try store.save(episode) // intent survives cancellation after a PUT
+            // Intent survives cancellation after a PUT; a concurrent removal keeps
+            // its retired record rather than this stale snapshot.
+            guard try savePublishedMutation(store: store, id: episode.id, { $0.transcript = transcript }) else { continue }
             do {
                 try await client.confirmTranscript(transcript, id: episode.id, audioHash: episode.audioHash)
                 let reference = try transcript.reference(id: episode.id, settings: settings)
@@ -198,7 +238,10 @@ extension FixtureCoordinator {
                 if copy.status == .failed { result.failed += 1 } else { result.retrying += 1 }
             }
             transcript.delivery = copy; episode.transcript = transcript
-            try store.save(episode)
+            _ = try savePublishedMutation(store: store, id: episode.id) {
+                $0.transcript = transcript
+                $0.transcriptReferences = episode.transcriptReferences
+            }
         }
     }
 }

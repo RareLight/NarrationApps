@@ -126,7 +126,7 @@ enum PDFArticleExtractor {
             let title = document.title ?? "PDF document"
             let article = SemanticArticle(title: title, originalURL: page.originalURL, finalURL: page.finalURL,
                 canonicalURL: nil, author: document.author, blocks: document.blocks, warnings: document.warnings,
-                extractorVersion: document.extractorVersion, sourceName: page.originalURL.host, outline: document.outline)
+                extractorVersion: document.extractorVersion, sourceName: page.originalURL.host, outline: document.outline, links: document.links)
             let html = try SwiftSoup.parseBodyFragment("")
             try html.title(title)
             for block in document.blocks {

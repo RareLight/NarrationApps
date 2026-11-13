@@ -4,7 +4,9 @@ Both apps have a **Pronunciation** Settings pane. Add a row with **+**, enter th
 word and an English phonetic spelling (for example, `SQLite` → `sequel lite`),
 then use the row's **Play** button. Select a row and use **−** to remove it.
 Valid changes save automatically after a short pause; Save flushes them immediately.
-Incomplete/invalid rows show an explanation and leave the last saved dictionary active.
+Entry format guidance lives in the Pronunciation pane's info button. Unfinished or
+invalid drafts stay unsaved and leave the last saved dictionary active. Duplicate
+entries, edit conflicts, storage failures and preview errors still report a visible error.
 Reload retrieves the shared dictionary and discards local drafts.
 
 Pronunciation is shared across Libro and VoiceRelay for the same macOS user.
@@ -23,6 +25,13 @@ never silently reset. Normal app fixtures and Canvas previews use isolated/inert
 state and do not read the user's dictionary.
 
 ## Matching and narration
+
+All voices read only the hostname of recognized HTTP(S) and `www.` addresses.
+For example, `https://archive.example.org/vol-2` becomes “archive dot example dot
+org.” This preserves subdomains and skips the scheme, port, path, query and
+fragment in speech. The full address stays in source text and link metadata.
+Literal pronunciation overrides take priority. Code and addresses outside the
+supported form keep their existing treatment.
 
 Rules match complete words or literal phrases, without regard to capitalization.
 They respect Unicode letter/number boundaries; `read` does not match `reader`.
@@ -72,7 +81,8 @@ the pane or quitting cancels the preview. One preview runs at a time.
 Previews require a prepared model and idle speech processing in that app. Ordinary
 narration and runtime installation/checks cancel and join an outstanding preview
 before starting their own helper. Quitting also joins owned preview work. The shared
-inference lease still gives Libro priority over background VoiceRelay operations.
+inference lease gives VoiceServer requests priority over Libro, then background
+podcast work.
 The native helper retains its normal memory supervision, closes before playback,
 and removes its private temporary WAV after completion/cancellation/error.
 Missing models are not implicitly downloaded.

@@ -37,6 +37,7 @@ struct DocumentQueueView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(document.source.lastPathComponent).lineLimit(1)
                             if document.textEncoding != .automatic { Text(document.textEncoding.label).appFont(.caption).foregroundStyle(.secondary) }
+                            if document.forcePDFOCR { Text("Fresh OCR").appFont(.caption).foregroundStyle(.secondary) }
                             let folder = (document.relativePath as NSString).deletingLastPathComponent
                             if !folder.isEmpty { Text(folder).appFont(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         }
@@ -102,6 +103,13 @@ struct DocumentQueueView: View {
                         }
                         .disabled(model.busy || model.activeIDs.contains(document.id) ||
                                   (model.outcomes[document.id]?.state == .published && !model.retryQueued.contains(document.id)))
+                    }
+                    if document.kind == .pdf {
+                        Toggle("Force Fresh OCR", isOn: Binding(
+                            get: { model.documents.first(where: { $0.id == document.id })?.forcePDFOCR ?? document.forcePDFOCR },
+                            set: { model.setPDFOCR($0, for: document) }))
+                            .disabled(!model.canSetPDFOCR(document))
+                            .help("Recognize the visible pages with Apple Vision and ignore embedded page text.")
                     }
                     if document.kind == .epub || document.kind == .pdf {
                         Button("Use Book Cover") { model.useBookCover(document) }.disabled(model.busy || model.isGenerating)

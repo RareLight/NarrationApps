@@ -3008,6 +3008,88 @@ private func publishedEpisode(_ tag: String, storage: ManagedSpeechStorage) asyn
     #expect(!FileManager.default.fileExists(atPath: foreignDB.path + "-wal"))
 }
 
+@Test func removeSavedAudioBorrowsOwnedDrainLeaseAndRefusesForeignOwners() async throws {
+    let (root, storage) = try removalStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    let old = try await publishedEpisode("old", storage: storage)
+    _ = try await coordinator.enqueue(try reviewedArticle("queued"), storage: storage, preferences: SpeechPreferences())
+    let gate = GateSpeechBackend()
+    let drain = Task { try await coordinator.drainQueue(storage: storage, backend: { _ in gate }) }
+    #expect(try await awaitCondition { gate.synthesizeEntered })
+    // A different coordinator still competes for the speech worker lease and fails closed.
+    do {
+        _ = try await FixtureCoordinator().removeSavedAudio(ids: [old.episode.id], storage: storage)
+        Issue.record("A competing coordinator removed audio during an owned drain")
+    } catch let error as RelayError {
+        #expect(error.localizedDescription == "Another speech worker is processing this library.")
+    }
+    #expect(FileManager.default.fileExists(atPath: old.audioURL.path))
+    // The owning coordinator borrows its registered pipeline lease and completes removal.
+    let removed = try await coordinator.removeSavedAudio(ids: [old.episode.id], storage: storage)
+    #expect(removed == [old.episode.id])
+    #expect(!FileManager.default.fileExists(atPath: old.audioURL.path))
+    gate.openGate()
+    _ = try await drain.value
+    // The lease is released with the drain; a fresh owner can acquire it again.
+    let reacquired = try PipelineLease(database: storage.profile.database)
+    reacquired.release()
+}
+
+@Test func savePublishedMutationRechecksRetirementUnderWriterContention() async throws {
+    let (root, storage) = try removalStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    let published = try await publishedEpisode("held", storage: storage)
+    let busy = DispatchSemaphore(value: 0)
+    let store = try PipelineStore(databaseURL: storage.profile.database, onWriterBusy: { busy.signal() })
+    var holder: NativeStore? = try NativeStore(url: storage.profile.database)
+    let attempted = Task.detached {
+        try await coordinator.savePublishedMutation(store: store, id: published.episode.id) {
+            $0.localAudioReleased = true
+        }
+    }
+    #expect(awaitSemaphore(busy, timeout: .now() + 2))
+    // While the mutation waits for the metadata writer, another owner retires the record.
+    var retired = published.episode; retired.stage = .expired; retired.manualAudioDeletionRequested = true
+    try holder?.save(retired)
+    holder = nil
+    #expect(try await attempted.value == false)
+    let persisted = try #require(try NativeStore(url: storage.profile.database, readOnly: true)
+        .episodes().first { $0.id == published.episode.id })
+    #expect(persisted.stage == .expired && persisted.manualAudioDeletionRequested == true)
+    #expect(persisted.localAudioReleased != true)
+}
+
+@Test func removeSavedAudioProtectsQueuedAndUnfinalizedTargets() async throws {
+    let (root, storage) = try removalStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator()
+    let done = try await publishedEpisode("done", storage: storage)
+    let hash = try Files.hash(done.audioURL)
+    // A published-looking record is still generation-owned while it occupies a queue row.
+    try NativeStore(url: storage.profile.database).saveQueueItem(
+        SpeechQueueItem(id: done.episode.id, title: done.episode.title))
+    do {
+        _ = try await coordinator.removeSavedAudio(ids: [done.episode.id], storage: storage)
+        Issue.record("Removal proceeded on a queued published record")
+    } catch { #expect(error is RelayError) }
+    #expect(try Files.hash(done.audioURL) == hash)
+    let stillPublished = try #require(try await coordinator.library(storage: storage).first { $0.id == done.episode.id })
+    #expect(stillPublished.stage == .published && stillPublished.manualAudioDeletionRequested != true)
+    // An unfinished finalization flag is equally protected without queue membership.
+    try NativeStore(url: storage.profile.database).execute("DELETE FROM speech_queue WHERE article_id=?", [done.episode.id])
+    var unfinalized = done.episode; unfinalized.audioFinalizationComplete = false
+    try NativeStore(url: storage.profile.database).save(unfinalized)
+    do {
+        _ = try await coordinator.removeSavedAudio(ids: [done.episode.id], storage: storage)
+        Issue.record("Removal proceeded on an unfinalized record")
+    } catch { #expect(error is RelayError) }
+    #expect(try Files.hash(done.audioURL) == hash)
+    // Once finalization completes, the same record is deletable again.
+    var finished = done.episode; finished.audioFinalizationComplete = true
+    try NativeStore(url: storage.profile.database).save(finished)
+    #expect(try await coordinator.removeSavedAudio(ids: [done.episode.id], storage: storage) == [done.episode.id])
+    #expect(!FileManager.default.fileExists(atPath: done.audioURL.path))
+}
+
 @Test func removeSavedAudioEmptySelectionIsNoop() async throws {
     let (root, storage) = try removalStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let coordinator = FixtureCoordinator()

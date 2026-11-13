@@ -14,6 +14,7 @@ public final class LibroBatchRecovery: @unchecked Sendable {
     private struct Document: Codable {
         let id: UUID, source: URL, canonicalSource: URL, destination: URL
         let kind: DocumentKind, encoding: TextFileEncoding
+        let forcePDFOCR: Bool?
         let relativeInput: String, relativeOutput: String
         let replacesExisting: Bool
         let sourceProof: FileProof, destinationProof: FileProof?
@@ -70,7 +71,8 @@ public final class LibroBatchRecovery: @unchecked Sendable {
         var settings = request.settings; settings.savedChoices = nil
         let documents = try request.documents.map { doc in
             Document(id: doc.id, source: doc.input.source, canonicalSource: try OutputPaths.resolved(doc.input.source), destination: doc.destination,
-                kind: doc.input.kind, encoding: doc.input.textEncoding, relativeInput: doc.input.relativePath, relativeOutput: doc.relativeOutput,
+                kind: doc.input.kind, encoding: doc.input.textEncoding, forcePDFOCR: doc.input.forcePDFOCR ? true : nil,
+                relativeInput: doc.input.relativePath, relativeOutput: doc.relativeOutput,
                 replacesExisting: doc.replacesExisting, sourceProof: try Self.proof(doc.input.source),
                 destinationProof: doc.replacesExisting ? try Self.proof(doc.destination) : nil)
         }
@@ -122,7 +124,8 @@ public final class LibroBatchRecovery: @unchecked Sendable {
         let rank = Dictionary(uniqueKeysWithValues: all.enumerated().map { ($1, $0) })
         let sorted = remaining.sorted { rank[$0.id, default: Int.max] < rank[$1.id, default: Int.max] }
         let documents = sorted.map { doc in
-            PlannedDocument(input: .init(source: doc.source, kind: doc.kind, relativePath: doc.relativeInput, id: doc.id, textEncoding: doc.encoding),
+            PlannedDocument(input: .init(source: doc.source, kind: doc.kind, relativePath: doc.relativeInput, id: doc.id, textEncoding: doc.encoding,
+                forcePDFOCR: doc.forcePDFOCR ?? false),
                 destination: doc.destination, relativeOutput: doc.relativeOutput, replacesExisting: doc.replacesExisting)
         }
         let covers = try saved.covers.filter { key, _ in remaining.contains { $0.id == key } }.mapValues { try CoverArtwork(preparedData: $0) }

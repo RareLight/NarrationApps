@@ -25,6 +25,8 @@ public struct NarrationOptionsControls: View {
         _options = options; self.showsExamples = showsExamples
     }
     public var body: some View {
+        Toggle("Generate brief summaries", isOn: $options.generateSummary)
+            .help("Add on-device Apple Intelligence show notes: 1-3 sentences, up to 50 words. Sources over 1,500 words or 8 KB are skipped. Audio still exports if summaries are unavailable.")
         Picker("Footnotes", selection: $options.notes) {
             ForEach(NarrationOptions.NotePlacement.allCases, id: \.self) { Text($0.label).tag($0) }
         }

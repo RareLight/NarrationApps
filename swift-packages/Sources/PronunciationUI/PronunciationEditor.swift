@@ -17,7 +17,8 @@ import Pronunciation
     /// Canvas/test state never touches the real dictionary or runtime.
     public init(inertEntries: [PronunciationEntry]) { store = nil; entries = inertEntries; loaded = true }
     public var dictionary: PronunciationDictionary? { try? validated() }
-    public var validationMessage: String? { do { _ = try validated(); return nil } catch { return error.localizedDescription } }
+    var validationError: Error? { do { _ = try validated(); return nil } catch { return error } }
+    public var validationMessage: String? { validationError?.localizedDescription }
     private func validated() throws -> PronunciationDictionary {
         try PronunciationDictionary(entries: entries.filter { !$0.word.isEmpty || !$0.spelling.isEmpty })
     }
@@ -53,7 +54,9 @@ import Pronunciation
     public func save() {
         guard loaded, !saving, !conflicted, dirty, let store else { return }
         let values: [PronunciationEntry]
-        do { values = try validated().entries } catch { self.error = error.localizedDescription; return }
+        do { values = try validated().entries }
+        catch PronunciationError.invalidEntry { return }
+        catch { self.error = error.localizedDescription; return }
         saving = true
         let expected = revision, version = editVersion
         Task {

@@ -15,6 +15,17 @@ lists and tables; structures replace their child text once, avoiding double read
 Mixed PDFs can use text and OCR on different pages. Complex reading order and OCR
 accuracy still require comparison with the actual document.
 
+For an inaccurate embedded OCR layer in Libro, right-click the queued PDF and
+enable **Force Fresh OCR**. The choice applies to that PDF's previews and future
+batches and is captured for interrupted-batch recovery. PDFKit renders each page
+for Apple Vision's on-device `RecognizeDocumentsRequest`, with automatic language
+detection and language correction. The recognizer supplies the page text.
+PDF bookmarks, links and image descriptions still come from their existing
+sources. The original PDF stays intact. Full-page OCR adds rendering and
+recognition time. The existing OCR budgets still apply, and a failed OCR pass
+does not fall back to the embedded layer. Review the output for missed lines,
+reading order and recognition errors. [Apple Vision document recognition](https://developer.apple.com/videos/play/wwdc2025/272/)
+
 Blocks retain page, EPUB archive resource path and authored/OCR/generated provenance. Footnote references and
 omission notices survive the semantic boundary. Narration resolves known local
 notes at their reference by default, retains unresolved/unreferenced notices conservatively,

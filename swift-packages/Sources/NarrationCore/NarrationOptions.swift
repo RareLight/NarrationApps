@@ -12,13 +12,17 @@ public struct NarrationOptions: Codable, Equatable, Sendable {
     public var experimentalPDFWordJoining: Bool
     public var stripInlineCitations: Bool
     public var stripEndnoteCitations: Bool
+    /// Metadata-only show-notes summary preference; never part of versionSuffix
+    /// or acoustic identity. Decodes as true when absent (default-on).
+    public var generateSummary: Bool
     public init(notes: NotePlacement = .current, includeAuxiliary: Bool = true, experimentalPDFWordJoining: Bool = false,
-                stripInlineCitations: Bool = false, stripEndnoteCitations: Bool = false) {
+                stripInlineCitations: Bool = false, stripEndnoteCitations: Bool = false, generateSummary: Bool = true) {
         self.notes = notes; self.includeAuxiliary = includeAuxiliary
         self.experimentalPDFWordJoining = experimentalPDFWordJoining
         self.stripInlineCitations = stripInlineCitations; self.stripEndnoteCitations = stripEndnoteCitations
+        self.generateSummary = generateSummary
     }
-    private enum CodingKeys: String, CodingKey { case notes, includeAuxiliary, experimentalPDFWordJoining, stripInlineCitations, stripEndnoteCitations }
+    private enum CodingKeys: String, CodingKey { case notes, includeAuxiliary, experimentalPDFWordJoining, stripInlineCitations, stripEndnoteCitations, generateSummary }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         notes = try values.decodeIfPresent(NotePlacement.self, forKey: .notes) ?? .current
@@ -26,6 +30,7 @@ public struct NarrationOptions: Codable, Equatable, Sendable {
         experimentalPDFWordJoining = try values.decodeIfPresent(Bool.self, forKey: .experimentalPDFWordJoining) ?? false
         stripInlineCitations = try values.decodeIfPresent(Bool.self, forKey: .stripInlineCitations) ?? false
         stripEndnoteCitations = try values.decodeIfPresent(Bool.self, forKey: .stripEndnoteCitations) ?? false
+        generateSummary = try values.decodeIfPresent(Bool.self, forKey: .generateSummary) ?? true
     }
     public func encode(to encoder: any Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
@@ -34,6 +39,7 @@ public struct NarrationOptions: Codable, Equatable, Sendable {
         if experimentalPDFWordJoining { try values.encode(true, forKey: .experimentalPDFWordJoining) }
         if stripInlineCitations { try values.encode(true, forKey: .stripInlineCitations) }
         if stripEndnoteCitations { try values.encode(true, forKey: .stripEndnoteCitations) }
+        if !generateSummary { try values.encode(false, forKey: .generateSummary) }
     }
     public var versionSuffix: String {
         "/notes-" + notes.rawValue + (includeAuxiliary ? "/aux-included" : "/aux-excluded") +
@@ -45,6 +51,8 @@ public struct NarrationOptions: Codable, Equatable, Sendable {
         // policy 1's existing backend identity for identical completed requests.
         var result = value.replacingOccurrences(of: "/document-structure-1", with: "")
             .replacingOccurrences(of: "/scientific-text-2", with: "/scientific-text-1")
+            .replacingOccurrences(of: "/web-addresses-1", with: "")
+            .replacingOccurrences(of: SpokenWebAddresses.versionSuffix, with: "")
         for mode in NotePlacement.allCases { result = result.replacingOccurrences(of: "/notes-" + mode.rawValue, with: "") }
         return result.replacingOccurrences(of: "/aux-included", with: "").replacingOccurrences(of: "/aux-excluded", with: "")
             .replacingOccurrences(of: "/pdf-word-joins-readium-1", with: "")

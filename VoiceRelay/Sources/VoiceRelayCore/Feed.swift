@@ -1,4 +1,6 @@
 import Foundation
+import NarrationCore
+import SwiftSoup
 #if canImport(FoundationXML)
 import FoundationXML
 #endif
@@ -40,6 +42,27 @@ enum RSS {
         }.joined()
     }
     private static func sourceMetadata(_ episode: Episode) -> String {
+        if episode.showNotesAudioHash == episode.audioHash, episode.showNotesAudioHash != nil {
+            let source = episode.sourceURL.flatMap { (try? ArticleURL.validate($0)) == nil ? nil : $0 }
+            let html: String?
+            var encoded = false
+            if let notes = episode.showNotes {
+                encoded = true
+                html = ShowNotesText.html(summary: notes.summary, sourceTitle: episode.sourceName ?? source?.host,
+                    sourceURL: source?.absoluteString, chapters: (episode.chapters ?? []).map { ($0.title, $0.startTime) }, links: notes.links)
+            } else {
+                html = episode.recoveredShowNotesHTML
+                encoded = episode.recoveredShowNotesHasEncoded == true
+            }
+            // Only emit content:encoded for locally generated notes or items
+            // that actually carried it; a description-only legacy feed must
+            // round-trip unchanged.
+            if let html {
+                return (source.map { "<link>\(escaped($0.absoluteString))</link>" } ?? "") +
+                    "<description>\(escaped(html))</description>" +
+                    (encoded ? "<content:encoded>\(escaped(html))</content:encoded>" : "")
+            }
+        }
         guard let source = episode.sourceURL, (try? ArticleURL.validate(source)) != nil else { return "" }
         let url = escaped(source.absoluteString)
         var name = episode.sourceName.map { ArticleExtractor.normalize($0) } ?? ""
@@ -52,7 +75,7 @@ enum RSS {
     }
     static func render(_ episodes: [Episode], settings: PrototypeProfile) throws -> Data {
         try settings.validate()
-        var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:podcast=\"\(PodcastTranscriptReference.namespace)\" xmlns:atom=\"http://www.w3.org/2005/Atom\"><channel>"
+        var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:content=\"http://purl.org/rss/1.0/modules/content/\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:podcast=\"\(PodcastTranscriptReference.namespace)\" xmlns:atom=\"http://www.w3.org/2005/Atom\"><channel>"
         xml += "<title>\(escaped(settings.channelTitle))</title><link>\(escaped(settings.feedURL.absoluteString))</link><description>\(escaped(settings.channelDescription))</description><language>\(escaped(settings.language))</language><itunes:block>yes</itunes:block>"
         xml += "<atom:link href=\"\(escaped(settings.feedURL.absoluteString))\" rel=\"self\" type=\"application/rss+xml\"/>"
         let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX"); date.timeZone = TimeZone(secondsFromGMT: 0)
@@ -84,7 +107,7 @@ enum RSS {
     /// blocks feed updates. An uploaded record that is internally inconsistent
     /// indicates corruption and fails the render instead.
     static func renderRemote(_ episodes: [Episode], channel: RemoteChannel) throws -> Data {
-        var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:podcast=\"\(PodcastTranscriptReference.namespace)\" xmlns:atom=\"http://www.w3.org/2005/Atom\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:vr=\"\(ServerRecoveryIdentity.namespace)\"><channel>"
+        var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:content=\"http://purl.org/rss/1.0/modules/content/\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:podcast=\"\(PodcastTranscriptReference.namespace)\" xmlns:atom=\"http://www.w3.org/2005/Atom\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:vr=\"\(ServerRecoveryIdentity.namespace)\"><channel>"
         xml += "<title>\(escaped(channel.title))</title><link>\(escaped(channel.feedURL.absoluteString))</link><description>\(escaped(channel.description))</description><language>\(escaped(channel.language))</language><itunes:block>yes</itunes:block>"
         xml += "<atom:link href=\"\(escaped(channel.feedURL.absoluteString))\" rel=\"self\" type=\"application/rss+xml\"/>"
         let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX"); date.timeZone = TimeZone(secondsFromGMT: 0)
@@ -121,6 +144,31 @@ enum RSS {
         let data = Data(xml.utf8)
         guard XMLParser(data: data).parse() else { throw RelayError.artifact("Generated RSS is not valid XML.") }
         return data
+    }
+}
+
+/// Retain safe standard show notes during server recovery without fetching links
+/// or trusting server HTML as executable markup.
+enum RecoveredShowNotes {
+    static func sanitize(_ html: String?) -> String? {
+        guard let html, html.utf8.count <= ShowNotesText.maximumBytes,
+              let document = try? SwiftSoup.parseBodyFragment(html), let body = document.body() else { return nil }
+        func render(_ node: Node, depth: Int) throws -> String {
+            guard depth < 32 else { return "" }
+            if let text = node as? TextNode { return RSS.escaped(text.getWholeText()) }
+            guard let element = node as? Element else { return "" }
+            let tag = element.tagName()
+            if ["script", "style", "iframe", "object", "embed", "img"].contains(tag) { return "" }
+            let content = try element.getChildNodes().map { try render($0, depth: depth + 1) }.joined()
+            if tag == "a", let link = SourceLinks.sanitize([("", try element.attr("href"))]).first {
+                return "<a href=\"\(RSS.escaped(link.url.absoluteString))\">\(content)</a>"
+            }
+            if ["p", "ul", "ol", "li", "strong", "em"].contains(tag) { return "<\(tag)>\(content)</\(tag)>" }
+            if tag == "br" { return "<br/>" }
+            return content
+        }
+        guard let result = try? render(body, depth: 0), result.utf8.count <= ShowNotesText.maximumBytes else { return nil }
+        return result
     }
 }
 

@@ -1,8 +1,7 @@
 # Settings ownership and shared presentation
 
-Settings alignment is implemented; ownership below was reviewed October 21, 2026.
-Implementation-stage evidence is historical; the only current manual tests are in the
-[consolidated checklist](OPERATOR_VALIDATION.md).
+Settings ownership was reviewed November 12, 2026. Manual checks are in the
+[operator checklist](OPERATOR_VALIDATION.md).
 
 | Owner | Shared responsibility |
 | --- | --- |
@@ -22,11 +21,14 @@ buttons use a centered 75% of the window width in both apps. The list uses a sof
 gray rounded background with native row selection, adapting to light/dark appearance.
 Future document text controls belong in Document.
 Main-window speech, Download and export choices remain part of its batch workflow; Models owns downloaded-model inventory, deletion, storage overrides and offline checks and Troubleshooting owns the separate embedded-helper check.
-VoiceRelay has General, Voice Model, Pronunciation, Publishing and Troubleshooting.
+VoiceRelay has General, Voice Model, Pronunciation, Publishing, VoiceServer and
+Troubleshooting, in that order.
 Voice Model owns model/voice selection, samples, guidance, downloads, storage and
 offline setup checks. General owns Reading List, automation, optional login startup
-and the default-on timed episode transcript choice; Publishing owns credentials/destination/channel,
-and Troubleshooting owns library backup/review and sanitized session logs.
+and the default-on timed episode transcript choice. Publishing owns podcast
+credentials, destination and channel details. VoiceServer owns private listener
+setup, bearer keys and response modes. Troubleshooting owns library backup,
+review and sanitized session logs.
 
 The shared model chooser pins Model and Voice to common label/field columns,
 including Chatterbox reference selection. Only the selected model's controls
@@ -78,8 +80,9 @@ cache/default selection is unchanged.
 New Kokoro settings share Heart at 1.0×; valid existing saved values remain intact.
 Text-size preferences stay app-owned; the pronunciation dictionary is shared.
 The entire pronunciation pane is the single `PronunciationUI.PronunciationSettingsView`
-used by both apps, not an app-local copy. Its matching/preservation explanation lives
-in the shared AppPresentation ⓘ section-help popover, leaving the editor uncluttered.
+used by both apps. The shared AppPresentation ⓘ popover explains matching and
+entry format. Incomplete or malformed drafts remain unsaved. Duplicate entries,
+conflicts, storage errors and preview errors retain visible feedback.
 Whole Settings panes or sections can be shared views with app-supplied bindings,
 preview configuration and action closures; persistence and lifecycle stay app-owned.
 Image-description choices affect future preparation, preserve authored ALT/OCR and
@@ -104,6 +107,11 @@ These controls also offer **Join split words in PDFs (experimental)**, off by
 default and captured with future jobs. Both apps use the same source-mapped
 PDF rule. English dictionary checks preserve recognized compound hyphens and leave
 unknown spellings unchanged; unsupported layouts and non-PDF inputs retain their text.
+
+**Generate brief summaries** defaults on in both apps. Libro places it in
+Document, and VoiceRelay in General → Document Narration. Eligible new sources
+can receive a short on-device summary in their export metadata. See
+[chapters and show notes](CHAPTERS_AND_NOTES.md#brief-on-device-summaries).
 
 Libro's per-document Cover Art selection lives with its document queue/export
 workflow. VoiceRelay's Podcast Cover lives beside channel details in Publishing.

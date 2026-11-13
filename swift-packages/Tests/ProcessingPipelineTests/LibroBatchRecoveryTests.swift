@@ -309,4 +309,22 @@ final class LibroBatchRecoveryTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(try recovery.resumeRequest().textPreparationWorkers, 1)
     }
 
+    func testPerDocumentPDFOCRChoiceSurvivesBatchRecovery() throws {
+        let fixture = try Fixture.make(count: 2); defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let old = fixture.request
+        let inputs = try old.documents.enumerated().map { index, document in
+            let source = document.input.source.deletingPathExtension().appendingPathExtension("pdf")
+            try Data("Synthetic source fingerprint \(index)".utf8).write(to: source)
+            return InputDocument(source: source, kind: .pdf, relativePath: source.lastPathComponent, forcePDFOCR: index == 0)
+        }
+        let plans = try BatchPlanner.plan(inputs, output: old.outputDirectory, format: .wav)
+        let request = BatchRequest(documents: plans, outputDirectory: old.outputDirectory, workspace: old.workspace, settings: old.settings)
+        do {
+            let capture = try LibroBatchRecovery(directory: fixture.directory, request: request)
+            try capture.validateBinding(request)
+        }
+        let reopened = try LibroBatchRecovery(reopening: fixture.directory)
+        XCTAssertEqual(try reopened.resumeRequest().documents.map(\.input.forcePDFOCR), [true, false])
+    }
+
 }

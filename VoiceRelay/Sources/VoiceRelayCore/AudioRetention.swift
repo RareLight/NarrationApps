@@ -98,8 +98,8 @@ extension FixtureCoordinator {
         let episodes = try libraryMetadata(storage: storage)
         let settings = try settings.normalized()
         let summary = try deliverySummary(stateRoot: storage.stateRoot, settings: settings)
-        let store = try NativeStore(url: storage.profile.database)
-        for var episode in episodes where episode.stage == .published {
+        let store = try PipelineStore(databaseURL: storage.profile.database)
+        for episode in episodes where episode.stage == .published {
             guard episode.localAudioDiscarded != true else { continue }
             guard episode.audioFinalizationComplete != false,
                   episode.settings.temporaryAudio != true || episode.audioFinalizationComplete == true,
@@ -111,7 +111,9 @@ extension FixtureCoordinator {
                 let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
                 if temporaryAudioIsMissing(episode) || audioAvailability(episode) == .missing {
                     if episode.localAudioReleased != true || episode.localCleanupNotice != nil {
-                        episode.localAudioReleased = true; episode.localCleanupNotice = nil; try store.save(episode)
+                        _ = try savePublishedMutation(store: store, id: episode.id) {
+                            $0.localAudioReleased = true; $0.localCleanupNotice = nil
+                        }
                     }
                     continue
                 }
@@ -125,15 +127,17 @@ extension FixtureCoordinator {
                     throw RelayError.artifact("The server copy is verified, but the local file differs. The local file was retained.")
                 }
                 let identity = try verifiedAudioIdentity(file: file, episode: episode)
-                episode.localAudioReleased = true
-                try store.save(episode)
+                guard try savePublishedMutation(store: store, id: episode.id, { $0.localAudioReleased = true }) else { continue }
                 try deleteOwnedAudio(episode, known: (file, identity), fm: .default)
-                if episode.localCleanupNotice != nil { episode.localCleanupNotice = nil; try store.save(episode) }
+                if episode.localCleanupNotice != nil {
+                    _ = try savePublishedMutation(store: store, id: episode.id) { $0.localCleanupNotice = nil }
+                }
             } catch is CancellationError { throw CancellationError() }
             catch {
                 if !continueOnFailure { throw error }
-                episode.localCleanupNotice = "The server copy is confirmed, but the local file could not be safely verified for cleanup. Nothing was deleted; review this item in Upload Queue."
-                try store.save(episode)
+                _ = try savePublishedMutation(store: store, id: episode.id) {
+                    $0.localCleanupNotice = "The server copy is confirmed, but the local file could not be safely verified for cleanup. Nothing was deleted; review this item in Upload Queue."
+                }
                 debugLog?.record(.localCleanupFailed)
             }
         }
@@ -157,8 +161,9 @@ extension FixtureCoordinator {
         let pending = try store.query("SELECT pending FROM feed_status WHERE singleton=1").first?.first == "1"
         guard !changed.isEmpty || pending else { return [] }
         if !changed.isEmpty { try retireEpisodes(changed, store: store, stateRoot: storage.stateRoot) }
-        let changedIDs = Set(changed.map(\.id))
-        let remaining = episodes.filter { $0.stage == .published && !changedIDs.contains($0.id) }
+        // Re-read at render time: retirement commits before unlink, so live published
+        // records always still own their files even if a removal raced this snapshot.
+        let remaining = try store.episodes(resolveSnapshots: false).filter { $0.stage == .published }
         let settings = remaining.first?.settings ?? episodes[0].settings
         do {
             let feed = try RSS.render(remaining, settings: settings)
@@ -314,23 +319,44 @@ extension FixtureCoordinator {
         } catch is CancellationError { throw CancellationError() }
         catch { throw error } // Persisted item notice remains; unrelated work can continue.
     }
+    /// Queue membership recorded for an item under the same metadata writer that
+    /// commits retirement protects in-flight/finalizing work on the fresh record too.
+    private func queuedArticleIDs(_ store: NativeStore) throws -> Set<String> {
+        guard try store.query("SELECT name FROM sqlite_master WHERE type='table' AND name='speech_queue'").isEmpty == false else { return [] }
+        return Set(try store.query("SELECT article_id FROM speech_queue").map { $0[0] })
+    }
     public func removeSavedAudio(ids: [String], storage: ManagedSpeechStorage) throws -> [String] {
         guard !ids.isEmpty else { return [] }
         try Task.checkCancellation()
         _ = try libraryMetadata(storage: storage)
         beforeAudioRemovalLease?()
-        let lease = try PipelineLease(database: storage.profile.database)
-        defer { lease.release() }
+        // A removal in this coordinator's own drain library borrows the speech worker's
+        // lease; any other owner still fails closed instead of competing.
+        let rootKey = storage.stateRoot.resolvingSymlinksInPath().standardizedFileURL.path
+        var lease: PipelineLease?
+        if let pipeline = activeSpeechPipelines[rootKey] {
+            try pipeline.ensureLease(storage.profile.database)
+        } else {
+            lease = try PipelineLease(database: storage.profile.database)
+        }
+        defer { lease?.release() }
+        // Fresh snapshot and file-ownership verification outside the metadata writer,
+        // so generation's short writes keep their retry windows.
         let episodes = try libraryMetadata(storage: storage)
-        let store = try NativeStore(url: storage.profile.database)
         let targetIDs = Set(ids)
         let targets = episodes.filter { targetIDs.contains($0.id) }
         guard targets.count == targetIDs.count else {
             throw RelayError.setup("A selected item is no longer in the saved library. Reopen Server Audio and try again.")
         }
+        let queued = try queuedArticleIDs(NativeStore(url: storage.profile.database, readOnly: true))
         var files: [String: (file: URL, identity: stat)] = [:]
         var retired: [String] = []
         for episode in targets {
+            // Queued rows and still-finalizing outputs are generation-owned work, never
+            // removal targets; a stale saved list cannot resurrect this authority.
+            guard !queued.contains(episode.id), episode.audioFinalizationComplete != false else {
+                throw RelayError.setup("A selected item is still queued or finishing. Remove it from Queue or wait for generation to finish before deleting.")
+            }
             guard episode.stage == .published || (episode.stage == .expired && (episode.manualAudioDeletionRequested != nil
                 || ((episode.settings.temporaryAudio == true || episode.localAudioReleased == true) && episode.delivery?.remotePath.isEmpty == false))),
                   let info = episode.info, info.byteLength > 0, episode.audioHash != nil else {
@@ -352,35 +378,79 @@ extension FixtureCoordinator {
                 files[episode.id] = (file: file, identity: try verifiedAudioIdentity(file: file, episode: episode))
             }
         }
-        let retiredIDs = Set(retired)
-        var intent = targets.filter { !retiredIDs.contains($0.id) }
-        guard !intent.isEmpty else { return retired }
-        for index in intent.indices {
-            intent[index].stage = .expired
-            intent[index].manualAudioDeletionRequested = true
+        let verified = Dictionary(uniqueKeysWithValues: targets.map { ($0.id, $0) })
+        let store = try PipelineStore(databaseURL: storage.profile.database)
+        var intent: [Episode] = []
+        // Short retirement transaction: re-read current records and queue membership so
+        // intent commits only when the verified identity still matches live state.
+        retired = try store.writing { writer in
+            let current = try writer.episodes(resolveSnapshots: false)
+            let fresh = current.filter { targetIDs.contains($0.id) }
+            guard fresh.count == targetIDs.count else {
+                throw RelayError.setup("A selected item is no longer in the saved library. Reopen Server Audio and try again.")
+            }
+            let queuedNow = try queuedArticleIDs(writer)
+            var freshRetired: [String] = []
+            for episode in fresh {
+                let checked = verified[episode.id]!
+                guard episode.audioHash == checked.audioHash, episode.info?.byteLength == checked.info?.byteLength,
+                      Files.samePath(episode.settings.audio, checked.settings.audio),
+                      episode.info != nil, (episode.info?.byteLength ?? 0) > 0,
+                      !queuedNow.contains(episode.id), episode.audioFinalizationComplete != false else {
+                    throw RelayError.artifact("A selected item changed while it was being removed. Nothing was deleted; reopen Server Audio.")
+                }
+                guard episode.stage == .published || (episode.stage == .expired && (episode.manualAudioDeletionRequested != nil
+                    || ((episode.settings.temporaryAudio == true || episode.localAudioReleased == true) && episode.delivery?.remotePath.isEmpty == false))) else {
+                    throw RelayError.artifact("A selected item is not finalized saved audio. Reopen Server Audio and try again.")
+                }
+                if episode.stage == .expired && episode.manualAudioDeletionRequested == false {
+                    freshRetired.append(episode.id); continue
+                }
+                var retiring = episode
+                retiring.stage = .expired; retiring.manualAudioDeletionRequested = true
+                intent.append(retiring)
+            }
+            guard !intent.isEmpty else { return freshRetired }
+            try retireEpisodes(intent, store: writer, stateRoot: storage.stateRoot)
+            return freshRetired
         }
-        try retireEpisodes(intent, store: store, stateRoot: storage.stateRoot)
+        guard !intent.isEmpty else { return retired }
+        // Feed membership retires before local bytes; snapshot/render/replace/mark share one writer.
         let settings = episodes.first(where: { $0.stage == .published && !targetIDs.contains($0.id) })?.settings
             ?? episodes[0].settings
-        let feed = try RSS.render(episodes.filter { $0.stage == .published && !targetIDs.contains($0.id) }, settings: settings)
-        try writeLocalFeed(feed, to: storage.profile.feed)
+        try store.rebuildLocalFeed(settings: settings)
         let fm = FileManager.default
-        var finalized: [Episode] = [], removed: [String] = retired
-        for var episode in intent {
+        var removed: [String] = retired
+        for episode in intent {
             try Task.checkCancellation()
             try deleteOwnedAudio(episode, known: files[episode.id], fm: fm)
-            episode.manualAudioDeletionRequested = false
-            finalized.append(episode); removed.append(episode.id)
+            removed.append(episode.id)
         }
-        try store.execute("BEGIN IMMEDIATE")
-        do {
-            for episode in finalized {
-                try store.execute("UPDATE episodes SET record=? WHERE id=?",
-                    [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
-            }
-            try store.execute("COMMIT")
-        } catch { try? store.execute("ROLLBACK"); throw error }
-        try store.markFeed(Files.hash(feed))
+        // Complete removal on the records current at write time, preserving delivery
+        // fields that may have landed since the verified snapshot. A record that is
+        // no longer the same retired item fails closed rather than losing intent.
+        try store.writing { writer in
+            try writer.execute("BEGIN IMMEDIATE")
+            do {
+                for episodeID in intent.map(\.id) {
+                    guard let raw = try writer.query("SELECT record FROM episodes WHERE id=?", [episodeID]).first?.first else {
+                        throw RelayError.artifact("A removed item's record could not be confirmed; reopen Server Audio to reconcile.")
+                    }
+                    var current = try JSONDecoder().decode(Episode.self, from: Data(raw.utf8))
+                    guard let snapshot = verified[episodeID], current.stage == .expired,
+                          current.audioHash == snapshot.audioHash,
+                          current.info?.byteLength == snapshot.info?.byteLength,
+                          Files.samePath(current.settings.audio, snapshot.settings.audio) else {
+                        throw RelayError.artifact("A removed item's record changed during removal; reopen Server Audio to reconcile.")
+                    }
+                    guard current.manualAudioDeletionRequested != false else { continue }
+                    current.manualAudioDeletionRequested = false
+                    try writer.execute("UPDATE episodes SET record=? WHERE id=?",
+                        [String(decoding: try Files.json(current), as: UTF8.self), episodeID])
+                }
+                try writer.execute("COMMIT")
+            } catch { try? writer.execute("ROLLBACK"); throw error }
+        }
         return removed
     }
     public func resumePendingAudioRemovals(storage: ManagedSpeechStorage) throws -> [String] {

@@ -41,9 +41,12 @@ public struct SemanticDocument: Codable, Sendable, Equatable {
     public let warnings: [String]
     public let extractorVersion: String
     public let outline: [DocumentOutlineEntry]?
-    public init(title: String? = nil, author: String? = nil, blocks: [ContentBlock], warnings: [String] = [], extractorVersion: String, outline: [DocumentOutlineEntry]? = nil) {
+    /// Authored source links captured by extractors; metadata only.
+    public let links: [DocumentSourceLink]?
+    public init(title: String? = nil, author: String? = nil, blocks: [ContentBlock], warnings: [String] = [], extractorVersion: String, outline: [DocumentOutlineEntry]? = nil, links: [DocumentSourceLink]? = nil) {
         self.outline = outline
         self.title = title; self.author = author; self.blocks = blocks; self.warnings = warnings; self.extractorVersion = extractorVersion
+        self.links = links
     }
 }
 
@@ -68,7 +71,11 @@ public struct NarrationPlan: Codable, Sendable, Equatable {
     public let notices: [String]
     public let omissions: [NarrationOmission]?
     public let documentTitle: String?
-    public init(version: String, chunks: [NarrationChunk], notices: [String], omissions: [NarrationOmission]? = nil, documentTitle: String? = nil) {
+    /// Host-only show-notes enrichment (links/chapter targets/summary).
+    /// Never part of version, utterance fingerprints or worker payloads.
+    public let showNotes: DocumentShowNotes?
+    public init(version: String, chunks: [NarrationChunk], notices: [String], omissions: [NarrationOmission]? = nil, documentTitle: String? = nil, showNotes: DocumentShowNotes? = nil) {
         self.version = version; self.chunks = chunks; self.notices = notices; self.omissions = omissions; self.documentTitle = documentTitle
+        self.showNotes = showNotes
     }
 }

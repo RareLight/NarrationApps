@@ -16,7 +16,9 @@ public struct ParsedWebArticle: Sendable {
     public let extractorVersion: String
     public let sourceName: String?
     public let previewImageURL: URL?
-    public var document: SemanticDocument { .init(title: title, author: author, blocks: blocks, warnings: warnings, extractorVersion: extractorVersion) }
+    /// Authored source links captured inside the readable article content.
+    public let links: [DocumentSourceLink]
+    public var document: SemanticDocument { .init(title: title, author: author, blocks: blocks, warnings: warnings, extractorVersion: extractorVersion, links: links) }
 }
 
 public enum DocumentProcessingError: Error, LocalizedError, Sendable {
@@ -56,7 +58,22 @@ public enum HTMLDocumentExtractor {
         let cleaned = try SwiftSoup.parseBodyFragment(result.contentHTML, finalURL.absoluteString)
         try cleaned.select("header time, header a[title=Permalink], header a[rel=bookmark]").remove()
         try markNarrationImages(cleaned, baseURL: finalURL)
+        // Source links from readable article anchors only (not page nav/ads),
+        // relative hrefs resolved explicitly against the final URL;
+        // fragment-only refs are internal navigation and skipped.
+        var linkCandidates: [(label: String, url: String)] = []
+        for anchor in try cleaned.select("a[href]") {
+            let raw = try anchor.attr("href")
+            guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#") else { continue }
+            guard let resolved = URL(string: raw, relativeTo: finalURL)?.absoluteURL.absoluteString,
+                  !resolved.isEmpty else { continue }
+            let label = (try? anchor.text()) ?? ""
+            linkCandidates.append((label.trimmingCharacters(in: .whitespacesAndNewlines), resolved))
+        }
         let conversion = try convert(cleaned, baseURL: finalURL, footnoteSource: original)
+        // Bare visible URLs inside extracted content also become show-note links.
+        linkCandidates += conversion.blocks.flatMap { SourceLinks.visibleURLs(in: $0.text) }
+        let articleLinks = SourceLinks.sanitize(linkCandidates)
         try cleaned.select("img, picture, source, svg, canvas, video, audio, iframe, object, embed, script, style, noscript").remove()
         let blocks = conversion.blocks
         guard blocks.contains(where: { !$0.text.isEmpty }), result.textContent.count >= 80 else {
@@ -71,7 +88,7 @@ public enum HTMLDocumentExtractor {
             canonicalURL: canonicalURL.flatMap { ["https", "http"].contains($0.scheme ?? "") && $0.user == nil && $0.password == nil ? $0 : nil },
             author: result.byline, blocks: blocks, warnings: warnings, extractorVersion: version,
             sourceName: try metadata(original, key: "og:site_name").first.map { String(normalize($0).prefix(200)) },
-            previewImageURL: try previewImage(original, baseURL: finalURL)),
+            previewImageURL: try previewImage(original, baseURL: finalURL), links: articleLinks),
                                  cleanedHTML: "<!doctype html>\n" + (try cleaned.outerHtml()))
     }
 

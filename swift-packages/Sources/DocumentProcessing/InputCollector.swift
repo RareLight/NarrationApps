@@ -28,13 +28,16 @@ public struct InputDocument: Identifiable, Sendable, Equatable {
     public let kind: DocumentKind
     public let relativePath: String
     public var textEncoding: TextFileEncoding
+    public var forcePDFOCR: Bool
 
-    public init(source: URL, kind: DocumentKind, relativePath: String, id: UUID = UUID(), textEncoding: TextFileEncoding = .automatic) {
+    public init(source: URL, kind: DocumentKind, relativePath: String, id: UUID = UUID(), textEncoding: TextFileEncoding = .automatic,
+                forcePDFOCR: Bool = false) {
         self.id = id
         self.source = source
         self.kind = kind
         self.relativePath = relativePath
         self.textEncoding = textEncoding
+        self.forcePDFOCR = forcePDFOCR
     }
 }
 

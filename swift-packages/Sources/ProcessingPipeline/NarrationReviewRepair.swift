@@ -30,7 +30,7 @@ public enum NarrationReviewRepair {
             let plan = PreparedSpeechPlan(policy: original.plan.policy, settings: original.plan.settings,
                 semanticVersion: original.plan.semanticVersion, acousticIdentity: original.plan.acousticIdentity,
                 utterances: utterances, notices: original.plan.notices + ["Explicitly generated missing passages with current preparation; verified existing PCM reused. Per-passage acoustic identities are retained."],
-                provenance: original.plan.provenance, documentTitle: original.plan.documentTitle)
+                provenance: original.plan.provenance, documentTitle: original.plan.documentTitle, showNotes: original.plan.showNotes)
             let created = try await SpeechCPUContext.run(cpuWork) { try store.begin(plan: plan) }; take = created
             var bytes: Int64 = 0
             for index in plan.utterances.indices {
@@ -97,7 +97,7 @@ public enum NarrationReviewRepair {
             let utterances = Array(original.plan.utterances[..<index]) + replacements + Array(original.plan.utterances[(index + 1)...])
             let plan = PreparedSpeechPlan(policy: original.plan.policy, settings: original.plan.settings,
                 semanticVersion: original.plan.semanticVersion + "/explicit-repair-1", acousticIdentity: original.plan.acousticIdentity,
-                utterances: utterances, notices: original.plan.notices + ["Explicitly regenerated passage \(index + 1); unchanged PCM reused. Per-passage acoustic identities are retained." + (pronunciations == nil ? "" : " Current pronunciation rules were explicitly applied; this edited passage has no inferred original-coordinate map.")], provenance: original.plan.provenance, documentTitle: original.plan.documentTitle)
+                utterances: utterances, notices: original.plan.notices + ["Explicitly regenerated passage \(index + 1); unchanged PCM reused. Per-passage acoustic identities are retained." + (pronunciations == nil ? "" : " Current pronunciation rules were explicitly applied; this edited passage has no inferred original-coordinate map.")], provenance: original.plan.provenance, documentTitle: original.plan.documentTitle, showNotes: original.plan.showNotes)
             let take = try await SpeechCPUContext.run(cpuWork) { try store.begin(plan: plan) }
             do {
                 var bytes: Int64 = 0
