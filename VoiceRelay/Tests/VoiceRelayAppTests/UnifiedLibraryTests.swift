@@ -63,11 +63,11 @@ private func job(_ id: String, source: String? = nil, state: SpeechQueueState = 
     SpeechQueueItem(id: id, title: "Synthetic \(id)", sourceEntryID: source, state: state, sourceHost: "articles.example")
 }
 
-@Test @MainActor func librarySearchMatchesVisibleArticleFieldsAndKeepsScopesAndOrdering() throws {
+@Test @MainActor func librarySearchMatchesVisibleArticleFieldsAndKeepsOrdering() throws {
     let model = AppModel(preview: true)
     let date = Date(timeIntervalSinceReferenceDate: 1_000_000)
     let one = ReadingListEntry(id: "one", safariID: nil, url: URL(string: "https://www.news.example/private-path")!, title: "Café science", addedAt: date)
-    let two = ReadingListEntry(id: "two", safariID: nil, url: URL(string: "https://other.example/two")!, title: "Other story", addedAt: date.addingTimeInterval(1))
+    let two = ReadingListEntry(id: "two", safariID: nil, url: URL(string: "https://other.example/two")!, title: "Other story", addedAt: date.addingTimeInterval(86401))
     model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: [one, two], skippedEntries: 0))
     var failed = job("failed", source: "one", state: .failed); failed.lastError = "Synthetic checksum failure"
     model.queueItems = [failed, job("ready", source: "two")]
@@ -77,18 +77,20 @@ private func job(_ id: String, source: String? = nil, state: SpeechQueueState = 
     #expect(model.selectedArticles.map(\.id) == [one.id])
     model.articleSearchQuery = try #require(ArticleOriginMetadata(host: nil, savedAt: date).savedDateText)
     #expect(model.visibleArticleRows.contains { $0.title == one.title })
+    // The rendered punctuation is searchable, not only raw fields.
+    model.articleSearchQuery = "(\(try #require(ArticleOriginMetadata(host: nil, savedAt: date).savedDateText)))"
+    #expect(model.visibleArticleRows.map(\.title) == [one.title])
+    let oneRow = try #require(model.allArticleRows.first { $0.title == one.title })
+    model.articleSearchQuery = try #require(ArticleOriginMetadata(host: oneRow.host, savedAt: oneRow.savedAt).displayText())
+    #expect(model.visibleArticleRows.map(\.title) == [one.title])
     model.articleSearchQuery = "checksum"
     #expect(model.visibleArticleRows.map(\.title) == [one.title])
     model.articleWebsiteSelection = .site("other.example")
     #expect(model.visibleArticleRows.isEmpty)
     model.articleWebsiteSelection = .all
-    model.articleScope = .queue
-    #expect(model.articleSearchQuery.isEmpty)
     model.articleSearchQuery = "ready"
     #expect(model.visibleArticleRows.compactMap { $0.jobs.first?.id } == ["ready"])
     #expect(model.eligibleGenerationCount == 1) // Search does not change processing membership.
-    model.articleScope = .all
-    #expect(model.articleSearchQuery == "checksum")
     model.articleSearchQuery = "private-path"
     #expect(model.visibleArticleRows.isEmpty) // Hidden URLs are not searchable list text.
     model.articleSearchQuery = " \n "
@@ -101,7 +103,9 @@ private func job(_ id: String, source: String? = nil, state: SpeechQueueState = 
     let model = AppModel(preview: true)
     var one = Episode(id: "one", title: "Café science", stage: .published,
         settings: PrototypeProfile.fixture(at: URL(fileURLWithPath: "/synthetic")))
-    one.originalSourceHost = "news.example"; one.readingListSavedAt = Date(timeIntervalSinceReferenceDate: 1_000_000)
+    one.originalSourceHost = "news.example"
+    // Local midday keeps the displayed Gregorian day identical in every local timezone.
+    one.readingListSavedAt = Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 11, day: 13, hour: 12))
     one.info = AudioInfo(duration: 120, byteLength: 20_000, sampleRate: 24_000, channels: 1, codec: "aac")
     one.localAudioDiscarded = true; one.localCleanupNotice = "Synthetic checksum conflict"
     let two = Episode(id: "two", title: "Second story", stage: .published, settings: one.settings)
@@ -111,6 +115,22 @@ private func job(_ id: String, source: String? = nil, state: SpeechQueueState = 
     #expect(model.visibleServerAudio.map(\.id) == ["one", "two"])
     model.serverAudioSearchText = try #require(model.savedAudioOrigin(one).savedDateText)
     #expect(model.visibleServerAudio.map(\.id) == ["one"])
+    model.serverAudioSearchText = "2026-11-13" // Compact ISO saved date stays searchable.
+    #expect(model.visibleServerAudio.map(\.id) == ["one"])
+    let audioMeta = try #require(model.savedAudioMeta(one))
+    for term in audioMeta.split(separator: " ") where term != "•" {
+        model.serverAudioSearchText = String(term) // Duration and file size are searchable.
+        #expect(model.visibleServerAudio.map(\.id) == ["one"])
+    }
+    // The rendered compact line is searchable in both lists, punctuation included.
+    model.serverAudioSearchText = "(2026-11-13)"
+    #expect(model.visibleServerAudio.map(\.id) == ["one"])
+    let originLine = try #require(model.savedAudioOrigin(one).displayText(audioMeta: audioMeta))
+    model.serverAudioSearchText = originLine
+    #expect(model.visibleServerAudio.map(\.id) == ["one"])
+    model.uploadsSearchText = originLine
+    #expect(model.visibleUploads.map(\.id) == ["one"])
+    model.uploadsSearchText = ""
     model.serverAudioSearchText = "checksum conflict"
     #expect(model.visibleServerAudio.map(\.id) == ["one"])
     model.serverAudioFilter = .waiting
@@ -151,21 +171,16 @@ private func job(_ id: String, source: String? = nil, state: SpeechQueueState = 
     #expect(model.queuedArticleRows.count == 4)
 }
 
-@Test @MainActor func unifiedSelectionNamespacesAndScopesRemainIndependent() {
+@Test @MainActor func unifiedSelectionDistinguishesSourceAndRetainedIdentities() {
     let model = AppModel(preview: true)
     model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: [source("same")], skippedEntries: 0))
     model.queueItems = [job("same", source: "same"), job("retained")]
     model.unifiedArticleSelection = [.source("same"), .retained(.episode("retained"))]
     #expect(model.articleSelection == ["same"])
     #expect(model.selectedUnifiedQueueIDs == [.episode("same"), .episode("retained")])
-    model.articleScope = .queue
-    #expect(model.unifiedArticleSelection.isEmpty)
-    model.unifiedArticleSelection = [.retained(.episode("same"))]
-    model.articleScope = .all
-    #expect(model.unifiedArticleSelection == [.source("same"), .retained(.episode("retained"))])
     model.queueItems.removeAll { $0.id == "retained" }
     #expect(model.unifiedArticleSelection == [.source("same")])
-    #expect(model.queueSelection == [.episode("same")])
+    #expect(model.queueSelection.isEmpty)
 }
 
 @Test @MainActor func unifiedAdmissionOmitsQueueMembershipWithoutHistoryExclusion() {
@@ -309,7 +324,6 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     defer { defaults.removePersistentDomain(forName: suite) }
     let model = AppModel(storage: storage, defaults: defaults)
     try await markPublishingChecked(model, storage: storage)
-    model.articleScope = .queue
     model.queueItems = [job("changing"), job("waiting"), job("active", state: .running)]
     model.queueMutationBusy = true; model.mutatingQueueEntries = [.episode("changing")]
     model.queueSelection = [.episode("waiting")]
@@ -349,8 +363,7 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
 
 @Test @MainActor func unifiedNativeControlsAndReadinessConstructInertly() {
     let model = AppModel(preview: true)
-    for scope in ArticleScope.allCases {
-        model.articleScope = scope
+    do {
         _ = ArticlesView(model: model).body
         _ = WorkspaceReadinessView(model: model).body
         _ = WorkspaceActivityView(model: model).body
@@ -376,7 +389,7 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     let metadata = model.savedAudioOrigin(episode)
     #expect(metadata == ArticleOriginMetadata(host: all.host, savedAt: all.savedAt))
     #expect(metadata == ArticleOriginMetadata(host: queued.host, savedAt: queued.savedAt))
-    #expect(metadata.savedDateText == "Saved \(try #require(entry.addedAt).formatted(date: .abbreviated, time: .omitted))")
+    #expect(metadata.savedDateText == AppDateFormatting.date(try #require(entry.addedAt)))
     _ = ArticleOriginLine(metadata: metadata).body
     model.savedEpisodes = [episode]; _ = LibraryView(model: model).body
     episode.readingListSavedAt = nil; episode.originalSourceHost = nil
@@ -452,7 +465,7 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     #expect(key("file:///tmp/local") == nil)
 }
 
-@Test @MainActor func websiteFiltersPreserveScopeOrderAndLimitSelectionActionsToVisibleRows() {
+@Test @MainActor func websiteFiltersPreserveOrderAndLimitSelectionActionsToVisibleRows() {
     let model = AppModel(preview: true)
     let entries = ["http://www.news.example/a", "https://other.example/b", "https://news.example/c"].enumerated().map { index, url in
         ReadingListEntry(id: String(index), safariID: String(index), url: URL(string: url)!, title: "Synthetic \(index)",
@@ -468,18 +481,12 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     model.queueItems = [SpeechQueueItem(id: "a", title: "A", sourceEntryID: "0", state: .queued, sourceHost: "www.news.example"),
         SpeechQueueItem(id: "b", title: "B", sourceEntryID: "1", state: .failed, sourceHost: "other.example"),
         SpeechQueueItem(id: "unknown", title: "Unknown", sourceEntryID: nil, state: .queued)]
-    model.articleScope = .queue
-    #expect(model.articleWebsiteSelection == .all)
-    model.queueSelection = [.episode("a"), .episode("b"), .episode("unknown")]
-    model.articleWebsiteSelection = .site("news.example")
-    #expect(model.visibleArticleRows.map(\.title) == ["A"])
+    #expect(model.visibleArticleRows.compactMap(\.source?.id) == ["2", "0"])
     #expect(model.selectedUnifiedQueueIDs == [.episode("a")])
     #expect(model.queueItems.map(\.id) == ["a", "b", "unknown"])
     model.articleWebsiteSelection = .unknown
     #expect(model.visibleArticleRows.map(\.title) == ["Unknown"])
-    #expect(model.selectedUnifiedQueueIDs == [.episode("unknown")])
-    model.articleScope = .all
-    #expect(model.articleWebsiteSelection == .site("news.example"))
+    #expect(model.selectedUnifiedQueueIDs.isEmpty)
     #expect(model.articleSelection == ["0", "1", "2"])
     model.articlesWebsiteFilter = .site("gone.example")
     #expect(model.visibleArticleRows.isEmpty && model.selectedArticles.isEmpty)
@@ -523,17 +530,13 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
         SpeechQueueItem(id: "job-\(index)", title: "Synthetic job \(index)", sourceEntryID: nil,
             state: .queued, sourceHost: host)
     }
-    model.articleScope = .queue
     let queueOrder = model.queueItems.map(\.id)
-    #expect(model.articleWebsiteOptions == [.all, .site("b.example"), .unknown, .site("a.example"), .site("z.example")])
     #expect(model.articleWebsiteCounts[.unknown] == 3)
-    model.queueWebsiteFilter = .unknown
-    #expect(model.articleWebsiteOptions.first == .all && model.articleWebsiteOptions[2] == .unknown)
+    model.articleWebsiteSelection = .unknown
     #expect(model.visibleArticleRows.count == 3)
     #expect(model.queueItems.map(\.id) == queueOrder)
     model.queueItems.removeAll { ArticleWebsiteFilter.siteKey($0.sourceHost) == "b.example" }
-    #expect(model.articleWebsiteOptions == [.all, .unknown, .site("a.example"), .site("z.example")])
-    model.articleScope = .all
+    model.articleWebsiteSelection = .all
     // All Articles includes the remaining retained jobs as well as source entries.
     #expect(model.articleWebsiteOptions == [.all, .site("z.example"), .site("a.example"), .unknown, .site("b.example"), .site("c.example")])
     #expect(model.articleWebsiteCounts[.all] == 13)
@@ -562,7 +565,7 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     #expect(!ArticleWebsiteFilter.thisWeek.includes(row(nil), now: now, calendar: calendar))
 }
 
-@Test @MainActor func articleDateFiltersIntersectSearchAndKeepIndependentScopesAndQueueWork() {
+@Test @MainActor func articleDateFiltersIntersectSearchAndKeepQueueWork() {
     let model = AppModel(preview: true), now = Date()
     let entries = [ReadingListEntry(id: "today", safariID: nil, url: URL(string: "https://one.example/a")!,
         title: "Today's article", addedAt: now),
@@ -579,13 +582,11 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     model.articlesSearchText = "two.example"
     #expect(model.visibleArticleRows.isEmpty && model.selectedArticles.isEmpty)
     model.queueItems = entries.map { SpeechQueueItem(id: $0.id, title: $0.title, sourceEntryID: $0.id, state: .queued) }
-    model.articleScope = .queue
-    #expect(model.articleWebsiteSelection == .all && model.visibleArticleRows.count == 3)
+    #expect(model.articleWebsiteSelection == .today && model.visibleArticleRows.isEmpty)
+    model.articleSearchQuery = ""
     model.articleWebsiteSelection = .thisWeek
     #expect(model.visibleArticleRows.map(\.title) == ["Today's article"])
     #expect(model.queueItems.count == 3)
-    model.articleScope = .all
-    #expect(model.articleWebsiteSelection == .today && model.articleSearchQuery == "two.example")
 }
 
 @Test @MainActor func serverAudioSortsByCapturedSavedDateAcrossReloadsAndSourceRemoval() {
@@ -627,17 +628,18 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     var settings = PrototypeProfile.fixture(at: URL(fileURLWithPath: "/synthetic"))
     settings.temporaryAudio = true
     let episode = Episode(id: "sample", title: "Short title", stage: .published, settings: settings)
-    var pending = episode
-    pending.title = String(repeating: "Long synthetic episode title ", count: 8)
-    pending.originalSourceHost = "articles.example"
-    pending.readingListSavedAt = .distantPast
-    pending.stage = .expired
-    var failed = pending
-    failed.delivery = DeliveryState(status: .failed, remotePath: "", lastError: "Synthetic removal error.")
-    var discarded = episode
-    discarded.localAudioDiscarded = true // Carries a detail that would otherwise add lines.
+    var wrapped = episode
+    wrapped.title = String(repeating: "Long synthetic episode title ", count: 8)
+    var withMetadata = episode
+    withMetadata.originalSourceHost = "articles.example"
+    withMetadata.readingListSavedAt = .distantPast
+    withMetadata.info = AudioInfo(duration: 3600, byteLength: 512, sampleRate: 24000, channels: 1, codec: "aac")
 
-    for percent in [100, 200] {
+    var originOnly = episode
+    originOnly.originalSourceHost = "articles.example"
+    originOnly.readingListSavedAt = .distantPast
+
+    for percent in [80, 100, 200] {
         let textSize = AppTextSize(percent: percent)
         func rowHeight(_ episode: Episode) -> CGFloat {
             NSHostingView(rootView: ServerAudioRow(model: model, episode: episode)
@@ -653,8 +655,32 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
         }
         let normalHeight = rowHeight(episode)
         #expect(normalHeight > 0)
-        for (status, updated) in [("pending", pending), ("failed", failed), ("discarded", discarded)] {
-            #expect(abs(rowHeight(updated) - normalHeight) < 0.5, "\(status) row changed height at \(percent)%")
+        #expect(rowHeight(wrapped) > normalHeight)
+        #expect(rowHeight(originOnly) > normalHeight)
+        // Audio info joins the origin line instead of adding a row.
+        #expect(abs(rowHeight(withMetadata) - rowHeight(originOnly)) < 0.5,
+            "audio metadata added a row at \(percent)%")
+        for original in [episode, wrapped, originOnly, withMetadata] {
+            let height = rowHeight(original)
+            var pending = original
+            pending.stage = .expired
+            var failed = pending
+            failed.delivery = DeliveryState(status: .failed, remotePath: "", lastError: "Synthetic removal error.")
+            var discarded = original
+            discarded.localAudioDiscarded = true
+            var conflict = discarded
+            conflict.localCleanupNotice = String(repeating: "Synthetic verification details. ", count: 12)
+            for (status, updated) in [("pending", pending), ("failed", failed), ("discarded", discarded), ("conflict", conflict)] {
+                #expect(abs(rowHeight(updated) - height) < 0.5, "\(status) row changed height at \(percent)%")
+            }
+            model.deliveryBusy = true
+            for phase in [UploadPhase.transferring, .verifyingServer, .publishing, .published] {
+                model.uploadProgress[original.id] = UploadProgress(episode: original, phase: phase)
+                #expect(model.audioState(original).phase == phase)
+                #expect(abs(rowHeight(original) - height) < 0.5, "\(phase) row changed height at \(percent)%")
+            }
+            model.uploadProgress = [:]
+            model.deliveryBusy = false
         }
         let idleHeight = footerHeight()
         let idleReadinessHeight = readinessHeight()
@@ -674,6 +700,119 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
         model.deliveryBusy = false
         model.processingSpeech = false
         #expect(abs(footerHeight() - idleHeight) < 0.5)
+    }
+}
+
+@Test @MainActor func compactOriginMetadataUsesLocalISODatesAndOptionalAudio() throws {
+    let utc = try #require(TimeZone(identifier: "UTC"))
+    let losAngeles = try #require(TimeZone(identifier: "America/Los_Angeles"))
+    // Frozen timestamps keep day boundaries and formatting deterministic.
+    let overnight = Date(timeIntervalSince1970: 1_794_529_800) // 2026-11-13T00:30:00Z
+    #expect(AppDateFormatting.date(overnight, timeZone: utc) == "2026-11-13")
+    #expect(AppDateFormatting.date(overnight, timeZone: losAngeles) == "2026-11-12")
+    // Calendar year (not week-year) and zero-padded fields, including leap day.
+    #expect(AppDateFormatting.date(Date(timeIntervalSince1970: 1_609_461_000), timeZone: utc) == "2021-01-01")
+    #expect(AppDateFormatting.date(Date(timeIntervalSince1970: 1_709_208_000), timeZone: utc) == "2024-02-29")
+    let published = AppDateFormatting.dateTime(overnight, timeZone: utc)
+    #expect(published.hasPrefix("2026-11-13 ") && published.count > "2026-11-13 ".count)
+
+    // Local midday keeps the rendered Gregorian day identical in every local timezone.
+    let midday = try #require(Calendar(identifier: .gregorian)
+        .date(from: DateComponents(year: 2026, month: 11, day: 13, hour: 12)))
+    let dated = ArticleOriginMetadata(host: nil, savedAt: midday)
+    #expect(dated.savedDateText == "2026-11-13")
+    #expect(dated.displayText() == "(2026-11-13)")
+    let hosted = ArticleOriginMetadata(host: "website.com", savedAt: midday)
+    #expect(hosted.displayText() == "website.com (2026-11-13)")
+    #expect(hosted.displayText(audioMeta: "4:32 • 20 KB") == "website.com (2026-11-13): 4:32 • 20 KB")
+    #expect(hosted.displayText(audioMeta: "") == "website.com (2026-11-13)")
+    #expect(ArticleOriginMetadata(host: "website.com", savedAt: nil).displayText() == "website.com")
+    // Audio metadata alone has no leading separator; no fields means no line at all.
+    #expect(ArticleOriginMetadata(host: nil, savedAt: nil).displayText(audioMeta: "4:32 • 20 KB") == "4:32 • 20 KB")
+    #expect(ArticleOriginMetadata(host: nil, savedAt: nil).displayText() == nil)
+    #expect(ArticleOriginMetadata(host: nil, savedAt: nil).displayText(audioMeta: "") == nil)
+    #expect(ArticleOriginMetadata(host: "website.com", savedAt: nil)
+        .displayText(audioMeta: "4:32 • 20 KB") == "website.com: 4:32 • 20 KB")
+    #expect(dated.displayText(audioMeta: "4:32 • 20 KB") == "(2026-11-13): 4:32 • 20 KB")
+    _ = ArticleOriginLine(metadata: hosted, audioMeta: "4:32 • 20 KB").body
+    _ = ArticleOriginLine(metadata: ArticleOriginMetadata(host: nil, savedAt: nil)).body
+}
+
+@Test @MainActor func updateLabelUsesTodayClockISODateOrUnknown() throws {
+    let utc = try #require(TimeZone(identifier: "UTC"))
+    let losAngeles = try #require(TimeZone(identifier: "America/Los_Angeles"))
+    // Frozen now/date pairs keep calendar-day comparison deterministic.
+    let now = Date(timeIntervalSince1970: 1_794_596_700) // 2026-11-13T19:05:00Z
+    let morning = Date(timeIntervalSince1970: 1_794_560_700) // 2026-11-13T09:05:00Z
+    #expect(AppDateFormatting.updateLabel(for: morning, now: now, timeZone: utc) == "Updated: 09:05")
+    // Calendar days, not elapsed hours: late evening is still a different day.
+    let latePrior = Date(timeIntervalSince1970: 1_794_527_940) // 2026-11-12T23:59:00Z
+    #expect(AppDateFormatting.updateLabel(for: latePrior, now: now, timeZone: utc) == "Updated: 2026-11-12")
+    // The same instant is "today" in UTC but yesterday in Los Angeles.
+    let overnight = Date(timeIntervalSince1970: 1_794_529_800) // 2026-11-13T00:30:00Z = Nov 12 16:30 PST
+    let utcNow = Date(timeIntervalSince1970: 1_794_588_600) // 2026-11-13T16:50:00Z = Nov 13 08:50 PST
+    #expect(AppDateFormatting.updateLabel(for: overnight, now: utcNow, timeZone: utc) == "Updated: 00:30")
+    #expect(AppDateFormatting.updateLabel(for: overnight, now: utcNow, timeZone: losAngeles) == "Updated: 2026-11-12")
+    // Leap day and year boundaries keep the Gregorian ISO form.
+    let leap = Date(timeIntervalSince1970: 1_709_208_000) // 2024-02-29T12:00:00Z
+    #expect(AppDateFormatting.updateLabel(for: leap, now: now, timeZone: utc) == "Updated: 2024-02-29")
+    #expect(AppDateFormatting.updateLabel(for: nil, now: now, timeZone: utc) == "Updated: Unknown")
+    // A far-future date on another calendar day renders as a date, never a clock time.
+    let future = Date(timeIntervalSince1970: 1_794_596_700 + 86_400 * 40)
+    #expect(AppDateFormatting.updateLabel(for: future, now: now, timeZone: utc) == "Updated: 2026-12-23")
+}
+
+@Test @MainActor func libraryRowSymbolsAndActionsShareUniformGeometryAcrossTextSizes() {
+    let symbols = ["clock", "checkmark.icloud", "exclamationmark.triangle.fill", "xmark", "arrow.clockwise"]
+    for percent in [80, 100, 200] {
+        for dynamic in [DynamicTypeSize.large, .accessibility3] {
+            let textSize = AppTextSize(percent: percent)
+            let scale = AppTypography.scale(size: textSize, dynamic: dynamic)
+            func fitting(_ view: some View) -> CGSize {
+                NSHostingView(rootView: view
+                    .environment(\.appTextSize, textSize).environment(\.dynamicTypeSize, dynamic)).fittingSize
+            }
+            // Different glyphs must occupy identical slots.
+            for name in symbols {
+                let size = fitting(LibraryRowSymbol(systemName: name))
+                #expect(abs(size.width - 20 * scale) < 0.5 && abs(size.height - 20 * scale) < 0.5,
+                    "\(name) slot \(size) diverged at \(percent)%/\(dynamic)")
+            }
+            let pair = fitting(LibraryRowActions {
+                LibraryRowSymbol(systemName: "clock")
+                LibraryRowSymbol(systemName: "xmark")
+            })
+            // fittingSize rounds fractional ideal widths up to integral points.
+            #expect(abs(pair.width - 46 * scale) < 1 && abs(pair.height - 20 * scale) < 0.5,
+                "row action spacing \(pair) diverged at \(percent)%/\(dynamic)")
+        }
+    }
+}
+
+@Test @MainActor func articleRowFillsNativeCellHeightForCenteredActions() {
+    let entry = ReadingListEntry(id: "row", safariID: nil,
+        url: URL(string: "https://synthetic.example/row")!, title: "Row", addedAt: nil)
+    let savedAt = Date(timeIntervalSince1970: 1_794_500_000)
+    for title in ["Short row", "A much longer article title that wraps onto a second line inside the row"] {
+        for percent in [80, 100, 200] {
+            for dynamic in [DynamicTypeSize.large, .accessibility3] {
+                let textSize = AppTextSize(percent: percent)
+                let scale = AppTypography.scale(size: textSize, dynamic: dynamic)
+                let row = ArticleLibraryRow(id: .source(entry.id), title: title,
+                    host: "synthetic.example", savedAt: savedAt, source: entry, jobs: [],
+                    preparationID: nil, retained: false, narrationComplete: true)
+                let view = ArticleLibraryRowView(model: AppModel(preview: true), row: row)
+                    .environment(\.appTextSize, textSize).environment(\.dynamicTypeSize, dynamic)
+                let intrinsic = NSHostingView(rootView: view.frame(width: 480)).fittingSize.height
+                // A native List cell proposes more than the intrinsic height; the
+                // row must consume it so title and actions center vertically.
+                let proposed = intrinsic + 40 * scale
+                let filled = NSHostingController(rootView: view)
+                    .sizeThatFits(in: CGSize(width: 480, height: proposed))
+                #expect(abs(filled.height - proposed) <= 1,
+                    "row ignored proposed cell height \(filled) vs \(proposed) at \(percent)%/\(dynamic)")
+            }
+        }
     }
 }
 
@@ -718,8 +857,7 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
 @Test @MainActor func articleSelectionUpdatesActionsWithoutInvalidatingContentProjection() {
     let model = AppModel(preview: true)
     model.sourceReview.catalog.reconcile(ReadingListSnapshot(entries: [source("one"), source("two")], skippedEntries: 0))
-    for scope in [ArticleScope.all, .queue] {
-        model.articleScope = scope
+    do {
         model.queueItems = [job("one-job", source: "one"), job("two-job", source: "two")]
         let contentChanged = Synchronization.Mutex(false)
         withObservationTracking {
@@ -766,4 +904,40 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     #expect(updated.selectedRows(model.articleListSelection).map(\.title) == ["Synthetic new"])
     #expect(model.articleListSelection.intersection(updated.rowIDs) == [.source("new")])
     #expect(updated.visibleRows.map(\.title) == ["Synthetic later", "Synthetic new"])
+}
+
+@Test @MainActor func articleAttentionShowsAllActionableRowsAndRestoresThePreviousSearch() {
+    let model = AppModel(preview: true)
+    let entries = [source("ready", date: 5), source("preparation", date: 4), source("failed", date: 3), source("waiting", date: 2)]
+    model.sourceReview.catalog.reconcile(.init(entries: entries, skippedEntries: 0))
+    model.articlePreparationFailures["preparation"] = "Source could not be read."
+    model.pendingAdds["waiting"] = "Preparing"
+    let failed = job("broken", source: "failed", state: .failed)
+    let paused = job("paused", source: "failed", state: .paused)
+    let interrupted = job("interrupted", state: .running)
+    model.queueItems = [job("ready-job", source: "ready"), failed, paused, interrupted]
+    model.articleWebsiteSelection = .site("articles.example")
+    model.articleSearchQuery = "ready"
+    model.unifiedArticleSelection = [.source("ready"), .source("failed")]
+    #expect(model.visibleArticleRows.map(\.id) == [.source("ready")])
+    #expect(model.articlesNeedingAttention(in: model.allArticleRows).map(\.id) == [
+        .source("preparation"), .source("failed"), .retained(.episode("interrupted"))
+    ])
+
+    model.showArticlesNeedingAttention()
+    #expect(model.visibleArticleRows.count == 3)
+    #expect(model.selectedUnifiedQueueIDs == [.episode("broken"), .episode("paused")])
+    model.articleSearchQuery = "could not be read"
+    #expect(model.visibleArticleRows.map(\.id) == [.source("preparation")])
+    model.articlePreparationFailures["preparation"] = nil
+    #expect(model.visibleArticleRows.isEmpty)
+    model.articleSearchQuery = ""
+    model.processingSpeech = true
+    #expect(model.visibleArticleRows.map(\.id) == [.source("failed")])
+    model.queueItems.removeAll { $0.id == failed.id || $0.id == paused.id }
+    #expect(model.visibleArticleRows.isEmpty && model.articlesNeedAttentionOnly)
+    model.articlesNeedAttentionOnly = false
+    #expect(model.articleSearchQuery == "ready" && model.articleWebsiteSelection == .site("articles.example"))
+    #expect(model.visibleArticleRows.map(\.id) == [.source("ready")])
+    #expect(model.queueItems.map(\.id) == ["ready-job", "interrupted"])
 }

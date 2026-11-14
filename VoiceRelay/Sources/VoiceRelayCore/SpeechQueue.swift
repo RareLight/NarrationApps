@@ -133,7 +133,7 @@ extension FixtureCoordinator {
         try ManagedSpeechStorage.validateLibrary(stateRoot: root)
         return try NativeStore(url: database, readOnly: true)
     }
-    private func metadataReader(_ root: URL) throws -> NativeStore? { try Self.metadataReader(root) }
+    func metadataReader(_ root: URL) throws -> NativeStore? { try Self.metadataReader(root) }
     /// Writers are short-lived; a bounded wait lets interactive work (for example queue adds)
     /// proceed between commits while another coordinator briefly holds the lock.
     func metadataWriter(_ root: URL) throws -> NativeStore {
@@ -286,7 +286,8 @@ extension FixtureCoordinator {
                                    generateSummaries: Bool = false, summaryGenerator: DocumentSummaryGenerator.Generate? = nil,
                                    shouldCommit: @escaping @Sendable () async -> Bool = { true },
                                    admissionControl: QueueAdmissionControl? = nil,
-                                   hostAdmission: SpeechHostAdmission? = nil, cpuExecutor: (any NarrationCPUExecutor)? = nil) async throws -> SpeechQueueItem {
+                                   hostAdmission: SpeechHostAdmission? = nil, cpuExecutor: (any NarrationCPUExecutor)? = nil,
+                                   reprocess: Bool = false, automatic: Bool = false) async throws -> SpeechQueueItem {
         let executor = cpuExecutor ?? NarrationPreparationWork.executor
         let operation: @Sendable () async throws -> SpeechQueueItem = {
             try await NarrationPreparationWork.$executor.withValue(executor) {
@@ -294,7 +295,8 @@ extension FixtureCoordinator {
                     useArchives: useArchives, archiveFetch: archiveFetch, debugLog: debugLog, describeImages: describeImages,
                     generateMissingTitles: generateMissingTitles, titleGenerator: titleGenerator,
                     generateSummaries: generateSummaries, summaryGenerator: summaryGenerator,
-                    shouldCommit: shouldCommit, admissionControl: admissionControl, hostAdmission: hostAdmission)
+                    shouldCommit: shouldCommit, admissionControl: admissionControl, hostAdmission: hostAdmission,
+                    reprocess: reprocess, automatic: automatic)
             }
         }
         if let admissionControl { return try await admissionControl.withWork(operation) }
@@ -306,7 +308,7 @@ extension FixtureCoordinator {
         generateMissingTitles: Bool, titleGenerator: DocumentTitles.Generate?,
         generateSummaries: Bool, summaryGenerator: DocumentSummaryGenerator.Generate?,
         shouldCommit: @Sendable () async -> Bool, admissionControl: QueueAdmissionControl?,
-        hostAdmission: SpeechHostAdmission?) async throws -> SpeechQueueItem {
+        hostAdmission: SpeechHostAdmission?, reprocess: Bool, automatic: Bool) async throws -> SpeechQueueItem {
         try Task.checkCancellation(); try preferences.validate(); try storage.validate()
         let savedCatalog = try catalog(stateRoot: storage.stateRoot)
         guard let entry = savedCatalog.entries.first(where: { $0.id == entryID }) else {
@@ -316,7 +318,7 @@ extension FixtureCoordinator {
         var evidence = savedCatalog.duplicateEvidence ?? [:]
         var reviews: [String: ReviewedSource] = [:]
         var evaluated = Set<String>()
-        var group = ArticleDuplicates.groups(savedCatalog.entries, evidence: evidence).first { $0.contains(entry) } ?? [entry]
+        var group = reprocess ? [entry] : ArticleDuplicates.groups(savedCatalog.entries, evidence: evidence).first { $0.contains(entry) } ?? [entry]
         let limits = try FetchLimits(maximumBytes: storage.profile.maxArticleBytes,
                                      timeout: Double(storage.profile.httpTimeoutSeconds))
         while let candidate = group.first(where: { !evaluated.contains($0.id) }) {
@@ -356,7 +358,7 @@ extension FixtureCoordinator {
             }
             evidence[candidate.id] = ArticleDuplicateEvidence(entry: candidate, review: review)
             evaluated.insert(candidate.id)
-            group = ArticleDuplicates.groups(savedCatalog.entries, evidence: evidence).first { $0.contains(entry) } ?? [entry]
+            if !reprocess { group = ArticleDuplicates.groups(savedCatalog.entries, evidence: evidence).first { $0.contains(entry) } ?? [entry] }
         }
         guard let winner = ArticleDuplicates.winner(group, evidence: evidence), let review = reviews[winner.id] else {
             throw RelayError.setup((reviews[entry.id]?.issueMessage ?? "No readable duplicate was found.")
@@ -371,7 +373,7 @@ extension FixtureCoordinator {
         }
         return try enqueueResolved(review, prepared: prepared, storage: storage, preferences: preferences, sourceEntryID: winner.id,
             admissionControl: admissionControl, duplicateEvidence: evidence.filter { evaluated.contains($0.key) },
-            handledIDs: Set(group.map(\.id)), replacePublished: true)
+            handledIDs: Set(group.map(\.id)), replacePublished: true, reprocess: reprocess, automatic: automatic)
     }
     /// Enqueue commits approved text, captured settings and episode identity together, without TTS or scratch files.
     public func enqueue(_ review: ReviewedSource, storage: ManagedSpeechStorage, preferences: SpeechPreferences,
@@ -427,7 +429,7 @@ extension FixtureCoordinator {
     private func enqueueResolved(_ review: ReviewedSource, prepared: PreparedAdmission, storage: ManagedSpeechStorage, preferences: SpeechPreferences,
         sourceEntryID: String?, admissionControl: QueueAdmissionControl?,
         duplicateEvidence: [String: ArticleDuplicateEvidence] = [:], handledIDs: Set<String> = [],
-        replacePublished: Bool = false) throws -> SpeechQueueItem {
+        replacePublished: Bool = false, reprocess: Bool = false, automatic: Bool = false) throws -> SpeechQueueItem {
         try Task.checkCancellation(); try preferences.validate(); try storage.validate()
         guard review.issue == nil, let document = review.document, let plan = review.narration, !plan.chunks.isEmpty,
               document.article.originalURL == review.page.originalURL, document.article.finalURL == review.page.finalURL,
@@ -459,9 +461,22 @@ extension FixtureCoordinator {
         try store.execute("BEGIN IMMEDIATE")
         do {
             let key = "reviewed-url-v1-" + Files.hash(Data(review.page.originalURL.absoluteString.utf8))
+            if let previous = try store.existingEpisode(sourceKey: key, resolveSnapshots: false) {
+                if automatic && Self.hasFinishedArticleAudio(previous) { throw CancellationError() }
+                if reprocess {
+                    let queued = try store.queue(resolveSnapshots: false).contains { $0.id == previous.id }
+                    // A settled manual deletion (expired with its owned local removal
+                    // finished) may be regenerated; pending removals and unfinished
+                    // or queued generations still reject.
+                    guard (previous.stage != .expired || previous.manualAudioDeletionRequested == false),
+                          previous.audioFinalizationComplete != false, !queued else {
+                        throw RelayError.setup("This article already has work in progress. Wait for it to finish or retry it from Articles.")
+                    }
+                }
+            }
             let freshDuplicate = handledIDs.count > 1 && !handledIDs.subtracting(catalog.handledEntryIDs ?? []).isEmpty
             if replacePublished, let previous = try store.existingEpisode(sourceKey: key, resolveSnapshots: false),
-               previous.stage == .published || previous.stage == .expired || freshDuplicate {
+               previous.stage == .published || previous.stage == .expired || freshDuplicate || reprocess {
                 // Keep the old bytes, snapshot, original identity and delivery history.
                 // The current URL key now belongs to a fresh generation with current settings.
                 try store.execute("UPDATE episodes SET source_key=?,record=? WHERE id=?", ["superseded-episode-v1-" + previous.id,
@@ -489,6 +504,7 @@ extension FixtureCoordinator {
             episode.sourceName = episode.sourceName ?? review.document?.article.sourceName
             episode.readingListEntryID = episode.readingListEntryID ?? sourceEntryID
             if replacePublished { episode.replacesDuplicateAudio = true }
+            if reprocess { episode.reprocessesArticleAudio = true }
             try store.execute("UPDATE episodes SET record=? WHERE id=?", [String(decoding: try Files.json(episode), as: UTF8.self), episode.id])
             var item = try store.queue(resolveSnapshots: false).first(where: { $0.id == episode.id }) ?? SpeechQueueItem(
                 id: episode.id, title: episode.title, sourceEntryID: sourceEntryID,

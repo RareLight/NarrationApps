@@ -1,6 +1,6 @@
 # Current implementation status
 
-Current-state documentation updated November 12, 2026. Feature-specific engineering
+Current-state documentation updated November 13, 2026. Feature-specific engineering
 evidence is dated below. NarrationApps is one repository containing Libro,
 VoiceRelay, SwiftNarration, AppPresentation and the combined Xcode workspace.
 The containing commit identifies committed source. The November 10–12 entries
@@ -9,6 +9,32 @@ describe worktree changes based on `8723c9e`. See
 [remaining work](IMPLEMENTATION_PLAN.md) and [operator validation](OPERATOR_VALIDATION.md).
 Private document reviews and their input-specific results are retained locally;
 they are excluded from the publication history. Synthetic fixtures remain maintained.
+
+## VoiceRelay Articles workflow — November 13, 2026
+
+Articles shows source inventory, narration status and row actions in one list.
+Discovery prepares eligible saves after Publishing reconciles the current server.
+Completed audio suppresses new automatic narration for the same source or a
+matching duplicate. The explicit **Re-process Audio** action uses current settings
+and keeps the predecessor until the replacement has verified feed membership.
+Admission reads queue and history in one pass per catalog revision or destination,
+with an explicit check for Sync Now. Opening and filtering Articles use cached
+presentation data. See the [user guide](../VoiceRelay/docs/USER_GUIDE.md).
+
+The isolated VoiceRelay suite passed 397 core and 190 app tests before final
+admission hardening. The final 13 targeted tests, Debug and Release workspace
+builds and all four bundle audits passed. Local logs are in
+`.local/validation/voicerelay-articles-20261113/` and
+`.local/validation/release-7C8FFF49-7EA6-4B5F-A906-2E7733B8E277/`.
+GUI and live acceptance remain open under
+[V06](OPERATOR_VALIDATION.md#voicerelay).
+
+**Needs Attention** above Articles shows the count of articles that need a
+preparation or narration retry. The filter opens across all dates and websites,
+and **Show All Articles** restores the previous search and filters. All 191 app
+tests, the Debug and Release workspace builds, and all four bundle audits passed.
+Evidence is in `.local/validation/voicerelay-articles-20261113/needs-attention-app-tests.log`
+and `.local/validation/release-B7465256-E889-49A2-B992-E6E2590756A6/`.
 
 ## Hostname-only URL narration — November 12, 2026
 
@@ -69,6 +95,55 @@ survivor order and overlapping removals. Evidence is in
 Release workspace builds and four ad-hoc bundle audits passed in
 `.local/validation/release-858FBE96-CCFF-4A45-87F7-07243DB8EE7C/`. V14 covers
 pointer and scroll behavior in the running app.
+
+On November 13, Server Audio moved its publishing and removal status icons
+beside episode titles. Hover and VoiceOver provide the status and any details.
+Two focused app tests passed, including stable row heights across publishing and
+removal changes at 100% and 200% text size. Debug and Release workspace builds
+and all four bundle audits passed. Evidence is in
+`.local/validation/quick-03DF5AF0-5ADF-4509-96B3-C7F1717B7968/` and
+`.local/validation/release-AB56073B-79D9-4890-98F3-7A6F5BF48ABE/`.
+
+Later on November 13, Articles and Server Audio adopted compact ISO saved dates
+— `website.com (2026-11-13)` — with Server Audio and Upload Queue appending
+audio duration and file size on the same line, and shared row status/action
+symbols gained one size and spacing across the three library lists. Search
+matches the rendered compact line, punctuation included. Eighteen focused tests
+passed; the full fixture gate (397 + 193 + focused app tests) passed; Debug and
+Release workspace builds and all four bundle audits passed. Evidence is in
+`.local/validation/quick-4FB39FDA-CA7A-4F6A-8746-E517283A9EE5/`,
+`.local/validation/full-08DE4C95-1661-4ADD-8830-9D2187490932/` and
+`.local/validation/release-BA20A930-D7C9-4B97-9DAA-2D5057EE2B6C/`.
+
+Later on November 13, the menu popover's overall status became a fixed one-line
+label at every health state and text size, with full text on hover and to
+VoiceOver, while routine background speech validation reports a generic
+**Checking…** until verified. Sync phase text and a compact progress bar now
+share one command-height row that matches the idle **Sync Now** button, so busy
+phases and progress changes never shift the popover. Focused menu/health tests
+passed; the full fixture gate, Debug and Release workspace builds and all four
+bundle audits passed. Evidence is in
+`.local/validation/quick-E3D87640-0C7D-45CB-9FA4-EBF8B56484B9/`,
+`.local/validation/full-BF0D7846-F8EC-4E0F-9E51-A17DDE880E28/` and
+`.local/validation/release-449368BD-8FEB-45F1-AC15-FE7F324A8F9C/`. Menu GUI
+acceptance remains operator-owned under [V14](OPERATOR_VALIDATION.md#voicerelay).
+
+Later on November 13, the menu metadata row became **Updated** — today's
+zero-padded time, an ISO date for older days, or Unknown — and the top status
+turned actionable-only: green **Ready** now means nothing needs attention while
+background checks keep running, superseding the earlier "Ready appears only
+after verification" wording above; orange setup and red failure statuses still
+open their Settings pane and recorded errors stay visible while rechecks run.
+Articles offer **Re-process Audio** on any idle current entry without matching
+audio, so a Reading List article whose server audio was deleted can regenerate
+once its owned removal settles; automatic admission still never recreates
+deleted audio. Row action symbols in Articles and Server Audio sit closer
+together. The full fixture gate passed and Debug/Release workspace builds plus
+all four bundle audits passed. Evidence is in
+`.local/validation/quick-1A700645-2551-4DDF-876A-E2B69BE580F3/`,
+`.local/validation/full-263A781A-5820-45D5-9C75-D22168FF59D0/` and
+`.local/validation/release-0F9FB364-DA33-412A-9380-CDF1CFE6F5EA/`. GUI
+acceptance remains operator-owned under V14.
 
 ## Pronunciation entry help — November 12, 2026
 

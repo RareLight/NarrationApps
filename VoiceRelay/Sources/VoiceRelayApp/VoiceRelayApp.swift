@@ -33,7 +33,7 @@ private final class BatchCompletion: @unchecked Sendable {
 
 @MainActor @Observable
 final class AppModel {
-    var status = "Select articles to add to the queue"
+    var status = "Watching for Reading List articles"
     var error: String?
     var progress: PipelineProgress?
     var workStatusStates: [String: SpeechWorkStatusProjection] = [:]
@@ -46,14 +46,22 @@ final class AppModel {
     @ObservationIgnored private(set) var progressID = UUID()
     @ObservationIgnored var completedQueueIDs: Set<String> = []
     var result: FixtureResult?
-    var savedEpisodes: [Episode] = [] { didSet { reconcileServerAudioRemovalVisibility() } }
+    var savedEpisodes: [Episode] = [] {
+        didSet {
+            reconcileServerAudioRemovalVisibility()
+            let complete = Set(savedEpisodes.filter(FixtureCoordinator.hasFinishedArticleAudio).compactMap {
+                $0.originalSourceIdentity ?? $0.sourceURL.map(FixtureCoordinator.articleSourceKey)
+            })
+            if complete != completedArticleSourceKeys { completedArticleSourceKeys = complete }
+        }
+    }
+    private(set) var completedArticleSourceKeys: Set<String> = []
     var queueItems: [SpeechQueueItem] = []
     var articleSelection: Set<String> = []
-    var articleScope: ArticleScope = .all
     var articlesWebsiteFilter: ArticleWebsiteFilter = .all
-    var queueWebsiteFilter: ArticleWebsiteFilter = .all
     var articlesSearchText = ""
-    var queueSearchText = ""
+    var articlesNeedAttentionOnly = false
+    var articleAttentionSearchText = ""
     var uploadsSearchText = ""
     var serverAudioSearchText = ""
     var retainedArticleSelection: Set<QueueSelectionID> = []
@@ -64,7 +72,7 @@ final class AppModel {
     var sourcePruningBusy = false
     @ObservationIgnored private var sourcePruneTask: Task<Void, Never>?
     @ObservationIgnored private var sourcePruneRequested = false
-    var enqueueIssues: [String] = []
+    var articlePreparationFailures: [String: String] = [:]
     var running = false
     var processingSpeech = false
     var queueMutationBusy = false
@@ -100,7 +108,7 @@ final class AppModel {
     var preferences = SpeechPreferences() { didSet { if oldValue.modelSelection != preferences.modelSelection { voiceSamplePlayer.stop(); pronunciationPreview.stop(); runtimeTestResult = .untested; runtimeVerificationFailed = false }; savePreferences() } }
     var audioCleanupError: String?
     /// Set-and-forget automation preferences; storage-injected models stay manual by default.
-    var autoAdmitEnabled = false { didSet { saveAutoAdmit() } }
+    var autoAdmitEnabled = false
     var autoProcessEnabled = false { didSet { saveAutoProcess() } }
     /// Explicit Stop suspends automation until new work arrives or Generate is pressed.
     var autoHalted = false
@@ -329,9 +337,11 @@ final class AppModel {
     @ObservationIgnored private var pendingControls: [String: QueueAdmissionControl] = [:]
     @ObservationIgnored private var admissionQueue: [(entry: ReadingListEntry, storage: ManagedSpeechStorage,
                                                        preferences: SpeechPreferences, token: UUID,
-                                                       control: QueueAdmissionControl, automatic: Bool)] = []
+                                                       control: QueueAdmissionControl, automatic: Bool, reprocess: Bool)] = []
     /// Source URLs whose automatic admission failed or was refused this session; manual adds bypass it.
     @ObservationIgnored private var autoAttempted: Set<URL> = []
+    @ObservationIgnored private var checkedAdmission: (revision: UUID, destination: URL)?
+    @ObservationIgnored private var checkingAdmission = false
     @ObservationIgnored private var launchResumeDone = false
     @ObservationIgnored private(set) var libraryTask: Task<Void, Never>?
     /// Discard saved-audio snapshots read before a removal or delivery confirmation.
@@ -434,7 +444,7 @@ final class AppModel {
             } catch { self.error = "Saved voice and speed preferences could not be read. Default voice and speed are active." }
         }
         runtimeProject = NativeSpeechSetup.preferredRoot(defaults: defaults)
-        autoAdmitEnabled = defaults.object(forKey: "autoAdmitArticles") as? Bool ?? true
+        autoAdmitEnabled = true
         autoProcessEnabled = defaults.object(forKey: "autoProcessArticles") as? Bool ?? true
         useArchivedArticles = defaults.bool(forKey: "useArchivedArticles")
         refreshLibrary()
@@ -458,10 +468,6 @@ final class AppModel {
             deliverySettingsLoadFailed = true
             self.error = (error as? RelayError)?.localizedDescription ?? "Saved delivery settings are invalid."
         }
-    }
-    private func saveAutoAdmit() {
-        guard !preview, storageOverride == nil else { return }
-        defaults.set(autoAdmitEnabled, forKey: "autoAdmitArticles")
     }
     private func saveAutoProcess() {
         guard !preview, storageOverride == nil else { return }
@@ -751,6 +757,7 @@ final class AppModel {
                 do { try await Task.sleep(for: .seconds(60)) } catch { return }
                 guard let self, !self.stopping else { return }
                 self.triggerDelivery()
+                await self.autoAdmitNewEntries()
                 self.maybeAutoProcess()
             }
         }
@@ -777,10 +784,7 @@ final class AppModel {
     var showsProcessingProgress: Bool { processingSpeech || cancelling }
     var workspaceError: String? {
         guard let error else { return nil }
-        if workspaceSection == .articles {
-            if articleScope == .queue, queueItems.contains(where: { $0.lastError == error }) { return nil }
-            if articleScope == .all, allArticleRows.contains(where: { $0.jobs.count == 1 && $0.jobs[0].lastError == error }) { return nil }
-        }
+        if workspaceSection == .articles, queueItems.contains(where: { $0.lastError == error }) { return nil }
         return error
     }
     var processingFraction: Double? {
@@ -940,7 +944,7 @@ final class AppModel {
         refreshLibrary()
     }
     var selectedArticles: [ReadingListEntry] {
-        allArticleRows.filter { articlesWebsiteFilter.includes($0) && matchesArticleSearch($0, query: articlesSearchText) }
+        visibleArticleRows
             .compactMap(\.source).filter { articleSelection.contains($0.id) }
     }
     var eligibleSelectedArticles: [ReadingListEntry] {
@@ -968,24 +972,49 @@ final class AppModel {
         guard !entries.isEmpty else { return }
         admit(entries: entries, automatic: false)
     }
-    /// Shared admission path for manual Add to Queue and automatic discovery adds.
-    private func admit(entries: [ReadingListEntry], automatic: Bool) {
+    func reprocessArticle(_ row: ArticleLibraryRow) {
+        guard let entry = row.source, canReprocessArticle(row), !queueItems.contains(where: { $0.sourceEntryID == entry.id }) else { return }
+        admit(entries: [entry], automatic: false, reprocess: true)
+    }
+    func canReprocessArticle(_ row: ArticleLibraryRow) -> Bool {
+        guard let entry = row.source, row.offersReprocessing,
+              sourceReview.catalog.entries.contains(entry), sourceReview.catalog.currentIDs.contains(entry.id),
+              pendingAdds[entry.id] == nil, !sourcePruningBusy,
+              !queueItems.contains(where: { $0.sourceEntryID == entry.id }) else { return false }
+        // An owned removal of this article's audio — including an expired record
+        // whose remote/feed cleanup is still settling — must finish before
+        // regenerating; other sources keep their own reprocess actions.
+        let sourceKey = FixtureCoordinator.articleSourceKey(entry.url)
+        let removalPending = savedEpisodes.contains { episode in
+            let identity = episode.originalSourceIdentity ?? episode.sourceURL.map(FixtureCoordinator.articleSourceKey)
+            return identity == sourceKey && (episode.stage == .expired || episode.manualAudioDeletionRequested == true
+                || mutatingSavedAudioIDs.contains(episode.id) || hiddenServerAudioRemovalIDs.contains(episode.id))
+        }
+        guard !removalPending else { return false }
+        return canAddArticles([entry])
+    }
+    func retryArticlePreparation(_ entry: ReadingListEntry) {
+        guard articlePreparationFailures[entry.id] != nil, pendingAdds[entry.id] == nil, canAddArticles([entry]) else { return }
+        admit(entries: [entry], automatic: false,
+            reprocess: completedArticleSourceKeys.contains(FixtureCoordinator.articleSourceKey(entry.url)))
+    }
+    /// Discovery and explicit replacement share the same owned preparation drain.
+    private func admit(entries: [ReadingListEntry], automatic: Bool, reprocess: Bool = false) {
         guard deliveryServerChecked, !libraryMaintenanceBusy, !stopping else { return }
         // Snapshot list order and settings at the click; selection order never changes FIFO.
         let storage = speechStorage, choices = preferences
         if !automatic {
-            articleSelection.removeAll()
-            enqueueIssues = []
-            notices.reset(key: "enqueue")
+            if !reprocess { articleSelection.removeAll() }
         }
         var admitted = 0
         for entry in entries where pendingTokens[entry.id] == nil {
+            articlePreparationFailures[entry.id] = nil
             let token = UUID(), control = QueueAdmissionControl()
             pendingTokens[entry.id] = token
             pendingControls[entry.id] = control
             pendingAdds[entry.id] = entry.title
             admissionQueue.append((entry: entry, storage: storage, preferences: choices, token: token,
-                                   control: control, automatic: automatic))
+                                   control: control, automatic: automatic, reprocess: reprocess))
             admitted += 1
         }
         guard admitted > 0 else { return }
@@ -997,6 +1026,7 @@ final class AppModel {
     func catalogDidChange(removed: [ReadingListEntry]) {
         let removedIDs = Set(removed.map(\.id))
         for id in removedIDs {
+            articlePreparationFailures[id] = nil
             pendingControls[id]?.cancel(); pendingControls[id] = nil
             pendingTokens[id] = nil; pendingAdds[id] = nil
             articleSelection.remove(id)
@@ -1009,10 +1039,8 @@ final class AppModel {
         retainedArticleSelection.subtract(removedJobs.map { .episode($0) })
         let removedURLs = Set(removed.map(\.url))
         if let result, removedURLs.contains(result.article.originalURL) { self.result = nil }
-        enqueueIssues.removeAll { issue in removed.contains { issue.hasPrefix($0.title + " — ") } }
         guard !removed.isEmpty, !preview, !stopping, !libraryReviewRequired, !libraryMaintenanceBusy else {
-            refreshLibrary()
-            Task { await waitForLibraryRefresh(); await autoAdmitNewEntries() }
+            Task { await autoAdmitNewEntries() }
             return
         }
         sourcePruneRequested = true; sourcePruningBusy = true
@@ -1050,16 +1078,22 @@ final class AppModel {
         guard !sourcePruningBusy, !libraryMaintenanceBusy, !libraryReviewRequired, !deliveryPreflightBusy else { return }
         guard (explicit || (autoAdmitEnabled && !syncPreparing)), !preview, !stopping, deliveryServerChecked,
               !sourceReview.busy, !sourceReview.maintenanceSuspended else { return }
-        let catalog = sourceReview.catalog
+        guard storageOverride != nil || (sourceReview.lastSyncedAt != nil && sourceReview.error == nil) else { return }
+        let revision = sourceReview.catalogRevision
+        guard let destination = reconciledDeliveryDestination, !checkingAdmission,
+              explicit || checkedAdmission?.revision != revision || checkedAdmission?.destination != destination else { return }
+        checkingAdmission = true
+        defer { checkingAdmission = false }
         let root = storageOverride?.stateRoot ?? AppStorage.managedLibrary
-        let liveQueue: [SpeechQueueItem]
-        do { liveQueue = try await coordinator.queue(stateRoot: root) }
+        let scan: (entries: [ReadingListEntry], queue: [SpeechQueueItem])
+        do { scan = try await coordinator.automaticAdmission(stateRoot: root) }
         catch { return } // An unreadable library cannot authorize fresh admission.
         guard !Task.isCancelled, !stopping, !libraryMaintenanceBusy, !libraryReviewRequired, deliveryServerChecked,
               !sourcePruningBusy, !deliveryPreflightBusy, !sourceReview.busy, !sourceReview.maintenanceSuspended,
               (explicit || (autoAdmitEnabled && !syncPreparing)),
-              sourceReview.catalog.entries == catalog.entries, sourceReview.catalog.currentIDs == catalog.currentIDs else { return }
-        let liveByID = Dictionary(uniqueKeysWithValues: liveQueue.map { ($0.id, $0) })
+              sourceReview.catalogRevision == revision, reconciledDeliveryDestination == destination,
+              storageOverride != nil || (sourceReview.lastSyncedAt != nil && sourceReview.error == nil) else { return }
+        let liveByID = Dictionary(uniqueKeysWithValues: scan.queue.map { ($0.id, $0) })
         // Full refreshes avoid replacing active progress. A source reassociation
         // can still be projected without changing that row's live processing state.
         queueItems = queueItems.map { item in
@@ -1068,21 +1102,11 @@ final class AppModel {
                 admissionID: item.admissionID, state: item.state, attempts: item.attempts,
                 lastError: item.lastError, sourceHost: item.sourceHost)
         }
-        let queued = Set(liveQueue.compactMap(\.sourceEntryID))
-        let unreviewedDuplicates = catalog.unreviewedDuplicateIDs
-        let candidates = catalog.entries.filter {
-            catalog.currentIDs.contains($0.id) && (!queued.contains($0.id) || unreviewedDuplicates.contains($0.id))
-                && pendingTokens[$0.id] == nil && (explicit || !autoAttempted.contains($0.url))
+        let current = Dictionary(uniqueKeysWithValues: sourceReview.catalog.entries.map { ($0.id, $0) })
+        let fresh = scan.entries.filter {
+            current[$0.id] == $0 && pendingTokens[$0.id] == nil && (explicit || !autoAttempted.contains($0.url))
         }
-        var fresh: [ReadingListEntry] = []
-        for entry in candidates where !Task.isCancelled && !stopping {
-            do { if try await coordinator.hasRecordedArticle(entry: entry, stateRoot: root) == false { fresh.append(entry) } }
-            catch { return }
-        }
-        guard !fresh.isEmpty, !Task.isCancelled, !stopping, !libraryMaintenanceBusy, !libraryReviewRequired, deliveryServerChecked,
-              !sourcePruningBusy, !deliveryPreflightBusy, !sourceReview.busy, !sourceReview.maintenanceSuspended,
-              (explicit || (autoAdmitEnabled && !syncPreparing)),
-              sourceReview.catalog.entries == catalog.entries, sourceReview.catalog.currentIDs == catalog.currentIDs else { return }
+        checkedAdmission = (revision, destination)
         admit(entries: fresh, automatic: true)
     }
     /// Automatic processing obeys the same readiness guards as Generate; explicit Stop holds
@@ -1117,16 +1141,16 @@ final class AppModel {
                 admissionQueue = []; enqueueTask = nil
                 maybeAutoProcess()
             }
-            var saved = 0, issues: [(entryID: String, message: String)] = []
+            var saved = 0, failures = 0
             while let next = admissionQueue.first {
                 if Task.isCancelled { break }
                 let entry = next.entry
-                if sourceReview.catalog.inactiveDuplicateIDs.contains(entry.id) {
+                if sourceReview.duplicateStatuses.inactive.contains(entry.id) {
                     admissionQueue.removeFirst()
                     pendingAdds[entry.id] = nil; pendingTokens[entry.id] = nil; pendingControls[entry.id] = nil
                     continue
                 }
-                if !processingSpeech && !running { status = "Adding \(saved + issues.count + 1): \(entry.title)" }
+                if !processingSpeech && !running { status = "Preparing article: \(entry.title)" }
                 do {
                     var cpuWork = sourceCPUWork
                     let control = next.control
@@ -1137,7 +1161,8 @@ final class AppModel {
                         describeImages: describeArticleImages, generateMissingTitles: generateMissingTitles,
                         generateSummaries: !preview && storageOverride == nil && backendOverride == nil, shouldCommit: { [self] in
                             await MainActor.run { !self.stopping && self.pendingTokens[entry.id] == next.token }
-                        }, admissionControl: next.control, hostAdmission: speechWorkCoordinator?.hostAdmission, cpuExecutor: cpuWork)
+                        }, admissionControl: next.control, hostAdmission: speechWorkCoordinator?.hostAdmission, cpuExecutor: cpuWork,
+                        reprocess: next.reprocess, automatic: next.automatic)
                     admissionQueue.removeAll { $0.token == next.token }
                     if pendingTokens[entry.id] == next.token {
                         pendingAdds[entry.id] = nil; pendingTokens[entry.id] = nil; pendingControls[entry.id] = nil
@@ -1170,17 +1195,16 @@ final class AppModel {
                     admissionQueue.removeAll { $0.token == next.token }
                     if pendingTokens[entry.id] == next.token {
                         pendingAdds[entry.id] = nil; pendingTokens[entry.id] = nil; pendingControls[entry.id] = nil
-                    }
-                    if next.automatic { autoAttempted.insert(entry.url) }
-                    if sourceReview.catalog.currentIDs.contains(entry.id) {
-                        issues.append((entry.id, "\(entry.title) — \(Self.enqueueIssueMessage(error))"))
+                        if next.automatic { autoAttempted.insert(entry.url) }
+                        if sourceReview.catalog.currentIDs.contains(entry.id) {
+                            articlePreparationFailures[entry.id] = Self.enqueueIssueMessage(error)
+                            failures += 1
+                        }
                     }
                 }
             }
-            issues.removeAll { !sourceReview.catalog.currentIDs.contains($0.entryID) }
-            enqueueIssues = issues.map(\.message)
             if !processingSpeech && !running {
-                status = issues.isEmpty ? "\(saved) articles saved in queue" : "Saved \(saved); \(issues.count) need attention."
+                status = failures == 0 ? "\(saved) articles prepared" : "Prepared \(saved). \(failures) need attention."
             }
         }
     }
@@ -1459,7 +1483,7 @@ final class AppModel {
         guard let info = episode.info else { return nil }
         let duration = Self.durationString(info.duration)
         let size = ByteCountFormatter.string(fromByteCount: info.byteLength, countStyle: .file)
-        return "Audio · \(duration) · \(size)"
+        return "\(duration) • \(size)"
     }
     static func durationString(_ duration: TimeInterval) -> String {
         let total = max(0, Int(duration.rounded()))
@@ -1506,10 +1530,10 @@ final class AppModel {
     func matchesAudioSearch(_ item: UploadItem, query: String, outbox: Bool) -> Bool {
         guard LibraryTextSearch.isSearching(query) else { return true }
         let episode = item.episode, origin = savedAudioOrigin(episode)
-        let removal = outbox ? nil : savedAudioRemovalStatus(episode)
-        var fields: [String?] = [episode.title, origin.host, origin.savedDateText, savedAudioMeta(episode), removal]
+        let removal = outbox ? nil : savedAudioRemovalStatus(episode), meta = savedAudioMeta(episode)
+        var fields: [String?] = [episode.title, origin.host, origin.savedDateText,
+            origin.displayText(audioMeta: meta), meta, removal]
         if outbox || removal == nil { fields += [item.phase.title, item.detail] }
-        if !outbox, savedAudioMeta(episode) == nil, removal == nil { fields.append("Speech ready") }
         if outbox { fields.append(item.sentBytesText) }
         return LibraryTextSearch.matches(query, fields: fields)
     }
@@ -1549,7 +1573,8 @@ final class AppModel {
     func finishLibraryReview() {
         guard canManageLibrary, libraryReviewRequired else { return }
         libraryReviewRequired = false
-        libraryBackupStatus = "Review complete. Automatic processing and delivery stay off until you enable them."
+        autoAdmitEnabled = true
+        libraryBackupStatus = "Review complete. Automatic generation and delivery stay off until you enable them."
         refreshLibrary(allowDelivery: false)
     }
     func savedAudioRemovalFailure(_ episode: Episode) -> String? {
@@ -1761,7 +1786,7 @@ final class AppModel {
         guard canManageLibrary else { return }
         let panel = NSSavePanel()
         panel.title = "Back Up VoiceRelay Library"
-        panel.nameFieldStringValue = "VoiceRelay-\(Date().formatted(.iso8601.year().month().day().dateSeparator(.dash))).voicerelaybackup"
+        panel.nameFieldStringValue = "VoiceRelay-\(AppDateFormatting.date(Date())).voicerelaybackup"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         backUpLibrary(to: url)
@@ -1791,6 +1816,8 @@ final class AppModel {
         audioLibraryRevision = UUID()
         // Even a post-commit disk error must never resume stale delivery intentions.
         autoAdmitEnabled = false; autoProcessEnabled = false; autoHalted = true
+        checkedAdmission = nil
+        articlePreparationFailures = [:]
         libraryReviewRequired = true
         defaults.set(false, forKey: "autoAdmitArticles"); defaults.set(false, forKey: "autoProcessArticles")
         deliverySettings.enabled = false
@@ -1805,8 +1832,8 @@ final class AppModel {
                 let previous = try await coordinator.restoreLibrary(backup: url, storage: storage)
                 try await sourceReview.reloadAfterLibraryReplacement()
                 libraryBackupStatus = previous == nil
-                    ? "Library restored. Review Queue, Server Audio and Publishing before enabling automation."
-                    : "Library restored; the previous library is kept for recovery. Review Queue, Server Audio and Publishing before enabling automation."
+                    ? "Library restored. Review Articles, Server Audio and Publishing before enabling automation."
+                    : "Library restored; the previous library is kept for recovery. Review Articles, Server Audio and Publishing before enabling automation."
             } catch {
                 libraryBackupStatus = nil
                 libraryBackupError = (error as? RelayError)?.localizedDescription ?? "Library restore failed. Existing state is preserved."

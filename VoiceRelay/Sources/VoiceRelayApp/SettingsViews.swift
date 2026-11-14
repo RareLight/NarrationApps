@@ -45,9 +45,7 @@ struct ConfigurationView: View {
                 }
                 Button("Choose Reading List…") { model.sourceReview.selectPlist() }
                     .disabled(model.running || model.sourceReview.busy || model.sourceReview.maintenanceSuspended || model.preview)
-                Toggle("Add new articles to Queue automatically", isOn: $model.autoAdmitEnabled)
-                    .disabled(model.preview || model.stopping)
-                Toggle("Process queued articles automatically", isOn: $model.autoProcessEnabled)
+                Toggle("Generate audio automatically", isOn: $model.autoProcessEnabled)
                     .disabled(model.preview || model.stopping)
                 Toggle("Try archived copies when articles fail", isOn: $model.useArchivedArticles)
                     .disabled(model.preview || model.stopping)

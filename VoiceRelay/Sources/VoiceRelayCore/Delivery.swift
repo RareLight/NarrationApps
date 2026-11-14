@@ -1147,6 +1147,61 @@ extension FixtureCoordinator {
             return saved <= previous
         }
     }
+
+    /// Read queue and history once per discovery revision, independently of UI filtering.
+    public func automaticAdmission(stateRoot: URL) throws -> (entries: [ReadingListEntry], queue: [SpeechQueueItem]) {
+        guard let store = try metadataReader(stateRoot) else { return ([], []) }
+        try store.execute("BEGIN")
+        defer { try? store.execute("ROLLBACK") }
+        let catalog = try store.catalog()
+        let episodes = try store.query("SELECT source_key,record FROM episodes").map {
+            try Task.checkCancellation()
+            return ($0[0], try JSONDecoder().decode(Episode.self, from: Data($0[1].utf8)))
+        }
+        var recorded: [String: [Episode]] = [:]
+        for (key, episode) in episodes {
+            recorded[key, default: []].append(episode)
+            if let identity = episode.originalSourceIdentity, identity != key {
+                recorded[identity, default: []].append(episode)
+            } else if episode.originalSourceIdentity == nil, let url = episode.sourceURL {
+                let identity = Self.articleSourceKey(url)
+                if identity != key { recorded[identity, default: []].append(episode) }
+            }
+        }
+        let removed = Set(episodes.compactMap { $0.1.readingListRemoved == true ? $0.1.id : nil })
+        let queue = try store.queue(resolveSnapshots: false).filter { !removed.contains($0.id) }
+        let queued = Set(queue.compactMap(\.sourceEntryID))
+        let handled = catalog.handledIDs
+        let groups = ArticleDuplicates.groups(catalog.entries, evidence: catalog.duplicateEvidence ?? [:])
+        let completed = Set(recorded.compactMap { key, matches in matches.contains(where: Self.hasFinishedArticleAudio) ? key : nil })
+        let protected = catalog.entriesWithCompletedAudio(sourceKeys: completed, groups: groups)
+        var unreviewed = Set<String>()
+        for group in groups where group.count > 1 {
+            if group.contains(where: { !handled.contains($0.id) }) {
+                unreviewed.formUnion(group.map(\.id))
+            }
+        }
+        let entries = catalog.entries.filter { entry in
+            guard catalog.currentIDs.contains(entry.id), !protected.contains(entry.id) else { return false }
+            let matches = recorded[Self.articleSourceKey(entry.url)] ?? []
+            if unreviewed.contains(entry.id) { return true }
+            return !queued.contains(entry.id) && !handled.contains(entry.id) && !matches.contains { episode in
+                if let bound = episode.readingListEntryID { return bound == entry.id && episode.readingListSavedAt == entry.addedAt }
+                guard let saved = entry.addedAt, let previous = episode.readingListSavedAt ?? episode.publicationDate else { return true }
+                return saved <= previous
+            }
+        }
+        return (entries, queue)
+    }
+
+    public nonisolated static func articleSourceKey(_ url: URL) -> String {
+        "reviewed-url-v1-" + Files.hash(Data(url.absoluteString.utf8))
+    }
+
+    public nonisolated static func hasFinishedArticleAudio(_ episode: Episode) -> Bool {
+        episode.stage == .published && episode.audioFinalizationComplete != false && episode.audioHash != nil && episode.info != nil
+            && episode.manualAudioDeletionRequested != true && episode.localAudioDiscarded != true
+    }
     static func deliveryBackoff(_ attempts: Int) -> TimeInterval {
         min(60 * pow(2, Double(max(0, attempts - 1))), 1800)
     }

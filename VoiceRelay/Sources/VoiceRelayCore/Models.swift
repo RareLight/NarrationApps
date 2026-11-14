@@ -82,6 +82,8 @@ public struct Episode: Codable, Sendable {
     public var readingListEntryID: String? = nil
     /// Only fresh Reading List generations may automatically replace older matching audio.
     public var replacesDuplicateAudio: Bool? = nil
+    /// A row-level override replaces recordings for the same source identity.
+    var reprocessesArticleAudio: Bool? = nil
     public var podcastDate: Date? { readingListSavedAt ?? publicationDate }
     public var encodedHash: String?
     public var audioHash: String?

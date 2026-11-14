@@ -80,27 +80,34 @@ Settings, previews, Help and menu popover. Use **⌘+**, **⌘−** and **⌘0**
 reduce or reset it. The preference persists; small text stays at least 12 points.
 
 Left-click or right-click the circular waveform menu-bar icon to open the same
-compact popover immediately, without an opening animation, with overall status, **Last published**,
+compact popover immediately, without an opening animation, with overall status, **Updated**,
 **Sync Now**, **Open VoiceRelay**, **Server Audio**, **Settings**, **Copy Podcast URL** and **Quit VoiceRelay**.
-**Last published** shows the local date and time of the most recent confirmed feed update at the
-current destination, or **Not recorded** for an older or new destination.
+**Updated** shows the time of the most recent confirmed feed update at the
+current destination when it happened today, its ISO date when older, or
+**Unknown** until one is recorded.
 **Copy Podcast URL** copies the configured subscription address to the clipboard;
-it is unavailable until a Public folder URL is configured. Green **Ready**
-requires a successful Reading List read, verified speech runtime and verified
-WebDAV connection this session. A red problem status opens its affected Settings
-pane. Startup checks the installed speech runtime offline, without downloading.
+it is unavailable until a Public folder URL is configured. Green **Ready** means
+nothing needs your attention while background checks keep running — it does not
+mean every service finished verifying. An orange setup or red problem status is
+clickable and opens its affected Settings pane; a recorded problem stays visible
+while its recheck runs. Startup checks the installed speech runtime offline,
+without downloading.
+The top status stays on one fixed-height line, so longer status text truncates
+in place and hovering the status shows its full title.
 The menu fits its command labels with 25% extra horizontal room and follows your text size. Status text and Sync
 progress fit within that width. Keyboard focus outlines appear after you press
 **Tab**; Tab and Shift-Tab navigate commands as usual. The menu-bar symbol uses
 a larger SF Symbols configuration within the standard square click target.
 
 **Sync Now** refreshes the Reading List, checks existing server audio, prepares new
-articles, generates Ready work and publishes it, even when automatic admission and
-processing are off. It does not change those preferences or retry failed speech
-rows. During this one-shot task, its button becomes a compact phase progress bar:
-measured generation/current-file transfer progress, animated checks, then the button returns.
-Articles and Queue are scopes in one library window alongside Upload Queue and Server
-Audio. Opening a standalone window enables the Dock/⌘-Tab entry; closing the last
+articles, generates Ready work and publishes it, even when automatic generation
+is off. Failed speech rows remain available for manual retry. During this task,
+the command row shows the current phase with a compact progress bar on one
+command-height line — measured generation or current-file transfer progress,
+an animated bar during checks — then the **Sync Now** button returns. The menu
+contents and height never shift while statuses and phases change.
+The library sidebar contains Articles, Upload Queue and Server Audio. Opening a
+standalone window enables the Dock/⌘-Tab entry; closing the last
 returns to menu-bar-only operation. Closing windows does not stop work.
 
 1. In **Settings → Voice Model**, choose Model and Voice. Fresh settings use
@@ -110,32 +117,28 @@ returns to menu-bar-only operation. Closing windows does not stop work.
    reference-voice import. The **ⓘ** popover’s relative speed/quality meters compare models
    without benchmarking your Mac. See the [model guide](../../docs/MODEL_SELECTION.md).
    New admissions capture these choices; earlier queued articles keep theirs.
-2. Safari's `~/Library/Safari/Bookmarks.plist` is the default source. In
-   **General → Reading List**, choose another file if needed. Discovery runs at startup,
-   every five minutes, when Articles appears or the source changes, and on
-   Articles' pull-down gesture. Newest saved items appear first; ties keep discovery
-   order and undated entries come last. Automatic admission and processing are
-   controlled by the General preferences. Adding to Queue and Generate Audio,
-   whether automatic or manual, require Publishing to be enabled, configured and
-   reconciled at the current destination. The check recovers already-published
-   work before the queue can generate it again.
-   If an entry's address changes, refresh removes its old queued work and cached
-   source text once no current entry refers to that address. Published episodes remain.
-
-3. **Add to Queue** prepares selected articles in displayed order in the
-   background, showing Preparing and per-entry failures. Saved text is reused
-   offline. Double-click or **Preview Article** opens the dedicated preview window;
-   that window fetches the page. Optional **Try archived copies when articles
-   fail** is off by default; see [article handling](SOURCE_REVIEW.md).
-4. **Generate Audio** (⌘⇧G) drains Ready work, pending preparations and late
-   additions in processing order. **Stop** (⌘.) returns interrupted speech to
-   Ready and suspends automatic processing until new work arrives or Generate is
-   pressed; already-started finalization can finish. Quit joins owned work while
-   retaining recoverable checkpoints. Relaunch resumes eligible automation.
-   Failed rows require Retry; they are not repeatedly retried automatically.
-5. Queue removal deletes only queue membership. Source entries, saved text and
-   server audio remain. Individual and multi-selection removal need no
-   confirmation; **Reset Queue…** does. Scope selections remain independent.
+2. In **General → Reading List**, choose a source if the default Safari Reading
+   List is unavailable. Discovery runs at startup, every five minutes, when the
+   source changes, and on pull-to-refresh. Opening Articles shows the cached list.
+3. **Articles** shows each save and its narration status. New articles prepare
+   automatically once Publishing has checked the current destination. A green
+   checkmark means **Narration Complete**, even while the audio is awaiting upload.
+   A blue circular arrow means **Re-process Audio** with your current voice and
+   settings — available on any idle, current Reading List article without
+   matching audio, including one whose server audio you deleted once its
+   removal finishes. Automatic
+   narration never recreates deleted audio on its own. Existing audio stays
+   available while a replacement is prepared.
+   Double-click an article to preview it. Preparation failures offer a row retry.
+   Click **Needs Attention** above the list to see all articles with preparation
+   failures or narration that needs a retry. Search within those results if
+   needed. **Show All Articles** restores your previous search and filters.
+4. **Generate Audio** (⌘⇧G) processes ready articles when automatic generation is
+   off. **Stop** (⌘.) returns interrupted speech to Ready and pauses automatic
+   generation until new work arrives or you choose Generate Audio. Failed speech
+   remains available for retry. Closing windows leaves automation running.
+5. **Upload Queue** shows finished audio awaiting server publication or a retry.
+   **Server Audio** is the episode history and the place to remove server audio.
 
 ### Duplicate articles
 
@@ -143,29 +146,25 @@ VoiceRelay compares copies with the same title and original website, or the same
 source URL. It chooses readable full text over a paywall preview or failed copy.
 Among copies within 5% of the longest extracted prose, the most recently saved
 wins. Dates help choose the copy; they are not part of duplicate matching.
-Other copies stay visible in All Articles, gray and labelled **Inactive duplicate**.
+Other copies stay visible in Articles. A matching completed recording suppresses
+new automatic narration for the group. Use **Re-process Audio** on the completed
+article when you want a new recording — the same arrow regenerates a current
+article whose server audio was deleted, once its server cleanup settles.
+VoiceRelay confirms the replacement audio
+and feed membership before retiring older owned audio for that source. A failed
+replacement leaves the old recording available. Queued retries retain their
+captured settings. Safari entries remain read-only.
 
-A new save of an already narrated article generates fresh audio with your current
-voice settings. Existing unfinished work keeps its captured settings unless a new
-duplicate admission replaces it. VoiceRelay confirms the replacement audio and
-feed membership before removing older matching episodes from the feed, then
-cleans up their owned server audio and transcripts. Failures retain the old server
-files until safe cleanup can finish. No Safari entry is changed.
-
-Handled entries, including inactive copies, are remembered in the private library.
-Leaving duplicates in Safari, refreshing, restarting, clearing the queue or
-removing their audio does **not** automatically create more recordings. A genuinely
-new save is eligible again. You can explicitly Add to Queue for the active copy
-when you want another recording; queued retries retain their captured settings.
-
-Search in Articles (All Articles/Queue), Upload Queue and Server Audio matches visible
+Search in Articles, Upload Queue and Server Audio matches visible
 titles, source, saved dates, status and errors. Searches are local, combine with
 the Website/state filters and do not restrict automatic processing or publishing.
 
-Articles, Queue/preparing rows and Server Audio share the original-website and
-Saved-date line. A missing saved date is omitted rather than replaced by the
-voice-generation date. Progress appears only during owned work; publishing is
-shown separately from speech/finalization.
+Articles, Queue/preparing rows and Server Audio share one original-website line
+with the saved date in compact ISO form — `website.com (2026-11-13)`. A missing
+saved date is omitted rather than replaced by the voice-generation date. Upload
+Queue and Server Audio append audio duration and file size on the same line —
+`website.com (2026-11-13): 4:32 • 20 MB`. Progress appears only during owned
+work; publishing is shown separately from speech/finalization.
 
 ### Article titles
 
@@ -175,7 +174,7 @@ treated as a fallback: VoiceRelay looks for a richer opening headline first.
 Capitalization, separators and the `.pdf` extension do not make a filename into
 a distinct title. If no reliable improvement is found, the original title remains.
 For web articles, a descriptive title matching the URL slug is retained.
-The recovered title appears in All Articles, Queue, the spoken introduction and
+The recovered title appears in Articles, the spoken introduction and
 the resulting podcast episode; Safari's Reading List is never modified.
 
 **Settings → General → Article titles → Generate missing titles using Apple
@@ -294,19 +293,20 @@ periodically while the app runs. Media size and hash are confirmed before feed p
 read back through authenticated WebDAV and its exact contents confirmed.
 
 **Server Audio** is durable episode history. **Published** means current-destination
-media bytes and feed membership are confirmed. **Upload New Items** appears only
+media bytes and feed membership are confirmed. Hover the colored icon beside an
+episode title for its publishing or removal status and any details. VoiceOver
+can also read the status. **Upload New Items** appears only
 while shown episodes need upload/publication. Removing an episode retires feed
 membership before remote media deletion. Clicking **×** — or removing a
 selection — makes every accepted target disappear together immediately, without
 a deletion animation; cleanup continues in the background and the lower status
 bar reports progress. Rows stay hidden through refreshes and while cleanup
 finishes. When deleting one at a time, the rows close up as you click. The status
-bar keeps its space as cleanup starts and finishes, and status changes fit on a
-single line in each row. Hover a status for its details. Completed episodes can
+bar keeps its space as cleanup starts and finishes. Completed episodes can
 also be deleted while Generate Audio is working. Newly completed episodes appear
 while later articles generate. Queued episodes and those still finishing stay
 protected. If cleanup fails or cannot finish, the affected item returns with an orange
-**Deletion failed** badge with the reason available on hover and to VoiceOver.
+warning icon. Its **Deletion failed** tooltip includes the reason.
 Deleting that row again retries removal. If Publishing is off or unavailable,
 unfinished server cleanup stays listed.
 **Reset Server Audio…** requires confirmation. Source entries and retained text

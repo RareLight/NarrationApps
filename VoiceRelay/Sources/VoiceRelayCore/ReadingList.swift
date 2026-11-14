@@ -47,14 +47,33 @@ public struct ReadingListCatalog: Codable, Sendable {
         })
     }
     public var inactiveDuplicateIDs: Set<String> {
-        let evidence = duplicateEvidence ?? [:]
-        return Set(ArticleDuplicates.groups(entries, evidence: evidence).flatMap { group -> [String] in
-            guard group.count > 1, let winner = ArticleDuplicates.winner(group, evidence: evidence) else { return [] }
-            return group.filter { $0.id != winner.id }.map(\.id)
-        })
+        duplicateStatuses.inactive
     }
+    public func hasSameDuplicateEvidence(as previous: Self) -> Bool { duplicateEvidence == previous.duplicateEvidence }
     public func hasHandled(_ entry: ReadingListEntry) -> Bool {
         entries.contains(entry) && handledEntryIDs?.contains(entry.id) == true
+    }
+    var handledIDs: Set<String> { handledEntryIDs ?? [] }
+    public var duplicateStatuses: (groups: [String: String], inactive: Set<String>) {
+        let evidence = duplicateEvidence ?? [:]
+        var groups: [String: String] = [:], inactive = Set<String>()
+        for group in ArticleDuplicates.groups(entries, evidence: evidence) where group.count > 1 {
+            let groupID = group[0].id
+            for entry in group { groups[entry.id] = groupID }
+            if let winner = ArticleDuplicates.winner(group, evidence: evidence) {
+                inactive.formUnion(group.lazy.filter { $0.id != winner.id }.map(\.id))
+            }
+        }
+        return (groups, inactive)
+    }
+    func entriesWithCompletedAudio(sourceKeys: Set<String>, groups: [[ReadingListEntry]]) -> Set<String> {
+        guard !sourceKeys.isEmpty else { return [] }
+        let completed = Set(entries.compactMap { entry in
+            sourceKeys.contains(FixtureCoordinator.articleSourceKey(entry.url)) ? entry.id : nil
+        })
+        return Set(groups.flatMap { group in
+            group.contains { completed.contains($0.id) } ? group.map(\.id) : []
+        })
     }
     public init() {}
     /// Articles display saved dates newest first without changing durable discovery order.

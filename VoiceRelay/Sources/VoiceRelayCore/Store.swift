@@ -217,6 +217,7 @@ final class NativeStore {
                 saved.sourceName = saved.sourceName ?? current.sourceName
                 saved.readingListEntryID = current.readingListEntryID ?? saved.readingListEntryID
                 saved.replacesDuplicateAudio = saved.replacesDuplicateAudio ?? current.replacesDuplicateAudio
+                saved.reprocessesArticleAudio = saved.reprocessesArticleAudio ?? current.reprocessesArticleAudio
                 saved.readingListSavedAt = saved.readingListSavedAt ?? current.readingListSavedAt
                 saved.originalSourceIdentity = saved.originalSourceIdentity ?? current.originalSourceIdentity
                 if current.transcript?.audioHash == (saved.audioHash ?? saved.encodedHash) {
@@ -434,12 +435,16 @@ final class PipelineStore: Sendable {
                     && successor.readingListEntryID.map(inactive.contains) != true {
                     for (previousIndex, candidate) in episodes.enumerated() where previousIndex > index || candidate.replacesDuplicateAudio != true {
                         var previous = candidate
+                        let sameSource = successor.originalSourceIdentity.map { identity in
+                            identity == (previous.originalSourceIdentity ?? previous.sourceURL.map(FixtureCoordinator.articleSourceKey))
+                        } == true
+                        let sameDuplicate = ArticleDuplicates.matches(title: previous.title, host: previous.originalSourceHost ?? previous.sourceHost,
+                            title: successor.title, host: successor.originalSourceHost ?? successor.sourceHost)
                         guard previous.id != successor.id, previous.stage == .published,
                               previous.audioHash != nil, previous.info != nil,
                               previous.audioFinalizationComplete != false, !retired.contains(previous.id),
                               !blocked.contains(previous.id),
-                              ArticleDuplicates.matches(title: previous.title, host: previous.originalSourceHost ?? previous.sourceHost,
-                                  title: successor.title, host: successor.originalSourceHost ?? successor.sourceHost) else { continue }
+                              (successor.reprocessesArticleAudio == true ? sameSource : sameDuplicate) else { continue }
                         // Older remote-only history can be discovered after the new
                         // local admission, so its row insertion time is not its age.
                         previous.stage = .expired; previous.manualAudioDeletionRequested = true

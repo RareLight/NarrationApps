@@ -3,19 +3,17 @@ import VoiceRelayCore
 
 enum AppHealthStatus: Equatable {
     case ready
-    case checking(String)
     case needsSetup(String, SettingsSection)
     case failure(String, SettingsSection)
     var title: String {
         switch self {
         case .ready: "Ready"
-        case .checking(let message), .needsSetup(let message, _), .failure(let message, _): message
+        case .needsSetup(let message, _), .failure(let message, _): message
         }
     }
     var symbol: String {
         switch self {
         case .ready: "checkmark.circle.fill"
-        case .checking: "clock"
         case .needsSetup: "arrow.down.circle"
         case .failure: "xmark.circle.fill"
         }
@@ -30,31 +28,22 @@ enum AppHealthStatus: Equatable {
 
 @MainActor
 extension AppModel {
-    /// A verified service summary; opening the menu never performs checks itself.
+    /// Actionable issues only: menu Ready means nothing needs the user's
+    /// attention, not that every service finished verifying. Transient checks,
+    /// in-flight work and unverified states stay quiet; a recorded error stays
+    /// visible even while its recheck runs. Reading this never performs checks.
     var appHealth: AppHealthStatus {
         if libraryReviewRequired { return .failure("Library review required", .troubleshooting) }
         if sourceReview.plist == nil { return .failure("Reading List needs setup", .general) }
-        if sourceReview.error != nil && !sourceReview.synchronizing { return .failure("Reading List unavailable", .general) }
-        if !runtimeBusy && runtimeVerificationFailed { return .failure("Speech setup needs attention", .voiceModel) }
+        if sourceReview.error != nil { return .failure("Reading List unavailable", .general) }
+        if runtimeVerificationFailed { return .failure("Speech setup needs attention", .voiceModel) }
         if !runtimeBusy && !preview && !speechRuntimeInstalled { return .needsSetup("Set up speech", .voiceModel) }
-        if case .failure = runtimeTestResult, !runtimeBusy { return .failure("Speech setup check failed", .voiceModel) }
+        if case .failure = runtimeTestResult { return .failure("Speech setup check failed", .voiceModel) }
         if !deliverySettings.enabled { return .failure("Publishing is off", .delivery) }
         if (try? deliverySettings.validate()) == nil { return .failure("Publishing needs setup", .delivery) }
-        if deliveryError != nil && !deliveryPreflightBusy { return .failure("Publishing needs attention", .delivery) }
-        if case .failure = deliveryTestResult, !deliveryTesting { return .failure("Publishing check failed", .delivery) }
+        if deliveryError != nil { return .failure("Publishing needs attention", .delivery) }
+        if case .failure = deliveryTestResult { return .failure("Publishing check failed", .delivery) }
         if deliveryPasswordChecked && !deliveryPasswordStored && !deliveryCredentialBusy { return .failure("Publishing password missing", .delivery) }
-        if sourceReview.synchronizing { return .checking("Checking Reading List…") }
-        if runtimeBusy { return .checking("Installing speech model…") }
-        if speechValidationStarted && speechSetupValidation.result != .ready && !runtimeVerificationFailed
-            && speechSetupValidation.result != .notInstalled { return .checking("Checking speech setup…") }
-        if deliveryPreflightBusy || deliveryTesting { return .checking("Checking Publishing…") }
-        if sourceReview.lastSyncedAt == nil { return .failure("Reading List not checked", .general) }
-        if runtimeTestResult != .success { return .failure("Speech setup not checked", .voiceModel) }
-        if !deliveryConnectionVerified { return .failure("Publishing not checked", .delivery) }
-        if let waiting = speechWaitingLabel { return .checking(waiting) }
-        if syncBusy { return .checking("Syncing…") }
-        if processingSpeech { return .checking("Generating audio…") }
-        if deliveryBusy { return .checking("Publishing…") }
         return .ready
     }
     /// Read existing presentation state only. This never queries Keychain or the network.

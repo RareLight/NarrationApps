@@ -1,7 +1,7 @@
 import Foundation
 
 /// Private extraction evidence, not an estimate of audio duration or model quality.
-public struct ArticleDuplicateEvidence: Codable, Sendable {
+public struct ArticleDuplicateEvidence: Codable, Sendable, Equatable {
     public let title: String
     public let readableCharacters: Int
     public let readable: Bool

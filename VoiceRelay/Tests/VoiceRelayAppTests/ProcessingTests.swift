@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import Foundation
 import AudioOutput
+import ProcessingPipeline
 import Testing
 @testable import VoiceRelayCore
 @testable import VoiceRelayApp
@@ -374,6 +375,7 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
     model.syncBusy = true; model.syncPhase = .reconciling
     _ = RelayMenu(model: model).body
     _ = SyncMenuProgress(model: model).body
+    _ = MenuStatusLabel(health: model.appHealth).body
     let reference = MenuPopoverWindowReference()
     reference.dismiss() // An unattached/inert menu must not touch other app windows.
     #expect(reference.window == nil)
@@ -428,12 +430,12 @@ private final class CancellableProvider: TTSBackend, @unchecked Sendable {
         encoding: .utf8)
     #expect(!source.contains(#"item("Articles")"#))
     #expect(source.contains(#"item("Open VoiceRelay")"#))
-    let lastPub = try #require(source.range(of: "Last published:")).lowerBound
+    let updated = try #require(source.range(of: "Updated:")).lowerBound
     let syncNow = try #require(source.range(of: #"item("Sync Now")"#)).lowerBound
     let settings = try #require(source.range(of: #"item("Settings")"#)).lowerBound
     let copyURL = try #require(source.range(of: #"item("Copy Podcast URL")"#)).lowerBound
     let quit = try #require(source.range(of: #"item("Quit VoiceRelay")"#)).lowerBound
-    #expect(lastPub < syncNow && settings < copyURL && copyURL < quit)
+    #expect(updated < syncNow && settings < copyURL && copyURL < quit)
 }
 
 @Test(arguments: [80, 100, 200]) @MainActor
@@ -449,8 +451,12 @@ func statusItemMenuFitsCommandsAndKeepsWidthDuringSync(percent: Int) async {
     let idle = measure()
     model.deliveryLastPublishedAt = Date(timeIntervalSince1970: 1_761_900_000)
     let withHistory = measure()
+    model.deliveryLastPublishedAt = Date() // Same-day updates show a clock time, not a date.
+    let withToday = measure()
     model.deliveryLastPublishedAt = nil
     #expect(withHistory.width == idle.width)
+    #expect(abs(withHistory.height - idle.height) <= 1)
+    #expect(abs(withToday.width - idle.width) < 1 && abs(withToday.height - idle.height) <= 1)
     #expect(withHistory.height.isFinite && idle.height.isFinite)
     let initialHealth = model.appHealth.title
     let fontSize = AppTypography.pointSize(base: NSFont.preferredFont(forTextStyle: .body).pointSize,
@@ -460,21 +466,110 @@ func statusItemMenuFitsCommandsAndKeepsWidthDuringSync(percent: Int) async {
     #expect(idle.width < 280 * max(1, CGFloat(percent) / 100) * 0.8)
     #expect(idle.height > 0)
     model.syncBusy = true
-    for phase in [SyncPhase.preparing, .reconciling, .generating, .publishing] {
+    for phase in [SyncPhase.readingList, .reconciling, .preparing, .speechCheck, .generating, .publishing] {
         model.syncPhase = phase
         let busy = measure()
+        // Busy checks and progress phases keep the idle row height so the
+        // popover never shifts while sync work changes status text.
         #expect(abs(busy.width - idle.width) < 1)
-        #expect(busy.height > 0 && busy.height < 2000)
+        #expect(abs(busy.height - idle.height) <= 1)
     }
+    model.deliveryLastPublishedAt = Date(timeIntervalSince1970: 1_761_900_000)
+    #expect(abs(measure().height - idle.height) <= 1)
+    model.deliveryLastPublishedAt = nil
     model.processingSpeech = true
     model.progress = PipelineProgress(stage: .published, completedChunks: 1, totalChunks: 3)
     model.syncPhase = .generating
     #expect(model.syncProgressFraction != nil)
-    #expect(abs(measure().width - idle.width) < 1)
-    model.libraryReviewRequired = true // Changing status must not widen the menu.
+    let determinate = measure()
+    #expect(abs(determinate.width - idle.width) < 1 && abs(determinate.height - idle.height) <= 1)
+    model.libraryReviewRequired = true // Changing status must not widen or grow the menu.
     #expect(model.appHealth.title != initialHealth)
-    #expect(abs(measure().width - idle.width) < 1)
+    let failure = measure()
+    #expect(abs(failure.width - idle.width) < 1 && abs(failure.height - idle.height) <= 1)
     await model.shutdown()
+}
+
+/// A verified in-memory model with no work, for non-actionable health states.
+@MainActor private func verifiedMenuModel() -> AppModel {
+    let model = AppModel(preview: true)
+    model.sourceReview.plist = URL(fileURLWithPath: "/synthetic/Bookmarks.plist")
+    model.sourceReview.lastSyncedAt = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    model.runtimeTestResult = .success
+    model.deliverySettings = appDeliverySettings()
+    model.deliveryConnectionVerified = true
+    return model
+}
+
+@Test(arguments: [80, 100, 200]) @MainActor
+func statusItemMenuKeepsHeightBetweenReadyAndActionableStatus(percent: Int) {
+    let model = verifiedMenuModel()
+    let textSize = AppTextSize(percent: percent)
+    func measure() -> CGSize {
+        let controller = NSHostingController(rootView: RelayMenu(model: model)
+            .appTextSizing(textSize).environment(\.dynamicTypeSize, .large))
+        return controller.sizeThatFits(in: CGSize(width: 1000, height: 2000))
+    }
+    #expect(model.appHealth == .ready)
+    let ready = measure()
+    model.syncBusy = true; model.syncPhase = .speechCheck
+    // Transient sync work stays quiet: the top line keeps its Ready slot.
+    #expect(model.appHealth == .ready && model.appHealth.settingsSection == nil)
+    let busy = measure()
+    #expect(abs(busy.width - ready.width) < 1 && abs(busy.height - ready.height) <= 1)
+    model.libraryReviewRequired = true // Failure routes to Settings but keeps the same one-line slot.
+    #expect(model.appHealth == .failure("Library review required", .troubleshooting))
+    let failure = measure()
+    #expect(abs(failure.width - ready.width) < 1 && abs(failure.height - ready.height) <= 1)
+    model.libraryReviewRequired = false; model.syncBusy = false
+}
+
+@Test(arguments: [80, 100, 200]) @MainActor
+func menuStatusLabelKeepsOneLineAcrossHealthStates(percent: Int) {
+    let textSize = AppTextSize(percent: percent)
+    let states: [AppHealthStatus] = [
+        .ready,
+        .failure("Publishing check failed after several retries and needs a fresh look", .delivery),
+        .failure("Speech setup check failed", .voiceModel),
+        .needsSetup("Set up speech", .voiceModel),
+    ]
+    for dynamic in [DynamicTypeSize.large, .accessibility3] {
+        let width = 180 * AppTypography.scale(size: textSize, dynamic: dynamic)
+        var expected: CGFloat?
+        for health in states {
+            let controller = NSHostingController(rootView: MenuStatusLabel(health: health)
+                .appTextSizing(textSize).environment(\.dynamicTypeSize, dynamic))
+            let size = controller.sizeThatFits(in: CGSize(width: width, height: 2000))
+            if let expected { #expect(abs(size.height - expected) < 0.5) } else { expected = size.height }
+            // Fitting sizes round up to a whole point around the fixed frame.
+            #expect(abs(size.height - MenuLineMetrics.statusHeight(size: textSize, dynamic: dynamic)) <= 1)
+        }
+    }
+}
+
+@Test(arguments: [80, 100, 200]) @MainActor
+func menuSyncProgressStaysOneTextLineAcrossPhases(percent: Int) {
+    let model = AppModel(preview: true)
+    model.syncBusy = true
+    let textSize = AppTextSize(percent: percent)
+    for dynamic in [DynamicTypeSize.large, .accessibility3] {
+        let width = 180 * AppTypography.scale(size: textSize, dynamic: dynamic)
+        func measure() -> CGFloat {
+            NSHostingController(rootView: SyncMenuProgress(model: model)
+                .appTextSizing(textSize).environment(\.dynamicTypeSize, dynamic))
+                .sizeThatFits(in: CGSize(width: width, height: 2000)).height
+        }
+        let expected = MenuLineMetrics.textHeight(size: textSize, dynamic: dynamic) + 16
+        for phase in [SyncPhase.readingList, .reconciling, .preparing, .speechCheck, .generating, .publishing] {
+            model.syncPhase = phase
+            #expect(abs(measure() - expected) <= 1)
+        }
+        model.processingSpeech = true
+        model.progress = PipelineProgress(stage: .published, completedChunks: 1, totalChunks: 3)
+        model.syncPhase = .generating
+        #expect(model.syncProgressFraction != nil && abs(measure() - expected) <= 1)
+        model.processingSpeech = false
+    }
 }
 
 @Test(arguments: [100.0, 200.0]) @MainActor
@@ -534,7 +629,7 @@ func statusItemMenuAddsTwentyFivePercentToContentWidth(width: Double) {
 
 @Test @MainActor func workspaceErrorDoesNotRepeatQueueRowButKeepsDistinctGlobalFailures() throws {
     let model = AppModel(preview: true)
-    model.workspaceSection = .articles; model.articleScope = .queue
+    model.workspaceSection = .articles
     model.queueItems = [SpeechQueueItem(id: "00000000-0000-0000-0000-000000000001", title: "Synthetic", state: .failed, lastError: "Synthetic feed failure")]
     model.error = "Synthetic feed failure"
     #expect(model.workspaceError == nil)
@@ -665,16 +760,16 @@ func statusItemMenuAddsTwentyFivePercentToContentWidth(width: Double) {
     // Both entries were attempted: one committed, one became a collected issue.
     #expect(model.pendingAdds.isEmpty && counter.count == 1)
     #expect(model.queueItems.map(\.id) == [queued.id])
-    #expect(model.enqueueIssues.count == 1 && model.enqueueIssues.first?.contains("Two") == true)
+    #expect(model.articlePreparationFailures.keys.sorted() == [two.id])
     #expect(try await coordinator.queue(stateRoot: storage.stateRoot).map(\.id) == [queued.id])
     model.articleSelection = [one.id]
     // Unified Articles omits sources already in Queue. A disabled/no-op Add must
     // not clear an unrelated entry's collected issue or create duplicate work.
     #expect(!model.canAddSelectedArticles && model.eligibleSelectedArticles.isEmpty)
     model.addSelectedToQueue()
-    #expect(model.enqueueIssues.count == 1)
+    #expect(model.articlePreparationFailures.count == 1)
     await model.waitForEnqueue()
-    #expect(model.enqueueIssues.count == 1 && counter.count == 1 && model.queueItems.count == 1 && !model.running)
+    #expect(model.articlePreparationFailures.count == 1 && counter.count == 1 && model.queueItems.count == 1 && !model.running)
     await model.shutdown()
     #expect(model.pendingAdds.isEmpty)
 }
@@ -1562,7 +1657,7 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     await model.stop()
 }
 
-@Test @MainActor func explicitOperationsResetDismissedNotices() async throws {
+@Test @MainActor func explicitOperationsResetDismissedNoticesWithoutMovingServerAudioRows() async throws {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let coordinator = FixtureCoordinator()
     _ = try await coordinator.enqueue(article(), storage: storage, preferences: SpeechPreferences())
@@ -1588,18 +1683,10 @@ private func sourceFixture(_ name: String = "chosen") throws -> (URL, URL) {
     notices.dismiss(message: "any failure", key: "global")
     model.savedEpisodes = try await coordinator.library(storage: storage)
     if let first = model.savedEpisodes.first(where: { $0.stage == .published }) { model.removeSavedAudio(ids: [first.id]) }
-    #expect(notices.isVisible(message: "Audio cleanup could not finish.", key: "audio"))
-    #expect(notices.isVisible(message: "any failure", key: "global"))
+    #expect(!notices.isVisible(message: "Audio cleanup could not finish.", key: "audio"))
+    #expect(!notices.isVisible(message: "any failure", key: "global"))
     await model.waitForAudioMutation()
     await model.waitForLibraryRefresh()
-    notices.dismiss(message: "A — failed", key: "enqueue")
-    let entry = ReadingListEntry(id: "safari:a", safariID: "a", url: URL(string: "https://articles.example/a")!, title: "A", addedAt: nil)
-    var catalog = ReadingListCatalog()
-    catalog.reconcile(ReadingListSnapshot(entries: [entry], skippedEntries: 0))
-    model.sourceReview.catalog = catalog
-    model.articleSelection = [entry.id]
-    model.addSelectedToQueue()
-    #expect(notices.isVisible(message: "A — failed", key: "enqueue"))
     await model.waitForEnqueue()
 }
 
@@ -2169,7 +2256,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
                        contentType: "text/html", encoding: "utf-8", fetchedAt: .distantPast)
 }
 
-@Test @MainActor func appHealthRequiresVerifiedServicesAndRoutesFailuresWithoutProbes() throws {
+@Test @MainActor func appHealthReportsActionableIssuesAndRoutesFailuresWithoutProbes() throws {
     let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
     let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
     let transport = StubDeliveryTransport(), credentials = RecordingCredentials(password: "fixture")
@@ -2177,36 +2264,84 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
     #expect(model.appHealth == .failure("Reading List needs setup", .general))
     model.sourceReview.plist = root.appendingPathComponent("Bookmarks.plist")
     model.deliverySettings = appDeliverySettings()
-    #expect(model.appHealth == .failure("Reading List not checked", .general))
+    // Unverified or not-yet-checked services stay quiet; Ready is not proof.
+    #expect(model.appHealth == .ready)
     model.sourceReview.lastSyncedAt = Date()
-    #expect(model.appHealth == .failure("Speech setup not checked", .voiceModel))
-    model.runtimeTestResult = .success
-    #expect(model.appHealth == .failure("Publishing not checked", .delivery))
-    model.deliveryConnectionVerified = true
     #expect(model.appHealth == .ready && model.appHealth.symbol == "checkmark.circle.fill")
-    #expect(model.appHealth.settingsSection == nil)
+    model.runtimeTestResult = .success
+    #expect(model.appHealth == .ready)
+    model.deliveryConnectionVerified = true
+    #expect(model.appHealth == .ready && model.appHealth.settingsSection == nil)
+    // Transient work never replaces the top line.
+    model.sourceReview.busy = true
+    #expect(model.appHealth == .ready)
+    model.sourceReview.busy = false
+    model.runtimeBusy = true
+    #expect(model.appHealth == .ready)
+    model.deliveryPreflightBusy = true; model.deliveryTesting = true; model.deliveryBusy = true
+    #expect(model.appHealth == .ready && model.appHealth.settingsSection == nil)
+    model.syncBusy = true; model.processingSpeech = true
+    #expect(model.appHealth == .ready)
+    model.runtimeBusy = false; model.deliveryPreflightBusy = false; model.deliveryTesting = false
+    model.deliveryBusy = false; model.syncBusy = false; model.processingSpeech = false
+    // Ready does not grant work readiness: the delivery gate still blocks generation.
+    #expect(!model.deliveryServerChecked && model.appHealth == .ready && model.generationDisabledReason != nil)
+    // Recorded errors stay visible while their recheck is already in flight.
+    model.sourceReview.busy = true
     model.sourceReview.error = "Synthetic source failure"
-    #expect(model.appHealth.settingsSection == .general && model.appHealth.symbol == "xmark.circle.fill")
-    model.sourceReview.error = nil
+    #expect(model.appHealth == .failure("Reading List unavailable", .general))
+    model.sourceReview.error = nil; model.sourceReview.busy = false
+    model.runtimeBusy = true
     model.runtimeTestResult = .failure("Synthetic speech failure")
     #expect(model.appHealth == .failure("Speech setup check failed", .voiceModel))
-    model.runtimeTestResult = .success
+    model.runtimeBusy = false; model.runtimeTestResult = .success
+    model.deliveryPreflightBusy = true
     model.deliveryError = "Synthetic connection failure"
     #expect(model.appHealth == .failure("Publishing needs attention", .delivery))
-    model.deliveryError = nil; model.deliveryTestResult = .failure("Synthetic probe failure")
+    model.deliveryError = nil; model.deliveryTesting = true
+    model.deliveryTestResult = .failure("Synthetic probe failure")
     #expect(model.appHealth == .failure("Publishing check failed", .delivery))
+    model.deliveryPreflightBusy = false; model.deliveryTesting = false
     model.deliveryTestResult = .untested; model.deliveryPasswordChecked = true
     #expect(model.appHealth == .failure("Publishing password missing", .delivery))
-    model.deliveryPasswordChecked = false; model.deliveryPreflightBusy = true
-    #expect(model.appHealth == .checking("Checking Publishing…") && model.appHealth.settingsSection == nil)
-    model.deliveryPreflightBusy = false; model.syncBusy = true
-    #expect(model.appHealth == .checking("Syncing…"))
-    model.syncBusy = false; model.libraryReviewRequired = true
+    model.deliveryPasswordChecked = false; model.libraryReviewRequired = true
     #expect(model.appHealth == .failure("Library review required", .troubleshooting))
     model.libraryReviewRequired = false
     model.deliverySettings.publicFolderURL = URL(string: "https://podcast.example/changed/")
-    #expect(!model.deliveryConnectionVerified && model.appHealth == .failure("Publishing not checked", .delivery))
+    #expect(!model.deliveryConnectionVerified && model.appHealth == .ready)
+    model.deliverySettings.enabled = false
+    #expect(model.appHealth == .failure("Publishing is off", .delivery))
+    model.deliverySettings.enabled = true; model.deliverySettings.feedFolderURL = nil
+    #expect(model.appHealth == .failure("Publishing needs setup", .delivery))
     #expect(transport.calls.isEmpty && credentials.reads.isEmpty)
+}
+
+@Test @MainActor func menuHealthKeepsQuietStatusDuringSpeechValidation() throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let (defaults, suite) = try isolatedDefaults(); defer { defaults.removePersistentDomain(forName: suite) }
+    let model = AppModel(storage: storage, defaults: defaults)
+    model.sourceReview.plist = root.appendingPathComponent("Bookmarks.plist")
+    model.sourceReview.lastSyncedAt = Date()
+    model.deliverySettings = appDeliverySettings()
+    model.deliveryConnectionVerified = true
+    model.runtimeTestResult = .success
+    // In-memory validation record: no runtime launch, model query or settings change.
+    let target = SpeechSetupValidation.Target(root: model.runtimeProject,
+        settings: model.preferences.modelSelection, revision: 0)
+    model.speechSetupValidationStorage = SpeechSetupValidation(inspect: { _ in true }, check: { _ in })
+    model.speechValidationStarted = true
+    model.speechSetupValidation.update(target: target, permitted: false)
+    // Background validation stays quiet: the top line reports no actionable issue.
+    #expect(model.appHealth == .ready && model.appHealth.settingsSection == nil)
+    model.speechSetupValidation.record(.checking, for: target)
+    #expect(model.appHealth == .ready)
+    model.speechSetupValidation.record(.ready, for: target)
+    #expect(model.appHealth == .ready)
+    // An actual failure or a missing install still demands attention.
+    model.runtimeTestResult = .failure("Synthetic speech failure")
+    #expect(model.appHealth == .failure("Speech setup check failed", .voiceModel))
+    model.runtimeTestResult = .success; model.runtimeVerificationFailed = true
+    #expect(model.appHealth == .failure("Speech setup needs attention", .voiceModel))
 }
 
 @Test @MainActor func appHealthCredentialChangesInvalidateInFlightConnectionProof() async throws {
@@ -2290,7 +2425,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
     #expect(!model.autoAdmitEnabled && !model.autoProcessEnabled)
     #expect(!model.syncBusy && model.syncPhase == nil && model.syncProgressFraction == nil)
     #expect(model.sourceReview.catalog.entries.count == 5 && model.sourceReview.lastSyncedAt != nil)
-    #expect(model.enqueueIssues.count == 1 && model.enqueueIssues[0].hasPrefix("unreadable"))
+    #expect(model.articlePreparationFailures.keys.sorted() == ["unreadable"])
     #expect(model.queueItems.map(\.id) == [failedItem.id] && model.queueItems[0].state == .failed)
     let summary = try await coordinator.deliverySummary(stateRoot: storage.stateRoot, settings: model.deliverySettings)
     #expect(summary.uploadedMedia == 2 && !summary.needsDrain && model.deliveryError == nil)
@@ -2338,7 +2473,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
     model.stopQueue(); provider.openGate()
     await model.waitForSync(); await model.waitForLibraryRefresh()
     #expect(model.sourceReview.catalog.entries.map(\.id) == ["first", "second"])
-    #expect(model.enqueueIssues == [])
+    #expect(model.articlePreparationFailures.isEmpty)
     #expect(!model.running && !model.syncBusy && model.autoHalted)
     #expect(!model.autoAdmitEnabled && !model.autoProcessEnabled)
     #expect(model.queueItems.count == 2 && model.queueItems.allSatisfy { $0.state == .queued })
@@ -2397,7 +2532,7 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
     await model.waitForEnqueue()
     // Only the fresh current entry was admitted; recorded (prior snapshot) and absent (not current) are skipped.
     #expect(model.queueItems.count == 1 && model.queueItems.first?.sourceEntryID == fresh.id)
-    #expect(fetches.value == 1 && model.enqueueIssues.isEmpty)
+    #expect(fetches.value == 1 && model.articlePreparationFailures.isEmpty)
     #expect(try await coordinator.queue(stateRoot: storage.stateRoot).map(\.sourceEntryID) == [fresh.id])
     // A second pass finds nothing new to admit.
     await model.autoAdmitNewEntries()
@@ -2423,17 +2558,170 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
     model.autoAdmitEnabled = true
     await model.autoAdmitNewEntries()
     await model.waitForEnqueue()
-    #expect(calls.value == 1 && model.queueItems.isEmpty && model.enqueueIssues.count == 1)
+    #expect(calls.value == 1 && model.queueItems.isEmpty && model.articlePreparationFailures.count == 1)
     // Automatic admission does not retry the failed entry in this session.
     await model.autoAdmitNewEntries()
     #expect(calls.value == 1 && model.pendingAdds.isEmpty)
-    // Manual Add to Queue bypasses the attempt set.
+    // The row's retry bypasses the attempt set.
     fail.set(false)
-    model.articleSelection = [entry.id]
-    model.addSelectedToQueue()
+    model.retryArticlePreparation(entry)
     await model.waitForEnqueue()
-    #expect(calls.value == 2 && model.queueItems.count == 1 && model.enqueueIssues.isEmpty)
+    #expect(calls.value == 2 && model.queueItems.count == 1 && model.articlePreparationFailures.isEmpty)
     await model.shutdown()
+}
+
+@Test @MainActor func articlesRecognizeExistingAudioAndReprocessOnlyOnExplicitRequest() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator(), review = try article("already-narrated")
+    let entry = ReadingListEntry(id: "existing", safariID: nil, url: review.page.originalURL, title: "Already narrated", addedAt: nil)
+    let duplicate = ReadingListEntry(id: "duplicate", safariID: nil, url: URL(string: "https://synthetic.example/copy")!, title: entry.title, addedAt: nil)
+    let saved = try await coordinator.runReviewed(root: storage.stateRoot, review: review, backend: SyntheticProvider(), storage: storage)
+    let catalog = try await coordinator.reconcile(.init(entries: [entry, duplicate], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let fetches = SyncCounter()
+    let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, enqueueFetch: { _ in
+        fetches.increment(); return review.page
+    })
+    try await markPublishingChecked(model, storage: storage)
+    model.sourceReview.catalog = catalog; model.autoAdmitEnabled = true
+    model.refreshLibrary(allowDelivery: false); await model.waitForLibraryRefresh(); await model.waitForEnqueue()
+    await model.autoAdmitNewEntries()
+    #expect(model.queueItems.isEmpty && fetches.value == 0)
+    let row = try #require(model.allArticleRows.first { $0.source?.id == entry.id })
+    #expect(row.narrationComplete && model.canReprocessArticle(row))
+    #expect(model.allArticleRows.first { $0.source?.id == duplicate.id }?.matchingAudioExists == true)
+    model.reprocessArticle(row); model.reprocessArticle(row)
+    await model.waitForEnqueue()
+    let replacement = try #require(model.queueItems.first)
+    #expect(model.queueItems.count == 1 && replacement.id != saved.episode.id && replacement.sourceEntryID == entry.id)
+    #expect(FileManager.default.fileExists(atPath: saved.audioURL.path))
+    let episodes = try await coordinator.library(storage: storage)
+    #expect(episodes.first { $0.id == saved.episode.id }?.stage == .published)
+    #expect(model.allArticleRows.first?.narrationComplete == true)
+    await model.shutdown()
+}
+
+@Test @MainActor func deletedServerAudioRegeneratesOnlyAfterExplicitCurrentArticleAction() async throws {
+    let (root, storage) = try isolatedStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let coordinator = FixtureCoordinator(), review = try article("deleted-narrated")
+    let entry = ReadingListEntry(id: "deleted", safariID: nil, url: review.page.originalURL, title: "Deleted narrated", addedAt: nil)
+    let other = ReadingListEntry(id: "other", safariID: nil, url: URL(string: "https://synthetic.example/other")!, title: "Other", addedAt: nil)
+    let saved = try await coordinator.runReviewed(root: storage.stateRoot, review: review, backend: SyntheticProvider(), storage: storage)
+    // The second entry joins after the admission scan so automatic admission stays silent.
+    let catalog = try await coordinator.reconcile(.init(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let fetches = SyncCounter()
+    let model = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, enqueueFetch: { _ in
+        fetches.increment(); return review.page
+    })
+    try await markPublishingChecked(model, storage: storage)
+    model.sourceReview.catalog = catalog; model.autoAdmitEnabled = true
+    model.refreshLibrary(allowDelivery: false); await model.waitForLibraryRefresh(); await model.waitForEnqueue()
+    let row = try #require(model.allArticleRows.first { $0.source?.id == entry.id })
+    #expect(row.narrationComplete && row.offersReprocessing && model.canReprocessArticle(row))
+    // Delete only the test-owned saved audio; the owned removal must settle first.
+    model.savedAudioSelection = [saved.episode.id]
+    model.removeSavedAudio(ids: [saved.episode.id])
+    let settling = try #require(model.allArticleRows.first { $0.source?.id == entry.id })
+    #expect(settling.offersReprocessing && !model.canReprocessArticle(settling))
+    await model.waitForAudioMutation(); await model.waitForLibraryRefresh()
+    #expect(!FileManager.default.fileExists(atPath: saved.audioURL.path) && model.savedEpisodes.isEmpty)
+    let cleared = try #require(model.allArticleRows.first { $0.source?.id == entry.id })
+    #expect(!cleared.narrationComplete && !cleared.matchingAudioExists
+            && cleared.offersReprocessing && model.canReprocessArticle(cleared))
+    // Automatic admission never recreates deleted audio.
+    await model.autoAdmitNewEntries()
+    #expect(model.queueItems.isEmpty && fetches.value == 0)
+    await model.shutdown()
+    // A relaunched model from the same state keeps the explicit action available.
+    let widened = try await coordinator.reconcile(.init(entries: [entry, other], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let relaunchFetches = SyncCounter()
+    let relaunched = AppModel(storage: storage, backend: { _ in SyntheticProvider() }, enqueueFetch: { _ in
+        relaunchFetches.increment(); return review.page
+    })
+    try await markPublishingChecked(relaunched, storage: storage)
+    relaunched.sourceReview.catalog = widened; relaunched.autoAdmitEnabled = false
+    relaunched.refreshLibrary(allowDelivery: false); await relaunched.waitForLibraryRefresh()
+    let relaunchedRow = try #require(relaunched.allArticleRows.first { $0.source?.id == entry.id })
+    #expect(relaunchedRow.offersReprocessing && relaunched.canReprocessArticle(relaunchedRow))
+    // An unrelated source stays eligible while this removal's episode is absent.
+    let otherRow = try #require(relaunched.allArticleRows.first { $0.source?.id == other.id })
+    #expect(otherRow.offersReprocessing && relaunched.canReprocessArticle(otherRow))
+    // A pending removal tombstone for the same source blocks only that source —
+    // even after the manual flag settles, the still-visible expired record means
+    // remote/feed cleanup has not finished.
+    var pending = saved.episode; pending.stage = .expired; pending.manualAudioDeletionRequested = true
+    relaunched.savedEpisodes = [pending]
+    #expect(!relaunched.canReprocessArticle(relaunchedRow) && relaunched.canReprocessArticle(otherRow))
+    pending.manualAudioDeletionRequested = false
+    relaunched.savedEpisodes = [pending]
+    #expect(!relaunched.canReprocessArticle(relaunchedRow) && relaunched.canReprocessArticle(otherRow))
+    relaunched.savedEpisodes = []
+    #expect(relaunched.canReprocessArticle(relaunchedRow) && relaunched.canReprocessArticle(otherRow))
+    // Stale rows never admit: live work and catalog drift block the action.
+    relaunched.queueItems = [SpeechQueueItem(id: "live", title: "A", sourceEntryID: entry.id)]
+    #expect(!relaunched.canReprocessArticle(relaunchedRow))
+    relaunched.queueItems = []
+    relaunched.pendingAdds[entry.id] = "pending"
+    #expect(!relaunched.canReprocessArticle(relaunchedRow))
+    relaunched.pendingAdds = [:]
+    relaunched.sourcePruningBusy = true
+    #expect(!relaunched.canReprocessArticle(relaunchedRow))
+    relaunched.sourcePruningBusy = false
+    let removedCatalog = try await coordinator.reconcile(.init(entries: [other], skippedEntries: 0), stateRoot: storage.stateRoot)
+    relaunched.sourceReview.catalog = removedCatalog
+    #expect(!relaunched.canReprocessArticle(relaunchedRow))
+    let drifted = ReadingListEntry(id: entry.id, safariID: entry.safariID, url: entry.url, title: "Changed", addedAt: entry.addedAt)
+    relaunched.sourceReview.catalog = try await coordinator.reconcile(.init(entries: [drifted, other], skippedEntries: 0), stateRoot: storage.stateRoot)
+    #expect(!relaunched.canReprocessArticle(relaunchedRow))
+    relaunched.sourceReview.catalog = widened
+    #expect(relaunched.canReprocessArticle(relaunchedRow))
+    // Current preferences are captured on the new generation, never the tombstone's.
+    relaunched.preferences.voice = .bella; relaunched.preferences.speed = 0.9
+    let beforeEpisodes = try await coordinator.library(storage: storage)
+    let tombstoneBefore = try #require(beforeEpisodes.first { $0.id == saved.episode.id })
+    let snapshotBefore = try NativeStore(url: storage.profile.database, readOnly: true)
+        .snapshot(articleID: saved.episode.id)
+    // Two clicks queue exactly one fresh generation with a new opaque ID.
+    relaunched.reprocessArticle(relaunchedRow); relaunched.reprocessArticle(relaunchedRow)
+    await relaunched.waitForEnqueue()
+    let replacement = try #require(relaunched.queueItems.first)
+    #expect(relaunched.queueItems.count == 1 && replacement.id != saved.episode.id
+            && replacement.sourceEntryID == entry.id)
+    // The retained snapshot was reused offline; the tombstone and its text stay.
+    #expect(relaunchFetches.value == 0)
+    let episodes = try await coordinator.library(storage: storage)
+    let tombstone = try #require(episodes.first { $0.id == saved.episode.id })
+    let replacementEpisode = try #require(episodes.first { $0.id == replacement.id })
+    #expect(tombstone.stage == .expired && tombstone.manualAudioDeletionRequested != true)
+    #expect(tombstone.settings == tombstoneBefore.settings && tombstone.audioHash == tombstoneBefore.audioHash)
+    #expect(replacementEpisode.reprocessesArticleAudio == true)
+    #expect(replacementEpisode.settings.voice == "af_bella"
+            && replacementEpisode.settings.backendSettings["speed"] == .number(0.9))
+    let reader = try NativeStore(url: storage.profile.database, readOnly: true)
+    let tombstoneSnapshot = try reader.snapshot(articleID: saved.episode.id)
+    let replacementSnapshot = try reader.snapshot(articleID: replacement.id)
+    #expect(tombstoneSnapshot != nil && tombstoneSnapshot == snapshotBefore && replacementSnapshot != nil)
+    await relaunched.shutdown()
+}
+
+@Test @MainActor func articleReprocessOfferRequiresIdleCurrentEntryWithoutMatchingAudio() {
+    let entry = ReadingListEntry(id: "current", safariID: nil, url: URL(string: "https://synthetic.example/a")!, title: "A", addedAt: nil)
+    func row(jobs: [SpeechQueueItem] = [], preparationID: String? = nil, retained: Bool = false,
+             _ configure: (inout ArticleLibraryRow) -> Void = { _ in }) -> ArticleLibraryRow {
+        var row = ArticleLibraryRow(id: .source(entry.id), title: "A", host: "synthetic.example",
+            savedAt: nil, source: entry, jobs: jobs, preparationID: preparationID, retained: retained)
+        configure(&row); return row
+    }
+    #expect(row().offersReprocessing)
+    #expect(row { $0.narrationComplete = true }.offersReprocessing)
+    #expect(!row { $0.narrationComplete = false; $0.matchingAudioExists = true }.offersReprocessing)
+    #expect(!row { $0.inactiveDuplicate = true; $0.narrationComplete = true }.offersReprocessing)
+    #expect(!row(retained: true) { $0.narrationComplete = true }.offersReprocessing)
+    #expect(!row(jobs: [SpeechQueueItem(id: "job", title: "A", sourceEntryID: entry.id)]).offersReprocessing)
+    #expect(!row(preparationID: entry.id).offersReprocessing)
+    #expect(!row { $0.preparationFailure = "Synthetic" }.offersReprocessing)
+    let sourceless = ArticleLibraryRow(id: .source("x"), title: "X", host: nil, savedAt: nil,
+        source: nil, jobs: [], preparationID: nil, retained: false, narrationComplete: true)
+    #expect(!sourceless.offersReprocessing)
 }
 
 @Test @MainActor func autoProcessDrainsReadyQueueAndStopHaltsUntilNewWorkOrGenerate() async throws {
@@ -2542,9 +2830,9 @@ private func fetchFixture(url: URL, commonTitle: Bool = false) throws -> Fetched
     #expect(AppModel.durationString(3661) == "1:01:01")
     #expect(AppModel.durationString(-5) == "0:00")
     #expect(model.savedAudioMeta(episode(duration: nil, bytes: 0)) == nil)
-    #expect(model.savedAudioMeta(episode(duration: 0, bytes: 512)) == "Audio · 0:00 · 512 bytes")
+    #expect(model.savedAudioMeta(episode(duration: 0, bytes: 512)) == "0:00 • 512 bytes")
     let meta = try #require(model.savedAudioMeta(episode(duration: 3661, bytes: 3_250_000)))
-    #expect(meta.hasPrefix("Audio · 1:01:01 · ") && meta.contains("MB"))
+    #expect(meta.hasPrefix("1:01:01 • ") && meta.contains("MB"))
 }
 
 @Test @MainActor func deliveryPaneAndAutomationControlsConstructInertly() throws {
@@ -3134,7 +3422,7 @@ private actor ServerDeletionGate: DeliveryTransport {
     model.articleSelection = [entry.id]
     model.addSelectedToQueue()
     try await waitUntil("Archived article queued") { model.pendingAdds.isEmpty && model.queueItems.count == 1 }
-    #expect(model.queueItems.first?.sourceHost == "synthetic.example" && model.enqueueIssues.isEmpty)
+    #expect(model.queueItems.first?.sourceHost == "synthetic.example" && model.articlePreparationFailures.isEmpty)
     _ = ConfigurationView(model: model).body
     let preview = AppModel(preview: true, defaults: defaults)
     preview.useArchivedArticles = false
@@ -3211,7 +3499,7 @@ private actor ServerDeletionGate: DeliveryTransport {
     model.catalogDidChange(removed: [entry])
     gate.openGate()
     await model.waitForEnqueue(); await model.waitForSourcePruning(); await model.waitForLibraryRefresh()
-    #expect(model.allArticleRows.isEmpty && model.pendingAdds.isEmpty && model.enqueueIssues.isEmpty)
+    #expect(model.allArticleRows.isEmpty && model.pendingAdds.isEmpty && model.articlePreparationFailures.isEmpty)
     #expect(try await coordinator.library(storage: storage).isEmpty)
     await model.shutdown()
 }
@@ -3403,7 +3691,7 @@ private final class PublishingPreflightGate: @unchecked Sendable {
     model.sourceReview.plist = root.appendingPathComponent("synthetic-source.plist")
     model.sourceReview.catalog = catalog; model.autoAdmitEnabled = true; model.autoProcessEnabled = false
     await model.autoAdmitNewEntries(); await model.waitForEnqueue()
-    #expect(fetches.value == 1 && !model.enqueueIssues.isEmpty)
+    #expect(fetches.value == 1 && !model.articlePreparationFailures.isEmpty)
     await model.autoAdmitNewEntries(); await model.waitForEnqueue()
     #expect(fetches.value == 1)
     #expect(await model.sourceReview.synchronizeOnce())

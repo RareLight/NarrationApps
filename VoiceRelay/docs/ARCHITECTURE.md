@@ -92,18 +92,19 @@ global mouse monitor is used.
 General owns Safari source selection and automation preferences. Production defaults
 to `~/Library/Safari/Bookmarks.plist` only when no source was selected. Injected/inert
 models never default to protected Safari data. The app refreshes at launch, every
-five minutes, on Articles appearance/source changes and through pull-down refresh.
+five minutes, on source changes and through pull-down refresh.
 Safari entries/flags are strictly read-only. Failed reads retain known state.
 
-All Articles joins live source inventory and retained jobs, ordered by original
-saved date with stable ties/undated last. Queue keeps processing order. Each scope
-has independent selection/search/filter state; selection mutations target visible
-rows, while processing drains all eligible work independently of filters.
-Manual admission captures the selected voice/speed and prepares in displayed order.
-Duplicate/preparing entries are excluded appropriately; failed automatic admission
-waits until a new session rather than looping. Article Preview owns its own cancellable
-fetch and does not silently enqueue work. Snapshots retain verified source/semantic
-bytes and provenance; offline resume reuses them. See [source handling](SOURCE_REVIEW.md).
+Articles joins discovered sources and retained jobs, ordered by saved date. A
+source identity index projects completed audio and duplicate status into rows.
+Admission runs outside the view. A single read of queue and history builds a
+source index for each changed catalog revision or explicit Sync Now. Opening,
+searching and selecting rows reuse the cached presentation. Existing finished
+audio suppresses admission, including matching duplicate saves. Explicit
+reprocessing captures current settings and creates a fresh episode for that source.
+Article Preview owns its cancellable fetch. Snapshots preserve source/semantic
+bytes for offline reuse. See [source handling](SOURCE_REVIEW.md).
+
 Removal compares previous and current source URL fingerprints even when Safari
 retains the same entry UUID. Another current entry for the old URL keeps that
 source live. Ordinary HTML headline/slug matches remain useful title evidence;
@@ -133,7 +134,7 @@ selected and inactive entries are consumed. Source URL/save-date changes invalid
 the corresponding catalog evidence; unchanged entries retain suppression across
 refresh, restart, queue reset and audio retirement. Entry-aware legacy detection
 preserves existing history while allowing a genuinely later save. Catalog backup
-and restore include these decisions. All Articles projects inactive copies with a
+and restore include these decisions. Articles projects inactive copies with a
 gray title and explicit label; they are not queue admission targets.
 
 Fresh Reading List generations capture current settings and an opaque episode ID.
@@ -146,8 +147,9 @@ waits for the admission batch's comparisons.
 Only an explicitly admitted Reading List generation may retire older matching
 owned recordings. Publication requires the current destination's confirmed audio
 hash and feed membership, with unsafe/blocked reconciliation excluded. The drain
-then retires older matching title/original-host records, republishes the feed and
-uses the existing destination/UUID ownership checks for audio/transcript DELETEs.
+then retires older matching recordings, republishes the feed and uses destination
+and UUID ownership checks for audio and transcript deletion. A row-level reprocess
+uses exact original source identity to select predecessors.
 At most two feed publications run in one drain; failures use ordinary backoff.
 Crash recovery reconstructs delete intent from durable retirement. Unmatched or
 foreign server files remain outside deletion authority. This intentional replacement
@@ -180,7 +182,7 @@ new work/Generate; already-started finalization may finish. Quit cancels and joi
 owned work while retaining recovery checkpoints. Window closure does not stop work.
 Enabled automation resumes eligible work after relaunch; failed speech remains
 manual Retry. Sync Now coalesces repeated requests, checks/discovers/adopts eligible
-work regardless of automatic admission/processing preferences, and does not change
+work regardless of the automatic generation preference, and does not change
 them. Restore review overrides all production mutation/sync paths.
 
 Audio is mono AAC-LC/M4A at 64 kbps/24 kHz through shared native processing, without

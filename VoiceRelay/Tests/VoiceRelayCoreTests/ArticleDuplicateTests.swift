@@ -246,3 +246,70 @@ private func duplicatePage(_ url: URL, paragraphs: Int = 8, blocked: Bool = fals
     let review = try await coordinator.savedArticlePreview(articleID: next.id, stateRoot: storage.stateRoot)
     #expect(review.page.bytes == duplicatePage(url, paragraphs: 10).bytes)
 }
+
+@Test func manualReprocessAfterSettledDeletionCreatesNewGenerationAndKeepsTombstone() async throws {
+    let (root, storage) = duplicateStorage(); defer { try? FileManager.default.removeItem(at: root) }
+    let entry = duplicateEntry("deleted", date: 1)
+    let coordinator = FixtureCoordinator()
+    _ = try await coordinator.reconcile(.init(entries: [entry], skippedEntries: 0), stateRoot: storage.stateRoot)
+    let first = try await coordinator.enqueueReadingList(entry.id, storage: storage,
+        preferences: .init(voice: .emma), fetch: { duplicatePage($0) }, describeImages: false)
+    // Drop the initial queue membership so each rejection below proves its own
+    // guard rather than the generic queued-work check.
+    func clearQueue() throws {
+        let store = try NativeStore(url: storage.profile.database)
+        try store.execute("DELETE FROM speech_queue WHERE article_id=?", [first.id])
+    }
+    try clearQueue()
+    func rewrite(_ body: (inout Episode) -> Void) throws {
+        let store = try NativeStore(url: storage.profile.database)
+        var episode = try #require(store.episodes().first { $0.id == first.id })
+        body(&episode)
+        try store.save(episode)
+    }
+    func expectUnchanged(queueIDs expectedQueue: [String] = []) async throws {
+        #expect(try await coordinator.library(storage: storage).map(\.id) == [first.id])
+        #expect(try await coordinator.queue(stateRoot: storage.stateRoot).map(\.id) == expectedQueue)
+    }
+    func reprocess() async throws {
+        _ = try await coordinator.enqueueReadingList(entry.id, storage: storage, preferences: .init(),
+            fetch: { duplicatePage($0) }, describeImages: false, reprocess: true)
+    }
+    // A pending manual removal is not settled: no regeneration, no queue mutation.
+    try rewrite { $0.stage = .expired; $0.manualAudioDeletionRequested = true }
+    await #expect(throws: (any Error).self) { try await reprocess() }
+    try await expectUnchanged()
+    // A legacy expired record without the settled-deletion marker still rejects.
+    try rewrite { $0.manualAudioDeletionRequested = nil }
+    await #expect(throws: (any Error).self) { try await reprocess() }
+    try await expectUnchanged()
+    // Unfinished finalization still rejects even with the deletion marker settled.
+    try rewrite { $0.stage = .extracted; $0.manualAudioDeletionRequested = false; $0.audioFinalizationComplete = false }
+    await #expect(throws: (any Error).self) { try await reprocess() }
+    try await expectUnchanged()
+    // A queued generation of the same article still rejects atomically.
+    try rewrite { $0.stage = .published; $0.manualAudioDeletionRequested = false; $0.audioFinalizationComplete = true }
+    do {
+        let store = try NativeStore(url: storage.profile.database)
+        try store.saveQueueItem(SpeechQueueItem(id: first.id, title: first.title, sourceEntryID: entry.id,
+            admissionID: UUID(), state: .queued, attempts: 0, lastError: nil, sourceHost: entry.url.host))
+    }
+    await #expect(throws: (any Error).self) { try await reprocess() }
+    try await expectUnchanged(queueIDs: [first.id])
+    // The settled manual deletion may regenerate: new ID, current settings, tombstone intact.
+    try rewrite { $0.stage = .expired; $0.manualAudioDeletionRequested = false; $0.audioFinalizationComplete = true }
+    try clearQueue()
+    let next = try await coordinator.enqueueReadingList(entry.id, storage: storage,
+        preferences: .init(voice: .bella, speed: 0.9), fetch: { duplicatePage($0) },
+        describeImages: false, reprocess: true)
+    #expect(next.id != first.id && next.sourceEntryID == entry.id)
+    let episodes = try await coordinator.library(storage: storage)
+    let tombstone = try #require(episodes.first { $0.id == first.id })
+    let replacement = try #require(episodes.first { $0.id == next.id })
+    #expect(tombstone.stage == .expired && tombstone.manualAudioDeletionRequested == false)
+    #expect(replacement.reprocessesArticleAudio == true && replacement.settings.voice == "af_bella")
+    let reader = try NativeStore(url: storage.profile.database, readOnly: true)
+    let nextSnapshot = try reader.snapshot(articleID: next.id)
+    let firstSnapshot = try reader.snapshot(articleID: first.id)
+    #expect(nextSnapshot != nil && firstSnapshot != nil)
+}

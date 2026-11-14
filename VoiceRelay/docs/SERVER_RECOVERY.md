@@ -2,8 +2,8 @@
 
 VoiceRelay reconciles the authenticated server feed with its local library before
 starting queued generation and through the ordinary publishing drain. Admission
-waits for the same check: automatic and manual enqueueing and queue processing
-stay held until enabled Publishing finishes reconciling the current feed folder,
+and generation wait until enabled Publishing finishes reconciling the current
+feed folder,
 so already-published server work is recovered instead of duplicated. There is no
 separate Check Server Audio control or recovery approval step. Library restore's
 Finish Library Review gate still blocks all automatic processing and server changes.

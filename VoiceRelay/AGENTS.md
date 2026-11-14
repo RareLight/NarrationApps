@@ -112,7 +112,7 @@ old-host deletes to a new destination. Failures use sanitized status text.
 
 Current UX direction: a compact SwiftUI menu in a native NSStatusItem/NSPopover host
 (the same popover opens on left- and right-click) and one sidebar library window
-(Articles with All Articles/Queue scopes, Upload Queue, Server Audio). Settings uses native pane navigation for
+(Articles, Upload Queue, Server Audio). Settings uses native pane navigation for
 General, Voice Model, Pronunciation, Publishing, VoiceServer and Troubleshooting,
 with no global Cancel. Generate/Stop
 live with audio work.
@@ -150,8 +150,8 @@ rechecks internally. Older diagnostics that mention "refresh Saved Audio" refer
 to that automatic recheck / reopening the pane. Inline errors carry a
 hover-revealed ⓧ dismiss that is presentation-only: it never mutates stored
 errors, snapshots, queue records or history, and suppression is keyed per
-notice until the condition resolves or a context reset. Articles (All Articles/Queue scopes), Upload Queue and Server Audio live in the sidebar workspace;
-Generate/Stop live in the Articles toolbar (both scopes) and application commands. Progress is shown only
+notice until the condition resolves or a context reset. Articles, Upload Queue and Server Audio live in the sidebar workspace;
+Generate/Stop live in the Articles toolbar and application commands. Progress is shown only
 while owned work runs or stops; terminal results clear transient progress.
 Generate and Reset stay enabled during ordinary row removals; a Generate
 request waits for queued metadata mutations to finish before snapshotting the
@@ -166,10 +166,8 @@ Reading List controls. Speech setup is validated automatically in the background
 the Voice Model heading shows Validating, a green Ready, or Repair local model.
 Background publishing/source updates
 do not disable Install/Repair; active speech, quitting, setup or library maintenance
-do, with an explanatory reason. Add to
-Queue is a background task with pending rows and collected
-per-entry issues rather than a synchronous stop. Prepared rows show Ready with a
-checkmark; admission keeps working while speech runs. Process Queue drains every
+do, with an explanatory reason. Automatic preparation shows pending rows and
+per-entry errors. Prepared rows show Ready, and admission can continue while speech runs. Process Queue drains every
 Ready row plus still-pending admissions and late additions until nothing
 eligible remains; each verified publication dequeues immediately and a failure
 keeps its row for Retry while later Ready items continue. Explicit Stop abandons
@@ -177,7 +175,7 @@ only the interrupted item's owned scratch/checkpoints and returns that row to
 Ready — never silently Paused — while error and Quit retention stay distinct.
 Rows remove individually or by arbitrary multi-selection without confirmation;
 pane resets require confirmation. Queue and Server Audio share one selection-management
-control — reset below two selections, Remove Selections at two or more — and one
+control — reset below two selections, Delete at two or more — and one
 row-removal button; per-row mutation state is tracked per entry so a removal never
 flips global running/progress or disables unrelated controls. Queue rows open the
 same Article preview window by double-click or context menu, resolving the URL
@@ -316,12 +314,12 @@ input files were deleted by that reset.
 
   GUI, Canvas, protected-file, listening, and device validation remain manual operator steps.
 
-October 9 approved UI: Articles and Queue share one Articles sidebar destination.
-All Articles is a typed source/retained-job union ordered by saved date; Queue
-shows every episode/preparation in processing order. Scope changes preserve
-independent selections. Already-queued source entries are omitted from manual
-Add; history is not a new exclusion rule. Queue removal never deletes source
-entries, snapshots or server audio. Publishing replaces the visible Delivery
+Articles is a typed source/retained-job union ordered by saved date. Discovery
+admits eligible work automatically after publishing reconciliation. Keep that work
+outside view appearance and filter/selection changes. Completed audio and matching
+copies suppress admission. The green check reports narration completion; the blue
+arrow explicitly replaces audio for the same source after confirmation. Queue
+removal keeps source entries, snapshots and server audio. Publishing replaces the visible Delivery
 pane label; internal keys remain compatible. Its setup/recovery strip uses
 existing metadata without Keychain/network probes, distinguishes unknown from
 missing credentials, and disappears when configured. Configuration is not remote
@@ -359,13 +357,13 @@ belongs in the shared native Help menu's static topic windows. Keep deletion
 consequences and archive/backup privacy visible; do not expose implementation
 details unless needed for a user's decision. Help never probes library/server state.
 
-Articles (independent All Articles/Queue scopes), Upload Queue and Server Audio have
+Articles, Upload Queue and Server Audio have
 native local search across visible titles, origin, saved date, status and errors.
 Search combines with existing filters, preserves row order, scopes bulk actions to
 shown selections and never changes automatic processing/publishing membership.
 
 Server Audio's confirmed Reset action lives only in Actions (…) below two
-selections; Remove Selections remains a toolbar action at two or more selections.
+selections; Delete remains a toolbar action at two or more selections.
 
 Server Audio orders captured Reading List saved dates descending, undated last,
 with stable episode-ID ties across reload/event order. Persist original host,
@@ -386,15 +384,18 @@ source removal must never retire feed membership or delete server audio. Do not
 regenerate absent articles from removed snapshots. Already exported backups stay
 unchanged. Today and This Week precede a separator in the Articles filter and use
 local Calendar saved-date periods; missing dates do not match. Website sorting,
-scope independence and global processing remain unchanged.
+and global processing remain independent.
 
 October 23 menu content: compact menu-bar popover contains overall
-status, Last published, Sync Now, separator, Open VoiceRelay, Server Audio, separator, Settings,
-Copy Podcast URL and Quit VoiceRelay. Ready requires current-session verified Reading List, speech runtime
-and WebDAV health; failures link to the affected Settings pane. Pure rendering
+status, Updated, Sync Now, separator, Open VoiceRelay, Server Audio, separator, Settings,
+Copy Podcast URL and Quit VoiceRelay. Updated shows today's time, older dates in ISO
+form, or Unknown; the top status is one fixed line. Since November 13, Ready means
+no actionable issue while background checks keep running — it is not proof of
+verification. Orange setup and red failure statuses link to the affected Settings
+pane; recorded errors stay visible while their recheck runs. Pure rendering
 never probes services. Check an installed speech runtime offline at startup.
 Sync Now explicitly refreshes, admits, processes and publishes eligible work regardless
-of automatic admission/processing preferences, without changing them or retrying
+of the automatic generation preference, without changing them or retrying
 failed speech rows. Retain server reconciliation/proof caching and skip recorded
 identities. Its button becomes phase progress while owned sync runs: measured
 speech/finalization or current-file transfer fractions, indeterminate checks/preparation.

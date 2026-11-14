@@ -203,21 +203,52 @@ struct TextSizeCommands: Commands {
     }
 }
 
+/// App-local compact ISO dates: local Gregorian calendar day, never week-year or UTC-shifted.
+enum AppDateFormatting {
+    static func date(_ date: Date, timeZone: TimeZone = .current) -> String {
+        date.formatted(Date.ISO8601FormatStyle(timeZone: timeZone).year().month().day().dateSeparator(.dash))
+    }
+    static func dateTime(_ date: Date, timeZone: TimeZone = .current) -> String {
+        var style = Date.FormatStyle(date: .omitted, time: .shortened)
+        style.timeZone = timeZone
+        return "\(self.date(date, timeZone: timeZone)) \(date.formatted(style))"
+    }
+    /// Compact freshness label: the zero-padded 24-hour time on the same local
+    /// calendar day, the ISO date for older days, Unknown when nothing recorded.
+    static func updateLabel(for date: Date?, now: Date = Date(), timeZone: TimeZone = .current) -> String {
+        guard let date else { return "Updated: Unknown" }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        guard calendar.isDate(date, inSameDayAs: now) else { return "Updated: \(self.date(date, timeZone: timeZone))" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "HH:mm"
+        return "Updated: \(formatter.string(from: date))"
+    }
+}
+
 struct ArticleOriginMetadata: Equatable {
     let host: String?
     let savedAt: Date?
-    var savedDateText: String? { savedAt.map { "Saved \($0.formatted(date: .abbreviated, time: .omitted))" } }
+    var savedDateText: String? { savedAt.map { AppDateFormatting.date($0) } }
+    func displayText(audioMeta: String? = nil) -> String? {
+        var identity = host ?? ""
+        if let date = savedDateText { identity += (identity.isEmpty ? "" : " ") + "(\(date))" }
+        guard !identity.isEmpty else { return audioMeta.flatMap { $0.isEmpty ? nil : $0 } }
+        guard let audioMeta, !audioMeta.isEmpty else { return identity }
+        return "\(identity): \(audioMeta)"
+    }
 }
 
 /// Shared identity line for All Articles, Queue/preparing rows and Server Audio.
 struct ArticleOriginLine: View {
     let metadata: ArticleOriginMetadata
+    var audioMeta: String? = nil
     var body: some View {
-        if metadata.host != nil || metadata.savedAt != nil {
-            HStack(spacing: 6) {
-                if let host = metadata.host { Text(host) }
-                if let date = metadata.savedDateText { Text(date) }
-            }.appFont(.secondary).foregroundStyle(.secondary)
+        if let text = metadata.displayText(audioMeta: audioMeta) {
+            Text(text).appFont(.secondary).foregroundStyle(.secondary).lineLimit(1).help(text)
         }
     }
 }
@@ -351,7 +382,6 @@ struct WorkspaceView: View {
         .frame(minWidth: 760, minHeight: 480)
         .appFont(.body)
         .disabled(model.libraryMaintenanceBusy)
-        .onAppear { model.refreshLibrary() }
     }
     private var detail: some View {
         VStack(spacing: 0) {
@@ -381,7 +411,7 @@ struct WorkspaceView: View {
                 transaction.disablesAnimations = true
             }
         }
-        .navigationTitle(section == .articles && model.articleScope == .queue ? "Articles — Queue" : section.rawValue)
+        .navigationTitle(section.rawValue)
     }
 }
 
@@ -396,12 +426,36 @@ struct SelectionManagementControl: View {
     let onRemove: () -> Void
     var usesBulkRemoval: Bool { selectionCount > 1 }
     var body: some View {
-        Button(usesBulkRemoval ? "Remove Selections" : resetTitle, role: .destructive) {
+        Button(usesBulkRemoval ? "Delete" : resetTitle, role: .destructive) {
             usesBulkRemoval ? onRemove() : onReset()
         }
         .frame(minWidth: 128)
         .disabled(usesBulkRemoval ? !canRemove : !canReset)
         .help(usesBulkRemoval ? removeHelp : resetHelp)
+    }
+}
+
+/// Uniform glyph slot for row status/action controls so different symbols share dimensions.
+struct LibraryRowSymbol: View {
+    let systemName: String
+    @Environment(\.appTextSize) private var textSize
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    var body: some View {
+        Image(systemName: systemName)
+            .appFont(.body).imageScale(.medium)
+            .frame(width: 20 * AppTypography.scale(size: textSize, dynamic: dynamicTypeSize),
+                   height: 20 * AppTypography.scale(size: textSize, dynamic: dynamicTypeSize))
+    }
+}
+
+/// Shared scaled spacing for trailing row control clusters on library rows.
+struct LibraryRowActions<Content: View>: View {
+    let content: Content
+    @Environment(\.appTextSize) private var textSize
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+    var body: some View {
+        HStack(spacing: 6 * AppTypography.scale(size: textSize, dynamic: dynamicTypeSize)) { content }
     }
 }
 
@@ -411,7 +465,7 @@ struct RowRemovalButton: View {
     let isEnabled: Bool
     let action: () -> Void
     var body: some View {
-        Button(action: action) { Image(systemName: "xmark") }
+        Button(action: action) { LibraryRowSymbol(systemName: "xmark") }
             .buttonStyle(.borderless)
             .disabled(!isEnabled)
             .accessibilityLabel(accessibilityLabel)
@@ -441,12 +495,11 @@ struct LibraryCommands: Commands {
     @Environment(\.openSettings) private var openSettings
     var body: some Commands {
         CommandMenu("Articles") {
-            Button("Add to Queue") { selection?.add() }.disabled(selection?.canAdd != true)
             Button("Preview Article") { selection?.preview() }.disabled(selection?.canPreview != true)
-            Button("Remove Selections") { selection?.remove() }.disabled(selection?.canRemove != true)
+            Button("Delete") { selection?.remove() }.disabled(selection?.canRemove != true)
             Divider()
             Button("Generate Audio") {
-                model.workspaceSection = .articles; model.articleScope = .queue
+                model.workspaceSection = .articles
                 WindowPresence.shared.prepareToOpen(); openWindow(id: "articles")
                 model.runQueue()
             }.disabled(!model.canGenerateAudio).keyboardShortcut("g", modifiers: [.command, .shift])
@@ -525,27 +578,44 @@ struct AudioStateFilterControl: View {
 }
 
 struct AudioVerificationIndicator: View {
-    let item: UploadItem
-    var showsDetailInline = true
+    let title: String
+    let symbol: String
+    let color: Color
+    var detail: String? = nil
+    var iconOnly = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            let label = Label(item.phase.title, systemImage: symbol)
-                .appFont(.secondary)
-                .foregroundStyle(item.phase.needsAttention ? Color.orange : item.phase == .published ? Color.green : Color.secondary)
-            if let detail = item.detail {
-                if showsDetailInline {
-                    label
+        if iconOnly {
+            LibraryRowSymbol(systemName: symbol)
+                .foregroundStyle(color)
+                .help(detail.map { "\(title)\n\($0)" } ?? title)
+                .accessibilityLabel(title)
+                .accessibilityHint(detail ?? "")
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Label { Text(title) } icon: { LibraryRowSymbol(systemName: symbol) }
+                    .appFont(.secondary).foregroundStyle(color)
+                if let detail {
                     Text(detail).appFont(.secondary).foregroundStyle(.secondary).textSelection(.enabled)
-                } else {
-                    label.help(detail).accessibilityHint(detail)
                 }
-            } else { label }
+            }
         }
     }
-    private var symbol: String {
-        if item.phase.needsAttention { return "exclamationmark.triangle" }
-        if item.phase == .published { return "checkmark.icloud" }
-        return item.phase.active ? "arrow.up.circle" : "clock"
+}
+
+extension AudioVerificationIndicator {
+    init(item: UploadItem, iconOnly: Bool = false) {
+        let phase = item.phase
+        let symbol: String
+        let color: Color
+        if phase.needsAttention {
+            symbol = "exclamationmark.triangle"; color = .orange
+        } else if phase == .published {
+            symbol = "checkmark.icloud"; color = .green
+        } else {
+            symbol = phase.active ? "arrow.up.circle" : "clock"; color = .secondary
+        }
+        self.init(title: phase.title, symbol: symbol, color: color, detail: item.detail, iconOnly: iconOnly)
     }
 }
 
@@ -572,9 +642,8 @@ struct UploadsView: View {
                     HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(item.episode.title).appFont(.headline).lineLimit(2)
-                        ArticleOriginLine(metadata: model.savedAudioOrigin(item.episode))
+                        ArticleOriginLine(metadata: model.savedAudioOrigin(item.episode), audioMeta: model.savedAudioMeta(item.episode))
                         AudioVerificationIndicator(item: item)
-                        if let meta = model.savedAudioMeta(item.episode) { Text(meta).appFont(.secondary).foregroundStyle(.secondary) }
                         if item.phase.active {
                             if let fraction = item.progress?.fraction {
                                 ProgressView(value: fraction)
@@ -622,43 +691,32 @@ struct ServerAudioRow: View {
     let episode: Episode
     var body: some View {
         let failure = model.savedAudioRemovalFailure(episode)
-        HStack {
+        HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(episode.title).appFont(.headline).lineLimit(2, reservesSpace: true)
-                detailLine { ArticleOriginLine(metadata: model.savedAudioOrigin(episode)) }
-                Text(model.savedAudioMeta(episode) ?? "Speech ready")
-                    .appFont(.secondary).foregroundStyle(.secondary).lineLimit(1)
-                detailLine {
-                    if let failure {
-                        Label("Deletion failed", systemImage: "exclamationmark.triangle.fill")
-                            .appFont(.secondary).foregroundStyle(.orange)
-                            .help(failure)
-                            .accessibilityLabel("Deletion failed for \(episode.title)")
-                            .accessibilityHint(failure)
-                    } else if let removal = model.savedAudioRemovalStatus(episode) {
-                        Label(removal, systemImage: "clock").appFont(.secondary).foregroundStyle(.secondary)
-                    } else {
-                        AudioVerificationIndicator(item: model.audioState(episode), showsDetailInline: false)
-                    }
+                Text(episode.title).appFont(.headline).lineLimit(2)
+                ArticleOriginLine(metadata: model.savedAudioOrigin(episode), audioMeta: model.savedAudioMeta(episode))
+            }
+            Spacer(minLength: 8)
+            LibraryRowActions {
+                if episode.settings.temporaryAudio != true && episode.localAudioReleased != true {
+                    Button("Show in Finder", action: reveal).disabled(model.preview)
+                        .buttonStyle(.borderless).help("Show local audio in Finder")
+                }
+                if let failure {
+                    AudioVerificationIndicator(title: "Deletion failed", symbol: "exclamationmark.triangle.fill",
+                        color: .orange, detail: failure, iconOnly: true)
+                } else if let removal = model.savedAudioRemovalStatus(episode) {
+                    AudioVerificationIndicator(title: removal, symbol: "clock", color: .secondary, iconOnly: true)
+                } else {
+                    AudioVerificationIndicator(item: model.audioState(episode), iconOnly: true)
+                }
+                RowRemovalButton(accessibilityLabel: failure != nil ? "Retry deleting \(episode.title) audio" : "Delete \(episode.title) audio",
+                    help: failure != nil ? "Retry deleting the episode and its audio" : "Remove episode and delete its audio",
+                    isEnabled: model.canRemoveSavedAudio(episode)) {
+                    model.removeSavedAudio(ids: [episode.id])
                 }
             }
-            Spacer()
-            if episode.settings.temporaryAudio != true && episode.localAudioReleased != true {
-                Button("Show in Finder", action: reveal).disabled(model.preview)
-                    .buttonStyle(.borderless).help("Show local audio in Finder")
-            }
-            RowRemovalButton(accessibilityLabel: failure != nil ? "Retry deleting \(episode.title) audio" : "Delete \(episode.title) audio",
-                help: failure != nil ? "Retry deleting the episode and its audio" : "Remove episode and delete its audio",
-                isEnabled: model.canRemoveSavedAudio(episode)) {
-                model.removeSavedAudio(ids: [episode.id])
-            }
         }
-    }
-    private func detailLine<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        // Status symbols and optional metadata share the same text-height slot.
-        Text(" ").appFont(.secondary).hidden()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .leading) { content().lineLimit(1) }
     }
     private func reveal() {
         let file = episode.settings.audio.appendingPathComponent(episode.id + ".m4a")
@@ -682,7 +740,7 @@ struct LibraryView: View {
         .overlay {
             if episodes.isEmpty {
                 ContentUnavailableView(model.serverAudioListEpisodes.isEmpty ? "No Server Audio" : "No Matching Episodes", systemImage: "waveform",
-                                       description: Text(model.serverAudioListEpisodes.isEmpty ? "Add selected articles to the queue, then choose Generate Audio." : "Try another search or state filter."))
+                                       description: Text(model.serverAudioListEpisodes.isEmpty ? "Finished episodes appear here." : "Try another search or state filter."))
                     .allowsHitTesting(false)
             }
         }
@@ -833,7 +891,7 @@ private struct UploadPreviewEpisode: Encodable {
     let model = AppModel(preview: true)
     model.running = true
     model.processingSpeech = true
-    model.workspaceSection = .articles; model.articleScope = .queue
+    model.workspaceSection = .articles
     model.queueItems = [SpeechQueueItem(id: "00000000-0000-0000-0000-000000000001", title: "A synthetic queued article", sourceHost: "articles.example"),
                        SpeechQueueItem(id: "00000000-0000-0000-0000-000000000002", title: "A synthetic interrupted article", state: .running, attempts: 1, sourceHost: "journal.example")]
     model.batchProgress = QueueBatchProgress(stage: .encoding, completedChunks: 5, totalChunks: 12, completedArticles: 0, totalArticles: 2, currentArticleIndex: 1)
@@ -841,7 +899,7 @@ private struct UploadPreviewEpisode: Encodable {
 }
 #Preview("Workspace — inert queue failure") {
     let model = AppModel(preview: true)
-    model.workspaceSection = .articles; model.articleScope = .queue
+    model.workspaceSection = .articles
     model.queueItems = [SpeechQueueItem(id: "00000000-0000-0000-0000-000000000001", title: "A synthetic failed article", state: .failed, attempts: 1, lastError: "Synthetic feed failure")]
     model.error = "Synthetic feed failure"
     return WorkspaceView(model: model)
@@ -857,11 +915,14 @@ private struct UploadPreviewEpisode: Encodable {
     if let bytes = try? JSONEncoder().encode(settings), let profile = try? JSONSerialization.jsonObject(with: bytes) {
         for (index, state) in [DeliveryPublicationStatus.notUploaded, .awaitingUpload, .uploaded, .published, .failed].enumerated() {
             let id = "00000000-0000-0000-0000-00000000000\(index)", hash = "synthetic-copy-\(index)"
-            let record: [String: Any] = ["id": "00000000-0000-0000-0000-00000000000\(index)",
-                "title": "A synthetic saved article \(index + 1)", "stage": Stage.published.rawValue,
-                "originalSourceHost": "articles.example",
-                "readingListSavedAt": Double(86_400 * (index + 1)),
+            var record: [String: Any] = ["id": id,
+                "title": index == 3 ? "A longer synthetic episode title to check wrapping beside the publishing status and delete controls" : "A synthetic saved article \(index + 1)",
+                "stage": Stage.published.rawValue,
                 "audioHash": hash, "settings": profile]
+            if index != 0 {
+                record["originalSourceHost"] = "articles.example"
+                record["readingListSavedAt"] = Double(86_400 * (index + 1))
+            }
             if let data = try? JSONSerialization.data(withJSONObject: record),
                let episode = try? JSONDecoder().decode(Episode.self, from: data) { model.savedEpisodes.append(episode) }
             model.deliveryPublicationStates[id] = state

@@ -7,14 +7,36 @@ history only - they are not release or distribution acceptance.
 
 ## Unreleased
 
+- VoiceRelay uses one Articles list with automatic preparation, narration status
+  and a per-article reprocess action. Existing audio suppresses automatic duplicates.
+- **Needs Attention** above Articles opens the rows with preparation or narration
+  issues and their retry actions.
+
 - Libro can force fresh Apple Vision OCR for individual queued PDFs, including
   searchable scans with an inaccurate embedded layer.
 - All voices read just the hostname of supported web addresses while retaining
   the full links and source mappings.
 - VoiceRelay can remove completed Server Audio episodes during generation. Queued
   and finalizing episodes stay protected. Accepted rows disappear together, and
-  unfinished removals return with a retry badge. The list uses stable row and
+  unfinished removals return for retry. The list uses stable row and
   footer heights so background cleanup does not shift the next delete target.
+- Server Audio shows color-coded publishing and removal icons beside episode
+  titles, with status details available on hover and to VoiceOver.
+- Articles and Server Audio show compact ISO saved dates — `website.com
+  (2026-11-13)` — and Server Audio joins audio duration and file size on the
+  same line. Row status and action symbols share one size and spacing across
+  Articles, Upload Queue and Server Audio at every text size.
+- The VoiceRelay menu keeps one fixed-height status line and one command-height
+  sync progress row, so background checks and phase changes never shift the
+  popover contents. Progress details remain available by hovering the sync row.
+- The menu shows **Updated** with today's time, an ISO date, or Unknown, and its
+  green **Ready** now means no actionable issue while background checks keep
+  running — orange setup and red failure statuses still open their Settings pane.
+- Articles offer **Re-process Audio** on any idle current entry without matching
+  audio, so a Reading List article whose server audio was deleted can be
+  regenerated explicitly once its removal settles. Row action symbols sit closer
+  together in Articles and Server Audio, and Articles vertically centers its row
+  actions within native list rows.
 - Both apps put pronunciation entry format guidance in the shared info popover.
   Incomplete and malformed drafts stay unsaved. Duplicate, conflict, storage and
   preview errors remain visible.

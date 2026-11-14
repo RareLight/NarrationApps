@@ -21,20 +21,26 @@ struct RelayMenu: View {
             Group {
                 if let section = health.settingsSection {
                     Button { showSettings(section) } label: {
-                        Label(health.title, systemImage: health.symbol)
-                    }.buttonStyle(PopoverMenuButtonStyle(foreground: health.symbol == "xmark.circle.fill" ? .red : .primary))
+                        MenuStatusLabel(health: health)
+                    }.buttonStyle(PopoverMenuButtonStyle(foreground: Self.healthColor(health)))
                         .focused($focusedItem, equals: "status")
                         .disabled(model.preview || model.stopping)
                 } else {
-                    Label(health.title, systemImage: health.symbol)
-                        .foregroundStyle(health == .ready ? Color.green : Color.secondary)
+                    MenuStatusLabel(health: health)
+                        .foregroundStyle(Self.healthColor(health))
                         .padding(8)
                 }
             }
-            Text(model.deliveryLastPublishedAt.map {
-                    "Last published: \($0.formatted(date: .abbreviated, time: .shortened))"
-                } ?? "Last published: Not recorded")
-                .appFont(.secondary).foregroundStyle(.secondary).padding(.horizontal, 8).padding(.vertical, 2)
+            .help(health.title)
+            let updated = AppDateFormatting.updateLabel(for: model.deliveryLastPublishedAt)
+            let updatedHelp = model.deliveryLastPublishedAt.map {
+                "Updated: \(AppDateFormatting.dateTime($0))"
+            } ?? updated
+            Text(updated)
+                .appFont(.secondary).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.tail).help(updatedHelp)
+                .padding(.horizontal, 8).padding(.vertical, 2)
+            // The busy row must not size the menu; commands keep their width markers.
             if model.syncBusy {
                 SyncMenuProgress(model: model)
             } else {
@@ -43,7 +49,7 @@ struct RelayMenu: View {
             }
             Divider()
             VStack(spacing: 1) {
-                item("Open VoiceRelay") { model.articleScope = .all; openWorkspace(.articles) }.disabled(model.preview)
+                item("Open VoiceRelay") { openWorkspace(.articles) }.disabled(model.preview)
                 item("Server Audio") { openWorkspace(.savedAudio) }.disabled(model.preview)
             }
             .buttonStyle(PopoverMenuButtonStyle(verticalPadding: 4))
@@ -58,7 +64,8 @@ struct RelayMenu: View {
             .buttonStyle(PopoverMenuButtonStyle(verticalPadding: 4))
             .layoutValue(key: PopoverMenuLayout.WidthSource.self, value: true)
         }.buttonStyle(PopoverMenuButtonStyle())
-            // Only command labels establish width; status/progress wrap within it.
+            // Only marked command rows establish width; the fixed one-line status
+            // and sync row keep to it so background checks never shift the menu.
             .fixedSize().padding(PopoverMenuLayout.outerPadding)
             .focusEffectDisabled(!keyboardNavigation)
             .onKeyPress(.tab) { keyboardNavigation = true; return .ignored }
@@ -72,6 +79,13 @@ struct RelayMenu: View {
     }
     private func item(_ title: String, action: @escaping () -> Void) -> some View {
         Button(title, action: action).focused($focusedItem, equals: title)
+    }
+    private static func healthColor(_ health: AppHealthStatus) -> Color {
+        switch health {
+        case .ready: .green
+        case .failure: .red
+        case .needsSetup: .orange
+        }
     }
     private func showSettings(_ section: SettingsSection) {
         dismissPopover()
@@ -91,8 +105,9 @@ struct RelayMenu: View {
     }
 }
 
-/// Measure commands first, then give status/progress that width and their full
-/// wrapped height. Flexible progress and changing status must not size the popup.
+/// Measure commands first, then give status/progress that width. Status and sync
+/// rows stay one fixed text-height line so their changing text cannot size or
+/// reflow the popup.
 struct PopoverMenuLayout: Layout {
     struct WidthSource: LayoutValueKey { static let defaultValue = false }
     static let outerPadding: CGFloat = 6
@@ -157,19 +172,75 @@ private struct PopoverMenuButtonStyle: ButtonStyle {
     }
 }
 
+/// One-line menu geometry shared by the top status and the busy sync row, derived
+/// from the preferred body font rather than any current title or symbol.
+enum MenuLineMetrics {
+    /// Scaled native body line height for one text line of menu content.
+    static func textHeight(size: AppTextSize, dynamic: DynamicTypeSize) -> CGFloat {
+        let preferred = NSFont.preferredFont(forTextStyle: .body)
+        let points = AppTypography.pointSize(base: preferred.pointSize, size: size, dynamic: dynamic)
+        let font = NSFont(descriptor: preferred.fontDescriptor, size: points) ?? .systemFont(ofSize: points)
+        return ceil(font.ascender - font.descender + font.leading)
+    }
+    /// Top status reserves the shared row-symbol slot beside the body line.
+    static func statusHeight(size: AppTextSize, dynamic: DynamicTypeSize) -> CGFloat {
+        max(textHeight(size: size, dynamic: dynamic), 20 * AppTypography.scale(size: size, dynamic: dynamic))
+    }
+}
+
+/// Fixed one-line status so checking wording or a longer failure title never
+/// wraps to a second line and reflows the menu. Truncation keeps the full title
+/// accessible to VoiceOver and the hover tooltip.
+struct MenuStatusLabel: View {
+    let health: AppHealthStatus
+    @Environment(\.appTextSize) private var textSize
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    var body: some View {
+        HStack(spacing: 8) {
+            LibraryRowSymbol(systemName: health.symbol)
+            Text(health.title).appFont(.body)
+                .lineLimit(1).truncationMode(.tail)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: MenuLineMetrics.statusHeight(size: textSize, dynamic: dynamicTypeSize))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(health.title)
+    }
+}
+
+/// One text-height sync row: phase label on the left and a compact bar on the
+/// right, so the busy row keeps the idle Sync Now button's height through every
+/// phase, measured progress change and indeterminate check.
 struct SyncMenuProgress: View {
     @Bindable var model: AppModel
+    @Environment(\.appTextSize) private var textSize
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// Routine background speech validation stays implicit in the top status.
+    private var phaseTitle: String {
+        model.syncPhase == .speechCheck ? "Syncing…" : model.syncProgressLabel
+    }
+    private var helpText: String {
+        phaseTitle + (model.syncProgressFraction.map { " (\($0.formatted(.percent)))" } ?? "")
+    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(model.syncProgressLabel).appFont(.secondary)
-            if let fraction = model.syncProgressFraction {
-                ProgressView(value: fraction).progressViewStyle(.linear).controlSize(.small)
-                    .accessibilityLabel(model.syncPhase == .generating ? "Audio generation progress" : "Current audio file upload progress")
-            } else {
-                ProgressView().progressViewStyle(.linear).controlSize(.small)
-                    .accessibilityLabel("Sync in progress")
+        HStack(spacing: 8) {
+            Text(phaseTitle).appFont(.body)
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 0)
+            Group {
+                if let fraction = model.syncProgressFraction {
+                    ProgressView(value: fraction).progressViewStyle(.linear).controlSize(.small)
+                        .accessibilityLabel(model.syncPhase == .generating ? "Audio generation progress" : "Current audio file upload progress")
+                } else {
+                    ProgressView().progressViewStyle(.linear).controlSize(.small)
+                        .accessibilityLabel("Sync in progress")
+                }
             }
-        }.padding(8)
+            .frame(width: 48 * AppTypography.scale(size: textSize, dynamic: dynamicTypeSize))
+        }
+        .frame(height: MenuLineMetrics.textHeight(size: textSize, dynamic: dynamicTypeSize))
+        .padding(.horizontal, 8).padding(.vertical, 8)
+        .help(helpText)
     }
 }
 

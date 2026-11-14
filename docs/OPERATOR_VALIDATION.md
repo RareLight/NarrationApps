@@ -314,18 +314,19 @@ separate from automated fixture tests.
   refresh with the real selected Safari source. Saved dates/original sites remain
   correct and VoiceRelay does not edit Safari. An unreadable source retains known
   entries and does not admit stale ones. Source choice persists across relaunch.
-- [ ] **V06 — Queue, selection and filters.** Add/remove disposable items; check
-  All Articles versus Queue, saved-date versus processing order, search, website/date
-  filters, counts and keyboard actions. Hidden selections are never removal targets.
-  Queue removal must not delete the Safari source or published recording.
-  For duplicate saves, compare a newer short/paywall copy with older full text,
-  then two equal full copies with different save dates. Only the fuller/newer
-  selection generates; the other row stays gray with Inactive duplicate. Refresh,
-  restart, clear Queue and remove test audio: unchanged handled copies must not
-  recreate audio. Add a genuinely new duplicate save with a different voice;
-  confirm the new narration/feed before the older owned audio/transcript is removed.
-  Interrupt upload/feed/cleanup and verify safe recovery without losing the old
-  server copy prematurely.
+- [ ] **V06 — Articles, admission and reprocessing.** Save disposable articles in
+  Safari. Check automatic preparation in Articles, date/website filters, search,
+  selection and keyboard actions. Switch panes and confirm unchanged saves do
+  not start another admission. After narration, look for the green **Narration
+  Complete** checkmark and blue **Re-process Audio** arrow. A duplicate save
+  with matching audio should skip generation. Change voices and click the arrow
+  on the original article. Confirm that only the requested source is reprocessed,
+  and that the older audio and transcript survive until the replacement is
+  confirmed in the feed. Interrupt upload and verify the original stays available.
+  With one preparation failure and one failed narration, click **Needs
+  Attention** above Articles while a date or website filter is active. Check the
+  count, error details and retry actions. Retry the items and confirm the count
+  updates. **Show All Articles** restores the previous search and filters.
 - [ ] **V07 — Article extraction.** Preview short/long articles from different
   sites, including a PDF URL, a blocked/failed page and an archived copy if enabled.
   Verify completeness, title/source, saved date, reading order and provenance.
@@ -355,7 +356,9 @@ separate from automated fixture tests.
 - [ ] **V12 — Publish and listen (live).** Publish one disposable article. Check
   media verification, feed membership, Uploads clearing only after confirmation,
   then Server Audio and podcast-player playback (for example Overcast), title,
-  original saved date, artwork when present and complete enclosure audio. Repeat
+  original saved date, artwork when present and complete enclosure audio. Hover
+  the green icon beside the Server Audio title for **Published · verified**.
+  Confirm VoiceOver reads the status and the row has no separate status line. Repeat
   Sync/relaunch: confirmed episodes are not re-synthesized or re-uploaded.
 - [ ] **V13 — Delivery failure/retry (live).** Disconnect/reconnect during a test
   upload or use an unavailable test destination. Pending/failed state survives
@@ -381,8 +384,9 @@ separate from automated fixture tests.
   positions as successful cleanup, footer updates and refreshes finish. Repeat
   with short and wrapped titles and at 200% text size.
   During a slow refresh, confirm pending rows stay hidden. In a disposable setup
-  with a failed cleanup, only affected rows should return with **Deletion failed**
-  and a reason available on hover and to VoiceOver. Deleting the row again should
+  with a failed cleanup, only affected rows should return with an orange warning
+  icon beside the title. Check **Deletion failed** and the reason on hover and
+  with VoiceOver. Deleting the row again should
   retry cleanup.
   Changing to a test destination preserves old-host copies and avoids old-host deletes.
 - [ ] **V15 — Backup/restore (dedicated test library).** Back up while idle, then
@@ -431,7 +435,7 @@ separate from automated fixture tests.
   ambiguous layouts retain a fallback. With Article titles generation enabled in
   General, review actual on-device title quality and the generated-title label;
   with Apple Intelligence unavailable, preparation must still complete. Check
-  All Articles, Queue, the saved preview and spoken introduction agree. Stop
+  Articles, the saved preview and spoken introduction agree. Stop
   processing and use Edit Title before the first speech attempt; confirm the
   correction survives refresh/relaunch and appears in newly generated audio/RSS.
   Started work and published recordings must keep their titles. Tall scanned

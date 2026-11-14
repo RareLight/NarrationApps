@@ -9,7 +9,19 @@ import VoiceRelayCore
 
 @MainActor @Observable
 final class SourceReviewModel {
-    var catalog = ReadingListCatalog()
+    var catalog = ReadingListCatalog() {
+        didSet {
+            let inventoryChanged = oldValue.entries != catalog.entries || oldValue.currentIDs != catalog.currentIDs
+            if inventoryChanged {
+                catalogRevision = UUID()
+                articleSourceKeys = Dictionary(uniqueKeysWithValues: catalog.entries.map { ($0.id, FixtureCoordinator.articleSourceKey($0.url)) })
+            }
+            if inventoryChanged || !catalog.hasSameDuplicateEvidence(as: oldValue) { duplicateStatuses = catalog.duplicateStatuses }
+        }
+    }
+    @ObservationIgnored private(set) var catalogRevision = UUID()
+    private(set) var articleSourceKeys: [String: String] = [:]
+    private(set) var duplicateStatuses = ReadingListCatalog().duplicateStatuses
     var plist: URL?
     var status = "Saved articles load automatically once a Reading List source is chosen."
     var error: String?
@@ -156,6 +168,7 @@ final class SourceReviewModel {
         let readTask = Task { try await snapshotReader(file) }
         sourceReadTask = readTask
         do {
+            let firstRead = lastSyncedAt == nil
             let result = try await withTaskCancellationHandler { try await readTask.value } onCancel: { readTask.cancel() }
             try Task.checkCancellation()
             guard !stopping, !maintenanceSuspended, generation == sourceGeneration, plist == file else { return true }
@@ -171,7 +184,10 @@ final class SourceReviewModel {
                 guard generation == sourceGeneration, plist == file else { return true }
                 // Once committed, inventory reflects the saved result even if article selection changed.
                 catalog = saved; onCatalogChange(removed)
-            } else { catalog = proposed }
+            } else {
+                catalog = proposed
+                if firstRead { onCatalogChange([]) }
+            }
             catalogLoaded = true; error = nil; lastSyncedAt = Date()
             status = "\(result.entries.count) current entries; \(result.skippedEntries) unsupported entries skipped."
             onContextChange()
@@ -315,7 +331,7 @@ struct ArticlePreviewContent: View {
                 }
                 Text("Original: \(review.page.originalURL.absoluteString)\nFinal: \(review.page.finalURL.absoluteString)").appFont(.secondary).textSelection(.enabled)
                 if let copy = review.page.archivedCopy {
-                    Text("Archived copy · \(copy.provider.label) · \(copy.capturedAt.formatted(date: .abbreviated, time: .omitted))")
+                    Text("Archived copy · \(copy.provider.label) · \(AppDateFormatting.date(copy.capturedAt))")
                         .appFont(.secondary).foregroundStyle(.secondary)
                 }
                 if let message = review.issueMessage, dismissedIssue != message {
@@ -472,11 +488,6 @@ enum ArticlePreviewNavigation {
     }
 }
 
-enum ArticleScope: String, CaseIterable, Identifiable {
-    case all = "All Articles", queue = "Queue"
-    var id: Self { self }
-}
-
 enum ArticleRowID: Hashable {
     case source(String)
     case retained(QueueSelectionID)
@@ -492,10 +503,15 @@ struct ArticleLibraryRow: Identifiable {
     let preparationID: String?
     let retained: Bool
     var inactiveDuplicate: Bool = false
-    var queueSummary: String? {
-        guard jobs.count > 1 else { return nil }
-        let failures = jobs.filter { $0.state == .failed || $0.state == .paused }.count
-        return "\(jobs.count) queue entries\(failures > 0 ? " · \(failures) need retry" : "")"
+    var narrationComplete: Bool = false
+    var matchingAudioExists: Bool = false
+    var preparationFailure: String? = nil
+    /// Any idle, active Reading List article without matching completed audio can be
+    /// regenerated explicitly — including rows whose saved audio the user deleted.
+    var offersReprocessing: Bool {
+        source != nil && !retained && !inactiveDuplicate && jobs.isEmpty
+            && preparationID == nil && preparationFailure == nil
+            && (narrationComplete || !matchingAudioExists)
     }
 }
 
@@ -574,14 +590,21 @@ extension AppModel {
     }
     var allArticleRows: [ArticleLibraryRow] {
         let jobsBySource = Dictionary(grouping: queueItems, by: \.sourceEntryID)
-        let inactive = sourceReview.catalog.inactiveDuplicateIDs
+        let duplicates = sourceReview.duplicateStatuses
+        let complete = completedArticleSourceKeys
+        let groupsWithAudio = Set(duplicates.groups.compactMap { id, group in
+            sourceReview.articleSourceKeys[id].map(complete.contains) == true ? group : nil
+        })
         var rows = sourceReview.catalog.entries.map { entry in
             ArticleLibraryRow(id: .source(entry.id), title: sourceReview.catalog.displayTitle(for: entry), host: entry.url.host,
                 savedAt: entry.addedAt, source: entry,
                 jobs: jobsBySource[entry.id] ?? [],
                 preparationID: pendingAdds[entry.id] == nil ? nil : entry.id,
                 retained: !sourceReview.catalog.currentIDs.contains(entry.id),
-                inactiveDuplicate: inactive.contains(entry.id))
+                inactiveDuplicate: duplicates.inactive.contains(entry.id),
+                narrationComplete: sourceReview.articleSourceKeys[entry.id].map(complete.contains) == true,
+                matchingAudioExists: duplicates.groups[entry.id].map(groupsWithAudio.contains) == true,
+                preparationFailure: articlePreparationFailures[entry.id])
         }
         let catalogIDs = Set(sourceReview.catalog.entries.map(\.id))
         var retainedSources: [String: Int] = [:]
@@ -604,10 +627,10 @@ extension AppModel {
             }
         }.map(\.element)
     }
-    var unfilteredArticleRows: [ArticleLibraryRow] { articleScope == .all ? allArticleRows : queuedArticleRows }
+    var unfilteredArticleRows: [ArticleLibraryRow] { allArticleRows }
     var articleWebsiteSelection: ArticleWebsiteFilter {
-        get { articleScope == .all ? articlesWebsiteFilter : queueWebsiteFilter }
-        set { if articleScope == .all { articlesWebsiteFilter = newValue } else { queueWebsiteFilter = newValue } }
+        get { articlesWebsiteFilter }
+        set { articlesWebsiteFilter = newValue }
     }
     var articleWebsiteCounts: [ArticleWebsiteFilter: Int] { websiteCounts(for: unfilteredArticleRows) }
     func websiteCounts(for rows: [ArticleLibraryRow]) -> [ArticleWebsiteFilter: Int] {
@@ -635,20 +658,51 @@ extension AppModel {
         }
     }
     var articleSearchQuery: String {
-        get { articleScope == .all ? articlesSearchText : queueSearchText }
-        set { if articleScope == .all { articlesSearchText = newValue } else { queueSearchText = newValue } }
+        get { articlesNeedAttentionOnly ? articleAttentionSearchText : articlesSearchText }
+        set {
+            if articlesNeedAttentionOnly { articleAttentionSearchText = newValue }
+            else { articlesSearchText = newValue }
+        }
+    }
+    func articleJobNeedsAttention(_ job: SpeechQueueItem) -> Bool {
+        switch job.state {
+        case .failed, .paused: true
+        case .running: !processingSpeech
+        case .queued, .completed: false
+        }
+    }
+    func articlesNeedingAttention(in rows: [ArticleLibraryRow]) -> [ArticleLibraryRow] {
+        rows.filter { $0.preparationFailure != nil || $0.jobs.contains(where: articleJobNeedsAttention) }
+    }
+    func showArticlesNeedingAttention() {
+        articleAttentionSearchText = ""
+        articlesNeedAttentionOnly = true
+    }
+    func articleJobSummary(_ row: ArticleLibraryRow) -> String? {
+        guard row.jobs.count > 1 else { return nil }
+        let failures = row.jobs.filter(articleJobNeedsAttention).count
+        return "\(row.jobs.count) queue entries\(failures > 0 ? " · \(failures) need retry" : "")"
     }
     var visibleArticleRows: [ArticleLibraryRow] { visibleArticleRows(in: unfilteredArticleRows) }
     func visibleArticleRows(in rows: [ArticleLibraryRow]) -> [ArticleLibraryRow] {
-        rows.filter { articleWebsiteSelection.includes($0) && matchesArticleSearch($0, query: articleSearchQuery) }
+        let candidates = articlesNeedAttentionOnly
+            ? articlesNeedingAttention(in: rows)
+            : rows.filter { articleWebsiteSelection.includes($0) }
+        return matchingArticleSearch(in: candidates)
+    }
+    func matchingArticleSearch(in rows: [ArticleLibraryRow]) -> [ArticleLibraryRow] {
+        let query = articleSearchQuery
+        return rows.filter { matchesArticleSearch($0, query: query) }
     }
     func matchesArticleSearch(_ row: ArticleLibraryRow, query: String) -> Bool {
         guard LibraryTextSearch.isSearching(query) else { return true }
+        let origin = ArticleOriginMetadata(host: row.host, savedAt: row.savedAt)
         var fields: [String?] = [row.title, row.host,
-            ArticleOriginMetadata(host: row.host, savedAt: row.savedAt).savedDateText,
-            row.retained ? "Retained; absent from Reading List" : nil, row.queueSummary,
-            row.preparationID != nil ? "Preparing" : nil]
-        if row.jobs.count == 1, let job = row.jobs.first {
+            origin.savedDateText, origin.displayText(),
+            row.retained ? "Retained; absent from Reading List" : nil, articleJobSummary(row),
+            row.preparationID != nil ? "Preparing" : nil, row.preparationFailure,
+            row.narrationComplete ? "Narration Complete" : row.matchingAudioExists ? "Matching audio exists" : nil]
+        for job in row.jobs {
             fields.append(articleJobStatus(job))
             if let message = job.lastError, notices.isVisible(message: message, key: "queue:\(job.id):\(job.attempts):\(job.state)") { fields.append(message) }
         }
@@ -664,21 +718,15 @@ extension AppModel {
     }
     var unifiedArticleSelection: Set<ArticleRowID> {
         get {
-            if articleScope == .queue { return articleListSelection }
             return articleListSelection.intersection(Set(allArticleRows.map(\.id)))
         }
         set {
-            if articleScope == .queue {
-                queueSelection = Set(newValue.compactMap { if case .retained(let id) = $0 { id } else { nil } })
-            } else {
-                articleSelection = Set(newValue.compactMap { if case .source(let id) = $0 { id } else { nil } })
-                retainedArticleSelection = Set(newValue.compactMap { if case .retained(let id) = $0 { id } else { nil } })
-            }
+            articleSelection = Set(newValue.compactMap { if case .source(let id) = $0 { id } else { nil } })
+            retainedArticleSelection = Set(newValue.compactMap { if case .retained(let id) = $0 { id } else { nil } })
         }
     }
     /// Reading the native List binding must never sort or filter the library.
     var articleListSelection: Set<ArticleRowID> {
-        if articleScope == .queue { return Set(queueSelection.map { .retained($0) }) }
         return Set(articleSelection.map { ArticleRowID.source($0) })
             .union(retainedArticleSelection.map { .retained($0) })
     }
@@ -705,7 +753,7 @@ extension AppModel {
         let previous = queueSelection
         queueSelection = ids
         removeSelectedQueueItems()
-        if articleScope == .all { queueSelection = previous.subtracting(ids) }
+        queueSelection = previous.subtracting(ids)
     }
     func previewArticleRow(_ row: ArticleLibraryRow, openWindow: OpenWindowAction) {
         if let item = row.jobs.first { previewQueueItem(item, openWindow: openWindow) }
@@ -735,10 +783,8 @@ extension AppModel {
 
 struct LibraryListActions {
     var canPreview: Bool = false
-    var canAdd: Bool = false
     var canRemove: Bool = false
     var preview: () -> Void = {}
-    var add: () -> Void = {}
     var remove: () -> Void = {}
 }
 private struct LibraryListActionsKey: FocusedValueKey { typealias Value = LibraryListActions }
@@ -754,14 +800,13 @@ struct ArticlesView: View {
     @Environment(\.openSettings) private var openSettings
     var body: some View {
         let rows = model.unfilteredArticleRows
-        let projection = ArticleListProjection(rows: rows, visibleRows: model.visibleArticleRows(in: rows))
+        let attentionRows = model.articlesNeedingAttention(in: rows)
+        let visibleRows = model.articlesNeedAttentionOnly
+            ? model.matchingArticleSearch(in: attentionRows)
+            : model.visibleArticleRows(in: rows)
+        let projection = ArticleListProjection(rows: rows, visibleRows: visibleRows)
         VStack(spacing: 0) {
             HStack {
-                Picker("Articles scope", selection: $model.articleScope) {
-                    Text("All Articles").tag(ArticleScope.all)
-                    Text("Queue (\(model.queueItems.count + model.pendingAdds.count))").tag(ArticleScope.queue)
-                }.pickerStyle(.segmented).frame(maxWidth: 292)
-                Spacer(minLength: 12)
                 let websiteCounts = model.websiteCounts(for: rows)
                 Picker("Filter", selection: $model.articleWebsiteSelection) {
                     ForEach(ArticleWebsiteFilter.dateOptions) { filter in
@@ -771,10 +816,9 @@ struct ArticlesView: View {
                     ForEach(model.websiteOptions(counts: websiteCounts)) { filter in
                         Text("\(filter.title) (\(websiteCounts[filter, default: 0]))").tag(filter)
                     }
-                }.pickerStyle(.menu).frame(maxWidth: 260)
+                }.pickerStyle(.menu).frame(maxWidth: 260).disabled(model.articlesNeedAttentionOnly)
                     .help("Filter by saved date or website")
-                Text(model.articleScope == .all ? "Newest saved first" : "Processing order")
-                    .appFont(.secondary).foregroundStyle(.secondary)
+                Spacer(minLength: 12)
             }.padding(12)
             Divider()
             WorkspaceReadinessView(model: model)
@@ -786,34 +830,55 @@ struct ArticlesView: View {
                 }.padding([.horizontal, .top])
             }
             sourceNotices
+            if model.articlesNeedAttentionOnly || !attentionRows.isEmpty {
+                HStack(spacing: 12) {
+                    if model.articlesNeedAttentionOnly {
+                        Label("Needs Attention (\(attentionRows.count))", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Show All Articles") { model.articlesNeedAttentionOnly = false }
+                    } else {
+                        Button {
+                            model.showArticlesNeedingAttention()
+                        } label: {
+                            Label("Needs Attention (\(attentionRows.count))", systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(Color.orange)
+                        }.help("Show articles that need a retry")
+                        Spacer()
+                    }
+                }.padding(.horizontal, 12).padding(.vertical, 8)
+            }
             ArticleSelectionList(model: model, projection: projection)
-                .overlay { if projection.visibleRows.isEmpty { emptyContent } }
+                .overlay { if projection.visibleRows.isEmpty { emptyContent(hasAttention: !attentionRows.isEmpty) } }
         }
         .searchable(text: $model.articleSearchQuery, placement: .toolbar, prompt: "Search Articles")
-        .onAppear {
-            model.sourceReview.loadCatalog()
-            model.sourceReview.requestSourceSync()
-            model.sourceReview.startAutomaticSynchronization()
-            model.refreshLibrary()
-        }
     }
     @ViewBuilder private var sourceNotices: some View {
         if let error = model.sourceReview.error, model.notices.isVisible(message: error, key: "source") {
             InlineNotice(message: error) { model.notices.dismiss(message: error, key: "source") }
                 .padding([.horizontal, .top])
         }
-        ForEach(model.enqueueIssues, id: \.self) { issue in
-            if model.notices.isVisible(message: issue, key: "enqueue") {
-                InlineNotice(message: issue) { model.notices.dismiss(message: issue, key: "enqueue") }
-                    .padding([.horizontal, .top])
+    }
+    @ViewBuilder private func emptyContent(hasAttention: Bool) -> some View {
+        if model.articlesNeedAttentionOnly {
+            if hasAttention {
+                ContentUnavailableView {
+                    Label("No Matching Articles", systemImage: "magnifyingglass")
+                } actions: {
+                    Button("Clear Search") { model.articleSearchQuery = "" }
+                }
+            } else {
+                ContentUnavailableView("No Articles Need Attention", systemImage: "checkmark.circle")
             }
+        } else {
+            regularEmptyContent
         }
     }
-    private var emptyContent: some View {
+    private var regularEmptyContent: some View {
         ContentUnavailableView {
-            Label(model.articleWebsiteSelection != .all || LibraryTextSearch.isSearching(model.articleSearchQuery) ? "No Matching Articles" : model.articleScope == .queue ? "Queue Is Empty" : "No Articles", systemImage: "doc.text")
+            Label(model.articleWebsiteSelection != .all || LibraryTextSearch.isSearching(model.articleSearchQuery) ? "No Matching Articles" : "No Articles", systemImage: "doc.text")
         } description: {
-            Text(LibraryTextSearch.isSearching(model.articleSearchQuery) ? "Try another search or filter." : model.articleWebsiteSelection.isDateFilter ? "No articles were saved in this period." : model.articleWebsiteSelection != .all ? "No items match this website in the current scope." : model.articleScope == .queue ? "Add articles from All Articles, or let automatic processing admit new entries."
+            Text(LibraryTextSearch.isSearching(model.articleSearchQuery) ? "Try another search or filter." : model.articleWebsiteSelection.isDateFilter ? "No articles were saved in this period." : model.articleWebsiteSelection != .all ? "No items match this website."
                  : model.sourceReview.plist != nil ? "No articles found in the selected Reading List."
                  : "Choose a Reading List source in General. VoiceRelay checks it automatically while running.")
         } actions: {
@@ -822,8 +887,6 @@ struct ArticlesView: View {
             }
             if model.articleWebsiteSelection != .all {
                 Button(model.articleWebsiteSelection.isDateFilter ? "Show All Articles" : "Show All Websites") { model.articleWebsiteSelection = .all }
-            } else if model.articleScope == .queue {
-                Button("Go to All Articles") { model.articleScope = .all }
             } else {
                 Button("Open General") { showSettings(.general) }.disabled(model.preview)
             }
@@ -842,14 +905,11 @@ struct ArticleSelectionList: View {
     let projection: ArticleListProjection
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
-    @State private var confirmingReset = false
     @State private var renamingArticle: SpeechQueueItem?
     @State private var titleDraft = ""
 
     var body: some View {
         let selected = projection.selectedRows(model.articleListSelection)
-        let eligible = selected.filter { !$0.inactiveDuplicate && $0.jobs.isEmpty && $0.preparationID == nil }.compactMap(\.source)
-        let canAdd = model.articleScope == .all && model.canAddArticles(eligible)
         let canPreview = model.canPreviewArticleRows(selected)
         let queueIDs = Set(selected.flatMap { row in
             row.jobs.map { QueueSelectionID.episode($0.id) }
@@ -881,29 +941,14 @@ struct ArticleSelectionList: View {
         .refreshable { await model.sourceReview.refreshSource() }
         .onDeleteCommand { model.removeUnifiedSelection() }
         .focusedValue(\.libraryListActions, LibraryListActions(
-            canPreview: canPreview, canAdd: canAdd, canRemove: canRemove,
+            canPreview: canPreview, canRemove: canRemove,
             preview: { model.previewUnifiedSelection(openWindow: openWindow) },
-            add: { model.addSelectedToQueue() }, remove: { model.removeUnifiedSelection() }))
+            remove: { model.removeUnifiedSelection() }))
         .toolbar {
-            if model.articleScope == .all {
-                ToolbarItem {
-                    Button { model.addSelectedToQueue() } label: {
-                        Label("Add to Queue (\(eligible.count))", systemImage: "plus")
-                    }.disabled(!canAdd)
-                }
-            }
             ToolbarItem(placement: .secondaryAction) {
                 Menu {
                     Button("Preview Article") { model.previewUnifiedSelection(openWindow: openWindow) }
                         .disabled(!canPreview)
-                    if model.articleScope == .queue {
-                        SelectionManagementControl(selectionCount: queueIDs.count,
-                            resetTitle: "Reset Queue…", canReset: model.canResetQueue,
-                            canRemove: canRemove,
-                            resetHelp: "Clear Queue; keep articles and audio",
-                            removeHelp: "Remove from Queue; keep text and audio",
-                            onReset: { confirmingReset = true }, onRemove: { model.removeUnifiedSelection() })
-                    }
                     Divider()
                     Button("Publishing Settings…") { showSettings(.delivery) }
                     Button("Settings…") { showSettings(.general) }
@@ -911,12 +956,6 @@ struct ArticleSelectionList: View {
             }
             ToolbarSpacer(.fixed, placement: .primaryAction)
             ToolbarItem(placement: .primaryAction) { GenerateAudioControl(model: model) }
-        }
-        .confirmationDialog("Reset queue?", isPresented: $confirmingReset) {
-            Button("Reset Queue", role: .destructive) { model.resetQueue() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Remove all queued items? Reading List entries, saved article text and existing audio files will be kept.")
         }
         .alert("Edit article title", isPresented: Binding(get: { renamingArticle != nil }, set: { if !$0 { renamingArticle = nil } })) {
             TextField("Title", text: $titleDraft)
@@ -938,20 +977,22 @@ struct ArticleLibraryRowView: View {
     @Bindable var model: AppModel
     let row: ArticleLibraryRow
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(row.title).appFont(.headline).lineLimit(2)
                     .foregroundStyle(row.inactiveDuplicate ? Color.secondary : Color.primary)
                 if row.inactiveDuplicate { Text("Inactive duplicate").appFont(.secondary).foregroundStyle(.secondary) }
                 ArticleOriginLine(metadata: ArticleOriginMetadata(host: row.host, savedAt: row.savedAt))
                 if row.retained { Text("Retained; absent from Reading List").appFont(.secondary).foregroundStyle(.secondary) }
-                if row.jobs.count > 1 {
-                    let failures = row.jobs.filter { $0.state == .failed || $0.state == .paused }.count
-                    Label(row.queueSummary ?? "", systemImage: failures > 0 ? "exclamationmark.triangle" : "list.bullet")
-                        .appFont(.secondary).foregroundStyle(.secondary)
+                if let summary = model.articleJobSummary(row) {
+                    Label { Text(summary) } icon: {
+                        LibraryRowSymbol(systemName: row.jobs.contains(where: model.articleJobNeedsAttention) ? "exclamationmark.triangle" : "list.bullet")
+                    }.appFont(.secondary).foregroundStyle(.secondary)
                 } else if let job = row.jobs.first {
-                    Label(model.articleJobStatus(job), systemImage: symbol(job))
-                        .appFont(.secondary).foregroundStyle(job.state == .failed ? Color.orange : Color.secondary)
+                    Label { Text(model.articleJobStatus(job)) } icon: { LibraryRowSymbol(systemName: symbol(job)) }
+                        .appFont(.secondary).foregroundStyle(model.articleJobNeedsAttention(job) ? Color.orange : Color.secondary)
+                }
+                ForEach(row.jobs) { job in
                     if let message = job.lastError,
                        model.notices.isVisible(message: message, key: "queue:\(job.id):\(job.attempts):\(job.state)") {
                         InlineNotice(message: message) {
@@ -959,25 +1000,57 @@ struct ArticleLibraryRowView: View {
                         }
                     }
                 }
+                if let failure = row.preparationFailure {
+                    Label { Text(failure) } icon: { LibraryRowSymbol(systemName: "exclamationmark.triangle") }
+                        .appFont(.secondary).foregroundStyle(Color.orange)
+                }
                 if row.preparationID != nil {
-                    Label("Preparing…", systemImage: "clock").appFont(.secondary).foregroundStyle(.secondary)
+                    Label { Text("Preparing…") } icon: { LibraryRowSymbol(systemName: "clock") }
+                        .appFont(.secondary).foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 8)
-            if row.jobs.count > 1 {
-                Button("Show Queue") { model.articleScope = .queue }
-            } else if let job = row.jobs.first {
-                jobActions(job)
-            } else if let id = row.preparationID {
-                RowRemovalButton(accessibilityLabel: "Remove \(row.title) preparation", help: "Cancel preparation; keep Reading List entry",
-                    isEnabled: model.canRemoveQueueIDs([.preparation(id)])) { model.removePreparation(id) }
+            LibraryRowActions {
+                if row.preparationID == nil, row.jobs.isEmpty, !row.narrationComplete, !row.matchingAudioExists,
+                   !row.inactiveDuplicate, !row.retained, row.source != nil,
+                   row.preparationFailure == nil, !model.deliveryServerChecked {
+                    LibraryRowSymbol(systemName: "clock").foregroundStyle(.secondary)
+                        .help("Waiting for Publishing Check").accessibilityLabel("Waiting for Publishing Check")
+                }
+                if let entry = row.source, let failure = row.preparationFailure {
+                    Button { model.retryArticlePreparation(entry) } label: {
+                        LibraryRowSymbol(systemName: "arrow.clockwise").foregroundStyle(.orange)
+                    }.buttonStyle(.borderless).disabled(!model.canAddArticles([entry]))
+                        .help("Retry Preparation").accessibilityLabel("Retry Preparation for \(row.title)").accessibilityHint(failure)
+                }
+                if row.narrationComplete {
+                    LibraryRowSymbol(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green).help("Narration Complete").accessibilityLabel("Narration Complete")
+                } else if row.matchingAudioExists {
+                    LibraryRowSymbol(systemName: "checkmark.circle").foregroundStyle(.green)
+                        .help("Matching Audio Exists").accessibilityLabel("Matching Audio Exists")
+                }
+                if row.offersReprocessing {
+                    Button { model.reprocessArticle(row) } label: {
+                        LibraryRowSymbol(systemName: "arrow.clockwise").foregroundStyle(.blue)
+                    }.buttonStyle(.borderless).disabled(!model.canReprocessArticle(row))
+                        .help("Re-process Audio").accessibilityLabel("Re-process Audio for \(row.title)")
+                }
+                ForEach(row.jobs) { job in
+                    jobActions(job)
+                }
+                if let id = row.preparationID {
+                    RowRemovalButton(accessibilityLabel: "Remove \(row.title) preparation", help: "Cancel preparation; keep Reading List entry",
+                        isEnabled: model.canRemoveQueueIDs([.preparation(id)])) { model.removePreparation(id) }
+                }
             }
         }
+        .frame(maxHeight: .infinity, alignment: .center)
     }
     @ViewBuilder private func jobActions(_ job: SpeechQueueItem) -> some View {
         let current = job.state == .running && model.processingSpeech
         let mutating = model.mutatingQueueEntries.contains(.episode(job.id))
-        if [.paused, .failed, .running].contains(job.state) {
+        if model.articleJobNeedsAttention(job) {
             Button("Retry") { model.changeQueue(job.id, remove: false) }
                 .disabled(model.preview || model.stopping || model.libraryReviewRequired || current || mutating)
                 .help("Return article to Ready")
@@ -988,7 +1061,7 @@ struct ArticleLibraryRowView: View {
     }
     private func symbol(_ job: SpeechQueueItem) -> String {
         switch job.state {
-        case .queued, .completed: "checkmark.circle"
+        case .queued, .completed: "clock"
         case .failed, .paused: "exclamationmark.triangle"
         case .running: "play.circle"
         }
@@ -1046,13 +1119,11 @@ private func syntheticReview(issue: SourceReviewIssue? = nil) -> ReviewedSource?
     let model = AppModel(preview: true)
     model.queueItems = [SpeechQueueItem(id: "00000000-0000-0000-0000-000000000001", title: "A synthetic queued article"),
                        SpeechQueueItem(id: "00000000-0000-0000-0000-000000000002", title: "A synthetic interrupted article", state: .running, attempts: 1)]
-    model.articleScope = .queue
     return ArticlesView(model: model)
 }
 #Preview("Queue — global encoding progress") {
     let model = AppModel(preview: true)
     model.batchProgress = QueueBatchProgress(stage: .encoding, completedChunks: 5, totalChunks: 12, completedArticles: 0, totalArticles: 2)
-    model.articleScope = .queue
     return ArticlesView(model: model)
 }
 #endif
