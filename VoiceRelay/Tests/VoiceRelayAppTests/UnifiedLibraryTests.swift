@@ -816,6 +816,182 @@ private final class UnusedCredentials: DeliveryCredentialStore, @unchecked Senda
     }
 }
 
+@Test @MainActor func uploadQueueRowsKeepHeightAcrossTransientPhases() {
+    let model = AppModel(preview: true)
+    let savedAt = Date(timeIntervalSince1970: 1_794_500_000)
+    func episode(_ title: String) -> Episode {
+        var episode = Episode(id: "upload", title: title, stage: .published,
+            settings: PrototypeProfile.fixture(at: URL(fileURLWithPath: "/synthetic")))
+        episode.originalSourceHost = "synthetic.example"; episode.readingListSavedAt = savedAt
+        episode.info = AudioInfo(duration: 120, byteLength: 20_000, sampleRate: 24000, channels: 1, codec: "aac")
+        return episode
+    }
+    for title in ["Short title", "A much longer synthetic episode title that wraps onto a second line inside the row"] {
+        for percent in [80, 100, 200] {
+            for dynamic in [DynamicTypeSize.large, .accessibility3] {
+                let textSize = AppTextSize(percent: percent)
+                func height(_ item: UploadItem) -> CGFloat {
+                    NSHostingView(rootView: UploadQueueRow(model: model, item: item)
+                        .appTextSizing(textSize).environment(\.dynamicTypeSize, dynamic)
+                        .frame(width: 480)).fittingSize.height
+                }
+                let episode = episode(title)
+                let baseline = height(UploadItem(episode: episode, publication: .notUploaded))
+                #expect(baseline > 0)
+                // Transient phases and measured transfer progress stay icon-only.
+                for (phase, progress) in [
+                    (UploadPhase.verifyingLocal, UploadProgress(episode: episode, phase: .verifyingLocal)),
+                    (.transferring, UploadProgress(episode: episode, phase: .transferring, sentBytes: 25, totalBytes: 100)),
+                    (.verifyingServer, UploadProgress(episode: episode, phase: .verifyingServer, sentBytes: 100, totalBytes: 100)),
+                ] {
+                    let item = UploadItem(episode: episode, publication: .notUploaded, progress: progress)
+                    #expect(item.phase == phase, "fixture did not project \(phase)")
+                    #expect(abs(height(item) - baseline) < 0.5, "\(phase) changed row height at \(percent)%/\(dynamic)")
+                }
+                let publishing = UploadItem(episode: episode, publication: .uploaded)
+                #expect(publishing.phase == .publishing)
+                #expect(abs(height(publishing) - baseline) < 0.5, "publishing changed row height at \(percent)%/\(dynamic)")
+                // A real issue keeps its detail visible; only genuine content may grow the row.
+                let failure = UploadItem(episode: episode, publication: .uploaded,
+                    feedError: String(repeating: "Synthetic publishing failure detail. ", count: 6))
+                #expect(failure.phase == .failed && failure.detail != nil)
+                #expect(height(failure) > baseline, "error detail was hidden at \(percent)%/\(dynamic)")
+            }
+        }
+    }
+}
+
+@Test @MainActor func uploadQueueFooterKeepsHeightDuringChecksTransfersAndGeneration() {
+    let model = AppModel(preview: true)
+    model.workspaceSection = .uploads
+    model.deliverySettings.feedFolderURL = URL(string: "https://upload.example/podcast/")
+    model.deliverySettings.publicFolderURL = URL(string: "https://public.example/podcast/")
+    model.deliverySettings.enabled = true
+    model.deliveryPasswordChecked = true; model.deliveryPasswordStored = true
+    let episode = Episode(id: "upload",
+        title: "A much longer synthetic episode title that keeps the footer status long enough to truncate",
+        stage: .published, settings: PrototypeProfile.fixture(at: URL(fileURLWithPath: "/synthetic")))
+    for percent in [80, 100, 200] {
+        for dynamic in [DynamicTypeSize.large, .accessibility3] {
+            let textSize = AppTextSize(percent: percent)
+            func footerHeight() -> CGFloat {
+                NSHostingView(rootView: WorkspaceActivityView(model: model, reservesSpace: true)
+                    .appFont(.body).appTextSizing(textSize).environment(\.dynamicTypeSize, dynamic)
+                    .frame(width: 480)).fittingSize.height
+            }
+            func readinessHeight() -> CGFloat {
+                NSHostingView(rootView: WorkspaceReadinessView(model: model)
+                    .appFont(.body).appTextSizing(textSize).environment(\.dynamicTypeSize, dynamic)
+                    .frame(width: 480)).fittingSize.height
+            }
+            let idle = footerHeight(), idleReadiness = readinessHeight()
+            #expect(idle > 0)
+            func expectStable(_ label: String) {
+                #expect(abs(footerHeight() - idle) <= 1, "\(label) changed footer height at \(percent)%/\(dynamic)")
+                #expect(abs(readinessHeight() - idleReadiness) <= 1, "\(label) changed readiness height at \(percent)%/\(dynamic)")
+            }
+            model.deliveryPreflightBusy = true // transient check moves to the footer on Upload Queue
+            #expect(model.uploadQueueActivity?.title == PublishingReadiness.checking.title
+                    && model.uploadQueueActivity?.fraction == nil)
+            expectStable("preflight")
+            model.deliveryPreflightBusy = false
+            model.deliveryBusy = true // reconcile without per-item progress
+            #expect(model.uploadQueueActivity?.title == "Reconciling server and local records…")
+            expectStable("reconcile")
+            model.uploadProgress[episode.id] = UploadProgress(episode: episode, phase: .verifyingLocal)
+            #expect(model.uploadQueueActivity?.title.contains(UploadPhase.verifyingLocal.title) == true
+                    && model.uploadQueueActivity?.fraction == nil)
+            expectStable("verifyingLocal")
+            model.uploadProgress[episode.id] = UploadProgress(episode: episode, phase: .transferring, sentBytes: 25, totalBytes: 100)
+            #expect(model.uploadQueueActivity?.title.contains(UploadPhase.transferring.title) == true
+                    && model.uploadQueueActivity?.fraction == 0.25)
+            expectStable("transferring")
+            model.uploadProgress[episode.id] = UploadProgress(episode: episode, phase: .transferring, sentBytes: 25, totalBytes: 0)
+            #expect(model.uploadQueueActivity?.fraction == nil)
+            expectStable("indeterminate transfer")
+            model.uploadProgress[episode.id] = UploadProgress(episode: episode, phase: .verifyingServer)
+            #expect(model.uploadQueueActivity?.title.contains(UploadPhase.verifyingServer.title) == true
+                    && model.uploadQueueActivity?.fraction == nil)
+            expectStable("verifyingServer")
+            model.uploadProgress[episode.id] = UploadProgress(episode: episode, phase: .publishing)
+            #expect(model.uploadQueueActivity?.title.contains(UploadPhase.publishing.title) == true
+                    && model.uploadQueueActivity?.fraction == nil)
+            expectStable("publishing")
+            // Concurrent speech joins the same line while a measured transfer keeps the bar.
+            model.uploadProgress[episode.id] = UploadProgress(episode: episode, phase: .transferring, sentBytes: 25, totalBytes: 100)
+            model.status = "Synthetic speech status"; model.processingSpeech = true
+            #expect(model.uploadQueueActivity?.fraction == 0.25
+                    && model.uploadQueueActivity?.title.contains(model.processingStatusLine) == true)
+            expectStable("concurrent processing")
+            model.deliveryBusy = false; model.uploadProgress = [:]
+            expectStable("processing alone")
+            model.processingSpeech = false; model.cancelling = true
+            expectStable("cancelling")
+            model.cancelling = false; model.audioMutationBusy = true
+            model.mutatingSavedAudioIDs = ["gone"]
+            expectStable("removal")
+            model.audioMutationBusy = false; model.mutatingSavedAudioIDs = []
+            expectStable("settled")
+        }
+    }
+}
+
+@Test @MainActor func uploadQueueActivityReportsOwnedWorkAndMeasuredProgress() throws {
+    let model = AppModel(preview: true)
+    let first = Episode(id: "a-first", title: "First article", stage: .published,
+        settings: PrototypeProfile.fixture(at: URL(fileURLWithPath: "/synthetic")))
+    let second = Episode(id: "z-second", title: "Second article", stage: .published,
+        settings: PrototypeProfile.fixture(at: URL(fileURLWithPath: "/synthetic")))
+    // Idle — even a stale progress dictionary reports nothing.
+    model.uploadProgress[first.id] = UploadProgress(episode: first, phase: .transferring, sentBytes: 1, totalBytes: 2)
+    #expect(model.uploadQueueActivity == nil)
+    // A measured transfer names its phase and file with native byte context.
+    model.deliveryBusy = true
+    var activity = try #require(model.uploadQueueActivity)
+    #expect(activity.title.contains(UploadPhase.transferring.title) && activity.title.contains("First article"))
+    #expect(activity.fraction == 0.5)
+    #expect(activity.title.contains(ByteCountFormatter.string(fromByteCount: 1, countStyle: .file)))
+    // Verification phases stay indeterminate even when bytes are recorded.
+    model.uploadProgress[first.id] = UploadProgress(episode: first, phase: .verifyingServer, sentBytes: 2, totalBytes: 2)
+    activity = try #require(model.uploadQueueActivity)
+    #expect(activity.title.contains(UploadPhase.verifyingServer.title) && activity.fraction == nil)
+    // An invalid total never invents a fraction.
+    model.uploadProgress[first.id] = UploadProgress(episode: first, phase: .transferring, sentBytes: 1, totalBytes: 0)
+    activity = try #require(model.uploadQueueActivity)
+    #expect(activity.fraction == nil)
+    // Terminal records are not work: they fall back to the generic line.
+    model.uploadProgress[first.id] = UploadProgress(episode: first, phase: .published)
+    activity = try #require(model.uploadQueueActivity)
+    #expect(activity.title == "Publishing pending items…" && activity.fraction == nil)
+    // Deterministic selection: a transfer wins over verification regardless of ID order;
+    // equal phases resolve by stable episode ID.
+    model.uploadProgress[first.id] = UploadProgress(episode: first, phase: .verifyingServer)
+    model.uploadProgress[second.id] = UploadProgress(episode: second, phase: .transferring, sentBytes: 5, totalBytes: 10)
+    activity = try #require(model.uploadQueueActivity)
+    #expect(activity.title.contains("Second article") && activity.fraction == 0.5)
+    model.uploadProgress[second.id] = UploadProgress(episode: second, phase: .verifyingLocal)
+    activity = try #require(model.uploadQueueActivity)
+    #expect(activity.title.contains("First article") && activity.fraction == nil)
+    // A pure readiness preflight shows even without an active delivery drain.
+    model.uploadProgress = [:]; model.deliveryBusy = false; model.deliveryPreflightBusy = true
+    activity = try #require(model.uploadQueueActivity)
+    #expect(activity.title == PublishingReadiness.checking.title && activity.fraction == nil)
+    // Concurrent speech joins one line; the primary transfer keeps the bar.
+    model.deliveryPreflightBusy = false; model.deliveryBusy = true
+    model.uploadProgress[first.id] = UploadProgress(episode: first, phase: .transferring, sentBytes: 1, totalBytes: 2)
+    model.processingSpeech = true
+    activity = try #require(model.uploadQueueActivity)
+    #expect(activity.title.contains(model.processingStatusLine) && activity.fraction == 0.5)
+    // Owned removals report pending counts only when some remain.
+    model.processingSpeech = false; model.deliveryBusy = false; model.uploadProgress = [:]
+    model.audioMutationBusy = true
+    activity = try #require(model.uploadQueueActivity)
+    #expect(activity.title == "Removing audio…" && activity.fraction == nil)
+    model.mutatingSavedAudioIDs = ["one", "two"]
+    activity = try #require(model.uploadQueueActivity)
+    #expect(activity.title.contains("Removing audio…") && activity.title.contains("2 pending"))
+}
+
 @Test @MainActor func audioSearchAndFiltersTrackChangingRecordsWithoutSourceInventoryOrStaleMetadata() throws {
     let model = AppModel(preview: true)
     let savedAt = Date(timeIntervalSinceReferenceDate: 1_700_000_000)

@@ -3735,3 +3735,353 @@ private final class PublishingPreflightGate: @unchecked Sendable {
     #expect(fresh.allArticleRows.first { $0.source?.id == "older" }?.inactiveDuplicate == true)
     await fresh.shutdown()
 }
+
+// MARK: - Scene window Space routing
+
+@MainActor private final class SpaceEventLog {
+    var entries: [String] = []
+    var policies: [NSApplication.ActivationPolicy] = []
+    var appHidden = false
+}
+
+@MainActor private final class FakeSpaceWindow: ScenePresentationWindow {
+    var isVisible = true
+    var isMiniaturized = false
+    var isOnActiveSpace = true
+    var collectionBehavior: NSWindow.CollectionBehavior = []
+    let name: String
+    let log: SpaceEventLog
+    init(_ name: String, log: SpaceEventLog) { self.name = name; self.log = log }
+    func makeKeyAndOrderFront(_ sender: Any?) { log.entries.append("key:\(name)") }
+    func deminiaturize(_ sender: Any?) { isMiniaturized = false; log.entries.append("demini:\(name)") }
+}
+
+@MainActor private func fakePresence(log: SpaceEventLog = SpaceEventLog()) -> (WindowPresence, SpaceEventLog) {
+    let environment = WindowPresence.Environment(
+        isHidden: { log.appHidden },
+        activationPolicy: { log.policies.last ?? .accessory },
+        setActivationPolicy: { log.policies.append($0) },
+        activate: { log.entries.append("activate") })
+    return (WindowPresence(environment: environment, observesNotifications: false), log)
+}
+
+/// Runs queued registration fronts and deferred policy refreshes.
+@MainActor private func drainMainTurn() async {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        DispatchQueue.main.async { continuation.resume() }
+    }
+}
+
+@Test @MainActor func windowSpaceRoutingOpensOnCurrentSpaceWhenNothingIsOpen() async {
+    let (presence, log) = fakePresence()
+    var actions = 0
+    presence.open(.settings) { actions += 1; log.entries.append("action:settings") }
+    // The action runs on the current Space before any window exists or activates.
+    #expect(actions == 1 && log.entries == ["action:settings"])
+    #expect(log.policies == [.regular])
+    let settings = FakeSpaceWindow("settings", log: log)
+    settings.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+    presence.register(settings, kind: .settings)
+    // Registration joins this Space only for this open — fronting and
+    // activation wait for the queued turn, never the registration callback.
+    #expect(settings.collectionBehavior == [.moveToActiveSpace, .fullScreenAuxiliary])
+    #expect(log.entries == ["action:settings"])
+    await drainMainTurn()
+    #expect(log.entries == ["action:settings", "key:settings", "activate"])
+    // Becoming key restores only the Space bits; unrelated flags survive.
+    settings.collectionBehavior.insert(.stationary)
+    presence.windowDidBecomeKey(settings)
+    #expect(settings.collectionBehavior == [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary])
+}
+
+@Test @MainActor func windowSpaceRoutingReopensCachedClosedTargetOnCurrentSpace() {
+    let (presence, log) = fakePresence()
+    let articles = FakeSpaceWindow("articles", log: log)
+    let settings = FakeSpaceWindow("settings", log: log)
+    presence.register(articles, kind: .workspace)
+    presence.register(settings, kind: .settings)
+    // SwiftUI retains a closed scene window; it must never anchor routing.
+    settings.isVisible = false
+    presence.windowWillClose(settings)
+    var actions = 0
+    presence.open(.settings) { actions += 1; log.entries.append("action:settings") }
+    #expect(actions == 1)
+    // Only the cached target is moved; the live anchor's flags never change.
+    #expect(settings.collectionBehavior == [.moveToActiveSpace])
+    #expect(articles.collectionBehavior == [])
+    #expect(log.entries == ["action:settings", "key:settings", "activate"])
+    settings.collectionBehavior.insert(.stationary)
+    presence.windowDidBecomeKey(settings)
+    #expect(settings.collectionBehavior == [.stationary])
+}
+
+@Test @MainActor func windowSpaceRoutingWaitsForAnchorSpaceBeforeOpening() async {
+    let (presence, log) = fakePresence()
+    let articles = FakeSpaceWindow("articles", log: log)
+    articles.isOnActiveSpace = false
+    presence.register(articles, kind: .workspace)
+    var actions = 0
+    presence.open(.settings) { actions += 1 }
+    // The anchor's Space is fronted; the action waits for arrival there.
+    #expect(actions == 0)
+    #expect(log.entries == ["key:articles", "activate"])
+    #expect(articles.collectionBehavior == [])
+    // A Space change that still excludes the anchor must not open.
+    presence.activeSpaceDidChange()
+    #expect(actions == 0)
+    articles.isOnActiveSpace = true
+    presence.activeSpaceDidChange()
+    #expect(actions == 1)
+    // Repeated Space-change notifications never replay the action.
+    presence.activeSpaceDidChange()
+    #expect(actions == 1)
+    // The arriving target gets the temporary join; the anchor never does.
+    let settings = FakeSpaceWindow("settings", log: log)
+    presence.register(settings, kind: .settings)
+    #expect(settings.collectionBehavior == [.moveToActiveSpace])
+    #expect(articles.collectionBehavior == [])
+    await drainMainTurn()
+    #expect(log.entries.suffix(2) == ["key:settings", "activate"])
+}
+
+@Test @MainActor func windowSpaceRoutingOpenTargetFrontsItsOwnSpace() {
+    let (presence, log) = fakePresence()
+    let articles = FakeSpaceWindow("articles", log: log)
+    let settings = FakeSpaceWindow("settings", log: log)
+    settings.isOnActiveSpace = false
+    presence.register(articles, kind: .workspace)
+    presence.register(settings, kind: .settings)
+    var actions = 0
+    presence.open(.settings) { actions += 1 }
+    // The already-open target's own Space wins: fronted there, never moved,
+    // and no new window is created before arrival.
+    #expect(actions == 0)
+    #expect(log.entries == ["key:settings", "activate"])
+    #expect(settings.collectionBehavior == [])
+    #expect(articles.collectionBehavior == [])
+    settings.isOnActiveSpace = true
+    presence.activeSpaceDidChange()
+    #expect(actions == 1)
+    #expect(settings.collectionBehavior == [])
+    #expect(log.entries == ["key:settings", "activate", "key:settings", "activate"])
+}
+
+@Test @MainActor func windowSpaceRoutingAnchorPreferenceFocusMinimizedHiddenAndClosed() {
+    // An on-Space window keeps the open local.
+    var (presence, log) = fakePresence()
+    let local = FakeSpaceWindow("local", log: log)
+    let remote = FakeSpaceWindow("remote", log: log)
+    remote.isOnActiveSpace = false
+    presence.register(local, kind: .workspace)
+    presence.register(remote, kind: .settings)
+    var actions = 0
+    presence.open(.help(.publishing)) { actions += 1 }
+    #expect(actions == 1 && log.entries.isEmpty)
+
+    // Off-Space, the most recently focused window anchors.
+    (presence, log) = fakePresence()
+    let articles = FakeSpaceWindow("articles", log: log)
+    let settings = FakeSpaceWindow("settings", log: log)
+    articles.isOnActiveSpace = false; settings.isOnActiveSpace = false
+    presence.register(articles, kind: .workspace)
+    presence.register(settings, kind: .settings)
+    presence.windowDidBecomeKey(articles)
+    presence.windowDidBecomeKey(settings)
+    actions = 0
+    presence.open(.help(.publishing)) { actions += 1 }
+    #expect(actions == 0 && log.entries == ["key:settings", "activate"])
+
+    // Without focus history the first registered open window anchors.
+    (presence, log) = fakePresence()
+    let first = FakeSpaceWindow("first", log: log)
+    let second = FakeSpaceWindow("second", log: log)
+    first.isOnActiveSpace = false; second.isOnActiveSpace = false
+    presence.register(first, kind: .workspace)
+    presence.register(second, kind: .settings)
+    presence.open(.help(.publishing)) {}
+    #expect(log.entries == ["key:first", "activate"])
+
+    // A minimized window still anchors and is restored on its own Space.
+    (presence, log) = fakePresence()
+    let mini = FakeSpaceWindow("mini", log: log)
+    mini.isVisible = false; mini.isMiniaturized = true; mini.isOnActiveSpace = false
+    presence.register(mini, kind: .workspace)
+    presence.open(.settings) {}
+    #expect(log.entries == ["demini:mini", "key:mini", "activate"])
+
+    // A hidden app's windows still count as open.
+    (presence, log) = fakePresence()
+    log.appHidden = true
+    let hidden = FakeSpaceWindow("hidden", log: log)
+    hidden.isVisible = false; hidden.isOnActiveSpace = false
+    presence.register(hidden, kind: .workspace)
+    presence.open(.settings) {}
+    #expect(log.entries == ["key:hidden", "activate"])
+
+    // A closed retained window never anchors; an unregistered popup cannot.
+    (presence, log) = fakePresence()
+    let popup = FakeSpaceWindow("popup", log: log)
+    let retained = FakeSpaceWindow("retained", log: log)
+    presence.register(retained, kind: .workspace)
+    presence.windowWillClose(retained)
+    var ran = 0
+    presence.open(.settings) { ran += 1 }
+    #expect(ran == 1 && log.entries.isEmpty && popup.collectionBehavior == [])
+}
+
+@Test @MainActor func windowSpaceRoutingSupersessionAndFocusBeforeArrival() {
+    let (presence, log) = fakePresence()
+    let articles = FakeSpaceWindow("articles", log: log)
+    articles.isOnActiveSpace = false
+    presence.register(articles, kind: .workspace)
+    var settingsActions = 0, helpActions = 0
+    presence.open(.settings) { settingsActions += 1 }
+    presence.open(.help(.publishing)) { helpActions += 1 }
+    // Focus on the anchor before Space arrival must not run the action.
+    presence.windowDidBecomeKey(articles)
+    #expect(helpActions == 0)
+    // Arrival runs only the superseding request.
+    articles.isOnActiveSpace = true
+    presence.activeSpaceDidChange()
+    #expect(settingsActions == 0 && helpActions == 1)
+    presence.activeSpaceDidChange()
+    #expect(settingsActions == 0 && helpActions == 1)
+}
+
+@Test @MainActor func windowSpaceRoutingAnchorCloseOrDeallocReplansOpen() {
+    let (presence, log) = fakePresence()
+    let articles = FakeSpaceWindow("articles", log: log)
+    let help = FakeSpaceWindow("help", log: log)
+    articles.isOnActiveSpace = false
+    help.isOnActiveSpace = false
+    presence.register(articles, kind: .workspace)
+    presence.register(help, kind: .help(.libraryBackup))
+    var actions = 0
+    presence.open(.settings) { actions += 1; log.entries.append("action:settings") }
+    #expect(actions == 0 && log.entries == ["key:articles", "activate"])
+    // Closing the anchor replans to the next live ordinary window.
+    presence.windowWillClose(articles)
+    #expect(actions == 0 && log.entries == ["key:articles", "activate", "key:help", "activate"])
+    // Closing the last anchor presents on the current Space instead.
+    presence.windowWillClose(help)
+    #expect(actions == 1 && log.entries.last == "action:settings")
+
+    // A deallocated anchor replans on the next Space signal; with no windows
+    // left the action simply runs on the current Space.
+    let (presence2, log2) = fakePresence()
+    var gone: FakeSpaceWindow? = FakeSpaceWindow("gone", log: log2)
+    gone!.isOnActiveSpace = false
+    presence2.register(gone!, kind: .workspace)
+    var ran = 0
+    presence2.open(.settings) { ran += 1 }
+    gone = nil
+    presence2.activeSpaceDidChange()
+    #expect(ran == 1)
+}
+
+@Test @MainActor func windowSpaceRoutingOpenRequestsSerialAndPopoverExcluded() {
+    let (presence, log) = fakePresence()
+    // The popover never registers; with no ordinary windows an open runs local.
+    let unregistered = FakeSpaceWindow("popover", log: log)
+    var actions = 0
+    presence.open(.settings) { actions += 1 }
+    #expect(actions == 1 && presence.openRequests == 1 && unregistered.collectionBehavior == [])
+    // Each request bumps the serial the popover-close guard compares.
+    let observed = presence.openRequests
+    presence.open(.workspace) {}
+    #expect(presence.openRequests == observed + 1)
+}
+
+@Test @MainActor func windowSpaceRoutingReregisteredOpenWindowKeepsFlagsAndAnchors() async {
+    let (presence, log) = fakePresence()
+    let articles = FakeSpaceWindow("articles", log: log)
+    articles.isOnActiveSpace = false
+    presence.register(articles, kind: .workspace)
+    presence.windowDidBecomeKey(articles)
+    let remote = FakeSpaceWindow("remote", log: log)
+    remote.isOnActiveSpace = false
+    presence.register(remote, kind: .help(.publishing))
+    var actions = 0
+    presence.open(.settings) { actions += 1 }
+    // The most recently focused window anchors; the request waits for its Space.
+    #expect(actions == 0 && log.entries == ["key:articles", "activate"])
+    // A SwiftUI re-attachment must not move or front the already-open anchor.
+    presence.register(articles, kind: .workspace)
+    await drainMainTurn()
+    #expect(articles.collectionBehavior == [])
+    #expect(log.entries == ["key:articles", "activate"])
+    // Its retained focus history kept the anchor; arrival opens once.
+    articles.isOnActiveSpace = true
+    presence.activeSpaceDidChange()
+    #expect(actions == 1)
+}
+
+@Test @MainActor func windowSpaceRoutingSupersedingRestoresQueuedMoves() async {
+    let (presence, log) = fakePresence()
+    var settingsActions = 0, helpActions = 0
+    presence.open(.settings) { settingsActions += 1 }
+    let settings = FakeSpaceWindow("settings", log: log)
+    settings.collectionBehavior = [.canJoinAllSpaces]
+    presence.register(settings, kind: .settings)
+    #expect(settings.collectionBehavior == [.moveToActiveSpace])
+    // Superseding before the queued front undoes the pending move entirely.
+    presence.open(.help(.publishing)) { helpActions += 1 }
+    #expect(settings.collectionBehavior == [.canJoinAllSpaces])
+    let help = FakeSpaceWindow("help", log: log)
+    presence.register(help, kind: .help(.publishing))
+    #expect(help.collectionBehavior == [.moveToActiveSpace])
+    // A repeat attachment before key must not capture the inserted move.
+    presence.register(help, kind: .help(.publishing))
+    await drainMainTurn()
+    // The stale queued front for Settings never ran; Help fronts and activates.
+    #expect(log.entries == ["key:help", "activate"])
+    presence.windowDidBecomeKey(help)
+    #expect(help.collectionBehavior == [])
+    #expect(settingsActions == 1 && helpActions == 1)
+}
+
+@Test @MainActor func windowSpaceRoutingKeyBeforeSpaceArrivalRestoresOnArrival() async {
+    let (presence, log) = fakePresence()
+    presence.open(.settings) {}
+    let settings = FakeSpaceWindow("settings", log: log)
+    settings.collectionBehavior = [.canJoinAllSpaces]
+    presence.register(settings, kind: .settings)
+    await drainMainTurn()
+    #expect(settings.collectionBehavior == [.moveToActiveSpace])
+    // Key arriving while the window is still off-Space keeps the move bits.
+    settings.isOnActiveSpace = false
+    presence.windowDidBecomeKey(settings)
+    #expect(settings.collectionBehavior == [.moveToActiveSpace])
+    // Active-Space arrival finishes the restore and clears the request.
+    settings.isOnActiveSpace = true
+    presence.activeSpaceDidChange()
+    #expect(settings.collectionBehavior == [.canJoinAllSpaces])
+    // Closing the last window returns the app to accessory after the refresh.
+    presence.windowWillClose(settings)
+    await drainMainTurn()
+    #expect(log.policies.last == .accessory)
+}
+
+@Test @MainActor func windowSpaceRoutingTargetCloseBeforeKeyRestoresAndRecovers() async {
+    let (presence, log) = fakePresence()
+    presence.open(.settings) {}
+    let settings = FakeSpaceWindow("settings", log: log)
+    settings.collectionBehavior = [.canJoinAllSpaces]
+    presence.register(settings, kind: .settings)
+    await drainMainTurn()
+    #expect(settings.collectionBehavior == [.moveToActiveSpace])
+    // A new target closing before key+arrival undoes its Space bits and
+    // leaves no stale presentation holding .regular.
+    presence.windowWillClose(settings)
+    #expect(settings.collectionBehavior == [.canJoinAllSpaces])
+    await drainMainTurn()
+    #expect(log.policies.last == .accessory)
+    // A later open still works normally.
+    var actions = 0
+    presence.open(.workspace) { actions += 1 }
+    #expect(actions == 1)
+    let articles = FakeSpaceWindow("articles", log: log)
+    presence.register(articles, kind: .workspace)
+    await drainMainTurn()
+    #expect(log.entries.suffix(2) == ["key:articles", "activate"])
+}

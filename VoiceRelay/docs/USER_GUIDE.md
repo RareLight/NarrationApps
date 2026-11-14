@@ -110,6 +110,11 @@ The library sidebar contains Articles, Upload Queue and Server Audio. Opening a
 standalone window enables the Dock/⌘-Tab entry; closing the last
 returns to menu-bar-only operation. Closing windows does not stop work.
 
+Library, Settings, article preview, Help and setup windows share one Space:
+the first opens where you are, and when VoiceRelay already has a window on
+another Space a menu choice switches to that Space and opens there — your
+open windows are never moved between Spaces.
+
 1. In **Settings → Voice Model**, choose Model and Voice. Fresh settings use
    **Kokoro (Recommended)** with Heart at 1.0×; saved choices are preserved. Kokoro offers 28 English
    voices marked US/UK and speaking speed from 0.5–2.0× in 0.05 steps. Qwen offers a
@@ -356,12 +361,16 @@ and orphan filenames are insufficient. See [automatic reconciliation and operato
 tests](SERVER_RECOVERY.md) for conflict rules, caching and matching limits.
 
 
-**Upload Queue** is the publishing outbox, between Articles and Server Audio. It shows
-per-item transfer progress, pending feed publication and verification failures.
-Confirmed published items leave the outbox; unresolved local cleanup conflicts
+**Upload Queue** is the publishing outbox, between Articles and Server Audio. Rows
+stay compact — title, origin and audio details, a status icon with the phase and
+details on hover, and any persistent error text — while transfer progress, server
+reconciliation and other transient activity live in a permanently reserved status
+bar below the list, so transient status changes do not resize rows or the list
+viewport. Confirmed published items leave the
+outbox; unresolved local cleanup conflicts
 remain with their diagnostics. Both screens have independent **Filter** menus,
 including **Needs Attention** and **Failed Verification**. Filter changes do not
-contact the server. Partially generated speech remains in Articles → Queue.
+contact the server. Partially generated speech remains in Articles.
 
 Upload Queue rows offer **×** to discard only their tracked local copy, keeping server
 audio and saved article text. Explicitly discarded copies are not automatically

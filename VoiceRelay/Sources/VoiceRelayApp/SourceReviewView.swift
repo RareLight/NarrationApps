@@ -483,8 +483,7 @@ enum ArticlePreviewNavigation {
     static func validated(_ url: URL) -> URL? { try? ArticleURL.validate(url) }
     static func open(_ url: URL, using action: OpenWindowAction, inert: Bool = false) {
         guard !inert, let validated = validated(url) else { return }
-        WindowPresence.shared.prepareToOpen()
-        action(value: validated)
+        WindowPresence.shared.open(.article(validated)) { action(value: validated) }
     }
 }
 
@@ -894,7 +893,7 @@ struct ArticlesView: View {
     }
     private func showSettings(_ section: SettingsSection) {
         model.settingsSection = section
-        WindowPresence.shared.prepareToOpen(); openSettings()
+        WindowPresence.shared.open(.settings) { openSettings() }
     }
 }
 
@@ -969,7 +968,7 @@ struct ArticleSelectionList: View {
     }
     private func showSettings(_ section: SettingsSection) {
         model.settingsSection = section
-        WindowPresence.shared.prepareToOpen(); openSettings()
+        WindowPresence.shared.open(.settings) { openSettings() }
     }
 }
 

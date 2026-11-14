@@ -90,14 +90,12 @@ struct RelayMenu: View {
     private func showSettings(_ section: SettingsSection) {
         dismissPopover()
         model.settingsSection = section
-        WindowPresence.shared.prepareToOpen()
-        (sceneOpenSettings ?? openSettings)()
+        WindowPresence.shared.open(.settings) { (sceneOpenSettings ?? openSettings)() }
     }
     private func openWorkspace(_ section: WorkspaceSection? = nil) {
         dismissPopover()
         if let section { model.workspaceSection = section }
-        WindowPresence.shared.prepareToOpen()
-        (sceneOpenWindow ?? openWindow)(id: "articles")
+        WindowPresence.shared.open(.workspace) { (sceneOpenWindow ?? openWindow)(id: "articles") }
     }
     private func dismissPopover() {
         if let dismissMenu { dismissMenu() }
@@ -309,20 +307,20 @@ struct VoiceRelayApp: App {
         Group {
             Window(SpeechSetupOnboardingView.windowTitle, id: "speech-setup") {
                 SpeechRuntimeOnboardingView(model: model).appTextSizing(model.textSize)
-                    .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
+                    .background(StandaloneWindowRegistration(inert: model.preview, kind: .speechSetup).frame(width: 0, height: 0))
             }
             .windowResizability(.contentSize)
             .defaultLaunchBehavior(model.runtimeSetupNeededAtLaunch && !model.launchedAtLogin ? .presented : .suppressed)
             .restorationBehavior(.disabled)
             Settings {
 
-                SettingsView(model: model).appTextSizing(model.textSize).background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
+                SettingsView(model: model).appTextSizing(model.textSize).background(StandaloneWindowRegistration(inert: model.preview, kind: .settings).frame(width: 0, height: 0))
             }
             .windowResizability(.contentMinSize)
             .restorationBehavior(model.launchedAtLogin ? .disabled : .automatic)
             Window("VoiceRelay", id: "articles") {
                 WorkspaceView(model: model).appTextSizing(model.textSize)
-                    .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
+                    .background(StandaloneWindowRegistration(inert: model.preview, kind: .workspace).frame(width: 0, height: 0))
                     .frame(minWidth: 760, minHeight: 480)
             }
             .defaultSize(width: 980, height: 640)
@@ -334,7 +332,7 @@ struct VoiceRelayApp: App {
                     let options = profile.map { $0.narrationOptions ?? .init() } ?? model.preferences.effectiveNarrationOptions
                     ArticlePreviewView(url: url, inert: model.preview, review: model.previewReviews[url], settings: model.preferences.modelSelection, profile: profile, options: options, sourceTitle: model.previewSourceTitles[url], hostAdmission: model.speechWorkCoordinator?.hostAdmission, cpuExecutor: model.sourceCPUWork)
                         .id(options.versionSuffix).appTextSizing(model.textSize)
-                        .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
+                        .background(StandaloneWindowRegistration(inert: model.preview, kind: .article(url)).frame(width: 0, height: 0))
                         .frame(minWidth: 560, minHeight: 420)
                 }
             }
@@ -344,7 +342,7 @@ struct VoiceRelayApp: App {
             WindowGroup("VoiceRelay Help", for: AppHelpTopic.self) { $topic in
                 if let topic {
                     AppHelpView(topic: topic).appTextSizing(model.textSize)
-                        .background(StandaloneWindowRegistration(inert: model.preview).frame(width: 0, height: 0))
+                        .background(StandaloneWindowRegistration(inert: model.preview, kind: .help(topic)).frame(width: 0, height: 0))
                         .frame(minWidth: 420, minHeight: 320)
                 }
             }.defaultSize(width: 560, height: 500)

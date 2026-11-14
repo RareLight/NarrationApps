@@ -112,7 +112,12 @@ old-host deletes to a new destination. Failures use sanitized status text.
 
 Current UX direction: a compact SwiftUI menu in a native NSStatusItem/NSPopover host
 (the same popover opens on left- and right-click) and one sidebar library window
-(Articles, Upload Queue, Server Audio). Settings uses native pane navigation for
+(Articles, Upload Queue, Server Audio). Ordinary scene windows route to one
+Space: with no ordinary window open, the next opens on the current Space;
+otherwise an existing window's Space is fronted before the next opens. Open
+windows are never moved between Spaces — only a new or closed-cached target
+joins the active Space temporarily. Settings uses
+native pane navigation for
 General, Voice Model, Pronunciation, Publishing, VoiceServer and Troubleshooting,
 with no global Cancel. Generate/Stop
 live with audio work.
@@ -337,6 +342,9 @@ Uploads and Server Audio have independent native state filters with counts; fail
 verification includes both server verification failures and local cleanup conflicts.
 Server Audio stays durable history, including pending removals; filtered selection
 removal/reset targets only visible rows. Retry honors restore review and lifecycle gates.
+Upload Queue rows stay compact: transient transfer, reconciliation and processing
+status lives in the permanently reserved footer line, as Server Audio already
+reports pending work there; persistent item details and errors stay in the row.
 
 October 10 follow-up: Uploads × explicitly discards a tracked local copy without
 retiring server audio or retained text. Persist intent before safe unlink; automatic

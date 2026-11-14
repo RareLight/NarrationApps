@@ -11,6 +11,10 @@ history only - they are not release or distribution acceptance.
   and a per-article reprocess action. Existing audio suppresses automatic duplicates.
 - **Needs Attention** above Articles opens the rows with preparation or narration
   issues and their retry actions.
+- VoiceRelay routes its library, Settings, article preview, Help and setup
+  windows onto one Space: a window opens on the active Space when none exist,
+  or joins the Space that already has a VoiceRelay window. Open windows are
+  never moved between Spaces.
 
 - Libro can force fresh Apple Vision OCR for individual queued PDFs, including
   searchable scans with an inaccurate embedded layer.
@@ -37,6 +41,9 @@ history only - they are not release or distribution acceptance.
   regenerated explicitly once its removal settles. Row action symbols sit closer
   together in Articles and Server Audio, and Articles vertically centers its row
   actions within native list rows.
+- VoiceRelay's Upload Queue keeps rows compact — transient transfer,
+  reconciliation and processing status now lives in a permanently reserved
+  status bar below the list, so phase changes never shift row heights.
 - Both apps put pronunciation entry format guidance in the shared info popover.
   Incomplete and malformed drafts stay unsaved. Duplicate, conflict, storage and
   preview errors remain visible.

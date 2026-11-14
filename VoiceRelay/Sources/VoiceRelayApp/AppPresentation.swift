@@ -103,8 +103,9 @@ struct WorkspaceReadinessView: View {
                 notice("Speech model needs repair", detail: detail,
                        symbol: "wrench.and.screwdriver", action: "Open Voice Model Settings", pane: .voiceModel)
             }
-            // Server Audio reports transient checks in its fixed footer.
-            if model.publishingReadiness == .checking, model.workspaceSection != .savedAudio {
+            // Upload Queue and Server Audio report transient checks in their fixed footer.
+            if model.publishingReadiness == .checking, model.workspaceSection != .savedAudio,
+               model.workspaceSection != .uploads {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(PublishingReadiness.checking.title)
@@ -133,15 +134,57 @@ struct WorkspaceReadinessView: View {
             Text(detail).appFont(.secondary).foregroundStyle(.secondary)
             Button(action) {
                 model.settingsSection = pane
-                WindowPresence.shared.prepareToOpen(); openSettings()
+                WindowPresence.shared.open(.settings) { openSettings() }
             }.disabled(model.preview || model.stopping)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
             .background(alignment: .bottom) { Divider() }
     }
 }
 
+/// One transient status for the Upload Queue footer: title plus a measured
+/// transfer fraction or an indeterminate indicator — never both.
+struct UploadQueueActivity {
+    let title: String
+    let fraction: Double?
+}
+
+extension AppModel {
+    /// Read existing delivery/removal/processing state only — no checks or I/O.
+    var uploadQueueActivity: UploadQueueActivity? {
+        var title: String?
+        var fraction: Double?
+        if audioMutationBusy || !hiddenServerAudioRemovalIDs.isEmpty {
+            let pending = hiddenServerAudioRemovalIDs.union(mutatingSavedAudioIDs).count
+            title = pending > 0 ? "Removing audio… · \(pending) pending" : "Removing audio…"
+        } else if deliveryPreflightBusy {
+            title = PublishingReadiness.checking.title
+        } else if deliveryBusy {
+            let progresses = uploadProgress.values.sorted { $0.episode.id < $1.episode.id }
+            if let progress = progresses.first(where: { $0.phase == .transferring })
+                ?? progresses.first(where: { $0.phase.active })
+                ?? progresses.first(where: { $0.phase == .publishing }) {
+                var line = "\(progress.phase.title): \(progress.episode.title)"
+                if progress.fraction != nil, let bytes = audioState(progress.episode).sentBytesText {
+                    line += " · \(bytes)"
+                }
+                title = line
+                fraction = progress.fraction
+            } else {
+                title = uploadProgress.isEmpty ? "Reconciling server and local records…" : "Publishing pending items…"
+            }
+        }
+        if showsProcessingProgress {
+            if let primary = title { title = primary + " · \(processingStatusLine)" }
+            else { title = processingStatusLine; fraction = processingFraction }
+        }
+        return title.map { UploadQueueActivity(title: $0, fraction: fraction) }
+    }
+}
+
 struct WorkspaceActivityView: View {
     @Bindable var model: AppModel
+    @Environment(\.appTextSize) private var appTextSize
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var reservesSpace = false
     private var deliveryStatus: String? {
         if model.audioMutationBusy || !model.hiddenServerAudioRemovalIDs.isEmpty {
@@ -162,10 +205,26 @@ struct WorkspaceActivityView: View {
                     ProgressView().controlSize(.small).hidden()
                     Text(" ").hidden()
                 }.frame(maxWidth: .infinity, alignment: .leading).overlay(alignment: .leading) {
-                    HStack(spacing: 12) {
-                        if let deliveryStatus { activity(deliveryStatus) }
-                        if model.showsProcessingProgress { activity(model.processingStatusLine) }
-                    }.lineLimit(1)
+                    if model.workspaceSection == .uploads {
+                        if let activity = model.uploadQueueActivity {
+                            HStack(spacing: 8) {
+                                if let fraction = activity.fraction {
+                                    ProgressView(value: fraction)
+                                        .frame(width: 96 * AppTypography.scale(size: appTextSize, dynamic: dynamicTypeSize))
+                                } else {
+                                    ProgressView().controlSize(.small)
+                                }
+                                Text(activity.title).monospacedDigit()
+                            }.lineLimit(1).truncationMode(.tail).help(activity.title)
+                                .accessibilityElement(children: .ignore).accessibilityLabel(activity.title)
+                                .accessibilityValue(activity.fraction.map { $0.formatted(.percent) } ?? "")
+                        }
+                    } else {
+                        HStack(spacing: 12) {
+                            if let deliveryStatus { activity(deliveryStatus) }
+                            if model.showsProcessingProgress { activity(model.processingStatusLine) }
+                        }.lineLimit(1)
+                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 8) {
@@ -326,7 +385,7 @@ struct SectionHelpHeader: View {
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         SettingsSectionHeader(title: title, explanation: explanation, moreHelp: helpTopic.map { topic in
-            { WindowPresence.shared.prepareToOpen(); openWindow(value: topic) }
+            { WindowPresence.shared.open(.help(topic)) { openWindow(value: topic) } }
         })
     }
 }
@@ -400,13 +459,14 @@ struct WorkspaceView: View {
             case .uploads: UploadsView(model: model)
             case .savedAudio: LibraryView(model: model)
             }
-            if section == .savedAudio || model.showsWorkspaceActivity {
+            let reservesActivitySpace = section == .savedAudio || section == .uploads
+            if reservesActivitySpace || model.showsWorkspaceActivity {
                 Divider()
-                WorkspaceActivityView(model: model, reservesSpace: section == .savedAudio)
+                WorkspaceActivityView(model: model, reservesSpace: reservesActivitySpace)
             }
         }
         .transaction { transaction in
-            if section == .savedAudio {
+            if section == .savedAudio || section == .uploads {
                 transaction.animation = nil
                 transaction.disablesAnimations = true
             }
@@ -481,7 +541,7 @@ struct AppHelpCommands: Commands {
         CommandGroup(replacing: .help) {
             ForEach(AppHelpTopic.allCases) { topic in
                 Button(topic.title) {
-                    WindowPresence.shared.prepareToOpen(); openWindow(value: topic)
+                    WindowPresence.shared.open(.help(topic)) { openWindow(value: topic) }
                 }.disabled(model.preview || model.stopping)
             }
         }
@@ -500,7 +560,7 @@ struct LibraryCommands: Commands {
             Divider()
             Button("Generate Audio") {
                 model.workspaceSection = .articles
-                WindowPresence.shared.prepareToOpen(); openWindow(id: "articles")
+                WindowPresence.shared.open(.workspace) { openWindow(id: "articles") }
                 model.runQueue()
             }.disabled(!model.canGenerateAudio).keyboardShortcut("g", modifiers: [.command, .shift])
             Button(model.cancelling ? "Stopping…" : "Stop") { model.stopQueue() }
@@ -509,7 +569,7 @@ struct LibraryCommands: Commands {
             Divider()
             Button("Publishing Settings…") {
                 model.settingsSection = .delivery
-                WindowPresence.shared.prepareToOpen(); openSettings()
+                WindowPresence.shared.open(.settings) { openSettings() }
             }.disabled(model.preview || model.stopping)
         }
     }
@@ -619,19 +679,36 @@ extension AudioVerificationIndicator {
     }
 }
 
+struct UploadQueueRow: View {
+    let model: AppModel
+    let item: UploadItem
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.episode.title).appFont(.headline).lineLimit(2)
+                ArticleOriginLine(metadata: model.savedAudioOrigin(item.episode), audioMeta: model.savedAudioMeta(item.episode))
+                if let detail = item.detail {
+                    Text(detail).appFont(.secondary).textSelection(.enabled)
+                        .foregroundStyle(item.phase.needsAttention ? Color.orange : Color.secondary)
+                } else if item.phase.needsAttention {
+                    Text(item.phase.title).appFont(.secondary).foregroundStyle(.orange)
+                }
+            }
+            Spacer(minLength: 8)
+            LibraryRowActions {
+                AudioVerificationIndicator(item: item, iconOnly: true)
+                RowRemovalButton(accessibilityLabel: "Remove \(item.episode.title) local upload",
+                    help: "Delete local copy; keep server audio",
+                    isEnabled: model.canDiscardLocalUpload(item)) { model.discardLocalUpload(item) }
+            }
+        }.padding(.vertical, 4)
+    }
+}
+
 struct UploadsView: View {
     @Bindable var model: AppModel
     var body: some View {
         VStack(spacing: 0) {
-            if model.deliveryBusy {
-                HStack {
-                    ProgressView().controlSize(.small)
-                    Text(model.uploadProgress.isEmpty ? "Reconciling server and local records…" : "Publishing pending items…")
-                        .appFont(.secondary)
-                    Spacer()
-                }.padding(12)
-                Divider()
-            }
             if model.visibleUploads.isEmpty {
                 ContentUnavailableView(model.uploadItems.isEmpty ? "No Pending Uploads" : "No Matching Uploads",
                     systemImage: "tray.and.arrow.up", description: Text(model.uploadItems.isEmpty
@@ -639,26 +716,7 @@ struct UploadsView: View {
                         : "Try another search or state filter."))
             } else {
                 List(model.visibleUploads) { item in
-                    HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(item.episode.title).appFont(.headline).lineLimit(2)
-                        ArticleOriginLine(metadata: model.savedAudioOrigin(item.episode), audioMeta: model.savedAudioMeta(item.episode))
-                        AudioVerificationIndicator(item: item)
-                        if item.phase.active {
-                            if let fraction = item.progress?.fraction {
-                                ProgressView(value: fraction)
-                                if let text = item.sentBytesText {
-                                    Text(text)
-                                        .appFont(.secondary).monospacedDigit().foregroundStyle(.secondary)
-                                }
-                            } else { ProgressView().controlSize(.small) }
-                        }
-                    }
-                    Spacer(minLength: 8)
-                    RowRemovalButton(accessibilityLabel: "Remove \(item.episode.title) local upload",
-                        help: "Delete local copy; keep server audio",
-                        isEnabled: model.canDiscardLocalUpload(item)) { model.discardLocalUpload(item) }
-                    }.padding(.vertical, 4)
+                    UploadQueueRow(model: model, item: item)
                 }
             }
         }
@@ -775,7 +833,7 @@ struct LibraryView: View {
                 Menu {
                     Button("Publishing Settings…") {
                         model.settingsSection = .delivery
-                        WindowPresence.shared.prepareToOpen(); openSettings()
+                        WindowPresence.shared.open(.settings) { openSettings() }
                     }
                     if model.savedAudioSelection.count < 2 {
                         Divider()

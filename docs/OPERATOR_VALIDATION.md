@@ -296,6 +296,18 @@ separate from automated fixture tests.
   URL copies the configured public feed address and dismisses the popover; it is
   disabled before configuration. General's citation toggles share the other
   narration controls' grouping.
+  Check window routing across Spaces: close all VoiceRelay windows on Space A,
+  switch to Space B, open the menu and choose Open VoiceRelay — the library
+  appears on B. With Articles open on A, use the menu's Settings command from B:
+  macOS switches to A and Settings appears beside Articles — existing windows
+  are never dragged between Spaces. Now close every VoiceRelay window on A
+  (Articles and Settings — no ordinary window may remain), switch to B and use
+  menu Settings: the cached window reopens beside you on B instead of pulling
+  you back to A. With several windows on A and B, close all of them on both
+  Spaces and repeat from B: every window returns to B. Article preview and
+  Help follow the same rule. A minimized or hidden-app window still counts as
+  its Space's window: it restores on its own Space rather than moving. Mission
+  Control, multi-monitor and fullscreen-space behavior are not claimed here.
 - [ ] **V03 — Voices and samples.** Check saved voice/speed preferences, new Heart
   1.0× defaults, the shared voice names and 0.05× speed steps. Try every presented
   sample, Stop and switching voices while idle/busy. The new common phrase is

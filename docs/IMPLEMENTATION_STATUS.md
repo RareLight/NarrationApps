@@ -145,6 +145,31 @@ all four bundle audits passed. Evidence is in
 `.local/validation/release-0F9FB364-DA33-412A-9380-CDF1CFE6F5EA/`. GUI
 acceptance remains operator-owned under V14.
 
+Later on November 13, Upload Queue rows went compact — a status icon plus
+persistent details stay in the row while transient transfer, reconciliation and
+processing status moved into a permanently reserved single-line footer (one
+spinner or one measured progress bar), so phase changes no longer resize rows
+or the list viewport. The transient Publishing check banner now shows only in
+Articles. Focused layout tests passed and Debug/Release workspace builds plus all four
+bundle audits passed. Evidence is in
+`.local/validation/quick-6A64F411-4954-4594-9543-7CB30375C742/` and
+`.local/validation/release-E39D1445-C17A-4F7A-A559-532A37E94ECF/`. GUI
+acceptance remains operator-owned under V14.
+
+On November 14, ordinary VoiceRelay windows (Articles library, Settings,
+article preview, Help and speech setup) adopted one-Space routing: a window
+opens on the current Space when none is open, and otherwise fronts the Space
+that already has a VoiceRelay window before the next opens there. Already-open
+windows are never moved between Spaces; only a new or closed-cached target
+joins the active Space temporarily, with its original Space flags restored
+once it becomes key on that Space. Twelve focused routing tests plus the
+filtered regressions passed, and Debug/Release workspace builds plus all four
+bundle audits passed. Evidence is in
+`.local/validation/quick-6E1C57C0-1A60-464B-B5F3-4F0F6F5B15FC/` and
+`.local/validation/release-87ED5186-FDF6-4833-959F-BAC2D7EAC739/`. Space
+switching and window-placement acceptance remain unverified and operator-owned;
+see the OPERATOR_VALIDATION V02 Space steps.
+
 ## Pronunciation entry help — November 12, 2026
 
 Both apps use the shared Pronunciation info popover for entry format rules.
