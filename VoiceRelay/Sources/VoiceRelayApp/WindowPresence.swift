@@ -148,10 +148,10 @@ final class WindowPresence {
 
     /// Application effects, injectable so routing stays testable without windows.
     struct Environment {
-        var isHidden: () -> Bool
-        var activationPolicy: () -> NSApplication.ActivationPolicy
-        var setActivationPolicy: (NSApplication.ActivationPolicy) -> Void
-        var activate: () -> Void
+        var isHidden: @MainActor () -> Bool
+        var activationPolicy: @MainActor () -> NSApplication.ActivationPolicy
+        var setActivationPolicy: @MainActor (NSApplication.ActivationPolicy) -> Void
+        var activate: @MainActor () -> Void
         static var live: Self {
             .init(isHidden: { NSApp.isHidden },
                   activationPolicy: { NSApp.activationPolicy() },

@@ -78,7 +78,10 @@ for (project, appRoot) in phaseAppRoots {
         .compactMap { $0["buildSettings"] as? [String: Any] }
         .filter { $0["MARKETING_VERSION"] != nil && $0["NARRATION_REPOSITORY_ROOT"] != nil }
     require(configs.count == 2, "expected Debug+Release versioned GUI configs in \(project)")
+    let versionKey = appRoot.hasPrefix("Libro/") ? "LIBRO_MARKETING_VERSION" : "VOICERELAY_MARKETING_VERSION"
     for settings in configs {
+        require(settings["MARKETING_VERSION"] as? String == "$(\(versionKey))",
+                "marketing version must use \(versionKey) in \(project)")
         require(settings["USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES"] as? String == "YES",
                 "recursive script inputs must be enabled")
         if let override = settings["ENABLE_USER_SCRIPT_SANDBOXING"] as? String {

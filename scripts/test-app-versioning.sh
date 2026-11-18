@@ -48,17 +48,21 @@ git config commit.gpgsign false
 echo "one" > tracked.txt && git add tracked.txt && git commit -qm "first"
 FIRST="$(git rev-parse HEAD)"
 
-bash "$GEN" "$REPO" "$TEMPLATE" "$OUT" "0.1.0" >/dev/null
+bash "$GEN" "$REPO" "$TEMPLATE" "$OUT" "2026.11.1" >/dev/null
 expect "clean HEAD build=1" "1" "$(value CFBundleVersion)"
 expect "clean HEAD revision" "$FIRST" "$(value NarrationAppsGitRevision)"
 expect "clean HEAD unmodified" "false" "$(value NarrationAppsSourceModified)"
-expect "marketing stamped" "0.1.0" "$(value CFBundleShortVersionString)"
+expect "calendar marketing version stamped" "2026.11.1" "$(value CFBundleShortVersionString)"
 expect "unrelated key survives" "preserved-value" "$(value UnrelatedKey)"
 cmp -s "$TEMPLATE" "$WORK/template-original.plist"; check "source template untouched" $?
 
 cp "$OUT" "$WORK/first.plist"
-bash "$GEN" "$REPO" "$TEMPLATE" "$OUT" "0.1.0" >/dev/null
+bash "$GEN" "$REPO" "$TEMPLATE" "$OUT" "2026.11.1" >/dev/null
 cmp -s "$OUT" "$WORK/first.plist"; check "same-state repeat identical" $?
+
+bash "$GEN" "$REPO" "$TEMPLATE" "$OUT" "2026.11.2" >/dev/null
+expect "separate release cycle stamped" "2026.11.2" "$(value CFBundleShortVersionString)"
+expect "release cycle does not change commit-count build" "1" "$(value CFBundleVersion)"
 
 echo "two" >> tracked.txt && git add tracked.txt && git commit -qm "second"
 bash "$GEN" "$REPO" "$TEMPLATE" "$OUT" "0.1.0" >/dev/null

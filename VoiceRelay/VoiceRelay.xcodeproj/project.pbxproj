@@ -488,7 +488,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 2026.11.2;
+				MARKETING_VERSION = "$(VOICERELAY_MARKETING_VERSION)";
 				NARRATION_INFO_PLIST_TEMPLATE = "$(SRCROOT)/Packaging/Info.plist";
 				NARRATION_REPOSITORY_ROOT = "$(SRCROOT)/..";
 				PRODUCT_BUNDLE_IDENTIFIER = org.voicerelay.tts;
@@ -521,7 +521,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 2026.11.2;
+				MARKETING_VERSION = "$(VOICERELAY_MARKETING_VERSION)";
 				NARRATION_INFO_PLIST_TEMPLATE = "$(SRCROOT)/Packaging/Info.plist";
 				NARRATION_REPOSITORY_ROOT = "$(SRCROOT)/..";
 				PRODUCT_BUNDLE_IDENTIFIER = org.voicerelay.tts;

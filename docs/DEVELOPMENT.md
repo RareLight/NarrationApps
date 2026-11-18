@@ -298,18 +298,21 @@ installer/player and services remain in [operator validation](OPERATOR_VALIDATIO
 
 ## Development versioning
 
-`Version.xcconfig` owns each app's marketing milestone (`LIBRO_MARKETING_VERSION`,
-`VOICERELAY_MARKETING_VERSION`); milestone entries are recorded in the root
-`CHANGELOG.md`. The build number is never authored: the first build phase runs
-`scripts/generate-app-info.sh`, which requires a full-history Git work tree
-(non-shallow, committed HEAD) and stamps `CFBundleVersion` with
-`git rev-list --count HEAD`, `NarrationAppsGitRevision` with the full revision
-and `NarrationAppsSourceModified` with the worktree flag into a generated
-Info.plist under `DERIVED_FILE_DIR`. The build number advances per commit on
-normal history; branch counts are not globally unique, so the full revision is
-the identity. Bump the marketing minor for meaningful features and the patch
-for fixes; record milestones in the changelog; create tags only when explicitly
-requested. `bash scripts/test-app-versioning.sh` exercises the generator
+`Version.xcconfig` owns each app's marketing version (`LIBRO_MARKETING_VERSION`
+and `VOICERELAY_MARKETING_VERSION`) for both Debug and Release. The format is
+`YYYY.M.CYCLE`. Use the release year and month without a leading zero. Start at
+cycle 1 for each app in a new month and increment its cycle for each subsequent
+release milestone that month. Update only the version of the app reaching a
+milestone and record it in the root `CHANGELOG.md`. Create tags only when
+explicitly requested.
+
+The first build phase runs `scripts/generate-app-info.sh` and requires a
+full-history Git work tree with a committed HEAD. The generated Info.plist under
+`DERIVED_FILE_DIR` includes `CFBundleVersion` from `git rev-list --count HEAD`,
+the full revision as `NarrationAppsGitRevision`, and the worktree flag as
+`NarrationAppsSourceModified`. The build number advances per commit on
+normal history. Branch counts can coincide, so use the full revision to identify
+the source. `bash scripts/test-app-versioning.sh` exercises the generator
 against a synthetic repository. Each GUI target's phase declares recursive
 sandbox inputs for `.git` plus every tracked immediate child of its SRCROOT;
 adding a new top-level maintained file or folder under an app SRCROOT requires

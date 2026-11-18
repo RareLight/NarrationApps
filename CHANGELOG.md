@@ -7,6 +7,8 @@ history only - they are not release or distribution acceptance.
 
 ## Unreleased
 
+- Libro adopts calendar version `2026.11.1`. Both apps track their own monthly
+  release cycle in `Version.xcconfig` and stamp build numbers from Git history.
 - VoiceRelay uses one Articles list with automatic preparation, narration status
   and a per-article reprocess action. Existing audio suppresses automatic duplicates.
 - **Needs Attention** above Articles opens the rows with preparation or narration
